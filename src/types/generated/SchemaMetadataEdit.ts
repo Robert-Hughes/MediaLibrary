@@ -2,4 +2,4 @@
 import type { MetadataDraftEdit } from "./MetadataDraftEdit";
 import type { SchemaDefinitionId } from "./SchemaDefinitionId";
 
-export type MetadataDraftEntry = { id: SchemaDefinitionId, edit: MetadataDraftEdit, };
+export type SchemaMetadataEdit = { schema_id: SchemaDefinitionId, edit: MetadataDraftEdit, };

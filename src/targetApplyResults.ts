@@ -1,6 +1,6 @@
 import {
   ImageMetadataOccurrencesStore,
-  type MetadataApplyFileResultV5,
+  type MetadataApplyFileResult,
   type MetadataTargetOutcome,
   type MetadataOccurrences,
 } from "./types";
@@ -15,9 +15,9 @@ import { recordFromEntries } from "./utils/stringRecord";
 import {
   targetVerifyOutcomesFromBackend,
   validateTargetVerifyOutcomesAgainstDrafts,
-  type TargetVerifyOutcomeV5,
+  type TargetVerifyOutcome,
 } from "./targetVerifyOutcomes";
-import type { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
+import type { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 import {
   targetApplyFileResultFromUnknown,
   targetApplyResultFromUnknown,
@@ -26,40 +26,40 @@ import {
 export interface TargetApplyResultStores {
   drafts: TargetDraftEditsStore;
   occurrences: ImageMetadataOccurrencesStore;
-  verification: TargetVerifyOutcomesStoreV5;
+  verification: TargetVerifyOutcomesStore;
 }
 
-export interface TargetApplyFileApplicationV5 {
+export interface TargetApplyFileApplication {
   relativePath: string;
   draftsChanged: boolean;
   occurrencesChanged: boolean;
   targetOutcomes: MetadataTargetOutcome[];
-  targetVerifyOutcomes: TargetVerifyOutcomeV5[];
+  targetVerifyOutcomes: TargetVerifyOutcome[];
   error: string | null;
   warning: string | null;
 }
 
-export interface TargetApplyResultApplicationV5 {
-  files: TargetApplyFileApplicationV5[];
+export interface TargetApplyResultApplication {
+  files: TargetApplyFileApplication[];
   cancelled: boolean;
   aborted: boolean;
   abortReason: string | null;
 }
 
-export interface PreparedTargetApplyFileResultV5 {
+export interface PreparedTargetApplyFileResult {
   readonly relativePath: string;
-  readonly persistedDraftEntries: MetadataApplyFileResultV5["persisted_draft_entries"];
+  readonly persistedDraftEntries: MetadataApplyFileResult["persisted_draft_entries"];
   readonly persistedDraftCollection: TargetDraftCollection | undefined | null;
   readonly occurrences: MetadataOccurrences | null;
   readonly targetOutcomes: MetadataTargetOutcome[];
-  readonly targetVerifyOutcomes: TargetVerifyOutcomeV5[];
+  readonly targetVerifyOutcomes: TargetVerifyOutcome[];
   readonly error: string | null;
   readonly warning: string | null;
 }
 
-function prepareValidatedTargetApplyFileResultV5(
-  parsed: MetadataApplyFileResultV5,
-): PreparedTargetApplyFileResultV5 {
+function prepareValidatedTargetApplyFileResult(
+  parsed: MetadataApplyFileResult,
+): PreparedTargetApplyFileResult {
   const targetOutcomes = structuredClone(parsed.target_outcomes);
   const targetVerifyOutcomes = targetVerifyOutcomesFromBackend(
     parsed.relative_path,
@@ -91,8 +91,8 @@ function prepareValidatedTargetApplyFileResultV5(
   };
 }
 
-export function validatePreparedTargetApplyFileResultV5(
-  prepared: PreparedTargetApplyFileResultV5,
+export function validatePreparedTargetApplyFileResult(
+  prepared: PreparedTargetApplyFileResult,
   currentDrafts: TargetDraftEditsByFile,
 ): void {
   let effectiveDrafts = currentDrafts;
@@ -115,18 +115,18 @@ export function validatePreparedTargetApplyFileResultV5(
   );
 }
 
-export function prepareTargetApplyFileResultV5(
+export function prepareTargetApplyFileResult(
   raw: unknown,
-): PreparedTargetApplyFileResultV5 {
-  return prepareValidatedTargetApplyFileResultV5(
+): PreparedTargetApplyFileResult {
+  return prepareValidatedTargetApplyFileResult(
     targetApplyFileResultFromUnknown(raw),
   );
 }
 
-export function applyPreparedTargetApplyFileResultV5(
-  prepared: PreparedTargetApplyFileResultV5,
+export function applyPreparedTargetApplyFileResult(
+  prepared: PreparedTargetApplyFileResult,
   stores: TargetApplyResultStores,
-): TargetApplyFileApplicationV5 {
+): TargetApplyFileApplication {
   const draftsChanged =
     prepared.persistedDraftEntries === null
       ? false
@@ -162,31 +162,31 @@ export function applyPreparedTargetApplyFileResultV5(
   };
 }
 
-export function applyTargetApplyFileResultV5(
+export function applyTargetApplyFileResult(
   raw: unknown,
   stores: TargetApplyResultStores,
-): TargetApplyFileApplicationV5 {
-  const prepared = prepareTargetApplyFileResultV5(raw);
-  validatePreparedTargetApplyFileResultV5(
+): TargetApplyFileApplication {
+  const prepared = prepareTargetApplyFileResult(raw);
+  validatePreparedTargetApplyFileResult(
     prepared,
     stores.drafts.getAllMetadata(),
   );
-  return applyPreparedTargetApplyFileResultV5(prepared, stores);
+  return applyPreparedTargetApplyFileResult(prepared, stores);
 }
 
-export function applyTargetApplyResultV5(
+export function applyTargetApplyResult(
   raw: unknown,
   stores: TargetApplyResultStores,
-): TargetApplyResultApplicationV5 {
+): TargetApplyResultApplication {
   const parsed = targetApplyResultFromUnknown(raw);
-  const prepared = parsed.files.map(prepareValidatedTargetApplyFileResultV5);
+  const prepared = parsed.files.map(prepareValidatedTargetApplyFileResult);
   const currentDrafts = stores.drafts.getAllMetadata();
   for (const file of prepared) {
-    validatePreparedTargetApplyFileResultV5(file, currentDrafts);
+    validatePreparedTargetApplyFileResult(file, currentDrafts);
   }
   return {
     files: prepared.map((file) =>
-      applyPreparedTargetApplyFileResultV5(file, stores),
+      applyPreparedTargetApplyFileResult(file, stores),
     ),
     cancelled: parsed.cancelled,
     aborted: parsed.aborted,

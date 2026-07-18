@@ -8,9 +8,9 @@ import type {
   WorkerErrorPayload,
   MetadataOccurrences,
   MetadataValue,
-  MetadataDraftEntryV5,
-  MetadataDraftEntry,
-  MetadataApplyFileResultV5,
+  MetadataTargetDraftEntry,
+  SchemaMetadataEdit,
+  MetadataApplyFileResult,
   TagInfo,
 } from "../types";
 import {
@@ -94,10 +94,10 @@ export interface MockTauriApi {
     relative_path: string;
   }>;
   cancelTargetApplyCalled: boolean;
-  /** Optional per-file v5 progress result overrides. */
-  targetApplyProgressResultsByPath: Record<string, MetadataApplyFileResultV5>;
-  /** Optional per-file v5 authoritative final result overrides. */
-  targetApplyFinalResultsByPath: Record<string, MetadataApplyFileResultV5>;
+  /** Optional per-file target-aware progress result overrides. */
+  targetApplyProgressResultsByPath: Record<string, MetadataApplyFileResult>;
+  /** Optional per-file target-aware authoritative final result overrides. */
+  targetApplyFinalResultsByPath: Record<string, MetadataApplyFileResult>;
   tagInfos: TagInfo[];
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
@@ -126,7 +126,7 @@ export interface MockTauriApi {
     status: string;
     error?: string | null;
     /** Typed draft edits the mock backend should emit alongside an "ok" status. */
-    edits?: MetadataDraftEntry[];
+    edits?: SchemaMetadataEdit[];
   }>;
   beforeDescribeProgress: (() => void) | null;
   /** Override the usage summary emitted by describe_complete. */
@@ -159,7 +159,7 @@ export interface MockTauriApi {
     status: string;
     error?: string | null;
     /** Typed draft edits emitted on `status === "ok"`. */
-    edits?: MetadataDraftEntry[];
+    edits?: SchemaMetadataEdit[];
   }>;
   /** Summary emitted by geocode_complete. */
   geocodeSummary: {
@@ -184,7 +184,7 @@ export interface MockTauriApi {
     status: string;
     error?: string | null;
     /** Typed draft edits emitted on `status === "ok"`. */
-    edits?: MetadataDraftEntry[];
+    edits?: SchemaMetadataEdit[];
   }>;
   normaliseSummary: {
     nSucceeded: number;
@@ -278,7 +278,7 @@ export function createMockTauriApi(): MockTauriApi {
         affected_files,
       } satisfies WorkerErrorPayload),
     invalidateMetadataOccurrences: (relativePath) =>
-      emit("apply_metadata_edits_v5_progress", {
+      emit("apply_metadata_edits_progress", {
         current: 1,
         total: 1,
         result: {
@@ -389,14 +389,14 @@ export function createMockTauriApi(): MockTauriApi {
         mock.lastWindowTitle = (args?.title as string) ?? null;
         return;
       }
-      if (cmd === "load_metadata_draft_edits_v5") {
+      if (cmd === "load_metadata_draft_edits") {
         const folder = args?.folderPath as string;
         return targetDraftsToWire(mock.targetDraftEditsByFolder[folder] || {});
       }
-      if (cmd === "save_metadata_draft_edits_v5") {
+      if (cmd === "save_metadata_draft_edits") {
         const folder = args?.folderPath as string;
         mock.targetDraftEditsByFolder[folder] = targetDraftsFromWire(
-          args?.data as Record<string, MetadataDraftEntryV5[]>,
+          args?.data as Record<string, MetadataTargetDraftEntry[]>,
         );
         return;
       }
@@ -414,15 +414,15 @@ export function createMockTauriApi(): MockTauriApi {
           ids.some((id) => JSON.stringify(info.id) === JSON.stringify(id)),
         );
       }
-      if (cmd === "apply_metadata_draft_edits_v5_cmd") {
+      if (cmd === "apply_metadata_draft_edits_cmd") {
         const relPaths = (args?.relPaths as string[]) ?? [];
         const folder = args?.folderPath as string;
         await Promise.resolve();
-        emit("apply_edits_v5_started", { total: relPaths.length });
-        const files: MetadataApplyFileResultV5[] = [];
+        emit("apply_edits_started", { total: relPaths.length });
+        const files: MetadataApplyFileResult[] = [];
         for (const [index, relative_path] of relPaths.entries()) {
           if (mock.cancelTargetApplyCalled) break;
-          const fallback: MetadataApplyFileResultV5 = {
+          const fallback: MetadataApplyFileResult = {
             relative_path,
             applied: true,
             error: null,
@@ -433,7 +433,7 @@ export function createMockTauriApi(): MockTauriApi {
           };
           const progressResult =
             mock.targetApplyProgressResultsByPath[relative_path] ?? fallback;
-          emit("apply_metadata_edits_v5_progress", {
+          emit("apply_metadata_edits_progress", {
             current: index + 1,
             total: relPaths.length,
             result: progressResult,
@@ -468,7 +468,7 @@ export function createMockTauriApi(): MockTauriApi {
           abort_reason: null,
         };
       }
-      if (cmd === "cancel_apply_edits_v5") {
+      if (cmd === "cancel_apply_edits") {
         mock.cancelTargetApplyCalled = true;
         return;
       }

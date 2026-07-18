@@ -2,27 +2,27 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   ImageMetadataOccurrencesStore,
-  type MetadataApplyEditsResultV5,
-  type MetadataApplyFileResultV5,
-  type MetadataDraftEntryV5,
+  type MetadataApplyResult,
+  type MetadataApplyFileResult,
+  type MetadataTargetDraftEntry,
   type MetadataTargetOutcome,
 } from "../types";
 import {
   TargetApplyControllerBusyError,
-  TargetApplyControllerV5,
-  type TargetApplyControllerCallbacksV5,
+  TargetApplyController,
+  type TargetApplyControllerCallbacks,
 } from "../targetApplyController";
 import type { TargetApplyResultStores } from "../targetApplyResults";
 import type { TargetApplyTauriApi } from "../targetApplyTauri";
-import { TargetVerifyOutcomesStoreV5 } from "../targetVerifyOutcomesStore";
+import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
 import {
   TargetDraftAutosaveAlreadySuspendedError,
-  TargetDraftAutosaveGateV5,
+  TargetDraftAutosaveGate,
 } from "../targetDraftAutosaveGate";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 
-const STARTED_EVENT = "apply_edits_v5_started";
-const PROGRESS_EVENT = "apply_metadata_edits_v5_progress";
+const STARTED_EVENT = "apply_edits_started";
+const PROGRESS_EVENT = "apply_metadata_edits_progress";
 const path = "photo.jpg";
 
 function deferred<T>() {
@@ -35,7 +35,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function draft(value = "draft"): MetadataDraftEntryV5 {
+function draft(value = "draft"): MetadataTargetDraftEntry {
   return {
     target: {
       kind: "NewProperty",
@@ -55,8 +55,8 @@ function draft(value = "draft"): MetadataDraftEntryV5 {
 }
 
 function fileResult(
-  overrides: Partial<MetadataApplyFileResultV5> = {},
-): MetadataApplyFileResultV5 {
+  overrides: Partial<MetadataApplyFileResult> = {},
+): MetadataApplyFileResult {
   return {
     relative_path: path,
     applied: true,
@@ -88,7 +88,7 @@ const replacementTarget = {
 function invalidPersistenceResult(
   error = "persistence failure",
   warning: string | null = "readback warning",
-): MetadataApplyFileResultV5 {
+): MetadataApplyFileResult {
   const targetOutcome: MetadataTargetOutcome = {
     target: {
       kind: "NewProperty",
@@ -121,9 +121,9 @@ function invalidPersistenceResult(
 }
 
 function batchResult(
-  files: MetadataApplyFileResultV5[] = [fileResult()],
-  overrides: Partial<MetadataApplyEditsResultV5> = {},
-): MetadataApplyEditsResultV5 {
+  files: MetadataApplyFileResult[] = [fileResult()],
+  overrides: Partial<MetadataApplyResult> = {},
+): MetadataApplyResult {
   return {
     files,
     cancelled: false,
@@ -148,7 +148,7 @@ class FakeApplyApi implements TargetApplyTauriApi {
   apply: () => Promise<unknown> = async () => batchResult();
   cancel: () => Promise<unknown> = async () => undefined;
 
-  constructor(readonly gate: TargetDraftAutosaveGateV5) {}
+  constructor(readonly gate: TargetDraftAutosaveGate) {}
 
   async listen(
     event: string,
@@ -175,7 +175,7 @@ class FakeApplyApi implements TargetApplyTauriApi {
   ): Promise<unknown> {
     this.order.push(`invoke:${command}`);
     this.invokeCalls.push({ command, args });
-    if (command === "cancel_apply_edits_v5") return this.cancel();
+    if (command === "cancel_apply_edits") return this.cancel();
     if (this.mutateApplyPaths) {
       (args?.relPaths as string[]).push("backend-mutation.jpg");
     }
@@ -195,15 +195,15 @@ function makeStores(): TargetApplyResultStores {
   return {
     drafts: new TargetDraftEditsStore(),
     occurrences: new ImageMetadataOccurrencesStore(),
-    verification: new TargetVerifyOutcomesStoreV5(),
+    verification: new TargetVerifyOutcomesStore(),
   };
 }
 
-function harness(callbacks: TargetApplyControllerCallbacksV5 = {}) {
-  const gate = new TargetDraftAutosaveGateV5();
+function harness(callbacks: TargetApplyControllerCallbacks = {}) {
+  const gate = new TargetDraftAutosaveGate();
   const api = new FakeApplyApi(gate);
   const stores = makeStores();
-  const controller = new TargetApplyControllerV5(
+  const controller = new TargetApplyController(
     { api, stores, autosaveGate: gate },
     callbacks,
   );
@@ -214,15 +214,15 @@ async function waitForApply(api: FakeApplyApi): Promise<void> {
   await vi.waitFor(() => {
     expect(
       api.invokeCalls.some(
-        ({ command }) => command === "apply_metadata_draft_edits_v5_cmd",
+        ({ command }) => command === "apply_metadata_draft_edits_cmd",
       ),
     ).toBe(true);
   });
 }
 
-describe("TargetDraftAutosaveGateV5", () => {
+describe("TargetDraftAutosaveGate", () => {
   it("acquires once, rejects overlap, and supports idempotent release", () => {
-    const gate = new TargetDraftAutosaveGateV5();
+    const gate = new TargetDraftAutosaveGate();
     const suspension = gate.trySuspend();
     expect(gate.isSuppressed()).toBe(true);
     expect(() => gate.trySuspend()).toThrow(
@@ -234,7 +234,7 @@ describe("TargetDraftAutosaveGateV5", () => {
   });
 
   it("does not let an old release clear a newer suspension", () => {
-    const gate = new TargetDraftAutosaveGateV5();
+    const gate = new TargetDraftAutosaveGate();
     const old = gate.trySuspend();
     old.release();
     const current = gate.trySuspend();
@@ -246,7 +246,7 @@ describe("TargetDraftAutosaveGateV5", () => {
   });
 });
 
-describe("inactive TargetApplyControllerV5 lifecycle", () => {
+describe("inactive TargetApplyController lifecycle", () => {
   it("starts idle and isolates observable state snapshots and subscribers", async () => {
     const { api, controller } = harness();
     const command = deferred<unknown>();
@@ -281,7 +281,7 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
     expect(api.order.slice(0, 3)).toEqual([
       `listen:${STARTED_EVENT}:true`,
       `listen:${PROGRESS_EVENT}:true`,
-      "invoke:apply_metadata_draft_edits_v5_cmd",
+      "invoke:apply_metadata_draft_edits_cmd",
     ]);
     expect(paths).toEqual(["z.jpg", "a.jpg"]);
     expect(gate.isSuppressed()).toBe(false);
@@ -434,7 +434,7 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
   });
 });
 
-describe("inactive TargetApplyControllerV5 errors", () => {
+describe("inactive TargetApplyController errors", () => {
   it("counts semantic file failures and deduplicates exact file diagnostics per run", async () => {
     const onFileError = vi.fn();
     const onFileWarning = vi.fn();
@@ -668,7 +668,7 @@ describe("inactive TargetApplyControllerV5 errors", () => {
 
   it("contains every optional callback failure without corrupting lifecycle", async () => {
     const callbackError = new Error("callback failed");
-    const callbacks: TargetApplyControllerCallbacksV5 = {
+    const callbacks: TargetApplyControllerCallbacks = {
       onStarted: () => {
         throw callbackError;
       },
@@ -722,7 +722,7 @@ describe("inactive TargetApplyControllerV5 errors", () => {
   });
 });
 
-describe("inactive TargetApplyControllerV5 cancellation", () => {
+describe("inactive TargetApplyController cancellation", () => {
   it("does nothing while idle", async () => {
     const { api, controller } = harness();
     await controller.cancel();
@@ -745,9 +745,7 @@ describe("inactive TargetApplyControllerV5 cancellation", () => {
       cancelling: true,
     });
     expect(
-      api.invokeCalls.filter(
-        ({ command }) => command === "cancel_apply_edits_v5",
-      ),
+      api.invokeCalls.filter(({ command }) => command === "cancel_apply_edits"),
     ).toHaveLength(1);
     expect(gate.isSuppressed()).toBe(true);
     cancellation.resolve(undefined);
@@ -781,7 +779,7 @@ describe("inactive TargetApplyControllerV5 cancellation", () => {
   });
 });
 
-describe("inactive TargetApplyControllerV5 generations", () => {
+describe("inactive TargetApplyController generations", () => {
   it("ignores completed and older-generation events, including malformed payloads", async () => {
     const onProgress = vi.fn();
     const onProtocolError = vi.fn();
@@ -817,10 +815,10 @@ describe("inactive TargetApplyControllerV5 generations", () => {
     const { api, controller } = harness();
     await controller.run("folder", ["b.jpg", "a.jpg"]);
     const applyCall = api.invokeCalls.find(
-      ({ command }) => command === "apply_metadata_draft_edits_v5_cmd",
+      ({ command }) => command === "apply_metadata_draft_edits_cmd",
     );
     expect(applyCall).toEqual({
-      command: "apply_metadata_draft_edits_v5_cmd",
+      command: "apply_metadata_draft_edits_cmd",
       args: { folderPath: "folder", relPaths: ["b.jpg", "a.jpg"] },
     });
     expect(

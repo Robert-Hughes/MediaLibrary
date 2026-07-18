@@ -1,7 +1,7 @@
 import type {
-  ApplyEditsV5StartedPayload,
-  MetadataApplyEditsProgressPayloadV5,
-  MetadataApplyEditsResultV5,
+  MetadataApplyStartedPayload,
+  MetadataApplyProgressPayload,
+  MetadataApplyResult,
 } from "./types";
 import {
   targetApplyProgressFromUnknown,
@@ -17,35 +17,35 @@ export interface TargetApplyTauriApi {
   ): Promise<() => void>;
 }
 
-export async function applyTargetDraftEditsV5(
+export async function applyTargetDraftEdits(
   api: Pick<TargetApplyTauriApi, "invoke">,
   folderPath: string,
   relativePaths: string[],
-): Promise<MetadataApplyEditsResultV5> {
+): Promise<MetadataApplyResult> {
   const seen = new Set<string>();
   for (const path of relativePaths) {
     if (seen.has(path)) {
-      throw new Error(`Duplicate schema-v5 apply relative path '${path}'`);
+      throw new Error(`Duplicate target-aware apply relative path '${path}'`);
     }
     seen.add(path);
   }
 
-  const raw = await api.invoke("apply_metadata_draft_edits_v5_cmd", {
+  const raw = await api.invoke("apply_metadata_draft_edits_cmd", {
     folderPath,
     relPaths: relativePaths.slice(),
   });
   return targetApplyResultFromUnknown(raw);
 }
 
-export async function cancelTargetApplyV5(
+export async function cancelTargetApply(
   api: Pick<TargetApplyTauriApi, "invoke">,
 ): Promise<void> {
-  await api.invoke("cancel_apply_edits_v5");
+  await api.invoke("cancel_apply_edits");
 }
 
-export interface TargetApplyV5EventHandlers {
-  onStarted?: (payload: ApplyEditsV5StartedPayload) => void;
-  onProgress?: (payload: MetadataApplyEditsProgressPayloadV5) => void;
+export interface TargetApplyEventHandlers {
+  onStarted?: (payload: MetadataApplyStartedPayload) => void;
+  onProgress?: (payload: MetadataApplyProgressPayload) => void;
   onProtocolError?: (
     error: Error,
     eventName: string,
@@ -54,7 +54,7 @@ export interface TargetApplyV5EventHandlers {
 }
 
 function reportProtocolError(
-  handlers: TargetApplyV5EventHandlers,
+  handlers: TargetApplyEventHandlers,
   error: Error,
   eventName: string,
   rawPayload: unknown,
@@ -83,17 +83,17 @@ function asError(error: unknown): Error {
  * backend event emission failures are deliberately non-fatal.
  *
  * Registration stays separate from invocation: these global events describe
- * the sole active v5 apply operation and do not carry an operation ID.
+ * the sole active target-aware apply operation and do not carry an operation ID.
  */
-export async function subscribeTargetApplyV5Events(
+export async function subscribeTargetApplyEvents(
   api: Pick<TargetApplyTauriApi, "listen">,
-  handlers: TargetApplyV5EventHandlers,
+  handlers: TargetApplyEventHandlers,
 ): Promise<() => void> {
-  const startedEvent = "apply_edits_v5_started";
-  const progressEvent = "apply_metadata_edits_v5_progress";
+  const startedEvent = "apply_edits_started";
+  const progressEvent = "apply_metadata_edits_progress";
 
   const unregisterStarted = await api.listen(startedEvent, (rawPayload) => {
-    let payload: ApplyEditsV5StartedPayload;
+    let payload: MetadataApplyStartedPayload;
     try {
       payload = targetApplyStartedFromUnknown(rawPayload);
     } catch (error) {
@@ -106,7 +106,7 @@ export async function subscribeTargetApplyV5Events(
   let unregisterProgress: () => void;
   try {
     unregisterProgress = await api.listen(progressEvent, (rawPayload) => {
-      let payload: MetadataApplyEditsProgressPayloadV5;
+      let payload: MetadataApplyProgressPayload;
       try {
         payload = targetApplyProgressFromUnknown(rawPayload);
       } catch (error) {

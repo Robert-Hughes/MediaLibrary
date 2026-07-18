@@ -269,7 +269,7 @@ impl<'a> BatchProgressEmitter<'a> {
             #[serde(skip_serializing_if = "Option::is_none")]
             error: Option<&'a str>,
             #[serde(skip_serializing_if = "Option::is_none")]
-            edits: Option<Vec<crate::draft_edits::MetadataDraftEntry>>,
+            edits: Option<Vec<crate::draft_edits::SchemaMetadataEdit>>,
         }
         let _ = self.app.emit(
             &format!("{}_progress", self.prefix),

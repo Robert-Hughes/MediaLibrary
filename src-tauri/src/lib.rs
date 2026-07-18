@@ -1,5 +1,5 @@
-pub mod apply_batch_v5;
-pub mod apply_edits_v5;
+pub mod apply_batch;
+pub mod apply_edits;
 pub mod apply_log;
 pub mod batch_audit_log;
 pub mod batch_job;
@@ -7,7 +7,7 @@ pub mod commands;
 pub mod country_code;
 pub mod describe_log;
 pub mod draft_edits;
-pub mod draft_reconciliation_v5;
+pub mod draft_reconciliation;
 pub mod exiftool_config;
 pub mod geocode;
 pub mod geocode_cache;
@@ -772,31 +772,31 @@ fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String
 
 // Target-aware draft persistence and apply are the sole metadata-editing boundary.
 #[tauri::command]
-fn save_metadata_draft_edits_v5(
+fn save_metadata_draft_edits(
     folder_path: String,
-    data: draft_edits::MetadataDraftEditsV5,
+    data: draft_edits::MetadataTargetDraftsByFile,
 ) -> Result<(), String> {
-    draft_edits::save_metadata_draft_edits_v5(&folder_path, &data)
+    draft_edits::save_metadata_draft_edits(&folder_path, &data)
 }
 
 #[tauri::command]
-fn load_metadata_draft_edits_v5(
+fn load_metadata_draft_edits(
     folder_path: String,
-) -> Result<draft_edits::MetadataDraftEditsV5, String> {
-    draft_edits::load_metadata_draft_edits_v5(&folder_path)
+) -> Result<draft_edits::MetadataTargetDraftsByFile, String> {
+    draft_edits::load_metadata_draft_edits(&folder_path)
 }
 
 /// Production occurrence-aware metadata apply.
 #[tauri::command]
-async fn apply_metadata_draft_edits_v5_cmd(
+async fn apply_metadata_draft_edits_cmd(
     folder_path: String,
     rel_paths: Vec<String>,
     app: AppHandle,
-    apply_state: State<'_, apply_batch_v5::ApplyEditsV5State>,
-) -> Result<apply_batch_v5::MetadataApplyEditsResultV5, String> {
-    apply_batch_v5::run_apply_edits_v5_command(&apply_state, move |cancel_flag| {
+    apply_state: State<'_, apply_batch::ApplyEditsState>,
+) -> Result<apply_batch::MetadataApplyResult, String> {
+    apply_batch::run_apply_edits_command(&apply_state, move |cancel_flag| {
         tauri::async_runtime::spawn_blocking(move || {
-            apply_batch_v5::run_apply_metadata_draft_edits_v5_blocking(
+            apply_batch::run_apply_metadata_draft_edits_blocking(
                 folder_path,
                 rel_paths,
                 app,
@@ -808,9 +808,7 @@ async fn apply_metadata_draft_edits_v5_cmd(
 }
 
 #[tauri::command]
-fn cancel_apply_edits_v5(
-    apply_state: State<'_, apply_batch_v5::ApplyEditsV5State>,
-) -> Result<(), String> {
+fn cancel_apply_edits(apply_state: State<'_, apply_batch::ApplyEditsState>) -> Result<(), String> {
     apply_state.signal_cancel();
     Ok(())
 }
@@ -826,7 +824,7 @@ fn clear_running(app: &AppHandle) {
 mod tests {
     use super::*;
 
-    fn command_v5_schema() -> tag_schema::SchemaDefinitionId {
+    fn command_target_schema() -> tag_schema::SchemaDefinitionId {
         tag_schema::SchemaDefinitionId {
             table: "Exif::Main".to_owned(),
             tag_id: "282".to_owned(),
@@ -834,7 +832,7 @@ mod tests {
         }
     }
 
-    fn command_v5_edit(value: metadata_value::MetadataValue) -> draft_edits::MetadataDraftEdit {
+    fn command_target_edit(value: metadata_value::MetadataValue) -> draft_edits::MetadataDraftEdit {
         draft_edits::MetadataDraftEdit {
             value: Some(value),
             intent: draft_edits::EditIntent::Set,
@@ -842,8 +840,8 @@ mod tests {
         }
     }
 
-    fn command_v5_existing(path: &str, group1: &str) -> draft_edits::MetadataDraftEntryV5 {
-        draft_edits::MetadataDraftEntryV5 {
+    fn command_target_existing(path: &str, group1: &str) -> draft_edits::MetadataTargetDraftEntry {
+        draft_edits::MetadataTargetDraftEntry {
             target: metadata_draft_target::MetadataDraftTarget::ExistingOccurrence {
                 occurrence_id: metadata_occurrence::MetadataOccurrenceId {
                     document: Some("Doc1".to_owned()),
@@ -856,14 +854,14 @@ mod tests {
                     },
                     copy: 2,
                 },
-                schema_id: command_v5_schema(),
+                schema_id: command_target_schema(),
                 write_target: metadata_occurrence::MetadataWriteTarget {
                     group1: group1.to_owned(),
                     group7: "ID-282".to_owned(),
                     tag_name: "XResolution".to_owned(),
                 },
             },
-            edit: command_v5_edit(metadata_value::MetadataValue::Struct(
+            edit: command_target_edit(metadata_value::MetadataValue::Struct(
                 std::collections::BTreeMap::from([(
                     "nested".to_owned(),
                     metadata_value::MetadataValue::List {
@@ -875,34 +873,34 @@ mod tests {
         }
     }
 
-    fn command_v5_new() -> draft_edits::MetadataDraftEntryV5 {
-        draft_edits::MetadataDraftEntryV5 {
+    fn command_target_new() -> draft_edits::MetadataTargetDraftEntry {
+        draft_edits::MetadataTargetDraftEntry {
             target: metadata_draft_target::MetadataDraftTarget::NewProperty {
-                schema_id: command_v5_schema(),
+                schema_id: command_target_schema(),
                 write_target: metadata_occurrence::MetadataWriteTarget {
                     group1: "IFD0".to_owned(),
                     group7: "ID-282".to_owned(),
                     tag_name: "XResolution".to_owned(),
                 },
             },
-            edit: command_v5_edit(metadata_value::MetadataValue::Null),
+            edit: command_target_edit(metadata_value::MetadataValue::Null),
         }
     }
 
     #[test]
-    fn v5_commands_round_trip_exact_target_aware_wire_shape() {
+    fn target_commands_round_trip_exact_target_aware_wire_shape() {
         let dir = tempfile::tempdir().unwrap();
         let folder_path = dir.path().to_string_lossy().into_owned();
-        let ifd0 = command_v5_existing("JPEG-APP1-IFD0", "IFD0");
-        let ifd1 = command_v5_existing("JPEG-APP1-IFD1", "IFD1");
-        let created = command_v5_new();
+        let ifd0 = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let ifd1 = command_target_existing("JPEG-APP1-IFD1", "IFD1");
+        let created = command_target_new();
         let data = std::collections::HashMap::from([(
             "folder/photo.jpg".to_owned(),
             vec![ifd0, ifd1, created],
         )]);
 
-        save_metadata_draft_edits_v5(folder_path.clone(), data.clone()).unwrap();
-        let loaded = load_metadata_draft_edits_v5(folder_path).unwrap();
+        save_metadata_draft_edits(folder_path.clone(), data.clone()).unwrap();
+        let loaded = load_metadata_draft_edits(folder_path).unwrap();
 
         assert_eq!(loaded, data);
         let bytes =
@@ -923,16 +921,16 @@ mod tests {
     }
 
     #[test]
-    fn v5_commands_and_jsonl_preserve_proto_relative_path() {
+    fn target_commands_and_jsonl_preserve_proto_relative_path() {
         let dir = tempfile::tempdir().unwrap();
         let folder_path = dir.path().to_string_lossy().into_owned();
         let data = std::collections::HashMap::from([(
             "__proto__".to_owned(),
-            vec![command_v5_existing("JPEG-APP1-IFD0", "IFD0")],
+            vec![command_target_existing("JPEG-APP1-IFD0", "IFD0")],
         )]);
 
-        save_metadata_draft_edits_v5(folder_path.clone(), data.clone()).unwrap();
-        let loaded = load_metadata_draft_edits_v5(folder_path).unwrap();
+        save_metadata_draft_edits(folder_path.clone(), data.clone()).unwrap();
+        let loaded = load_metadata_draft_edits(folder_path).unwrap();
 
         assert_eq!(loaded, data);
         assert_eq!(loaded["__proto__"].len(), 1);
@@ -944,17 +942,17 @@ mod tests {
     }
 
     #[test]
-    fn v5_save_command_rejects_duplicate_slots_before_truncation() {
+    fn target_save_command_rejects_duplicate_slots_before_truncation() {
         let dir = tempfile::tempdir().unwrap();
         let folder_path = dir.path().to_string_lossy().into_owned();
         let draft_path = dir.path().join("MediaLibraryTargetDraftEdits.jsonl");
         let original = b"existing bytes survive\n";
         std::fs::write(&draft_path, original).unwrap();
-        let entry = command_v5_existing("JPEG-APP1-IFD0", "IFD0");
+        let entry = command_target_existing("JPEG-APP1-IFD0", "IFD0");
         let data =
             std::collections::HashMap::from([("photo.jpg".to_owned(), vec![entry.clone(), entry])]);
 
-        let error = save_metadata_draft_edits_v5(folder_path, data).unwrap_err();
+        let error = save_metadata_draft_edits(folder_path, data).unwrap_err();
 
         assert!(error.contains("Duplicate metadata draft slot"), "{error}");
         assert_eq!(std::fs::read(draft_path).unwrap(), original);
@@ -1213,7 +1211,7 @@ pub fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(ScanState::new())
         .manage(ActiveQueues::new())
-        .manage(apply_batch_v5::ApplyEditsV5State::new())
+        .manage(apply_batch::ApplyEditsState::new())
         .manage(openai_describe::DescribeState::default())
         .manage(geocode::GeocodeState::default())
         .manage(normalise::NormaliseState::default())
@@ -1226,10 +1224,10 @@ pub fn run() {
             prioritize_queues,
             show_in_explorer,
             set_window_title,
-            save_metadata_draft_edits_v5,
-            load_metadata_draft_edits_v5,
-            apply_metadata_draft_edits_v5_cmd,
-            cancel_apply_edits_v5,
+            save_metadata_draft_edits,
+            load_metadata_draft_edits,
+            apply_metadata_draft_edits_cmd,
+            cancel_apply_edits,
             get_tag_info,
             get_tag_infos,
             preload_schema,

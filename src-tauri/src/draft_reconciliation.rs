@@ -1,4 +1,4 @@
-//! Pure application of already-computed schema-v5 draft reconciliation outcomes.
+//! Pure application of already-computed target-aware draft reconciliation outcomes.
 //!
 //! This module performs no metadata writes itself. The target-aware batch
 //! pipeline calls it after readback verification and persists the resulting
@@ -7,14 +7,14 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use crate::apply_edits_v5::{MetadataDraftReconciliation, MetadataTargetOutcome};
-use crate::draft_edits::{MetadataDraftEditsV5, MetadataDraftEntryV5};
+use crate::apply_edits::{MetadataDraftReconciliation, MetadataTargetOutcome};
+use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
 use crate::tag_schema::SchemaDefinitionId;
 
-/// A validation failure that prevents an atomic schema-v5 reconciliation.
+/// A validation failure that prevents an atomic target-aware reconciliation.
 #[derive(Debug, Clone, PartialEq)]
-pub enum DraftReconciliationV5Error {
+pub enum DraftReconciliationError {
     DuplicateOriginalSlot {
         slot: Box<MetadataDraftSlot>,
         first: Box<MetadataDraftTarget>,
@@ -56,7 +56,7 @@ pub enum DraftReconciliationV5Error {
     },
 }
 
-impl fmt::Display for DraftReconciliationV5Error {
+impl fmt::Display for DraftReconciliationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::DuplicateOriginalSlot {
@@ -117,28 +117,28 @@ impl fmt::Display for DraftReconciliationV5Error {
             ),
             Self::MissingSourceFile { relative_path } => write!(
                 formatter,
-                "cannot reconcile missing schema-v5 draft file {relative_path:?}"
+                "cannot reconcile missing target-aware draft file {relative_path:?}"
             ),
         }
     }
 }
 
-impl std::error::Error for DraftReconciliationV5Error {}
+impl std::error::Error for DraftReconciliationError {}
 
 /// Applies complete reconciliation outcomes to one file's original entries.
 ///
 /// Validation completes before any output entry is constructed. `Blocked`
 /// preserves the original entry; its reason remains transient outcome data that
 /// a future command and frontend must surface to the user rather than persist.
-pub fn reconcile_metadata_draft_entries_v5(
-    original: &[MetadataDraftEntryV5],
+pub fn reconcile_metadata_draft_entries(
+    original: &[MetadataTargetDraftEntry],
     outcomes: &[MetadataTargetOutcome],
-) -> Result<Vec<MetadataDraftEntryV5>, DraftReconciliationV5Error> {
-    let mut originals_by_slot = BTreeMap::<MetadataDraftSlot, &MetadataDraftEntryV5>::new();
+) -> Result<Vec<MetadataTargetDraftEntry>, DraftReconciliationError> {
+    let mut originals_by_slot = BTreeMap::<MetadataDraftSlot, &MetadataTargetDraftEntry>::new();
     for entry in original {
         let slot = entry.target.slot();
         if let Some(first) = originals_by_slot.insert(slot.clone(), entry) {
-            return Err(DraftReconciliationV5Error::DuplicateOriginalSlot {
+            return Err(DraftReconciliationError::DuplicateOriginalSlot {
                 slot: Box::new(slot),
                 first: Box::new(first.target.clone()),
                 second: Box::new(entry.target.clone()),
@@ -150,7 +150,7 @@ pub fn reconcile_metadata_draft_entries_v5(
     for outcome in outcomes {
         let slot = outcome.target.slot();
         if let Some(first) = outcomes_by_slot.insert(slot.clone(), outcome) {
-            return Err(DraftReconciliationV5Error::DuplicateOutcomeSlot {
+            return Err(DraftReconciliationError::DuplicateOutcomeSlot {
                 slot: Box::new(slot),
                 first: Box::new(first.target.clone()),
                 second: Box::new(outcome.target.clone()),
@@ -160,7 +160,7 @@ pub fn reconcile_metadata_draft_entries_v5(
 
     for (slot, outcome) in &outcomes_by_slot {
         if !originals_by_slot.contains_key(slot) {
-            return Err(DraftReconciliationV5Error::UnexpectedOutcome {
+            return Err(DraftReconciliationError::UnexpectedOutcome {
                 target: Box::new(outcome.target.clone()),
             });
         }
@@ -168,7 +168,7 @@ pub fn reconcile_metadata_draft_entries_v5(
 
     for (slot, entry) in &originals_by_slot {
         if !outcomes_by_slot.contains_key(slot) {
-            return Err(DraftReconciliationV5Error::MissingOutcome {
+            return Err(DraftReconciliationError::MissingOutcome {
                 slot: Box::new(slot.clone()),
                 original: Box::new(entry.target.clone()),
             });
@@ -180,7 +180,7 @@ pub fn reconcile_metadata_draft_entries_v5(
             .get(slot)
             .expect("outcome completeness validated above");
         if outcome.target != entry.target {
-            return Err(DraftReconciliationV5Error::OutcomeTargetMismatch {
+            return Err(DraftReconciliationError::OutcomeTargetMismatch {
                 original: Box::new(entry.target.clone()),
                 outcome: Box::new(outcome.target.clone()),
             });
@@ -210,14 +210,14 @@ pub fn reconcile_metadata_draft_entries_v5(
             },
         ) = (&entry.target, replacement)
         else {
-            return Err(DraftReconciliationV5Error::InvalidReplacementSource {
+            return Err(DraftReconciliationError::InvalidReplacementSource {
                 original: Box::new(entry.target.clone()),
                 replacement: Box::new(replacement.clone()),
             });
         };
 
         if original_schema != replacement_schema {
-            return Err(DraftReconciliationV5Error::ReplacementSchemaMismatch {
+            return Err(DraftReconciliationError::ReplacementSchemaMismatch {
                 original: Box::new(entry.target.clone()),
                 replacement: Box::new(replacement.clone()),
                 original_schema: Box::new(original_schema.clone()),
@@ -227,7 +227,7 @@ pub fn reconcile_metadata_draft_entries_v5(
 
         let replacement_slot = replacement.slot();
         if let Some(first) = originals_by_slot.get(&replacement_slot) {
-            return Err(DraftReconciliationV5Error::ReplacementSlotCollision {
+            return Err(DraftReconciliationError::ReplacementSlotCollision {
                 slot: Box::new(replacement_slot),
                 first: Box::new(first.target.clone()),
                 second: Box::new(replacement.clone()),
@@ -235,7 +235,7 @@ pub fn reconcile_metadata_draft_entries_v5(
         }
         if let Some(first) = replacement_slots.insert(replacement_slot.clone(), replacement.clone())
         {
-            return Err(DraftReconciliationV5Error::ReplacementSlotCollision {
+            return Err(DraftReconciliationError::ReplacementSlotCollision {
                 slot: Box::new(replacement_slot),
                 first: Box::new(first),
                 second: Box::new(replacement.clone()),
@@ -254,7 +254,7 @@ pub fn reconcile_metadata_draft_entries_v5(
                 reconciled.push(entry.clone());
             }
             MetadataDraftReconciliation::Replace { target } => {
-                reconciled.push(MetadataDraftEntryV5 {
+                reconciled.push(MetadataTargetDraftEntry {
                     target: target.clone(),
                     edit: entry.edit.clone(),
                 });
@@ -266,21 +266,21 @@ pub fn reconcile_metadata_draft_entries_v5(
     Ok(reconciled)
 }
 
-/// Reconciles one file in the production bridge's schema-v5 draft map without persistence.
+/// Reconciles one file in the production bridge's target-aware draft map without persistence.
 ///
 /// The outer map is cloned only after entry reconciliation has fully validated.
-pub fn reconcile_metadata_draft_file_v5(
-    drafts: &MetadataDraftEditsV5,
+pub fn reconcile_metadata_draft_file(
+    drafts: &MetadataTargetDraftsByFile,
     relative_path: &str,
     outcomes: &[MetadataTargetOutcome],
-) -> Result<MetadataDraftEditsV5, DraftReconciliationV5Error> {
+) -> Result<MetadataTargetDraftsByFile, DraftReconciliationError> {
     let original =
         drafts
             .get(relative_path)
-            .ok_or_else(|| DraftReconciliationV5Error::MissingSourceFile {
+            .ok_or_else(|| DraftReconciliationError::MissingSourceFile {
                 relative_path: relative_path.to_owned(),
             })?;
-    let reconciled = reconcile_metadata_draft_entries_v5(original, outcomes)?;
+    let reconciled = reconcile_metadata_draft_entries(original, outcomes)?;
 
     let mut result = drafts.clone();
     if reconciled.is_empty() {
@@ -294,9 +294,9 @@ pub fn reconcile_metadata_draft_file_v5(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::apply_edits_v5::{MetadataDraftReconciliation, MetadataTargetOutcome};
+    use crate::apply_edits::{MetadataDraftReconciliation, MetadataTargetOutcome};
     use crate::draft_edits::{
-        load_metadata_draft_edits_v5, save_metadata_draft_edits_v5, EditIntent, MetadataDraftEdit,
+        load_metadata_draft_edits, save_metadata_draft_edits, EditIntent, MetadataDraftEdit,
     };
     use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
     use crate::metadata_value::MetadataValue;
@@ -371,8 +371,8 @@ mod tests {
         }
     }
 
-    fn entry(target: MetadataDraftTarget, label: &str) -> MetadataDraftEntryV5 {
-        MetadataDraftEntryV5 {
+    fn entry(target: MetadataDraftTarget, label: &str) -> MetadataTargetDraftEntry {
+        MetadataTargetDraftEntry {
             target,
             edit: edit(label),
         }
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn empty_entries_and_outcomes_return_empty() {
-        assert_eq!(reconcile_metadata_draft_entries_v5(&[], &[]), Ok(vec![]));
+        assert_eq!(reconcile_metadata_draft_entries(&[], &[]), Ok(vec![]));
     }
 
     #[test]
@@ -439,7 +439,7 @@ mod tests {
         outcome.kind = "NotMatchOrDeleteOk".to_owned();
 
         assert_eq!(
-            reconcile_metadata_draft_entries_v5(&[original], &[outcome]),
+            reconcile_metadata_draft_entries(&[original], &[outcome]),
             Ok(vec![])
         );
     }
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     fn keep_retains_the_complete_original_entry() {
         let original = entry(existing_target("IFD0", "IFD0", schema("282")), "keep");
-        let result = reconcile_metadata_draft_entries_v5(
+        let result = reconcile_metadata_draft_entries(
             std::slice::from_ref(&original),
             &[keep(&original.target)],
         )
@@ -459,7 +459,7 @@ mod tests {
     #[test]
     fn blocked_retains_the_complete_original_entry_without_persisting_reason() {
         let original = entry(existing_target("IFD0", "IFD0", schema("282")), "blocked");
-        let result = reconcile_metadata_draft_entries_v5(
+        let result = reconcile_metadata_draft_entries(
             std::slice::from_ref(&original),
             &[blocked(&original.target)],
         )
@@ -477,7 +477,7 @@ mod tests {
         let replacement = existing_target("JPEG-APP1-IFD1", "IFD1", schema("282"));
         let original_edit_bytes = serde_json::to_vec(&original.edit).unwrap();
 
-        let result = reconcile_metadata_draft_entries_v5(
+        let result = reconcile_metadata_draft_entries(
             std::slice::from_ref(&original),
             &[replace(&original.target, replacement.clone())],
         )
@@ -500,7 +500,7 @@ mod tests {
         replacement_outcome.observed = Some(MetadataValue::Text("wrong observed".to_owned()));
         replacement_outcome.display_name = "wrong display".to_owned();
 
-        let result = reconcile_metadata_draft_entries_v5(
+        let result = reconcile_metadata_draft_entries(
             std::slice::from_ref(&original),
             &[replacement_outcome],
         )
@@ -532,12 +532,12 @@ mod tests {
             replace(&replace_entry.target, replacement.clone()),
         ];
 
-        let result = reconcile_metadata_draft_entries_v5(&original, &outcomes).unwrap();
+        let result = reconcile_metadata_draft_entries(&original, &outcomes).unwrap();
 
         assert_eq!(
             result,
             vec![
-                MetadataDraftEntryV5 {
+                MetadataTargetDraftEntry {
                     target: replacement,
                     edit: replace_entry.edit,
                 },
@@ -561,13 +561,13 @@ mod tests {
         ];
         let reversed_outcomes = outcomes.iter().cloned().rev().collect::<Vec<_>>();
 
-        let expected = reconcile_metadata_draft_entries_v5(&first_order, &outcomes).unwrap();
+        let expected = reconcile_metadata_draft_entries(&first_order, &outcomes).unwrap();
         assert_eq!(
-            reconcile_metadata_draft_entries_v5(&second_order, &outcomes).unwrap(),
+            reconcile_metadata_draft_entries(&second_order, &outcomes).unwrap(),
             expected
         );
         assert_eq!(
-            reconcile_metadata_draft_entries_v5(&first_order, &reversed_outcomes).unwrap(),
+            reconcile_metadata_draft_entries(&first_order, &reversed_outcomes).unwrap(),
             expected
         );
     }
@@ -582,7 +582,7 @@ mod tests {
         let original_snapshot = original.clone();
         let outcome_snapshot = outcomes.clone();
 
-        reconcile_metadata_draft_entries_v5(&original, &outcomes).unwrap();
+        reconcile_metadata_draft_entries(&original, &outcomes).unwrap();
 
         assert_eq!(original, original_snapshot);
         assert_eq!(outcomes, outcome_snapshot);
@@ -594,8 +594,8 @@ mod tests {
         let second = entry(first.target.clone(), "second");
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(&[first, second], &[]),
-            Err(DraftReconciliationV5Error::DuplicateOriginalSlot { .. })
+            reconcile_metadata_draft_entries(&[first, second], &[]),
+            Err(DraftReconciliationError::DuplicateOriginalSlot { .. })
         ));
     }
 
@@ -605,8 +605,8 @@ mod tests {
         let second = entry(first.target.clone(), "second");
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(&[first, second], &[]),
-            Err(DraftReconciliationV5Error::DuplicateOriginalSlot { .. })
+            reconcile_metadata_draft_entries(&[first, second], &[]),
+            Err(DraftReconciliationError::DuplicateOriginalSlot { .. })
         ));
     }
 
@@ -616,8 +616,8 @@ mod tests {
         let outcomes = vec![keep(&original.target), clear(&original.target)];
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(&[original], &outcomes),
-            Err(DraftReconciliationV5Error::DuplicateOutcomeSlot { .. })
+            reconcile_metadata_draft_entries(&[original], &outcomes),
+            Err(DraftReconciliationError::DuplicateOutcomeSlot { .. })
         ));
     }
 
@@ -626,8 +626,8 @@ mod tests {
         let original = entry(existing_target("IFD0", "IFD0", schema("282")), "original");
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(&[original], &[]),
-            Err(DraftReconciliationV5Error::MissingOutcome { .. })
+            reconcile_metadata_draft_entries(&[original], &[]),
+            Err(DraftReconciliationError::MissingOutcome { .. })
         ));
     }
 
@@ -637,8 +637,8 @@ mod tests {
         let unexpected = existing_target("IFD1", "IFD1", schema("282"));
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(&[original], &[keep(&unexpected)]),
-            Err(DraftReconciliationV5Error::UnexpectedOutcome { .. })
+            reconcile_metadata_draft_entries(&[original], &[keep(&unexpected)]),
+            Err(DraftReconciliationError::UnexpectedOutcome { .. })
         ));
     }
 
@@ -652,8 +652,8 @@ mod tests {
         *schema_id = schema("999");
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(&[original], &[keep(&changed)]),
-            Err(DraftReconciliationV5Error::OutcomeTargetMismatch { .. })
+            reconcile_metadata_draft_entries(&[original], &[keep(&changed)]),
+            Err(DraftReconciliationError::OutcomeTargetMismatch { .. })
         ));
     }
 
@@ -667,8 +667,8 @@ mod tests {
         write_target.group1 = "IFD1".to_owned();
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(&[original], &[keep(&changed)]),
-            Err(DraftReconciliationV5Error::OutcomeTargetMismatch { .. })
+            reconcile_metadata_draft_entries(&[original], &[keep(&changed)]),
+            Err(DraftReconciliationError::OutcomeTargetMismatch { .. })
         ));
     }
 
@@ -678,11 +678,11 @@ mod tests {
         let replacement = existing_target("IFD1", "IFD1", schema("282"));
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(
+            reconcile_metadata_draft_entries(
                 std::slice::from_ref(&original),
                 &[replace(&original.target, replacement)]
             ),
-            Err(DraftReconciliationV5Error::InvalidReplacementSource { .. })
+            Err(DraftReconciliationError::InvalidReplacementSource { .. })
         ));
     }
 
@@ -692,11 +692,11 @@ mod tests {
 
         for invalid in [new_target(schema("282")), new_target(schema("283"))] {
             assert!(matches!(
-                reconcile_metadata_draft_entries_v5(
+                reconcile_metadata_draft_entries(
                     std::slice::from_ref(&original),
                     &[replace(&original.target, invalid)]
                 ),
-                Err(DraftReconciliationV5Error::InvalidReplacementSource { .. })
+                Err(DraftReconciliationError::InvalidReplacementSource { .. })
             ));
         }
     }
@@ -707,11 +707,11 @@ mod tests {
         let replacement = existing_target("IFD0", "IFD0", schema("283"));
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(
+            reconcile_metadata_draft_entries(
                 std::slice::from_ref(&original),
                 &[replace(&original.target, replacement)]
             ),
-            Err(DraftReconciliationV5Error::ReplacementSchemaMismatch { .. })
+            Err(DraftReconciliationError::ReplacementSchemaMismatch { .. })
         ));
     }
 
@@ -721,7 +721,7 @@ mod tests {
         let created = entry(new_target(schema("282")), "created");
         let original = vec![created.clone(), retained.clone()];
         let snapshot = original.clone();
-        let result = reconcile_metadata_draft_entries_v5(
+        let result = reconcile_metadata_draft_entries(
             &original,
             &[
                 replace(&created.target, retained.target.clone()),
@@ -731,7 +731,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(DraftReconciliationV5Error::ReplacementSlotCollision { .. })
+            Err(DraftReconciliationError::ReplacementSlotCollision { .. })
         ));
         assert_eq!(original, snapshot);
     }
@@ -769,14 +769,14 @@ mod tests {
         second_occurrence.tag_id_scope = first_occurrence.tag_id_scope.clone();
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(
+            reconcile_metadata_draft_entries(
                 &[first.clone(), second.clone()],
                 &[
                     replace(&first.target, first_replacement),
                     replace(&second.target, second_replacement),
                 ]
             ),
-            Err(DraftReconciliationV5Error::ReplacementSlotCollision { .. })
+            Err(DraftReconciliationError::ReplacementSlotCollision { .. })
         ));
     }
 
@@ -786,14 +786,14 @@ mod tests {
         let created = entry(new_target(schema("282")), "created");
 
         assert!(matches!(
-            reconcile_metadata_draft_entries_v5(
+            reconcile_metadata_draft_entries(
                 &[created.clone(), cleared.clone()],
                 &[
                     replace(&created.target, cleared.target.clone()),
                     clear(&cleared.target),
                 ]
             ),
-            Err(DraftReconciliationV5Error::ReplacementSlotCollision { .. })
+            Err(DraftReconciliationError::ReplacementSlotCollision { .. })
         ));
     }
 
@@ -813,7 +813,7 @@ mod tests {
             existing_target("JPEG-APP1-ExifIFD", "ExifIFD", shared_schema.clone());
 
         assert_ne!(ifd0.target.slot(), ifd1.target.slot());
-        let result = reconcile_metadata_draft_entries_v5(
+        let result = reconcile_metadata_draft_entries(
             &[created.clone(), ifd1.clone(), ifd0.clone()],
             &[
                 replace(&created.target, created_replacement.clone()),
@@ -825,7 +825,7 @@ mod tests {
 
         assert_eq!(result.len(), 2);
         assert!(result.contains(&ifd1));
-        assert!(result.contains(&MetadataDraftEntryV5 {
+        assert!(result.contains(&MetadataTargetDraftEntry {
             target: created_replacement,
             edit: created.edit,
         }));
@@ -843,14 +843,14 @@ mod tests {
             "unrelated",
         )];
         let unrelated_bytes = serde_json::to_vec(&unrelated).unwrap();
-        let drafts = MetadataDraftEditsV5::from([
+        let drafts = MetadataTargetDraftsByFile::from([
             ("selected.jpg".to_owned(), vec![selected.clone()]),
             ("unrelated.jpg".to_owned(), unrelated),
         ]);
         let source_snapshot = drafts.clone();
 
         let result =
-            reconcile_metadata_draft_file_v5(&drafts, "selected.jpg", &[blocked(&selected.target)])
+            reconcile_metadata_draft_file(&drafts, "selected.jpg", &[blocked(&selected.target)])
                 .unwrap();
 
         assert_eq!(result["selected.jpg"], vec![selected]);
@@ -868,13 +868,13 @@ mod tests {
             existing_target("retained", "IFD1", schema("101")),
             "retained",
         );
-        let drafts = MetadataDraftEditsV5::from([
+        let drafts = MetadataTargetDraftsByFile::from([
             ("removed.jpg".to_owned(), vec![removed.clone()]),
             ("retained.jpg".to_owned(), vec![retained.clone()]),
         ]);
 
         let result =
-            reconcile_metadata_draft_file_v5(&drafts, "removed.jpg", &[clear(&removed.target)])
+            reconcile_metadata_draft_file(&drafts, "removed.jpg", &[clear(&removed.target)])
                 .unwrap();
 
         assert!(!result.contains_key("removed.jpg"));
@@ -888,16 +888,16 @@ mod tests {
             "selected",
         );
         let drafts =
-            MetadataDraftEditsV5::from([("selected.jpg".to_owned(), vec![selected.clone()])]);
+            MetadataTargetDraftsByFile::from([("selected.jpg".to_owned(), vec![selected.clone()])]);
         let snapshot = drafts.clone();
 
         assert!(matches!(
-            reconcile_metadata_draft_file_v5(&drafts, "missing.jpg", &[]),
-            Err(DraftReconciliationV5Error::MissingSourceFile { .. })
+            reconcile_metadata_draft_file(&drafts, "missing.jpg", &[]),
+            Err(DraftReconciliationError::MissingSourceFile { .. })
         ));
         assert!(matches!(
-            reconcile_metadata_draft_file_v5(&drafts, "selected.jpg", &[]),
-            Err(DraftReconciliationV5Error::MissingOutcome { .. })
+            reconcile_metadata_draft_file(&drafts, "selected.jpg", &[]),
+            Err(DraftReconciliationError::MissingOutcome { .. })
         ));
         assert_eq!(drafts, snapshot);
     }
@@ -905,11 +905,11 @@ mod tests {
     #[test]
     fn proto_relative_path_is_reconciled_normally() {
         let original = entry(existing_target("IFD0", "IFD0", schema("282")), "proto");
-        let drafts = MetadataDraftEditsV5::from([("__proto__".to_owned(), vec![original.clone()])]);
+        let drafts =
+            MetadataTargetDraftsByFile::from([("__proto__".to_owned(), vec![original.clone()])]);
 
         let result =
-            reconcile_metadata_draft_file_v5(&drafts, "__proto__", &[keep(&original.target)])
-                .unwrap();
+            reconcile_metadata_draft_file(&drafts, "__proto__", &[keep(&original.target)]).unwrap();
 
         assert_eq!(result["__proto__"], vec![original]);
     }
@@ -921,20 +921,20 @@ mod tests {
             "selected",
         );
         let other = entry(existing_target("other", "IFD1", schema("101")), "other");
-        let first = MetadataDraftEditsV5::from([
+        let first = MetadataTargetDraftsByFile::from([
             ("selected.jpg".to_owned(), vec![selected.clone()]),
             ("other.jpg".to_owned(), vec![other.clone()]),
         ]);
-        let second = MetadataDraftEditsV5::from([
+        let second = MetadataTargetDraftsByFile::from([
             ("other.jpg".to_owned(), vec![other]),
             ("selected.jpg".to_owned(), vec![selected.clone()]),
         ]);
         let outcomes = [keep(&selected.target)];
 
         assert_eq!(
-            reconcile_metadata_draft_file_v5(&first, "selected.jpg", &outcomes).unwrap()
+            reconcile_metadata_draft_file(&first, "selected.jpg", &outcomes).unwrap()
                 ["selected.jpg"],
-            reconcile_metadata_draft_file_v5(&second, "selected.jpg", &outcomes).unwrap()
+            reconcile_metadata_draft_file(&second, "selected.jpg", &outcomes).unwrap()
                 ["selected.jpg"]
         );
     }
@@ -952,7 +952,7 @@ mod tests {
         );
         let created = entry(new_target(schema("103")), "created");
         let replacement = existing_target("a-replacement", "XMP", schema("103"));
-        let drafts = MetadataDraftEditsV5::from([(
+        let drafts = MetadataTargetDraftsByFile::from([(
             "album/photo.jpg".to_owned(),
             vec![
                 cleared.clone(),
@@ -961,7 +961,7 @@ mod tests {
                 kept.clone(),
             ],
         )]);
-        let reconciled = reconcile_metadata_draft_file_v5(
+        let reconciled = reconcile_metadata_draft_file(
             &drafts,
             "album/photo.jpg",
             &[
@@ -974,8 +974,8 @@ mod tests {
         .unwrap();
 
         let first_dir = tempdir().unwrap();
-        save_metadata_draft_edits_v5(first_dir.path().to_str().unwrap(), &reconciled).unwrap();
-        let loaded = load_metadata_draft_edits_v5(first_dir.path().to_str().unwrap()).unwrap();
+        save_metadata_draft_edits(first_dir.path().to_str().unwrap(), &reconciled).unwrap();
+        let loaded = load_metadata_draft_edits(first_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, reconciled);
 
         let loaded_entries = &loaded["album/photo.jpg"];
@@ -984,7 +984,7 @@ mod tests {
             .any(|item| item.target == cleared.target));
         assert!(loaded_entries.contains(&kept));
         assert!(loaded_entries.contains(&blocked_entry));
-        assert!(loaded_entries.contains(&MetadataDraftEntryV5 {
+        assert!(loaded_entries.contains(&MetadataTargetDraftEntry {
             target: replacement,
             edit: created.edit,
         }));
@@ -993,7 +993,7 @@ mod tests {
             fs::read_to_string(first_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
                 .unwrap();
         assert_eq!(
-            load_metadata_draft_edits_v5(first_dir.path().to_str().unwrap()).unwrap(),
+            load_metadata_draft_edits(first_dir.path().to_str().unwrap()).unwrap(),
             reconciled
         );
         let data_line = first_text
@@ -1009,7 +1009,7 @@ mod tests {
             .all(|item| item["target"].get("relative_path").is_none()));
 
         let second_dir = tempdir().unwrap();
-        save_metadata_draft_edits_v5(second_dir.path().to_str().unwrap(), &loaded).unwrap();
+        save_metadata_draft_edits(second_dir.path().to_str().unwrap(), &loaded).unwrap();
         let second_text =
             fs::read_to_string(second_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
                 .unwrap();
@@ -1031,7 +1031,7 @@ mod tests {
     fn error_messages_include_slots_and_complete_targets() {
         let first = entry(existing_target("IFD0", "IFD0", schema("282")), "first");
         let second = entry(first.target.clone(), "second");
-        let error = reconcile_metadata_draft_entries_v5(&[first, second], &[]).unwrap_err();
+        let error = reconcile_metadata_draft_entries(&[first, second], &[]).unwrap_err();
         let message = error.to_string();
 
         assert!(message.contains("ExistingOccurrence"));

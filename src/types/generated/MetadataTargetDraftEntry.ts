@@ -2,4 +2,4 @@
 import type { MetadataDraftEdit } from "./MetadataDraftEdit";
 import type { MetadataDraftTarget } from "./MetadataDraftTarget";
 
-export type MetadataDraftEntryV5 = { target: MetadataDraftTarget, edit: MetadataDraftEdit, };
+export type MetadataTargetDraftEntry = { target: MetadataDraftTarget, edit: MetadataDraftEdit, };

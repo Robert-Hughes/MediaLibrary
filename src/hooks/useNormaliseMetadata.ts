@@ -11,9 +11,9 @@
  */
 import { useMemo, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
+import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 import type {
-  MetadataDraftEntry,
+  SchemaMetadataEdit,
   NormaliseEstimate,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -61,9 +61,9 @@ export interface NormaliseActions {
 export interface UseNormaliseMetadataOptions {
   onApplyEdits?: (
     relativePath: string,
-    edits: MetadataDraftEntry[],
+    edits: SchemaMetadataEdit[],
     confirmedEnabledGroups: readonly NormaliseGroup[],
-  ) => GeneratedDraftStageResultV5;
+  ) => GeneratedDraftStageResult;
 }
 
 interface StartArgs {

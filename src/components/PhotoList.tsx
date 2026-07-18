@@ -34,7 +34,7 @@ import {
   visibleColumnToken,
   sortKeyMatchesColumn,
 } from "../utils/columnIdentity";
-import type { MetadataRemovalFilesPreviewV5 } from "../metadataRemovalTargets";
+import type { MetadataRemovalFilesPreview } from "../metadataRemovalTargets";
 
 export type ColumnContextTarget =
   | { kind: "path"; key: "relative_path"; label: "Path" }
@@ -89,7 +89,7 @@ interface Props {
   onPreviewRemoveFieldFromSelectedPhotos?: (
     id: SchemaDefinitionId,
     relativePaths: string[],
-  ) => MetadataRemovalFilesPreviewV5;
+  ) => MetadataRemovalFilesPreview;
 }
 
 const EMPTY_TARGET_DRAFT_COLLECTION: TargetDraftCollection = {};

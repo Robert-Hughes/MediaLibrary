@@ -1,4 +1,4 @@
-//! Schema-v5, occurrence-aware single-file apply path for the target-aware metadata pipeline.
+//! Target-aware, occurrence-aware single-file apply path for the target-aware metadata pipeline.
 //!
 //! Production target-aware metadata apply reaches this module through the
 //! versioned batch command. Existing-occurrence targets are read, written and
@@ -19,7 +19,7 @@ use crate::apply_log::{
     TargetApplyPassStatus, TargetApplyPostWriteState, TargetApplyPostWriteUnavailableCause,
     TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
 };
-use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntryV5};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataTargetDraftEntry};
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
 use crate::metadata_occurrence::{
     observed_selector_matches_write_target, MetadataOccurrence, MetadataOccurrenceId,
@@ -73,7 +73,7 @@ struct VerifiedTarget {
 }
 
 #[derive(Debug, Clone)]
-pub struct MetadataSingleFileOutcomeV5 {
+pub struct MetadataSingleFileOutcome {
     pub fresh_image_metadata: Option<scanner::ImageMetadata>,
     pub error: Option<String>,
     pub warning: Option<String>,
@@ -82,8 +82,8 @@ pub struct MetadataSingleFileOutcomeV5 {
     pub(crate) audit_records: Vec<TargetApplyAuditRecord>,
 }
 
-impl MetadataSingleFileOutcomeV5 {
-    fn hard_failure(error: ApplyV5Error) -> Self {
+impl MetadataSingleFileOutcome {
+    fn hard_failure(error: TargetApplyError) -> Self {
         Self {
             fresh_image_metadata: None,
             error: Some(error.to_string()),
@@ -156,7 +156,7 @@ impl MetadataTargetWriteClient for RealMetadataTargetWriteClient {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ApplyV5Error {
+pub(crate) enum TargetApplyError {
     NoEdits,
     FileMissing(String),
     PreWriteReadFailure(String),
@@ -203,7 +203,7 @@ pub(crate) enum ApplyV5Error {
     NoWriteArguments,
 }
 
-impl std::fmt::Display for ApplyV5Error {
+impl std::fmt::Display for TargetApplyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoEdits => formatter.write_str("No edits to apply"),
@@ -395,10 +395,10 @@ fn observed_occurrence(occurrence: &MetadataOccurrence) -> TargetApplyObservedOc
 
 fn plan_batch<F>(
     abs_path: &Path,
-    edits: &[MetadataDraftEntryV5],
+    edits: &[MetadataTargetDraftEntry],
     before: &scanner::ImageMetadata,
     schema_lookup: F,
-) -> Result<PlannedBatch, ApplyV5Error>
+) -> Result<PlannedBatch, TargetApplyError>
 where
     F: Fn(&SchemaDefinitionId) -> Option<TagInfo>,
 {
@@ -406,7 +406,7 @@ where
     for entry in edits {
         let slot = entry.target.slot();
         if let Some(first) = occupied_slots.insert(slot.clone(), entry.target.clone()) {
-            return Err(ApplyV5Error::DuplicateDraftSlot {
+            return Err(TargetApplyError::DuplicateDraftSlot {
                 slot: Box::new(slot),
                 first: Box::new(first),
                 second: Box::new(entry.target.clone()),
@@ -420,7 +420,7 @@ where
             .insert(occurrence.id.clone(), occurrence)
             .is_some()
         {
-            return Err(ApplyV5Error::DuplicatePreWriteOccurrenceId(Box::new(
+            return Err(TargetApplyError::DuplicatePreWriteOccurrenceId(Box::new(
                 occurrence.id.clone(),
             )));
         }
@@ -434,12 +434,12 @@ where
         let plan = match &entry.target {
             MetadataDraftTarget::ExistingOccurrence { occurrence_id, .. } => {
                 let occurrence = occurrences.get(occurrence_id).copied().ok_or_else(|| {
-                    ApplyV5Error::ExistingOccurrenceMissing(Box::new(entry.target.clone()))
+                    TargetApplyError::ExistingOccurrenceMissing(Box::new(entry.target.clone()))
                 })?;
                 entry
                     .target
                     .validate_existing_occurrence(occurrence)
-                    .map_err(|error| ApplyV5Error::ExistingTargetValidationFailure {
+                    .map_err(|error| TargetApplyError::ExistingTargetValidationFailure {
                         target: Box::new(entry.target.clone()),
                         reason: error.to_string(),
                     })?;
@@ -453,7 +453,7 @@ where
                     occurrence,
                     &entry.edit,
                 )
-                .map_err(|error| ApplyV5Error::ArgumentPlanningFailure {
+                .map_err(|error| TargetApplyError::ArgumentPlanningFailure {
                     target: Box::new(entry.target.clone()),
                     reason: error.to_string(),
                 })?;
@@ -472,15 +472,15 @@ where
                 write_target,
             } => {
                 let info = schema_lookup(schema_id).ok_or_else(|| {
-                    ApplyV5Error::NewPropertySchemaMissing(Box::new(entry.target.clone()))
+                    TargetApplyError::NewPropertySchemaMissing(Box::new(entry.target.clone()))
                 })?;
                 if !info.supports_metadata_write() {
-                    return Err(ApplyV5Error::NewPropertySchemaReadOnly(Box::new(
+                    return Err(TargetApplyError::NewPropertySchemaReadOnly(Box::new(
                         entry.target.clone(),
                     )));
                 }
                 entry.target.validate_new_property(&info).map_err(|error| {
-                    ApplyV5Error::ArgumentPlanningFailure {
+                    TargetApplyError::ArgumentPlanningFailure {
                         target: Box::new(entry.target.clone()),
                         reason: error.to_string(),
                     }
@@ -499,7 +499,7 @@ where
                     .map(|occurrence| (occurrence.id.clone(), occurrence.schema_id.clone()))
                     .collect::<Vec<_>>();
                 if !occupied.is_empty() {
-                    return Err(ApplyV5Error::NewPropertySelectorOccupied {
+                    return Err(TargetApplyError::NewPropertySelectorOccupied {
                         target: Box::new(entry.target.clone()),
                         occurrences: occupied,
                     });
@@ -511,7 +511,7 @@ where
                     .map(|occurrence| occurrence.id.clone())
                     .collect::<Vec<_>>();
                 if !unknown_same_schema.is_empty() {
-                    return Err(ApplyV5Error::NewPropertySchemaOccupancyUnknown {
+                    return Err(TargetApplyError::NewPropertySchemaOccupancyUnknown {
                         target: Box::new(entry.target.clone()),
                         occurrences: unknown_same_schema,
                     });
@@ -520,14 +520,14 @@ where
                     entry.edit.intent,
                     EditIntent::Delete | EditIntent::ListRemove
                 ) {
-                    return Err(ApplyV5Error::UnsupportedNewPropertyIntent {
+                    return Err(TargetApplyError::UnsupportedNewPropertyIntent {
                         target: Box::new(entry.target.clone()),
                         intent: entry.edit.intent.clone(),
                     });
                 }
                 let args =
                     crate::write_args::build_new_property_args(&entry.target, &info, &entry.edit)
-                        .map_err(|error| ApplyV5Error::ArgumentPlanningFailure {
+                        .map_err(|error| TargetApplyError::ArgumentPlanningFailure {
                         target: Box::new(entry.target.clone()),
                         reason: error.to_string(),
                     })?;
@@ -545,7 +545,7 @@ where
 
         let selector_key = MetadataSelectorKey::from_write_target(&plan.selector);
         if let Some(first) = selectors.insert(selector_key, plan.target.clone()) {
-            return Err(ApplyV5Error::WriteSelectorCollision {
+            return Err(TargetApplyError::WriteSelectorCollision {
                 group1: plan.selector.group1.clone(),
                 group7: plan.selector.group7.clone(),
                 tag_name: plan.selector.tag_name.clone(),
@@ -558,7 +558,7 @@ where
     }
 
     if combined.is_empty() {
-        return Err(ApplyV5Error::NoWriteArguments);
+        return Err(TargetApplyError::NoWriteArguments);
     }
 
     let numeric_argfile = (!combined.numeric.is_empty())
@@ -567,14 +567,14 @@ where
                 .and_then(|args| render_exiftool_argfile(&args))
         })
         .transpose()
-        .map_err(ApplyV5Error::ArgfileRenderingFailure)?;
+        .map_err(TargetApplyError::ArgfileRenderingFailure)?;
     let text_argfile = (!combined.text.is_empty())
         .then(|| {
             build_exiftool_write_argfile_args(abs_path, &combined.text, false)
                 .and_then(|args| render_exiftool_argfile(&args))
         })
         .transpose()
-        .map_err(ApplyV5Error::ArgfileRenderingFailure)?;
+        .map_err(TargetApplyError::ArgfileRenderingFailure)?;
 
     Ok(PlannedBatch {
         targets: plans,
@@ -583,13 +583,13 @@ where
     })
 }
 
-pub fn apply_single_file_metadata_v5(
+pub fn apply_single_file_metadata(
     folder_path: &str,
     rel_path: &str,
-    edits: &[MetadataDraftEntryV5],
-) -> MetadataSingleFileOutcomeV5 {
+    edits: &[MetadataTargetDraftEntry],
+) -> MetadataSingleFileOutcome {
     let registry = crate::tag_schema::get_registry().ok();
-    apply_single_file_metadata_v5_with_client(
+    apply_single_file_metadata_with_client(
         folder_path,
         rel_path,
         edits,
@@ -598,25 +598,25 @@ pub fn apply_single_file_metadata_v5(
     )
 }
 
-fn apply_single_file_metadata_v5_with_client<C, F>(
+fn apply_single_file_metadata_with_client<C, F>(
     folder_path: &str,
     rel_path: &str,
-    edits: &[MetadataDraftEntryV5],
+    edits: &[MetadataTargetDraftEntry],
     client: &C,
     schema_lookup: F,
-) -> MetadataSingleFileOutcomeV5
+) -> MetadataSingleFileOutcome
 where
     C: MetadataTargetWriteClient,
     F: Fn(&SchemaDefinitionId) -> Option<TagInfo>,
 {
     if edits.is_empty() {
-        return MetadataSingleFileOutcomeV5::hard_failure(ApplyV5Error::NoEdits);
+        return MetadataSingleFileOutcome::hard_failure(TargetApplyError::NoEdits);
     }
 
     let abs_path =
         Path::new(folder_path).join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
     if !abs_path.exists() {
-        return MetadataSingleFileOutcomeV5::hard_failure(ApplyV5Error::FileMissing(
+        return MetadataSingleFileOutcome::hard_failure(TargetApplyError::FileMissing(
             abs_path.display().to_string(),
         ));
     }
@@ -624,7 +624,7 @@ where
     let before = match client.read_image_metadata(rel_path, &abs_path) {
         Ok(metadata) => metadata,
         Err(error) => {
-            return MetadataSingleFileOutcomeV5::hard_failure(ApplyV5Error::PreWriteReadFailure(
+            return MetadataSingleFileOutcome::hard_failure(TargetApplyError::PreWriteReadFailure(
                 error,
             ));
         }
@@ -632,7 +632,7 @@ where
 
     let planned = match plan_batch(&abs_path, edits, &before, schema_lookup) {
         Ok(planned) => planned,
-        Err(error) => return MetadataSingleFileOutcomeV5::hard_failure(error),
+        Err(error) => return MetadataSingleFileOutcome::hard_failure(error),
     };
 
     let mut numeric_attempted = false;
@@ -706,7 +706,7 @@ where
                     message: verification.message,
                 });
             }
-            return MetadataSingleFileOutcomeV5 {
+            return MetadataSingleFileOutcome {
                 fresh_image_metadata: None,
                 error: Some(error),
                 warning: None,
@@ -762,7 +762,7 @@ where
                     message: verification.message,
                 });
             }
-            return MetadataSingleFileOutcomeV5 {
+            return MetadataSingleFileOutcome {
                 fresh_image_metadata: None,
                 error: Some(error),
                 warning: None,
@@ -846,7 +846,7 @@ where
 
     // The batch coordinator appends this evidence to the independent
     // target-aware log after draft reconciliation and any persistence attempt.
-    MetadataSingleFileOutcomeV5 {
+    MetadataSingleFileOutcome {
         fresh_image_metadata: Some(fresh),
         error: diagnostics.error.or(first_mismatch),
         warning: diagnostics.warning,
@@ -878,14 +878,14 @@ fn targets_to_clear_from_reconciliation(
 
 fn build_strict_post_write_occurrence_index(
     fresh: &scanner::ImageMetadata,
-) -> Result<BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>, ApplyV5Error> {
+) -> Result<BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>, TargetApplyError> {
     let mut occurrences = BTreeMap::new();
     for occurrence in fresh.occurrences.iter() {
         if occurrences
             .insert(occurrence.id.clone(), occurrence)
             .is_some()
         {
-            return Err(ApplyV5Error::PostWriteDuplicateOccurrenceId {
+            return Err(TargetApplyError::PostWriteDuplicateOccurrenceId {
                 occurrence_id: Box::new(occurrence.id.clone()),
             });
         }
@@ -1325,15 +1325,15 @@ mod tests {
     fn existing_entry(
         occurrence: &MetadataOccurrence,
         edit: MetadataDraftEdit,
-    ) -> MetadataDraftEntryV5 {
-        MetadataDraftEntryV5 {
+    ) -> MetadataTargetDraftEntry {
+        MetadataTargetDraftEntry {
             target: MetadataDraftTarget::from_existing_occurrence(occurrence).unwrap(),
             edit,
         }
     }
 
-    fn new_entry(info: &TagInfo, edit: MetadataDraftEdit) -> MetadataDraftEntryV5 {
-        MetadataDraftEntryV5 {
+    fn new_entry(info: &TagInfo, edit: MetadataDraftEdit) -> MetadataTargetDraftEntry {
+        MetadataTargetDraftEntry {
             target: MetadataDraftTarget::from_new_property(info).unwrap(),
             edit,
         }
@@ -1346,12 +1346,12 @@ mod tests {
     }
 
     fn apply_fake(
-        edits: &[MetadataDraftEntryV5],
+        edits: &[MetadataTargetDraftEntry],
         client: &FakeClient,
         infos: &[TagInfo],
-    ) -> MetadataSingleFileOutcomeV5 {
+    ) -> MetadataSingleFileOutcome {
         with_temp_file(|folder, rel| {
-            apply_single_file_metadata_v5_with_client(
+            apply_single_file_metadata_with_client(
                 folder.to_str().unwrap(),
                 rel,
                 edits,
@@ -1375,7 +1375,7 @@ mod tests {
             edit(EditIntent::Set, Some(MetadataValue::Text("x".into()))),
         );
         let missing_client = FakeClient::new(Vec::new());
-        let missing = apply_single_file_metadata_v5_with_client(
+        let missing = apply_single_file_metadata_with_client(
             "definitely-missing-folder",
             "missing.jpg",
             std::slice::from_ref(&entry),
@@ -1430,7 +1430,7 @@ mod tests {
             )
             .err()
             .unwrap();
-            assert!(matches!(error, ApplyV5Error::DuplicateDraftSlot { .. }));
+            assert!(matches!(error, TargetApplyError::DuplicateDraftSlot { .. }));
             assert!(error.to_string().contains("conflicting targets"));
         }
 
@@ -1445,7 +1445,7 @@ mod tests {
                 &image(vec![]),
                 |_| Some(info.clone())
             ),
-            Err(ApplyV5Error::DuplicateDraftSlot { .. })
+            Err(TargetApplyError::DuplicateDraftSlot { .. })
         ));
     }
 
@@ -1471,7 +1471,7 @@ mod tests {
                 &image(vec![fresh.clone(), fresh.clone()]),
                 |_| None
             ),
-            Err(ApplyV5Error::DuplicatePreWriteOccurrenceId(_))
+            Err(TargetApplyError::DuplicatePreWriteOccurrenceId(_))
         ));
         assert!(matches!(
             plan_batch(
@@ -1480,7 +1480,7 @@ mod tests {
                 &image(vec![]),
                 |_| None
             ),
-            Err(ApplyV5Error::ExistingOccurrenceMissing(_))
+            Err(TargetApplyError::ExistingOccurrenceMissing(_))
         ));
 
         let mut cases = Vec::new();
@@ -1507,7 +1507,7 @@ mod tests {
                     &image(vec![changed]),
                     |_| None
                 ),
-                Err(ApplyV5Error::ExistingTargetValidationFailure { .. })
+                Err(TargetApplyError::ExistingTargetValidationFailure { .. })
             ));
         }
     }
@@ -1527,7 +1527,7 @@ mod tests {
                 &image(vec![]),
                 |_| None
             ),
-            Err(ApplyV5Error::NewPropertySchemaMissing(_))
+            Err(TargetApplyError::NewPropertySchemaMissing(_))
         ));
         assert!(matches!(
             plan_batch(
@@ -1536,7 +1536,7 @@ mod tests {
                 &image(vec![]),
                 |_| Some(readonly.clone())
             ),
-            Err(ApplyV5Error::NewPropertySchemaReadOnly(_))
+            Err(TargetApplyError::NewPropertySchemaReadOnly(_))
         ));
 
         let present = occurrence(
@@ -1553,14 +1553,14 @@ mod tests {
                 &image(vec![present]),
                 |_| Some(writable.clone())
             ),
-            Err(ApplyV5Error::NewPropertySelectorOccupied { .. })
+            Err(TargetApplyError::NewPropertySelectorOccupied { .. })
         ));
 
         for intent in [EditIntent::Delete, EditIntent::ListRemove] {
             let unsupported = new_entry(&writable, edit(intent.clone(), None));
             assert!(matches!(
                 plan_batch(Path::new("p"), &[unsupported], &image(vec![]), |_| Some(writable.clone())),
-                Err(ApplyV5Error::UnsupportedNewPropertyIntent { intent: actual, .. }) if actual == intent
+                Err(TargetApplyError::UnsupportedNewPropertyIntent { intent: actual, .. }) if actual == intent
             ));
         }
 
@@ -1614,7 +1614,7 @@ mod tests {
             plan_batch(Path::new("p"), &entries, &image(vec![existing]), |_| Some(
                 info_b.clone()
             )),
-            Err(ApplyV5Error::NewPropertySelectorOccupied { .. })
+            Err(TargetApplyError::NewPropertySelectorOccupied { .. })
         ));
 
         let mut info_c = schema("1", "IFD0", "Same", true, TagKind::Text);
@@ -1636,7 +1636,7 @@ mod tests {
             ]
             .into_iter()
             .find(|info| &info.id == id)),
-            Err(ApplyV5Error::WriteSelectorCollision { .. })
+            Err(TargetApplyError::WriteSelectorCollision { .. })
         ));
     }
 
@@ -1685,7 +1685,7 @@ mod tests {
                 &image(vec![exact]),
                 |_| Some(info.clone()),
             ),
-            Err(ApplyV5Error::NewPropertySelectorOccupied { .. })
+            Err(TargetApplyError::NewPropertySelectorOccupied { .. })
         ));
 
         let mut ambiguous = existing_elsewhere;
@@ -1695,7 +1695,7 @@ mod tests {
             plan_batch(Path::new("p"), &[entry], &image(vec![ambiguous]), |_| Some(
                 info.clone()
             ),),
-            Err(ApplyV5Error::NewPropertySchemaOccupancyUnknown { .. })
+            Err(TargetApplyError::NewPropertySchemaOccupancyUnknown { .. })
         ));
     }
 
@@ -1727,14 +1727,14 @@ mod tests {
         };
         assert!(matches!(
             error,
-            ApplyV5Error::NewPropertySelectorOccupied { occurrences, .. }
+            TargetApplyError::NewPropertySelectorOccupied { occurrences, .. }
                 if occurrences == vec![(existing.id, existing.schema_id)]
         ));
     }
 
     #[test]
     fn every_pre_execution_failure_path_returns_no_audit_records() {
-        let assert_no_audit = |outcome: MetadataSingleFileOutcomeV5| {
+        let assert_no_audit = |outcome: MetadataSingleFileOutcome| {
             assert!(outcome.error.is_some());
             assert!(outcome.outcomes.is_empty());
             assert!(outcome.audit_records.is_empty());
@@ -1835,7 +1835,7 @@ mod tests {
         ));
 
         let binary_info = schema("3", "XMP-test", "Binary", true, TagKind::Binary);
-        let binary = MetadataDraftEntryV5 {
+        let binary = MetadataTargetDraftEntry {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: binary_info.id.clone(),
                 write_target: MetadataWriteTarget {
@@ -2146,7 +2146,7 @@ mod tests {
         .unwrap_err();
         assert!(matches!(
             &error,
-            ApplyV5Error::PostWriteDuplicateOccurrenceId { occurrence_id }
+            TargetApplyError::PostWriteDuplicateOccurrenceId { occurrence_id }
                 if occurrence_id.as_ref() == &duplicate.id
         ));
         let message = error.to_string();
@@ -2155,7 +2155,7 @@ mod tests {
         assert!(message.contains("DUPLICATE-PATH"));
         assert!(!matches!(
             error,
-            ApplyV5Error::DuplicatePreWriteOccurrenceId(_)
+            TargetApplyError::DuplicatePreWriteOccurrenceId(_)
         ));
     }
 
@@ -3920,7 +3920,7 @@ mod tests {
             ),
         );
         let bad_info = schema("2", "XMP-test", "Bad", false, TagKind::Text);
-        let bad = MetadataDraftEntryV5 {
+        let bad = MetadataTargetDraftEntry {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: bad_info.id.clone(),
                 write_target: MetadataWriteTarget {

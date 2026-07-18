@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   MetadataDraftEdit,
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataDraftTarget,
   MetadataValue,
   SchemaDefinitionId,
 } from "../types";
 import {
   TargetDraftEditsStore,
-  metadataDraftEntryV5EqualsExact,
+  metadataTargetDraftEntryEqualsExact,
   targetDraftCollectionEqualsExact,
   targetDraftsFromWire,
   targetDraftsFromUnknownWire,
@@ -108,12 +108,12 @@ const listRemoveEdit: MetadataDraftEdit = {
 function entry(
   target: MetadataDraftTarget,
   edit: MetadataDraftEdit = setEdit("value"),
-): MetadataDraftEntryV5 {
+): MetadataTargetDraftEntry {
   return { target, edit };
 }
 
 function drafts(
-  wire: Record<string, MetadataDraftEntryV5[]>,
+  wire: Record<string, MetadataTargetDraftEntry[]>,
 ): TargetDraftEditsByFile {
   return targetDraftsFromWire(wire);
 }
@@ -129,7 +129,7 @@ const reservedPaths = [
 const hasOwn = (record: object, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(record, key);
 
-describe("target draft v5 wire conversion", () => {
+describe("target draft target-aware wire conversion", () => {
   it("loads existing, new-property, and mixed entries while preserving snapshots", () => {
     const existingTarget = existing({
       document: "Doc1",
@@ -285,7 +285,7 @@ describe("target draft v5 wire conversion", () => {
   });
 });
 
-describe("target draft v5 reserved-path wire conversion", () => {
+describe("target draft target-aware reserved-path wire conversion", () => {
   it.each(reservedPaths)(
     "preserves %s through typed and unknown wire",
     (path) => {
@@ -300,7 +300,7 @@ describe("target draft v5 reserved-path wire conversion", () => {
       const wire = Object.fromEntries([
         [path, [reservedEntry]],
         ["ordinary/photo.jpg", [siblingEntry]],
-      ]) as Record<string, MetadataDraftEntryV5[]>;
+      ]) as Record<string, MetadataTargetDraftEntry[]>;
 
       const typed = targetDraftsFromWire(wire);
       expect(Object.keys(typed)).toContain(path);
@@ -899,11 +899,13 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
       existing(),
       setEdit({ kind: "Rational", value: { numerator: 2, denominator: 4 } }),
     );
-    expect(metadataDraftEntryV5EqualsExact(base, structuredClone(base))).toBe(
-      true,
+    expect(
+      metadataTargetDraftEntryEqualsExact(base, structuredClone(base)),
+    ).toBe(true);
+    expect(metadataTargetDraftEntryEqualsExact(base, changedTarget)).toBe(
+      false,
     );
-    expect(metadataDraftEntryV5EqualsExact(base, changedTarget)).toBe(false);
-    expect(metadataDraftEntryV5EqualsExact(base, changedValue)).toBe(false);
+    expect(metadataTargetDraftEntryEqualsExact(base, changedValue)).toBe(false);
     expect(
       targetDraftCollectionEqualsExact(
         drafts({ p: [base] }).p,
@@ -952,7 +954,7 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
         {
           target: existing(),
           edit: { intent: "Set", value: { kind: "Real", value: Number.NaN } },
-        } as MetadataDraftEntryV5,
+        } as MetadataTargetDraftEntry,
       ]),
     ).toThrow(/Invalid/);
     expect(store.getAllMetadata()).toBe(before);

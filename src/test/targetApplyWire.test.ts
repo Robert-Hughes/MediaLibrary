@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   ImageMetadata,
-  MetadataApplyFileResultV5,
+  MetadataApplyFileResult,
   MetadataOccurrence,
   SchemaDefinitionId,
   TagInfo,
@@ -66,7 +66,7 @@ const imageMetadata = (
   occurrences,
 });
 
-const fileResult = (relativePath = "photo.jpg"): MetadataApplyFileResultV5 => ({
+const fileResult = (relativePath = "photo.jpg"): MetadataApplyFileResult => ({
   relative_path: relativePath,
   applied: true,
   error: null,
@@ -120,7 +120,7 @@ describe("occurrence-only scanner wire guards", () => {
   });
 });
 
-describe("schema-v5 apply wire", () => {
+describe("target-aware apply wire", () => {
   it("accepts occurrence-only fresh metadata", () => {
     expect(targetApplyFileResultFromUnknown(fileResult())).toEqual(
       fileResult(),

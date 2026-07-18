@@ -142,14 +142,19 @@ function stagedGpsNewProperty(group1 = "CustomGPS") {
 }
 
 function targetDrafts(source: MetadataOccurrence, edit: MetadataDraftEdit) {
-  const target = existingOccurrenceTargetFromOccurrence(source);
-  if (target.kind !== "targetable") throw new Error(target.reason);
+  const target = exactTarget(source);
   const store = new TargetDraftEditsStore();
-  store.setMetadataTarget(photo.relative_path, target.target, edit);
+  store.setMetadataTarget(photo.relative_path, target, edit);
   return {
-    target: target.target,
+    target,
     drafts: store.getMetadataFile(photo.relative_path),
   };
+}
+
+function exactTarget(source: MetadataOccurrence) {
+  const resolution = existingOccurrenceTargetFromOccurrence(source);
+  if (resolution.kind !== "targetable") throw new Error(resolution.reason);
+  return resolution.target;
 }
 
 function renderPane(options: {
@@ -161,7 +166,7 @@ function renderPane(options: {
 }) {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
-    onRemoveMetadataFieldsV5: vi.fn(),
+    onRemoveMetadataFields: vi.fn(),
     onSetGpsTargetDraftBatch: vi.fn(() => true),
     onSetNewPropertyDraft: vi.fn(async () => true),
     onReplaceNewPropertyDraftTarget: vi.fn(async () => true),
@@ -267,21 +272,21 @@ describe("DetailsPane exact target-owned row presentation", () => {
     });
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
     expect(view.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
-      occurrenceA.id,
+      exactTarget(occurrenceA),
       expect.objectContaining({
         intent: "Set",
         value: { kind: "Integer", value: 305 },
       }),
     );
-    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFields).not.toHaveBeenCalled();
 
     fireEvent.contextMenu(rowA);
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
     expect(view.onSetExistingOccurrenceDraft).toHaveBeenLastCalledWith(
-      occurrenceA.id,
+      exactTarget(occurrenceA),
       { intent: "Delete", value: null },
     );
-    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFields).not.toHaveBeenCalled();
   });
 
   it("shows supplemental Delete on A, filters has:edits exactly, and discards A", async () => {
@@ -550,10 +555,13 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
-  it("disables supplemental actions after a v5 persistence load failure", () => {
+  it("disables supplemental actions after a target-aware persistence load failure", () => {
     renderPane({
       occurrences: [occurrenceA],
-      targetDraftPersistence: { status: "load-failed", error: "bad v5" },
+      targetDraftPersistence: {
+        status: "load-failed",
+        error: "bad target-aware",
+      },
     });
     const row = ordinaryMetadataRows()[0];
     expect(row).toHaveAttribute("data-readonly", "true");
@@ -665,7 +673,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
     });
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
     expect(view.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
-      occurrenceA.id,
+      exactTarget(occurrenceA),
       expect.objectContaining({
         intent: "Set",
         value: { kind: "Integer", value: 303 },
@@ -721,7 +729,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       /nothing was saved|without saving/i,
     );
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
-    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFields).not.toHaveBeenCalled();
     expect(pending.drafts).toEqual(originalDrafts);
   });
 
@@ -737,7 +745,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
 
           occurrences={[occurrenceA]}
           targetDraftEdits={drafts}
-          onRemoveMetadataFieldsV5={vi.fn()}
+          onRemoveMetadataFields={vi.fn()}
           onDiscardTargetDraftBatch={vi.fn()}
         />,
       );
@@ -796,7 +804,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
     expect(view.onSetGpsTargetDraftBatch).toHaveBeenCalledWith([
       expect.objectContaining({ id: GPS_IDS.latitude }),
     ]);
-    expect(view.onRemoveMetadataFieldsV5).not.toHaveBeenCalled();
+    expect(view.onRemoveMetadataFields).not.toHaveBeenCalled();
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
   });
 

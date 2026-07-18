@@ -23,8 +23,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use medialibrary_tauri_lib::{
-    apply_edits_v5,
-    draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftEntry, MetadataDraftEntryV5},
+    apply_edits,
+    draft_edits::{EditIntent, MetadataDraftEdit, MetadataTargetDraftEntry, SchemaMetadataEdit},
     metadata_draft_target::MetadataDraftTarget,
     metadata_occurrence::{
         family7_group_from_schema_id, validate_family1_group, MetadataWriteTarget,
@@ -169,8 +169,8 @@ fn metadata_bag(items: &[&str]) -> MetadataValue {
 fn target_entries(
     folder: &Path,
     rel: &str,
-    edits: Vec<MetadataDraftEntry>,
-) -> Vec<MetadataDraftEntryV5> {
+    edits: Vec<SchemaMetadataEdit>,
+) -> Vec<MetadataTargetDraftEntry> {
     let image = read_one(folder, &folder.join(rel));
     edits
         .into_iter()
@@ -182,13 +182,13 @@ fn target_entries(
                     occurrence
                         .tag_info
                         .as_ref()
-                        .is_some_and(|info| info.id == entry.id)
+                        .is_some_and(|info| info.id == entry.schema_id)
                 })
                 .collect();
             let target = if matches.is_empty() {
                 let info = medialibrary_tauri_lib::tag_schema::get_registry()
                     .expect("registry")
-                    .lookup(&entry.id)
+                    .lookup(&entry.schema_id)
                     .expect("exact integration schema");
                 MetadataDraftTarget::from_new_property(info).expect("writable integration schema")
             } else {
@@ -201,18 +201,18 @@ fn target_entries(
                 let [occurrence] = candidates.as_slice() else {
                     panic!(
                         "exact schema {:?} has {} occurrences but {} suitable writable targets",
-                        entry.id,
+                        entry.schema_id,
                         matches.len(),
                         candidates.len()
                     )
                 };
                 MetadataDraftTarget::ExistingOccurrence {
                     occurrence_id: occurrence.id.clone(),
-                    schema_id: entry.id,
+                    schema_id: entry.schema_id,
                     write_target: occurrence.write_target.clone().unwrap(),
                 }
             };
-            MetadataDraftEntryV5 {
+            MetadataTargetDraftEntry {
                 target,
                 edit: entry.edit,
             }
@@ -220,29 +220,33 @@ fn target_entries(
         .collect()
 }
 
-fn apply_v5_file(
+fn apply_target_file(
     folder: &str,
     rel: &str,
-    edits: Vec<MetadataDraftEntry>,
-) -> apply_edits_v5::MetadataSingleFileOutcomeV5 {
+    edits: Vec<SchemaMetadataEdit>,
+) -> apply_edits::MetadataSingleFileOutcome {
     let entries = target_entries(Path::new(folder), rel, edits);
-    apply_edits_v5::apply_single_file_metadata_v5(folder, rel, &entries)
+    apply_edits::apply_single_file_metadata(folder, rel, &entries)
 }
 
 #[derive(Debug)]
-struct V5BatchResult {
+struct TargetBatchResult {
     applied: Vec<String>,
     failed: Vec<String>,
 }
 
-fn apply_v5_batch(folder: &str, rel: &str, edits: Vec<MetadataDraftEntry>) -> V5BatchResult {
-    let outcome = apply_v5_file(folder, rel, edits);
+fn apply_target_batch(
+    folder: &str,
+    rel: &str,
+    edits: Vec<SchemaMetadataEdit>,
+) -> TargetBatchResult {
+    let outcome = apply_target_file(folder, rel, edits);
     match outcome.error {
-        Some(error) => V5BatchResult {
+        Some(error) => TargetBatchResult {
             applied: Vec::new(),
             failed: vec![error],
         },
-        None => V5BatchResult {
+        None => TargetBatchResult {
             applied: vec![rel.to_string()],
             failed: Vec::new(),
         },
@@ -279,12 +283,12 @@ fn apply_text_edit_roundtrip_iptc_city() {
     let rel = rel_of(dir.path(), &dst);
 
     let value = format!("integration-test-{}", std::process::id());
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: medialibrary_tauri_lib::known_ids::iptc_city(),
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: medialibrary_tauri_lib::known_ids::iptc_city(),
         edit: metadata_set(MetadataValue::Text(value.clone())),
     }];
 
-    let result = apply_v5_batch(folder, &rel, edits);
+    let result = apply_target_batch(folder, &rel, edits);
     assert!(
         result.failed.is_empty(),
         "expected no failures, got {:?}",
@@ -309,12 +313,12 @@ fn apply_xmp_mlib_ai_description_preserves_utf8() {
     let folder = dir.path().to_str().unwrap();
     let rel = rel_of(dir.path(), &dst);
 
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: medialibrary_tauri_lib::known_ids::mlib_ai_description(),
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: medialibrary_tauri_lib::known_ids::mlib_ai_description(),
         edit: metadata_set(MetadataValue::Text("A café scene".to_string())),
     }];
 
-    let outcome = apply_v5_file(folder, &rel, edits);
+    let outcome = apply_target_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -363,12 +367,12 @@ fn new_property_default_destination_roundtrip_is_family7_qualified() {
     );
 
     let expected = MetadataValue::Text("family-7-qualified integration write".into());
-    let entries = vec![MetadataDraftEntryV5 {
+    let entries = vec![MetadataTargetDraftEntry {
         target: target.clone(),
         edit: metadata_set(expected.clone()),
     }];
     let outcome =
-        apply_edits_v5::apply_single_file_metadata_v5(dir.path().to_str().unwrap(), &rel, &entries);
+        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &entries);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(outcome.outcomes.len(), 1);
     assert_eq!(outcome.outcomes[0].target, target);
@@ -401,19 +405,19 @@ fn apply_delete_edit_removes_tag() {
     let rel = rel_of(dir.path(), &dst);
 
     // Step 1: set City so we have something to delete.
-    let set_edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: medialibrary_tauri_lib::known_ids::iptc_city(),
+    let set_edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: medialibrary_tauri_lib::known_ids::iptc_city(),
         edit: metadata_set(MetadataValue::Text("to-be-deleted".to_string())),
     }];
-    let r1 = apply_v5_batch(folder, &rel, set_edits);
+    let r1 = apply_target_batch(folder, &rel, set_edits);
     assert!(r1.failed.is_empty());
 
     // Step 2: delete it.
-    let del_edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: medialibrary_tauri_lib::known_ids::iptc_city(),
+    let del_edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: medialibrary_tauri_lib::known_ids::iptc_city(),
         edit: metadata_delete(),
     }];
-    let r2 = apply_v5_batch(folder, &rel, del_edits);
+    let r2 = apply_target_batch(folder, &rel, del_edits);
     assert!(r2.failed.is_empty(), "delete failed: {:?}", r2.failed);
 
     // Step 3: re-read; City should be absent or empty.
@@ -545,12 +549,12 @@ fn roundtrip_set_rating() {
         "fixture should start with a Rating"
     );
 
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: rating_id.clone(),
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: rating_id.clone(),
         edit: metadata_set(MetadataValue::Integer(5)),
     }];
 
-    let outcome = apply_v5_file(folder, &rel, edits);
+    let outcome = apply_target_file(folder, &rel, edits);
     assert_eq!(outcome.outcomes.len(), 1);
     assert!(matches!(
         outcome.outcomes[0].kind.as_str(),
@@ -580,12 +584,12 @@ fn roundtrip_set_orientation_via_numeric_pass() {
         tag_id: "274".to_string(),
         index: None,
     };
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: orientation_id.clone(),
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: orientation_id.clone(),
         edit: metadata_set(MetadataValue::Integer(3)),
     }];
 
-    let result = apply_v5_batch(folder, &rel, edits);
+    let result = apply_target_batch(folder, &rel, edits);
     assert!(result.failed.is_empty(), "failed: {:?}", result.failed);
 
     let after = read_one(dir.path(), &dst);
@@ -739,12 +743,12 @@ fn semantic_apply_writes_bag_as_separate_items_end_to_end() {
     let rel = rel_of(dir.path(), &dst);
 
     let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: subject_id,
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: subject_id,
         edit: metadata_set(metadata_bag(&["alpha", "beta", "gamma"])),
     }];
 
-    let outcome = apply_v5_file(folder, &rel, edits);
+    let outcome = apply_target_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -781,12 +785,12 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     let rel = rel_of(dir.path(), &dst);
 
     let rating_id = medialibrary_tauri_lib::known_ids::xmp_rating();
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: rating_id,
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: rating_id,
         edit: metadata_set(MetadataValue::Real(3.5)),
     }];
 
-    let outcome = apply_v5_file(folder, &rel, edits);
+    let outcome = apply_target_file(folder, &rel, edits);
     // Coercion either yields a matched float (3.5 → 3.5 in file) or a
     // clean verification-failure message naming the tag.  We just assert
     // it didn't hard-fail.
@@ -814,12 +818,12 @@ fn semantic_apply_list_add_appends_items_to_bag() {
     let rel = rel_of(dir.path(), &dst);
 
     let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: subject_id,
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: subject_id,
         edit: metadata_edit(metadata_bag(&["vacation"]), EditIntent::ListAdd),
     }];
 
-    let outcome = apply_v5_file(folder, &rel, edits);
+    let outcome = apply_target_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -866,12 +870,12 @@ fn semantic_apply_list_remove_drops_items_from_bag() {
     let rel = rel_of(dir.path(), &dst);
 
     let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: subject_id,
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: subject_id,
         edit: metadata_edit(metadata_bag(&["beach"]), EditIntent::ListRemove),
     }];
 
-    let outcome = apply_v5_file(folder, &rel, edits);
+    let outcome = apply_target_file(folder, &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
 
     let m = read_one(dir.path(), &dst);
@@ -918,8 +922,8 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
     let rel = rel_of(dir.path(), &dst);
 
     let subject_id = medialibrary_tauri_lib::known_ids::xmp_subject();
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: subject_id,
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: subject_id,
         edit: metadata_set(MetadataValue::List {
             list_kind: ListKind::Bag,
             items: vec![
@@ -928,7 +932,7 @@ fn apply_keywords_writes_back_as_separate_items_not_csv() {
             ],
         }),
     }];
-    let result = apply_v5_batch(folder, &rel, edits);
+    let result = apply_target_batch(folder, &rel, edits);
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
@@ -965,14 +969,14 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
     let ocr_text = "cpp\nCertificate\nOf\nAchievement\nRobert Highet".to_string();
 
     let ocr_id = medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text();
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: ocr_id,
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: ocr_id,
         edit: metadata_set(MetadataValue::List {
             list_kind: ListKind::Bag,
             items: vec![MetadataValue::Text(ocr_text.clone())],
         }),
     }];
-    let result = apply_v5_batch(folder, &rel, edits);
+    let result = apply_target_batch(folder, &rel, edits);
     assert!(result.failed.is_empty(), "{:?}", result.failed);
 
     let m = read_one(dir.path(), &dst);
@@ -1132,12 +1136,12 @@ fn roundtrip_langalt_preserves_exact_parent_id_and_languages() {
     let mut languages = BTreeMap::new();
     languages.insert("x-default".to_string(), "Exact default".to_string());
     languages.insert("fr".to_string(), "Texte exact".to_string());
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: id.clone(),
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: id.clone(),
         edit: metadata_set(MetadataValue::LangAlt(languages.clone())),
     }];
 
-    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
+    let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(outcome.outcomes.len(), 1);
     assert_eq!(outcome.outcomes[0].target.schema_id(), &id);
@@ -1180,14 +1184,14 @@ fn roundtrip_gps_preserves_each_exact_id() {
     let edits = values
         .iter()
         .map(
-            |(id, value)| medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-                id: id.clone(),
+            |(id, value)| medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+                schema_id: id.clone(),
                 edit: metadata_set(value.clone()),
             },
         )
         .collect::<Vec<_>>();
 
-    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
+    let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(
         outcome
@@ -1235,12 +1239,12 @@ fn roundtrip_datetime_preserves_explicit_utc_offset_and_exact_id() {
             }),
         },
     });
-    let edits = vec![medialibrary_tauri_lib::draft_edits::MetadataDraftEntry {
-        id: id.clone(),
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: id.clone(),
         edit: metadata_set(value.clone()),
     }];
 
-    let outcome = apply_v5_file(dir.path().to_str().unwrap(), &rel, edits);
+    let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(outcome.outcomes[0].target.schema_id(), &id);
     let reread = read_one(dir.path(), &dst);
@@ -1260,7 +1264,7 @@ fn missing_exact_schema_is_rejected_before_write() {
         tag_id: "Title".into(),
         index: None,
     };
-    let entries = vec![MetadataDraftEntryV5 {
+    let entries = vec![MetadataTargetDraftEntry {
         target: MetadataDraftTarget::NewProperty {
             schema_id: missing.clone(),
             write_target: MetadataWriteTarget {
@@ -1273,7 +1277,7 @@ fn missing_exact_schema_is_rejected_before_write() {
     }];
 
     let outcome =
-        apply_edits_v5::apply_single_file_metadata_v5(dir.path().to_str().unwrap(), &rel, &entries);
+        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &entries);
     let error = outcome.error.unwrap();
     assert!(error.to_ascii_lowercase().contains("schema"), "{error}");
     assert!(outcome.outcomes.is_empty());

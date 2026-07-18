@@ -30,7 +30,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { BatchFailureKind, BatchJobFailureKind } from "../types";
-import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
+import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 
 export type BatchJobPhase =
   "estimating" | "awaiting-confirm" | "running" | "done";
@@ -177,8 +177,8 @@ export interface UseBatchImageJobOptions {
    */
   onApplyEdits?: (
     relativePath: string,
-    edits: import("../types").MetadataDraftEntry[],
-  ) => GeneratedDraftStageResultV5;
+    edits: import("../types").SchemaMetadataEdit[],
+  ) => GeneratedDraftStageResult;
 }
 
 /**
@@ -259,7 +259,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         relativePath: string;
         status: string;
         error: string | null;
-        edits?: import("../types").MetadataDraftEntry[];
+        edits?: import("../types").SchemaMetadataEdit[];
       }>(`${config.eventPrefix}_progress`, (p) => {
         let stagingFailure: BatchJobFailure | null = null;
         if (p.status === "ok" && p.edits) {

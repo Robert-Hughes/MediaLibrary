@@ -2,38 +2,35 @@ import type { MetadataDraftTarget } from "./types";
 import type { TargetDraftEditsByFile } from "./targetDraftEdits";
 import {
   clearTargetVerifyOutcomes,
-  emptyTargetVerifyOutcomesV5,
+  emptyTargetVerifyOutcomes,
   pruneTargetVerifyOutcomesAgainstDrafts,
   removeTargetVerifyOutcome,
   removeTargetVerifyOutcomesForFile,
   replaceTargetVerifyOutcomesForFile,
-  type TargetVerifyOutcomeV5,
-  type TargetVerifyOutcomesByFileV5,
+  type TargetVerifyOutcome,
+  type TargetVerifyOutcomesByFile,
 } from "./targetVerifyOutcomes";
 import { hasOwnStringKey } from "./utils/stringRecord";
 
-export type TargetVerifyOutcomesListenerV5 = (
-  snapshot: TargetVerifyOutcomesByFileV5,
+export type TargetVerifyOutcomesListener = (
+  snapshot: TargetVerifyOutcomesByFile,
 ) => void;
 
-export class TargetVerifyOutcomesStoreV5 {
-  private snapshot = emptyTargetVerifyOutcomesV5();
-  private readonly listeners = new Set<TargetVerifyOutcomesListenerV5>();
+export class TargetVerifyOutcomesStore {
+  private snapshot = emptyTargetVerifyOutcomes();
+  private readonly listeners = new Set<TargetVerifyOutcomesListener>();
 
-  getAll(): TargetVerifyOutcomesByFileV5 {
+  getAll(): TargetVerifyOutcomesByFile {
     return this.snapshot;
   }
 
-  getFile(path: string): Record<string, TargetVerifyOutcomeV5> | undefined {
+  getFile(path: string): Record<string, TargetVerifyOutcome> | undefined {
     return hasOwnStringKey(this.snapshot, path)
       ? this.snapshot[path]
       : undefined;
   }
 
-  replaceFile(
-    path: string,
-    outcomes: readonly TargetVerifyOutcomeV5[],
-  ): boolean {
+  replaceFile(path: string, outcomes: readonly TargetVerifyOutcome[]): boolean {
     return this.install(
       replaceTargetVerifyOutcomesForFile(this.snapshot, path, outcomes),
     );
@@ -57,12 +54,12 @@ export class TargetVerifyOutcomesStoreV5 {
     return this.install(clearTargetVerifyOutcomes(this.snapshot));
   }
 
-  subscribe(listener: TargetVerifyOutcomesListenerV5): () => void {
+  subscribe(listener: TargetVerifyOutcomesListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  private install(next: TargetVerifyOutcomesByFileV5): boolean {
+  private install(next: TargetVerifyOutcomesByFile): boolean {
     if (next === this.snapshot) return false;
     this.snapshot = next;
     for (const listener of this.listeners) listener(this.snapshot);

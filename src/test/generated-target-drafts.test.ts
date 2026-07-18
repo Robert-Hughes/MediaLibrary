@@ -2,15 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   DESCRIBE_TARGET_TAGS,
   GeneratedTargetDraftPlanError,
-  planGeneratedTargetDraftBatchV5,
-  type GeneratedMetadataProducerV5,
+  planGeneratedTargetDraftBatch,
+  type GeneratedMetadataProducer,
 } from "../generatedTargetDrafts";
-import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
+import {
+  KNOWN_METADATA_IDS as ID,
+  knownMetadataWriteTarget,
+} from "../metadata/knownIds";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
-  MetadataDraftEntry,
-  MetadataDraftEntryV5,
+  SchemaMetadataEdit,
+  MetadataTargetDraftEntry,
   MetadataOccurrence,
   MetadataValue,
   SchemaDefinitionId,
@@ -77,14 +80,14 @@ function occurrence(
 function targetEntry(
   item: MetadataOccurrence,
   edit: MetadataDraftEdit,
-): MetadataDraftEntryV5 {
+): MetadataTargetDraftEntry {
   const resolution = existingOccurrenceTargetFromOccurrence(item);
   if (resolution.kind !== "targetable") throw new Error(resolution.reason);
   return { target: resolution.target, edit: structuredClone(edit) };
 }
 
 function targetCollection(
-  ...entries: MetadataDraftEntryV5[]
+  ...entries: MetadataTargetDraftEntry[]
 ): TargetDraftCollection {
   return Object.fromEntries(
     entries.map((entry) => [
@@ -95,12 +98,12 @@ function targetCollection(
 }
 
 function plan(options: {
-  producer?: GeneratedMetadataProducerV5;
-  edits?: MetadataDraftEntry[];
+  producer?: GeneratedMetadataProducer;
+  edits?: SchemaMetadataEdit[];
   occurrences?: MetadataOccurrence[] | "loading";
   targetDrafts?: TargetDraftCollection;
 }) {
-  return planGeneratedTargetDraftBatchV5({
+  return planGeneratedTargetDraftBatch({
     producer: options.producer ?? { kind: "describe" },
     edits: options.edits ?? [],
     occurrences: options.occurrences ?? [],
@@ -121,7 +124,7 @@ function expectCode(
   }
 }
 
-describe("planGeneratedTargetDraftBatchV5", () => {
+describe("planGeneratedTargetDraftBatch", () => {
   it("returns an empty plan for empty edits with loaded occurrences", () => {
     expect(plan({ occurrences: [occurrence(ID.mlibAiDescription)] })).toEqual({
       upserts: [],
@@ -152,7 +155,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
   });
 
   it("does not mutate any input while returning an empty plan", () => {
-    const producer: GeneratedMetadataProducerV5 = {
+    const producer: GeneratedMetadataProducer = {
       kind: "normalise",
       enabledGroups: ["title"],
     };
@@ -189,7 +192,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
   it("creates an exact ExistingOccurrence target for a unique writable occurrence", () => {
     const item = occurrence(ID.mlibAiDescription);
     const result = plan({
-      edits: [{ id: ID.mlibAiDescription, edit: set("generated") }],
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("generated") }],
       occurrences: [item],
     });
     expect(result.upserts).toHaveLength(1);
@@ -203,7 +206,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
 
   it("creates an exact NewProperty target when the schema is missing", () => {
     const result = plan({
-      edits: [{ id: ID.mlibAiDescription, edit: set("generated") }],
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("generated") }],
     });
     expect(result.upserts[0].target).toEqual({
       kind: "NewProperty",
@@ -218,7 +221,10 @@ describe("planGeneratedTargetDraftBatchV5", () => {
 
   it("accepts every exact describe output schema and no namespace prefix shortcut", () => {
     const result = plan({
-      edits: DESCRIBE_TARGET_TAGS.map((id) => ({ id, edit: set(id.tag_id) })),
+      edits: DESCRIBE_TARGET_TAGS.map((schema_id) => ({
+        schema_id,
+        edit: set(schema_id.tag_id),
+      })),
     });
     expect(result.upserts).toHaveLength(DESCRIBE_TARGET_TAGS.length);
     expectCode(
@@ -226,7 +232,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
         plan({
           edits: [
             {
-              id: { table: "UserDefined::mlib", tag_id: "ForeignField" },
+              schema_id: { table: "UserDefined::mlib", tag_id: "ForeignField" },
               edit: set("x"),
             },
           ],
@@ -238,9 +244,9 @@ describe("planGeneratedTargetDraftBatchV5", () => {
   it("accepts the exact geocode set including deliberate Delete intents", () => {
     const result = plan({
       producer: { kind: "geocode" },
-      edits: GEOCODE_TARGET_TAGS.map((id, index) => ({
-        id,
-        edit: index === 0 ? del() : set(id.tag_id),
+      edits: GEOCODE_TARGET_TAGS.map((schema_id, index) => ({
+        schema_id,
+        edit: index === 0 ? del() : set(schema_id.tag_id),
       })),
     });
     expect(result.upserts).toHaveLength(GEOCODE_TARGET_TAGS.length - 1);
@@ -253,7 +259,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expect(
       plan({
         producer: { kind: "normalise", enabledGroups: ["title"] },
-        edits: [{ id: allowed, edit: set("title") }],
+        edits: [{ schema_id: allowed, edit: set("title") }],
       }).upserts,
     ).toHaveLength(1);
     expectCode(
@@ -261,8 +267,8 @@ describe("planGeneratedTargetDraftBatchV5", () => {
         plan({
           producer: { kind: "normalise", enabledGroups: ["title"] },
           edits: [
-            { id: allowed, edit: set("title") },
-            { id: disabled, edit: set("description") },
+            { schema_id: allowed, edit: set("title") },
+            { schema_id: disabled, edit: set("description") },
           ],
         }),
       "schema_not_allowed",
@@ -274,8 +280,8 @@ describe("planGeneratedTargetDraftBatchV5", () => {
       () =>
         plan({
           edits: [
-            { id: ID.mlibAiDescription, edit: set("one") },
-            { id: ID.mlibAiDescription, edit: set("two") },
+            { schema_id: ID.mlibAiDescription, edit: set("one") },
+            { schema_id: ID.mlibAiDescription, edit: set("two") },
           ],
         }),
       "duplicate_schema",
@@ -286,7 +292,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expectCode(
       () =>
         plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("x") }],
+          edits: [{ schema_id: ID.mlibAiDescription, edit: set("x") }],
           occurrences: "loading",
         }),
       "occurrences_loading",
@@ -297,7 +303,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expectCode(
       () =>
         plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("x") }],
+          edits: [{ schema_id: ID.mlibAiDescription, edit: set("x") }],
           occurrences: [
             occurrence(ID.mlibAiDescription, "a", { copy: 0 }),
             occurrence(ID.mlibAiDescription, "b", { copy: 1 }),
@@ -311,7 +317,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expectCode(
       () =>
         plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("x") }],
+          edits: [{ schema_id: ID.mlibAiDescription, edit: set("x") }],
           occurrences: [
             occurrence(ID.mlibAiDescription, "a", { writable: false }),
           ],
@@ -321,7 +327,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expectCode(
       () =>
         plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("x") }],
+          edits: [{ schema_id: ID.mlibAiDescription, edit: set("x") }],
           occurrences: [
             occurrence(ID.mlibAiDescription, "a", { writeTarget: false }),
           ],
@@ -332,7 +338,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
 
   it("treats unknown occurrences with matching runtime tag IDs as unrelated", () => {
     const result = plan({
-      edits: [{ id: ID.mlibAiDescription, edit: set("x") }],
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("x") }],
       occurrences: [
         occurrence(ID.mlibAiDescription, "unknown", {
           tagInfo: false,
@@ -350,7 +356,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     const item = occurrence(ID.mlibAiDescription);
     const owner = targetEntry(item, set("old"));
     const result = plan({
-      edits: [{ id: ID.mlibAiDescription, edit: set("new") }],
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("new") }],
       occurrences: [item],
       targetDrafts: targetCollection(owner),
     });
@@ -358,62 +364,57 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     expect(result.upserts[0].edit).toEqual(set("new"));
   });
 
-  it("rejects a different occurrence owner or target variant mismatch", () => {
+  it("ignores same-schema owners that do not match the planned target", () => {
     const current = occurrence(ID.mlibAiDescription, "current", { copy: 0 });
     const sibling = occurrence(ID.mlibAiDescription, "sibling", { copy: 1 });
-    expectCode(
-      () =>
-        plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("new") }],
-          occurrences: [current],
-          targetDrafts: targetCollection(targetEntry(sibling, set("old"))),
-        }),
-      "target_owner_mismatch",
+    const siblingResult = plan({
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("new") }],
+      occurrences: [current],
+      targetDrafts: targetCollection(targetEntry(sibling, set("old"))),
+    });
+    expect(siblingResult.upserts[0].target).toEqual(
+      targetEntry(current, set("new")).target,
     );
-    expectCode(
-      () =>
-        plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("new") }],
-          occurrences: [current],
-          targetDrafts: targetCollection({
-            target: {
-              kind: "NewProperty",
-              schema_id: ID.mlibAiDescription,
-              write_target: {
-                group1: "XMP-test",
-                group7: "ID-Test",
-                tag_name: "TestTag",
-              },
-            },
-            edit: set("old"),
-          }),
-        }),
-      "target_owner_mismatch",
-    );
+
+    const customDestination: MetadataTargetDraftEntry = {
+      target: {
+        kind: "NewProperty",
+        schema_id: ID.mlibAiDescription,
+        write_target: {
+          group1: "XMP-test",
+          group7: "ID-Test",
+          tag_name: "TestTag",
+        },
+      },
+      edit: set("old"),
+    };
+    const newPropertyResult = plan({
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("new") }],
+      occurrences: [current],
+      targetDrafts: targetCollection(customDestination),
+    });
+    expect(newPropertyResult.upserts[0].target.kind).toBe("ExistingOccurrence");
   });
 
-  it("rejects multiple target owners for one exact schema", () => {
+  it("acts only on the exact planned owner among same-schema siblings", () => {
     const first = occurrence(ID.mlibAiDescription, "a", { copy: 0 });
     const second = occurrence(ID.mlibAiDescription, "b", { copy: 1 });
-    expectCode(
-      () =>
-        plan({
-          edits: [{ id: ID.mlibAiDescription, edit: set("new") }],
-          occurrences: [first],
-          targetDrafts: targetCollection(
-            targetEntry(first, set("one")),
-            targetEntry(second, set("two")),
-          ),
-        }),
-      "multiple_target_owners",
-    );
+    const result = plan({
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("new") }],
+      occurrences: [first],
+      targetDrafts: targetCollection(
+        targetEntry(first, set("one")),
+        targetEntry(second, set("two")),
+      ),
+    });
+    expect(result.upserts).toEqual([targetEntry(first, set("new"))]);
   });
 
   it("plans exact no-op for an identical owner and edit", () => {
     const item = occurrence(ID.mlibAiDescription, "current");
     const owner = targetEntry(item, set("pending"));
     const result = plan({
-      edits: [{ id: ID.mlibAiDescription, edit: set("pending") }],
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("pending") }],
       occurrences: [item],
       targetDrafts: targetCollection(owner),
     });
@@ -427,7 +428,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
   it("does not stage a Set equal to the authoritative value", () => {
     const item = occurrence(ID.mlibAiDescription, "same");
     const result = plan({
-      edits: [{ id: ID.mlibAiDescription, edit: set("same") }],
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("same") }],
       occurrences: [item],
     });
     expect(result.upserts).toEqual([]);
@@ -438,7 +439,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     const item = occurrence(ID.mlibAiDescription, "disk");
     const owner = targetEntry(item, set("pending"));
     const result = plan({
-      edits: [{ id: ID.mlibAiDescription, edit: set("disk") }],
+      edits: [{ schema_id: ID.mlibAiDescription, edit: set("disk") }],
       occurrences: [item],
       targetDrafts: targetCollection(owner),
     });
@@ -450,11 +451,11 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     const schema = GEOCODE_TARGET_TAGS[0];
     const noOwner = plan({
       producer: { kind: "geocode" },
-      edits: [{ id: schema, edit: del() }],
+      edits: [{ schema_id: schema, edit: del() }],
     });
     expect(noOwner.noops).toEqual([schema]);
 
-    const owner: MetadataDraftEntryV5 = {
+    const customOwner: MetadataTargetDraftEntry = {
       target: {
         kind: "NewProperty",
         schema_id: schema,
@@ -468,24 +469,40 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     };
     const cancellation = plan({
       producer: { kind: "geocode" },
-      edits: [{ id: schema, edit: del() }],
-      targetDrafts: targetCollection(owner),
+      edits: [{ schema_id: schema, edit: del() }],
+      targetDrafts: targetCollection(customOwner),
     });
-    expect(cancellation.deletes).toEqual([owner.target]);
+    expect(cancellation.deletes).toEqual([]);
+    expect(cancellation.noops).toEqual([schema]);
+
+    const defaultWriteTarget = knownMetadataWriteTarget(schema);
+    expect(defaultWriteTarget).toBeDefined();
+    const exactOwner: MetadataTargetDraftEntry = {
+      target: {
+        kind: "NewProperty",
+        schema_id: schema,
+        write_target: defaultWriteTarget!,
+      },
+      edit: set("pending"),
+    };
+    const exactCancellation = plan({
+      producer: { kind: "geocode" },
+      edits: [{ schema_id: schema, edit: del() }],
+      targetDrafts: targetCollection(customOwner, exactOwner),
+    });
+    expect(exactCancellation.deletes).toEqual([exactOwner.target]);
   });
 
-  it("rejects stale ExistingOccurrence ownership when the schema is now missing", () => {
+  it("does not redirect a missing-schema Delete to a stale occurrence owner", () => {
     const schema = GEOCODE_TARGET_TAGS[0];
     const stale = targetEntry(occurrence(schema), set("old"));
-    expectCode(
-      () =>
-        plan({
-          producer: { kind: "geocode" },
-          edits: [{ id: schema, edit: del() }],
-          targetDrafts: targetCollection(stale),
-        }),
-      "stale_target_owner",
-    );
+    const result = plan({
+      producer: { kind: "geocode" },
+      edits: [{ schema_id: schema, edit: del() }],
+      targetDrafts: targetCollection(stale),
+    });
+    expect(result.deletes).toEqual([]);
+    expect(result.noops).toEqual([schema]);
   });
 
   it("keeps absent schema index distinct from index zero", () => {
@@ -495,8 +512,8 @@ describe("planGeneratedTargetDraftBatchV5", () => {
       () =>
         plan({
           edits: [
-            { id: absent, edit: set("allowed") },
-            { id: zero, edit: set("foreign") },
+            { schema_id: absent, edit: set("allowed") },
+            { schema_id: zero, edit: set("foreign") },
           ],
         }),
       "schema_not_allowed",
@@ -509,7 +526,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
         plan({
           edits: [
             {
-              id: ID.mlibAiDescription,
+              schema_id: ID.mlibAiDescription,
               edit: { intent: "Delete", value: null },
             },
           ],
@@ -521,7 +538,7 @@ describe("planGeneratedTargetDraftBatchV5", () => {
         plan({
           edits: [
             {
-              id: ID.mlibAiDescription,
+              schema_id: ID.mlibAiDescription,
               edit: { intent: "Set", value: null },
             },
           ],
@@ -535,8 +552,8 @@ describe("planGeneratedTargetDraftBatchV5", () => {
       () =>
         plan({
           edits: [
-            { id: ID.mlibAiDescription, edit: set("valid") },
-            { id: ID.xmpTitle, edit: set("foreign") },
+            { schema_id: ID.mlibAiDescription, edit: set("valid") },
+            { schema_id: ID.xmpTitle, edit: set("foreign") },
           ],
         }),
       "schema_not_allowed",
@@ -547,7 +564,10 @@ describe("planGeneratedTargetDraftBatchV5", () => {
     const id = structuredClone(ID.mlibAiDescription);
     const edit = set("generated");
     const item = occurrence(id);
-    const result = plan({ edits: [{ id, edit }], occurrences: [item] });
+    const result = plan({
+      edits: [{ schema_id: id, edit }],
+      occurrences: [item],
+    });
 
     id.tag_id = "mutated";
     (edit.value as Extract<MetadataValue, { kind: "Text" }>).value = "mutated";

@@ -277,7 +277,7 @@ export function existingOccurrenceTargetFromOccurrence(
   };
 }
 
-/** Current-value lookup for the v5 redundant-draft guard. */
+/** Current-value lookup for the target-aware redundant-draft guard. */
 export function currentValueForMetadataDraftTarget(
   occurrences: ImageMetadataOccurrencesState,
   target: MetadataDraftTarget,

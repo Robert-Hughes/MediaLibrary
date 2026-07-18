@@ -1,6 +1,6 @@
 import type {
   MetadataDraftEdit,
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataDraftTarget,
   MetadataValue,
 } from "./types";
@@ -11,7 +11,7 @@ import {
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
 import {
-  isMetadataDraftEntryV5,
+  isMetadataTargetDraftEntry,
   isMetadataDraftTarget,
   isRecord,
 } from "./utils/metadataWireGuards";
@@ -23,7 +23,7 @@ import { wireStructuralEqual } from "./utils/wireStructuralEquality";
  * The record key is logical slot identity used only for collection mechanics.
  * Every stored value retains the complete persisted target snapshot.
  */
-export type TargetDraftCollection = Record<string, MetadataDraftEntryV5>;
+export type TargetDraftCollection = Record<string, MetadataTargetDraftEntry>;
 
 export type TargetDraftEditsByFile = Record<string, TargetDraftCollection>;
 
@@ -36,7 +36,7 @@ export interface TargetDraftEditsChange {
 
 export interface ExactTargetMutationBatchItem {
   path: string;
-  upserts: readonly MetadataDraftEntryV5[];
+  upserts: readonly MetadataTargetDraftEntry[];
   deletes: readonly MetadataDraftTarget[];
 }
 
@@ -48,13 +48,13 @@ function cloneTarget(target: MetadataDraftTarget): MetadataDraftTarget {
   return structuredClone(target);
 }
 
-function cloneEntry(entry: MetadataDraftEntryV5): MetadataDraftEntryV5 {
+function cloneEntry(entry: MetadataTargetDraftEntry): MetadataTargetDraftEntry {
   return structuredClone(entry);
 }
 
-export function metadataDraftEntryV5EqualsExact(
-  left: MetadataDraftEntryV5,
-  right: MetadataDraftEntryV5,
+export function metadataTargetDraftEntryEqualsExact(
+  left: MetadataTargetDraftEntry,
+  right: MetadataTargetDraftEntry,
 ): boolean {
   return (
     metadataDraftTargetEquals(left.target, right.target) &&
@@ -73,7 +73,7 @@ export function targetDraftCollectionEqualsExact(
   return leftSlots.every(
     (slot) =>
       hasOwnStringKey(right, slot) &&
-      metadataDraftEntryV5EqualsExact(left[slot], right[slot]),
+      metadataTargetDraftEntryEqualsExact(left[slot], right[slot]),
   );
 }
 
@@ -110,18 +110,19 @@ export function validateTargetDraftCollection(
   }
 }
 
-/** Strict schema-v5 wire conversion; duplicate logical slots are rejected. */
+/** Strict target-aware wire conversion; duplicate logical slots are rejected. */
 export function targetDraftsFromWire(
-  wire: Record<string, MetadataDraftEntryV5[]>,
+  wire: Record<string, MetadataTargetDraftEntry[]>,
 ): TargetDraftEditsByFile {
   const draftEntries: Array<readonly [string, TargetDraftCollection]> = [];
 
   for (const [path, entries] of Object.entries(wire)) {
     if (entries.length === 0) continue;
 
-    const collectionEntries: Array<readonly [string, MetadataDraftEntryV5]> =
-      [];
-    const seenSlots = new Map<string, MetadataDraftEntryV5>();
+    const collectionEntries: Array<
+      readonly [string, MetadataTargetDraftEntry]
+    > = [];
+    const seenSlots = new Map<string, MetadataTargetDraftEntry>();
     for (const entry of entries) {
       const slot = metadataDraftTargetSlotToken(entry.target);
       if (seenSlots.has(slot)) {
@@ -143,20 +144,22 @@ export function targetDraftsFromUnknownWire(
   raw: unknown,
 ): TargetDraftEditsByFile {
   if (!isRecord(raw)) {
-    throw new Error("Invalid schema-v5 draft wire payload: expected an object");
+    throw new Error(
+      "Invalid target-aware draft wire payload: expected an object",
+    );
   }
 
-  const wireEntries: Array<readonly [string, MetadataDraftEntryV5[]]> = [];
+  const wireEntries: Array<readonly [string, MetadataTargetDraftEntry[]]> = [];
   for (const [path, value] of Object.entries(raw)) {
     if (!Array.isArray(value)) {
       throw new Error(
-        `Invalid schema-v5 draft wire payload for '${path}': expected an array`,
+        `Invalid target-aware draft wire payload for '${path}': expected an array`,
       );
     }
     for (const [index, entry] of value.entries()) {
-      if (!isMetadataDraftEntryV5(entry)) {
+      if (!isMetadataTargetDraftEntry(entry)) {
         throw new Error(
-          `Invalid schema-v5 draft entry for '${path}' at array index ${index}`,
+          `Invalid target-aware draft entry for '${path}' at array index ${index}`,
         );
       }
     }
@@ -166,16 +169,16 @@ export function targetDraftsFromUnknownWire(
   return targetDraftsFromWire(recordFromEntries(wireEntries));
 }
 
-/** Deterministic schema-v5 wire conversion ordered exactly by Rust slot order. */
+/** Deterministic target-aware wire conversion ordered exactly by Rust slot order. */
 export function targetDraftsToWire(
   drafts: TargetDraftEditsByFile,
-): Record<string, MetadataDraftEntryV5[]> {
+): Record<string, MetadataTargetDraftEntry[]> {
   for (const [path, collection] of Object.entries(drafts)) {
     validateTargetDraftCollection(path, collection);
   }
 
   const paths = Object.keys(drafts).sort(compareUnicodeScalarStrings);
-  const wireEntries: Array<readonly [string, MetadataDraftEntryV5[]]> = [];
+  const wireEntries: Array<readonly [string, MetadataTargetDraftEntry[]]> = [];
 
   for (const path of paths) {
     if (!hasOwnStringKey(drafts, path)) continue;
@@ -195,7 +198,7 @@ export function targetDraftsToWire(
   return recordFromEntries(wireEntries);
 }
 
-/** Observable production store for exact target-aware schema-v5 drafts. */
+/** Observable production store for exact target-aware target-aware drafts. */
 export class TargetDraftEditsStore {
   private snapshot: TargetDraftEditsByFile = recordFromEntries([]);
   private listeners = new Set<TargetDraftEditsListener>();
@@ -241,15 +244,15 @@ export class TargetDraftEditsStore {
       : undefined;
   }
 
-  /** Replace one file with the exact successfully persisted v5 snapshot. */
+  /** Replace one file with the exact successfully persisted target-aware snapshot. */
   replaceMetadataFile(
     path: string,
-    persistedEntries: readonly MetadataDraftEntryV5[],
+    persistedEntries: readonly MetadataTargetDraftEntry[],
   ): boolean {
     for (const [index, entry] of persistedEntries.entries()) {
-      if (!isMetadataDraftEntryV5(entry)) {
+      if (!isMetadataTargetDraftEntry(entry)) {
         throw new Error(
-          `Invalid schema-v5 draft entry for '${path}' at array index ${index}`,
+          `Invalid target-aware draft entry for '${path}' at array index ${index}`,
         );
       }
     }
@@ -308,7 +311,7 @@ export class TargetDraftEditsStore {
 
     if (
       existing &&
-      metadataDraftEntryV5EqualsExact(existing, { target, edit })
+      metadataTargetDraftEntryEqualsExact(existing, { target, edit })
     ) {
       return "redundant";
     }
@@ -324,7 +327,7 @@ export class TargetDraftEditsStore {
       }
     }
 
-    const stored: MetadataDraftEntryV5 = {
+    const stored: MetadataTargetDraftEntry = {
       target: cloneTarget(target),
       edit: structuredClone(edit),
     };
@@ -357,7 +360,7 @@ export class TargetDraftEditsStore {
    */
   setMetadataBatch(
     path: string,
-    entries: MetadataDraftEntryV5[],
+    entries: MetadataTargetDraftEntry[],
   ): Array<{ target: MetadataDraftTarget; outcome: TargetDraftSetOutcome }> {
     if (entries.length === 0) return [];
 
@@ -394,7 +397,7 @@ export class TargetDraftEditsStore {
 
     for (const mutation of mutations) {
       for (const [index, entry] of mutation.upserts.entries()) {
-        if (!isMetadataDraftEntryV5(entry)) {
+        if (!isMetadataTargetDraftEntry(entry)) {
           throw new Error(
             `Invalid exact target upsert for '${mutation.path}' at index ${index}`,
           );

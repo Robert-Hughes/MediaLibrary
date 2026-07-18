@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   MetadataDraftEdit,
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataDraftTarget,
   SchemaDefinitionId,
 } from "../types";
@@ -9,7 +9,7 @@ import { targetDraftsFromUnknownWire } from "../targetDraftEdits";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 import {
   isMetadataDraftEdit,
-  isMetadataDraftEntryV5,
+  isMetadataTargetDraftEntry,
   isMetadataDraftTarget,
   isMetadataOccurrence,
   isMetadataOccurrenceId,
@@ -58,7 +58,7 @@ const edit = (overrides: Record<string, unknown> = {}): MetadataDraftEdit =>
 
 const entry = (
   target: MetadataDraftTarget = existing(),
-): MetadataDraftEntryV5 => ({ target, edit: edit() });
+): MetadataTargetDraftEntry => ({ target, edit: edit() });
 
 describe("metadata identity wire guards", () => {
   it("accepts valid identities and write targets", () => {
@@ -215,7 +215,7 @@ describe("metadata occurrence wire guard", () => {
   });
 });
 
-describe("schema-v5 target and edit wire guards", () => {
+describe("target-aware target and edit wire guards", () => {
   it("accepts complete existing and new-property targets", () => {
     expect(isMetadataDraftTarget(existing())).toBe(true);
     expect(isMetadataDraftTarget(created())).toBe(true);
@@ -301,11 +301,13 @@ describe("schema-v5 target and edit wire guards", () => {
   });
 
   it("requires both a valid target and edit for entries", () => {
-    expect(isMetadataDraftEntryV5(entry())).toBe(true);
-    expect(isMetadataDraftEntryV5({ target: existing(), edit: {} })).toBe(
+    expect(isMetadataTargetDraftEntry(entry())).toBe(true);
+    expect(isMetadataTargetDraftEntry({ target: existing(), edit: {} })).toBe(
       false,
     );
-    expect(isMetadataDraftEntryV5({ target: {}, edit: edit() })).toBe(false);
+    expect(isMetadataTargetDraftEntry({ target: {}, edit: edit() })).toBe(
+      false,
+    );
   });
 });
 

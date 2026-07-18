@@ -8,12 +8,12 @@ import type {
   MetadataDraftTarget,
   MetadataOccurrence,
   MetadataOccurrenceId,
-  MetadataDraftEntryV5,
-  TargetDraftPersistenceStateV5,
+  MetadataTargetDraftEntry,
+  TargetDraftPersistenceState,
 } from "../types";
 import { metadataValueEqual } from "../types";
 import {
-  metadataDraftEntryV5EqualsExact,
+  metadataTargetDraftEntryEqualsExact,
   type TargetDraftCollection,
 } from "../targetDraftEdits";
 import { HighlightedText } from "./HighlightedText";
@@ -84,8 +84,8 @@ import {
   metadataWriteSelector,
   validateFamily1Group,
 } from "../utils/metadataWriteTarget";
-import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
-import { previewMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
+import { planGpsTargetDraftBatch } from "../gpsTargetDrafts";
+import { previewMetadataRemovalTargets } from "../metadataRemovalTargets";
 
 type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,
@@ -115,12 +115,12 @@ type EditDialogState =
 type PresentedTargetDraft =
   | {
       destination: "ordinary-row";
-      entry: MetadataDraftEntryV5;
+      entry: MetadataTargetDraftEntry;
       occurrence?: MetadataOccurrence;
     }
   | {
       destination: "supplemental-row";
-      entry: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
+      entry: MetadataTargetDraftEntry & { target: ExistingOccurrenceTarget };
       occurrence: MetadataOccurrence;
     };
 
@@ -130,13 +130,13 @@ interface Props {
   occurrences: ImageMetadataOccurrencesState;
   /** Exact-target drafts for Add Property and unique existing rows. */
   targetDraftEdits?: TargetDraftCollection;
-  /** Folder-scoped safety state for the strict schema-v5 persistence file. */
-  targetDraftPersistence?: TargetDraftPersistenceStateV5;
+  /** Folder-scoped safety state for the strict target-aware persistence file. */
+  targetDraftPersistence?: TargetDraftPersistenceState;
   onSetExistingOccurrenceDraft?: (
-    occurrenceId: MetadataOccurrenceId,
+    target: ExistingOccurrenceTarget,
     edit: MetadataDraftEdit,
   ) => void;
-  onRemoveMetadataFieldsV5?: (ids: SchemaDefinitionId[]) => boolean;
+  onRemoveMetadataFields?: (ids: SchemaDefinitionId[]) => boolean;
   onSetGpsTargetDraftBatch?: (
     edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>,
   ) => boolean;
@@ -505,7 +505,7 @@ function DetailsOccurrenceRow({
 }: {
   entry: MetadataOccurrenceDisplayEntry;
   searchQuery: string;
-  targetDraft?: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
+  targetDraft?: MetadataTargetDraftEntry & { target: ExistingOccurrenceTarget };
   unavailableReason?: string;
   onContextMenu?: (event: React.MouseEvent) => void;
 }) {
@@ -688,7 +688,7 @@ function DetailsGroupContextMenu({
   targetDraftEdits,
   targetDraftPersistence,
   onEditGps,
-  onRemoveMetadataFieldsV5,
+  onRemoveMetadataFields,
   onDiscardTargetDraftBatch,
   onBlocked,
   onClose,
@@ -701,9 +701,9 @@ function DetailsGroupContextMenu({
   };
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDraftEdits: TargetDraftCollection | undefined;
-  targetDraftPersistence: TargetDraftPersistenceStateV5;
+  targetDraftPersistence: TargetDraftPersistenceState;
   onEditGps?: (group: GpsTagGroup) => void;
-  onRemoveMetadataFieldsV5?: (ids: SchemaDefinitionId[]) => boolean;
+  onRemoveMetadataFields?: (ids: SchemaDefinitionId[]) => boolean;
   onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
   onBlocked: (message: string) => void;
   onClose: () => void;
@@ -761,7 +761,7 @@ function DetailsGroupContextMenu({
     if (targetDraftPersistence.status !== "ready") {
       return {
         blocked:
-          "Group removal is unavailable because schema-v5 draft persistence did not load safely.",
+          "Group removal is unavailable because target-aware draft persistence did not load safely.",
       };
     }
     if (!Array.isArray(occurrences)) {
@@ -782,7 +782,7 @@ function DetailsGroupContextMenu({
     }
     try {
       return {
-        preview: previewMetadataRemovalTargetsV5({
+        preview: previewMetadataRemovalTargets({
           schemaIds: removalIds,
           occurrences,
           targetDrafts: targetDraftEdits,
@@ -805,11 +805,11 @@ function DetailsGroupContextMenu({
     if (targetDraftPersistence.status !== "ready") {
       return {
         blocked:
-          "Target-aware GPS editing is unavailable because schema-v5 draft persistence did not load safely. Nothing was saved.",
+          "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
       };
     }
     try {
-      planGpsTargetDraftBatchV5(
+      planGpsTargetDraftBatch(
         gpsGroupIds(gpsGroup).map((id) => ({
           id,
           edit: { intent: "Delete" as const, value: null },
@@ -857,7 +857,7 @@ function DetailsGroupContextMenu({
         removalPreview.preview?.stagedCreationsToCancel ?? 0,
     });
     if (confirmed) {
-      onRemoveMetadataFieldsV5?.(removalIds);
+      onRemoveMetadataFields?.(removalIds);
     }
     onClose();
   };
@@ -940,7 +940,7 @@ export function DetailsPane({
   targetDraftEdits,
   targetDraftPersistence = { status: "ready" },
   onSetExistingOccurrenceDraft,
-  onRemoveMetadataFieldsV5,
+  onRemoveMetadataFields,
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onReplaceNewPropertyDraftTarget,
@@ -994,7 +994,7 @@ export function DetailsPane({
   const targetDraftsWritable = targetDraftPersistence.status === "ready";
   const addPropertyUnavailableTitle = targetDraftsWritable
     ? "Add a metadata property"
-    : "Add Property is unavailable because target-aware drafts could not be loaded safely. Fix the schema-v5 draft persistence file, then reopen the folder.";
+    : "Add Property is unavailable because target-aware drafts could not be loaded safely. Fix the target-aware draft persistence file, then reopen the folder.";
 
   useEffect(() => {
     if (targetDraftsWritable) return;
@@ -1073,7 +1073,7 @@ export function DetailsPane({
         occurrenceResolution.kind === "multiple"
           ? {
               destination: "supplemental-row",
-              entry: entry as MetadataDraftEntryV5 & {
+              entry: entry as MetadataTargetDraftEntry & {
                 target: ExistingOccurrenceTarget;
               },
               occurrence: exact.occurrence,
@@ -1404,7 +1404,7 @@ export function DetailsPane({
         return {
           kind: "unavailable",
           reason:
-            "Schema-v5 draft persistence is unavailable, so this editor was closed without saving.",
+            "Target-aware draft persistence is unavailable, so this editor was closed without saving.",
         };
       }
       if (supplementalOwnership.kind === "none") {
@@ -1641,7 +1641,7 @@ export function DetailsPane({
             unavailableReason = targetability.reason;
           } else if (!targetDraftsWritable) {
             unavailableReason =
-              "Target-aware editing is unavailable because schema-v5 draft persistence did not load safely.";
+              "Target-aware editing is unavailable because target-aware draft persistence did not load safely.";
           } else if (ownership.kind === "blocked") {
             unavailableReason = ownership.reason;
           } else if (ownership.kind === "target" && !presented) {
@@ -1725,7 +1725,7 @@ export function DetailsPane({
 
   const presentedNewPropertyDraftFor = (
     id: SchemaDefinitionId,
-  ): (MetadataDraftEntryV5 & { target: NewPropertyTarget }) | undefined => {
+  ): (MetadataTargetDraftEntry & { target: NewPropertyTarget }) | undefined => {
     const resolution = targetSchemaResolutions.get(schemaDefinitionIdToken(id));
     if (
       resolution?.kind !== "unique" ||
@@ -1734,7 +1734,7 @@ export function DetailsPane({
     ) {
       return undefined;
     }
-    return resolution.entry as MetadataDraftEntryV5 & {
+    return resolution.entry as MetadataTargetDraftEntry & {
       target: NewPropertyTarget;
     };
   };
@@ -1760,7 +1760,7 @@ export function DetailsPane({
     const draftResolution = rowDraftResolutionFor(id);
     if (draftResolution.kind === "blocked") return draftResolution.reason;
     if (!targetDraftsWritable) {
-      return "Target-aware editing is unavailable because schema-v5 draft persistence did not load safely.";
+      return "Target-aware editing is unavailable because target-aware draft persistence did not load safely.";
     }
     const presented = presentedExistingBySchema.get(
       schemaDefinitionIdToken(id),
@@ -1825,7 +1825,7 @@ export function DetailsPane({
 
   const currentNewPropertyDraftEntry = (
     target: NewPropertyTarget,
-  ): MetadataDraftEntryV5 | undefined =>
+  ): MetadataTargetDraftEntry | undefined =>
     Object.values(targetDraftEdits ?? {}).find(
       (entry) =>
         entry.target.kind === "NewProperty" &&
@@ -1840,7 +1840,7 @@ export function DetailsPane({
     const current = currentNewPropertyDraftEntry(target);
     if (
       current === undefined ||
-      !metadataDraftEntryV5EqualsExact(current, {
+      !metadataTargetDraftEntryEqualsExact(current, {
         target,
         edit: openedEdit,
       })
@@ -1890,7 +1890,7 @@ export function DetailsPane({
   const openGpsCompositeEditor = (group: GpsTagGroup) => {
     if (!targetDraftsWritable) {
       setEditDialogUnavailableMessage(
-        "Target-aware GPS editing is unavailable because schema-v5 draft persistence did not load safely. Nothing was saved.",
+        "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
       );
       return;
     }
@@ -1901,7 +1901,7 @@ export function DetailsPane({
       return;
     }
     try {
-      const planned = planGpsTargetDraftBatchV5(
+      const planned = planGpsTargetDraftBatch(
         gpsGroupIds(group).map((id) => ({
           id,
           edit: { intent: "Delete" as const, value: null },
@@ -1941,7 +1941,7 @@ export function DetailsPane({
       const emittedBySchema = new Map(
         emittedEdits.map((entry) => [schemaDefinitionIdToken(entry.id), entry]),
       );
-      const planned = planGpsTargetDraftBatchV5(
+      const planned = planGpsTargetDraftBatch(
         snapshotIds.map(
           (id) =>
             emittedBySchema.get(schemaDefinitionIdToken(id)) ?? {
@@ -2490,20 +2490,22 @@ export function DetailsPane({
               onSetExistingOccurrenceDraft?.(
                 presentedExistingBySchema.get(
                   schemaDefinitionIdToken(contextMenu.id),
-                )!.occurrence.id,
+                )!.entry.target,
                 {
                   value: null,
                   intent: "Delete",
                 },
               );
             } else if (occurrenceResolution.kind === "unique") {
-              onSetExistingOccurrenceDraft?.(
-                occurrenceResolution.occurrence.id,
-                {
+              const resolution = existingOccurrenceTargetFromOccurrence(
+                occurrenceResolution.occurrence,
+              );
+              if (resolution.kind === "targetable") {
+                onSetExistingOccurrenceDraft?.(resolution.target, {
                   value: null,
                   intent: "Delete",
-                },
-              );
+                });
+              }
             }
             setContextMenu(null);
           }}
@@ -2544,10 +2546,15 @@ export function DetailsPane({
               {
                 label: "Remove",
                 onClick: () => {
-                  onSetExistingOccurrenceDraft?.(
-                    activeSupplementalContext.entry.occurrence.id,
-                    { intent: "Delete", value: null },
+                  const resolution = existingOccurrenceTargetFromOccurrence(
+                    activeSupplementalContext.entry.occurrence,
                   );
+                  if (resolution.kind === "targetable") {
+                    onSetExistingOccurrenceDraft?.(resolution.target, {
+                      intent: "Delete",
+                      value: null,
+                    });
+                  }
                   setSupplementalContextMenu(null);
                 },
               },
@@ -2570,7 +2577,7 @@ export function DetailsPane({
           onEditGps={
             onSetGpsTargetDraftBatch ? openGpsCompositeEditor : undefined
           }
-          onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
+          onRemoveMetadataFields={onRemoveMetadataFields}
           onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
           onBlocked={setEditDialogUnavailableMessage}
           onClose={() => setGroupContextMenu(null)}
@@ -2666,7 +2673,7 @@ export function DetailsPane({
                 editDialog.kind === "existing-occurrence" &&
                 ordinaryEditResolution?.kind === "available"
               ) {
-                onSetExistingOccurrenceDraft?.(editDialog.occurrenceId, edit);
+                onSetExistingOccurrenceDraft?.(editDialog.openedTarget, edit);
                 setEditDialog(null);
               }
             }}

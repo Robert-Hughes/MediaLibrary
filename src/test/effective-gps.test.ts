@@ -4,7 +4,7 @@ import { GPS_IDS } from "../metadata/knownIds";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataOccurrence,
   MetadataValue,
   SchemaDefinitionId,
@@ -89,9 +89,9 @@ function zeroOccurrences(
 function existingEntry(
   current: MetadataOccurrence,
   edit: MetadataDraftEdit,
-): MetadataDraftEntryV5 & {
+): MetadataTargetDraftEntry & {
   target: Extract<
-    MetadataDraftEntryV5["target"],
+    MetadataTargetDraftEntry["target"],
     { kind: "ExistingOccurrence" }
   >;
 } {
@@ -100,7 +100,9 @@ function existingEntry(
   return { target: target.target, edit };
 }
 
-function targets(...entries: MetadataDraftEntryV5[]): TargetDraftCollection {
+function targets(
+  ...entries: MetadataTargetDraftEntry[]
+): TargetDraftCollection {
   return Object.fromEntries(
     entries.map((entry, index) => [String(index), entry]),
   );
@@ -192,7 +194,7 @@ describe("resolveEffectiveGpsForFile", () => {
     expect(Object.is(result.lon, 0)).toBe(false);
   });
 
-  it("preserves negative zero from schema-v5 ExistingOccurrence reference drafts", () => {
+  it("preserves negative zero from target-aware ExistingOccurrence reference drafts", () => {
     const occurrences = zeroOccurrences();
     const result = resolve({
       occurrences,
@@ -206,7 +208,7 @@ describe("resolveEffectiveGpsForFile", () => {
     expect(Object.is(result.lon, -0)).toBe(true);
   });
 
-  it("preserves negative zero from schema-v5 NewProperty reference drafts", () => {
+  it("preserves negative zero from target-aware NewProperty reference drafts", () => {
     const occurrences = [
       occurrence(GPS_IDS.latitude, valueFor(0)),
       occurrence(GPS_IDS.longitude, valueFor(0)),
@@ -261,7 +263,7 @@ describe("resolveEffectiveGpsForFile", () => {
     expect(resolve({ occurrences })).toEqual({ lat: 52, lon: 2 });
   });
 
-  it("overlays valid schema-v5 ExistingOccurrence coordinate drafts", () => {
+  it("overlays valid target-aware ExistingOccurrence coordinate drafts", () => {
     const occurrences = baseOccurrences();
     expect(
       resolve({
@@ -274,7 +276,7 @@ describe("resolveEffectiveGpsForFile", () => {
     ).toEqual({ lat: 52, lon: 2 });
   });
 
-  it("uses schema-v5 reference drafts to change coordinate signs", () => {
+  it("uses target-aware reference drafts to change coordinate signs", () => {
     const occurrences = baseOccurrences();
     expect(
       resolve({
@@ -325,7 +327,7 @@ describe("resolveEffectiveGpsForFile", () => {
     ).toEqual({ lat: -51, lon: -1 });
   });
 
-  it("turns a valid schema-v5 coordinate Delete into null coordinates", () => {
+  it("turns a valid target-aware coordinate Delete into null coordinates", () => {
     const occurrences = baseOccurrences();
     expect(
       resolve({

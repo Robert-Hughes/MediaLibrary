@@ -15,12 +15,12 @@
 import { useMemo } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { listen } from "@tauri-apps/api/event";
-import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
+import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 import type {
   DescribeEstimate,
   DescribeProgressState,
   DescribeUsageSummary,
-  MetadataDraftEntry,
+  SchemaMetadataEdit,
 } from "../types";
 import {
   useBatchImageJob,
@@ -52,8 +52,8 @@ export interface UseDescribeImagesOptions {
    */
   onApplyEdits?: (
     relativePath: string,
-    edits: MetadataDraftEntry[],
-  ) => GeneratedDraftStageResultV5;
+    edits: SchemaMetadataEdit[],
+  ) => GeneratedDraftStageResult;
 }
 
 /**

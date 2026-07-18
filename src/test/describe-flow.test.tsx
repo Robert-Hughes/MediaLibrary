@@ -241,8 +241,8 @@ describe("AI-description flow", () => {
       mockApiInstance.invalidateMetadataOccurrences("empty.jpg");
     const { user, aiBtn } = await startAiDescription("empty.jpg");
     await user.click(aiBtn);
-    const v5Before = mockApiInstance.invocations.filter(
-      ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+    const targetDraftBefore = mockApiInstance.invocations.filter(
+      ({ cmd }) => cmd === "save_metadata_draft_edits",
     ).length;
 
     await user.click(await screen.findByTestId("describe-confirm-btn"));
@@ -255,12 +255,12 @@ describe("AI-description flow", () => {
     );
     expect(
       mockApiInstance.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ).length - v5Before,
+        ({ cmd }) => cmd === "save_metadata_draft_edits",
+      ).length - targetDraftBefore,
     ).toBe(0);
   });
 
-  it("stages backend-emitted edits as exact v5 targets", async () => {
+  it("stages backend-emitted edits as exact target-aware targets", async () => {
     // Regression: the frontend used to rely on the backend writing
     // draft_edits.jsonl directly, so the UI never saw the new edits
     // after a describe run completed. The architecture now ships edits

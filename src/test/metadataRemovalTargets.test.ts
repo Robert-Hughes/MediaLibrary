@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   MetadataRemovalTargetPlanError,
-  planMetadataRemovalTargetsV5,
-  previewMetadataRemovalFilesV5,
-  previewMetadataRemovalTargetsV5,
+  planMetadataRemovalTargets,
+  previewMetadataRemovalFiles,
+  previewMetadataRemovalTargets,
 } from "../metadataRemovalTargets";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
@@ -88,7 +88,7 @@ function plan(
     targets?: TargetDraftCollection;
   } = {},
 ) {
-  return planMetadataRemovalTargetsV5({
+  return planMetadataRemovalTargets({
     schemaIds: options.ids ?? [id],
     occurrences: options.occurrences ?? [occurrence()],
     targetDrafts: options.targets,
@@ -107,7 +107,7 @@ function expectCode(
   }
 }
 
-describe("planMetadataRemovalTargetsV5", () => {
+describe("planMetadataRemovalTargets", () => {
   it("plans a writable occurrence with its exact ID, embedded schema and runtime selector", () => {
     const source = occurrence({
       id: {
@@ -445,7 +445,7 @@ describe("target-aware removal previews", () => {
       },
     };
     expect(
-      previewMetadataRemovalTargetsV5({
+      previewMetadataRemovalTargets({
         schemaIds: [id, createdId, absentId],
         occurrences: [occurrence()],
         targetDrafts: owner(created),
@@ -460,7 +460,7 @@ describe("target-aware removal previews", () => {
 
   it("counts an existing exact Delete as a no-op", () => {
     expect(
-      previewMetadataRemovalTargetsV5({
+      previewMetadataRemovalTargets({
         schemaIds: [id],
         occurrences: [occurrence()],
         targetDrafts: owner(target(), { intent: "Delete", value: null }),
@@ -475,7 +475,7 @@ describe("target-aware removal previews", () => {
 
   it("counts an exact existing Set draft as one Delete replacement", () => {
     expect(
-      previewMetadataRemovalTargetsV5({
+      previewMetadataRemovalTargets({
         schemaIds: [id],
         occurrences: [occurrence()],
         targetDrafts: owner(target()),
@@ -507,7 +507,7 @@ describe("target-aware removal previews", () => {
       ["created.jpg", owner(created)],
     ]);
     expect(
-      previewMetadataRemovalFilesV5({
+      previewMetadataRemovalFiles({
         schemaId: id,
         relativePaths: [
           "existing.jpg",
@@ -535,7 +535,7 @@ describe("target-aware removal previews", () => {
       occurrence({ id: { ...occurrence().id, path: "duplicate" } }),
     ];
     expect(
-      previewMetadataRemovalFilesV5({
+      previewMetadataRemovalFiles({
         schemaId: id,
         relativePaths: ["safe.jpg", "ambiguous.jpg", "later.jpg"],
         targetDraftPersistence: { status: "ready" },

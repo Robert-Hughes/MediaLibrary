@@ -12,7 +12,7 @@ import {
 import { hasOwnStringKey, recordFromEntries } from "./utils/stringRecord";
 import { wireStructuralEqual } from "./utils/wireStructuralEquality";
 
-export interface TargetVerifyOutcomeV5 {
+export interface TargetVerifyOutcome {
   relativePath: string;
   originalTarget: MetadataDraftTarget;
   currentTarget: MetadataDraftTarget;
@@ -25,17 +25,17 @@ export interface TargetVerifyOutcomeV5 {
   message: string | null;
 }
 
-export type TargetVerifyOutcomesByFileV5 = Record<
+export type TargetVerifyOutcomesByFile = Record<
   string,
-  Record<string, TargetVerifyOutcomeV5>
+  Record<string, TargetVerifyOutcome>
 >;
 
-export type TargetVerifyPrimaryActionV5 =
+export type TargetVerifyPrimaryAction =
   "accept-current-state" | "discard-pending-draft";
 
 export function targetVerifyPrimaryAction(
-  outcome: TargetVerifyOutcomeV5,
-): TargetVerifyPrimaryActionV5 {
+  outcome: TargetVerifyOutcome,
+): TargetVerifyPrimaryAction {
   return outcome.reconciliation.kind === "Blocked" || outcome.observed === null
     ? "discard-pending-draft"
     : "accept-current-state";
@@ -60,14 +60,14 @@ function freezeRecord<T>(
   return Object.freeze(recordFromEntries(entries));
 }
 
-export function emptyTargetVerifyOutcomesV5(): TargetVerifyOutcomesByFileV5 {
+export function emptyTargetVerifyOutcomes(): TargetVerifyOutcomesByFile {
   return freezeRecord([]);
 }
 
 export function targetVerifyOutcomeFromBackend(
   relativePath: string,
   outcome: MetadataTargetOutcome,
-): TargetVerifyOutcomeV5 | null {
+): TargetVerifyOutcome | null {
   if (outcome.draft_reconciliation.kind === "Clear") return null;
 
   const currentTarget =
@@ -91,7 +91,7 @@ export function targetVerifyOutcomeFromBackend(
 export function targetVerifyOutcomesFromBackend(
   relativePath: string,
   outcomes: readonly MetadataTargetOutcome[],
-): TargetVerifyOutcomeV5[] {
+): TargetVerifyOutcome[] {
   return outcomes.flatMap((outcome) => {
     const entry = targetVerifyOutcomeFromBackend(relativePath, outcome);
     return entry === null ? [] : [entry];
@@ -100,7 +100,7 @@ export function targetVerifyOutcomesFromBackend(
 
 export function validateTargetVerifyOutcomesAgainstDrafts(
   relativePath: string,
-  outcomes: readonly TargetVerifyOutcomeV5[],
+  outcomes: readonly TargetVerifyOutcome[],
   targetDrafts: TargetDraftEditsByFile,
 ): void {
   const fileDrafts = hasOwnStringKey(targetDrafts, relativePath)
@@ -141,9 +141,9 @@ export function validateTargetVerifyOutcomesAgainstDrafts(
 
 function fileCollectionFromOutcomes(
   relativePath: string,
-  outcomes: readonly TargetVerifyOutcomeV5[],
-): Record<string, TargetVerifyOutcomeV5> | undefined {
-  const entries: Array<readonly [string, TargetVerifyOutcomeV5]> = [];
+  outcomes: readonly TargetVerifyOutcome[],
+): Record<string, TargetVerifyOutcome> | undefined {
+  const entries: Array<readonly [string, TargetVerifyOutcome]> = [];
   const seen = new Set<string>();
   for (const outcome of outcomes) {
     if (outcome.relativePath !== relativePath) {
@@ -164,8 +164,8 @@ function fileCollectionFromOutcomes(
 }
 
 function fileCollectionsEqualExact(
-  left: Record<string, TargetVerifyOutcomeV5> | undefined,
-  right: Record<string, TargetVerifyOutcomeV5> | undefined,
+  left: Record<string, TargetVerifyOutcome> | undefined,
+  right: Record<string, TargetVerifyOutcome> | undefined,
 ): boolean {
   if (left === undefined || right === undefined) return left === right;
   const leftSlots = Object.keys(left);
@@ -181,10 +181,10 @@ function fileCollectionsEqualExact(
 }
 
 export function replaceTargetVerifyOutcomesForFile(
-  current: TargetVerifyOutcomesByFileV5,
+  current: TargetVerifyOutcomesByFile,
   relativePath: string,
-  outcomes: readonly TargetVerifyOutcomeV5[],
-): TargetVerifyOutcomesByFileV5 {
+  outcomes: readonly TargetVerifyOutcome[],
+): TargetVerifyOutcomesByFile {
   const candidate = fileCollectionFromOutcomes(relativePath, outcomes);
   const existing = hasOwnStringKey(current, relativePath)
     ? current[relativePath]
@@ -200,10 +200,10 @@ export function replaceTargetVerifyOutcomesForFile(
 }
 
 export function removeTargetVerifyOutcome(
-  current: TargetVerifyOutcomesByFileV5,
+  current: TargetVerifyOutcomesByFile,
   relativePath: string,
   target: MetadataDraftTarget,
-): TargetVerifyOutcomesByFileV5 {
+): TargetVerifyOutcomesByFile {
   if (!hasOwnStringKey(current, relativePath)) return current;
   const slot = metadataDraftTargetSlotToken(target);
   const file = current[relativePath];
@@ -220,9 +220,9 @@ export function removeTargetVerifyOutcome(
 }
 
 export function removeTargetVerifyOutcomesForFile(
-  current: TargetVerifyOutcomesByFileV5,
+  current: TargetVerifyOutcomesByFile,
   relativePath: string,
-): TargetVerifyOutcomesByFileV5 {
+): TargetVerifyOutcomesByFile {
   if (!hasOwnStringKey(current, relativePath)) return current;
   return freezeRecord(
     Object.entries(current).filter(([path]) => path !== relativePath),
@@ -230,9 +230,9 @@ export function removeTargetVerifyOutcomesForFile(
 }
 
 export function pruneTargetVerifyOutcomesAgainstDrafts(
-  current: TargetVerifyOutcomesByFileV5,
+  current: TargetVerifyOutcomesByFile,
   targetDrafts: TargetDraftEditsByFile,
-): TargetVerifyOutcomesByFileV5 {
+): TargetVerifyOutcomesByFile {
   let next = current;
   for (const [path, outcomes] of Object.entries(current)) {
     const drafts = hasOwnStringKey(targetDrafts, path)
@@ -254,9 +254,9 @@ export function pruneTargetVerifyOutcomesAgainstDrafts(
 }
 
 export function clearTargetVerifyOutcomes(
-  current: TargetVerifyOutcomesByFileV5,
-): TargetVerifyOutcomesByFileV5 {
+  current: TargetVerifyOutcomesByFile,
+): TargetVerifyOutcomesByFile {
   return Object.keys(current).length === 0
     ? current
-    : emptyTargetVerifyOutcomesV5();
+    : emptyTargetVerifyOutcomes();
 }

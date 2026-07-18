@@ -3,20 +3,20 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ImageMetadataOccurrencesStore,
   type ImageMetadata,
-  type MetadataApplyEditsResultV5,
-  type MetadataApplyFileResultV5,
-  type MetadataDraftEntryV5,
+  type MetadataApplyResult,
+  type MetadataApplyFileResult,
+  type MetadataTargetDraftEntry,
   type MetadataOccurrence,
   type MetadataTargetOutcome,
 } from "../types";
 import {
-  applyTargetApplyFileResultV5,
-  applyTargetApplyResultV5,
-  prepareTargetApplyFileResultV5,
+  applyTargetApplyFileResult,
+  applyTargetApplyResult,
+  prepareTargetApplyFileResult,
   type TargetApplyResultStores,
 } from "../targetApplyResults";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
-import { TargetVerifyOutcomesStoreV5 } from "../targetVerifyOutcomesStore";
+import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
 
 const path = "photo.jpg";
 const schema = { table: "Exif::Main", tag_id: "282" };
@@ -33,7 +33,7 @@ const target = {
   write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 };
 
-function draft(numerator = 1): MetadataDraftEntryV5 {
+function draft(numerator = 1): MetadataTargetDraftEntry {
   return {
     target: structuredClone(target),
     edit: {
@@ -81,8 +81,8 @@ function outcome(): MetadataTargetOutcome {
 }
 
 function file(
-  overrides: Partial<MetadataApplyFileResultV5> = {},
-): MetadataApplyFileResultV5 {
+  overrides: Partial<MetadataApplyFileResult> = {},
+): MetadataApplyFileResult {
   return {
     relative_path: path,
     applied: true,
@@ -99,11 +99,11 @@ function stores(): TargetApplyResultStores {
   return {
     drafts: new TargetDraftEditsStore(),
     occurrences: new ImageMetadataOccurrencesStore(),
-    verification: new TargetVerifyOutcomesStoreV5(),
+    verification: new TargetVerifyOutcomesStore(),
   };
 }
 
-function batch(files: MetadataApplyFileResultV5[]): MetadataApplyEditsResultV5 {
+function batch(files: MetadataApplyFileResult[]): MetadataApplyResult {
   return {
     files,
     cancelled: false,
@@ -119,7 +119,7 @@ describe("target apply occurrence refresh", () => {
     const existing = [occurrence()];
     state.occurrences.set(path, existing);
 
-    const application = applyTargetApplyFileResultV5(
+    const application = applyTargetApplyFileResult(
       file({ persisted_draft_entries: null, fresh_image_metadata: null }),
       state,
     );
@@ -138,7 +138,7 @@ describe("target apply occurrence refresh", () => {
     const listener = vi.fn();
     state.occurrences.subscribe(path, listener);
 
-    const application = applyTargetApplyFileResultV5(
+    const application = applyTargetApplyFileResult(
       file({
         fresh_image_metadata: fresh(3),
         persisted_draft_entries: null,
@@ -163,7 +163,7 @@ describe("target apply occurrence refresh", () => {
     const listener = vi.fn();
     state.occurrences.subscribe(path, listener);
 
-    const application = applyTargetApplyFileResultV5(
+    const application = applyTargetApplyFileResult(
       file({
         fresh_image_metadata: fresh(2),
         persisted_draft_entries: null,
@@ -180,7 +180,7 @@ describe("target apply occurrence refresh", () => {
   it("updates persisted drafts and verification outcomes together", () => {
     const state = stores();
     state.drafts.replaceMetadataFile(path, [draft(1)]);
-    const application = applyTargetApplyFileResultV5(
+    const application = applyTargetApplyFileResult(
       file({ persisted_draft_entries: [draft(4)] }),
       state,
     );
@@ -193,7 +193,7 @@ describe("target apply occurrence refresh", () => {
 
   it("prepares immutable occurrence-only applications", () => {
     const raw = file({ fresh_image_metadata: fresh(5) });
-    const prepared = prepareTargetApplyFileResultV5(raw);
+    const prepared = prepareTargetApplyFileResult(raw);
     raw.fresh_image_metadata!.occurrences[0].value = {
       kind: "Text",
       value: "mutated",
@@ -227,7 +227,7 @@ describe("target apply occurrence refresh", () => {
     };
 
     expect(() =>
-      applyTargetApplyResultV5(
+      applyTargetApplyResult(
         batch([validFirst, invalidSecond as never]),
         state,
       ),
@@ -238,7 +238,7 @@ describe("target apply occurrence refresh", () => {
   it("preserves final cancelled and aborted result fields", () => {
     const state = stores();
     expect(
-      applyTargetApplyResultV5(
+      applyTargetApplyResult(
         {
           files: [],
           cancelled: true,

@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { MetadataDraftEntryV5 } from "../types";
+import type { MetadataTargetDraftEntry } from "../types";
 import {
   mockMetadata,
   mockTargetDraftsByFile,
@@ -39,7 +39,7 @@ async function getAskMock() {
 interface SetupOptions {
   photoCount?: number;
   metadataByPath?: Record<string, Record<string, any>>;
-  targetDraftEntriesByPath?: Record<string, MetadataDraftEntryV5[]>;
+  targetDraftEntriesByPath?: Record<string, MetadataTargetDraftEntry[]>;
   onGeocode?: (paths: string[]) => void;
 }
 

@@ -1,4 +1,4 @@
-/** Build the v5-aware per-image input bundles for metadata normalisation. */
+/** Build the target-aware per-image input bundles for metadata normalisation. */
 import type {
   TargetDraftCollection,
   TargetDraftEditsByFile,

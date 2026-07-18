@@ -1,6 +1,6 @@
 //! Shared metadata edit semantics and target-aware draft persistence.
 //!
-//! Production persists only schema-v5 exact targets in
+//! Production persists only exact targets in
 //! `MediaLibraryTargetDraftEdits.jsonl`. Historical schema-keyed draft files
 //! are deliberately neither read nor modified.
 
@@ -45,36 +45,36 @@ pub struct MetadataDraftEdit {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataDraftEntry {
-    pub id: SchemaDefinitionId,
+pub struct SchemaMetadataEdit {
+    pub schema_id: SchemaDefinitionId,
     pub edit: MetadataDraftEdit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataDraftEntryV5 {
+pub struct MetadataTargetDraftEntry {
     pub target: MetadataDraftTarget,
     pub edit: MetadataDraftEdit,
 }
 
-pub type MetadataDraftEditsV5 = HashMap<String, Vec<MetadataDraftEntryV5>>;
+pub type MetadataTargetDraftsByFile = HashMap<String, Vec<MetadataTargetDraftEntry>>;
 
 /// Schema-addressed generation output which the frontend resolves to exact
 /// targets before it enters the production draft store.
 pub type MetadataDraftMap = BTreeMap<SchemaDefinitionId, MetadataDraftEdit>;
 
-pub(crate) fn draft_entries(map: MetadataDraftMap) -> Vec<MetadataDraftEntry> {
+pub(crate) fn draft_entries(map: MetadataDraftMap) -> Vec<SchemaMetadataEdit> {
     map.into_iter()
-        .map(|(id, edit)| MetadataDraftEntry { id, edit })
+        .map(|(schema_id, edit)| SchemaMetadataEdit { schema_id, edit })
         .collect()
 }
 
 #[derive(Serialize, Deserialize)]
-struct V5Line {
+struct TargetDraftLineV5 {
     schema_version: u32,
     relative_path: String,
-    edits: Vec<MetadataDraftEntryV5>,
+    edits: Vec<MetadataTargetDraftEntry>,
 }
 
 #[derive(Deserialize)]
@@ -87,7 +87,7 @@ const TARGET_DRAFT_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.jsonl";
 const HEADER_COMMENT: &str =
     "// This file stores unapplied target-aware metadata draft edits. Lines starting with // are ignored.";
 
-pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
+pub fn load_metadata_draft_edits(folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
     let path = Path::new(folder_path).join(TARGET_DRAFT_FILE_NAME);
     if !path.exists() {
         return Ok(HashMap::new());
@@ -122,8 +122,9 @@ pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEd
             });
         }
 
-        let parsed = serde_json::from_str::<V5Line>(trimmed)
-            .map_err(|error| format!("Invalid v5 draft line {line_number}: {error}"))?;
+        let parsed = serde_json::from_str::<TargetDraftLineV5>(trimmed).map_err(|error| {
+            format!("Invalid draft schema version 5 line {line_number}: {error}")
+        })?;
         if let Some(first_line) = seen_paths.insert(parsed.relative_path.clone(), line_number) {
             return Err(format!(
                 "duplicate relative_path {:?} on line {line_number}; first seen on line {first_line}",
@@ -139,9 +140,9 @@ pub fn load_metadata_draft_edits_v5(folder_path: &str) -> Result<MetadataDraftEd
     Ok(drafts)
 }
 
-pub fn save_metadata_draft_edits_v5(
+pub fn save_metadata_draft_edits(
     folder_path: &str,
-    data: &MetadataDraftEditsV5,
+    data: &MetadataTargetDraftsByFile,
 ) -> Result<(), String> {
     for (relative_path, entries) in data {
         validate_slots(relative_path, entries, None)?;
@@ -164,7 +165,7 @@ pub fn save_metadata_draft_edits_v5(
         }
         let mut sorted = entries.clone();
         sorted.sort_by_key(|entry| entry.target.slot());
-        let line = V5Line {
+        let line = TargetDraftLineV5 {
             schema_version: 5,
             relative_path: relative_path.clone(),
             edits: sorted,
@@ -177,7 +178,7 @@ pub fn save_metadata_draft_edits_v5(
 
 fn validate_slots(
     relative_path: &str,
-    entries: &[MetadataDraftEntryV5],
+    entries: &[MetadataTargetDraftEntry],
     line_number: Option<usize>,
 ) -> Result<(), String> {
     let mut slots: HashSet<MetadataDraftSlot> = HashSet::new();
@@ -252,8 +253,8 @@ mod tests {
         }
     }
 
-    fn existing(index: Option<u32>, path: &str) -> MetadataDraftEntryV5 {
-        MetadataDraftEntryV5 {
+    fn existing(index: Option<u32>, path: &str) -> MetadataTargetDraftEntry {
+        MetadataTargetDraftEntry {
             target: MetadataDraftTarget::ExistingOccurrence {
                 occurrence_id: MetadataOccurrenceId {
                     document: None,
@@ -277,8 +278,8 @@ mod tests {
         }
     }
 
-    fn new_property(index: Option<u32>, display: Option<&str>) -> MetadataDraftEntryV5 {
-        MetadataDraftEntryV5 {
+    fn new_property(index: Option<u32>, display: Option<&str>) -> MetadataTargetDraftEntry {
+        MetadataTargetDraftEntry {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: schema(index),
                 write_target: MetadataWriteTarget {
@@ -295,7 +296,7 @@ mod tests {
     fn missing_target_file_ignores_old_file_even_when_it_is_malformed() {
         let dir = tempdir().unwrap();
         std::fs::write(dir.path().join(OLD_DRAFT_FILE_NAME), b"not json\0legacy").unwrap();
-        let loaded = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap();
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert!(loaded.is_empty());
         assert_eq!(
             std::fs::read(dir.path().join(OLD_DRAFT_FILE_NAME)).unwrap(),
@@ -310,7 +311,7 @@ mod tests {
         let bytes = b"historical\r\nbytes\0\xff";
         std::fs::write(&old, bytes).unwrap();
         let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None, None)])]);
-        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &drafts).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         assert_eq!(std::fs::read(old).unwrap(), bytes);
     }
 
@@ -318,7 +319,7 @@ mod tests {
     fn display_none_is_omitted_from_json() {
         let dir = tempdir().unwrap();
         let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None, None)])]);
-        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &drafts).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         let contents = std::fs::read_to_string(dir.path().join(TARGET_DRAFT_FILE_NAME)).unwrap();
         assert!(!contents.contains("\"display\""));
     }
@@ -330,9 +331,9 @@ mod tests {
             "photo.jpg".to_string(),
             vec![existing(None, "IFD0"), existing(None, "IFD1")],
         )]);
-        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &drafts).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         assert_eq!(
-            load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap(),
+            load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap(),
             drafts
         );
     }
@@ -344,8 +345,8 @@ mod tests {
             "photo.jpg".to_string(),
             vec![existing(None, "IFD0"), new_property(Some(0), Some("Title"))],
         )]);
-        save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &drafts).unwrap();
-        let loaded = load_metadata_draft_edits_v5(dir.path().to_str().unwrap()).unwrap();
+        save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
+        let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, drafts);
         assert_ne!(
             loaded["photo.jpg"][0].target.slot(),
@@ -360,7 +361,7 @@ mod tests {
         std::fs::write(&target, b"preserve me").unwrap();
         let duplicate = new_property(None, None);
         let drafts = HashMap::from([("photo.jpg".to_string(), vec![duplicate.clone(), duplicate])]);
-        assert!(save_metadata_draft_edits_v5(dir.path().to_str().unwrap(), &drafts).is_err());
+        assert!(save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).is_err());
         assert_eq!(std::fs::read(target).unwrap(), b"preserve me");
     }
 }
