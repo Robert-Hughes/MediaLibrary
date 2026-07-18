@@ -169,6 +169,10 @@ schema ID. The occurrence also carries optional resolved `TagInfo`, an optional
 concerns are not interchangeable. The observed selector records occupancy,
 while the write target additionally proves independent writability. Therefore
 null `write_target` never establishes that a destination is free.
+Conversely, a non-null write target is valid only when `observed_selector` is
+non-null and its three components are exactly equal. This occurrence invariant
+uses structural equality, including case. Occupancy equality remains a separate
+operation: family 1 and tag name fold case, while family 7 is case-sensitive.
 When `TagInfo` exists, its `id` must equal `MetadataOccurrence.schema_id`.
 Schema identity alone does not establish writability.
 
@@ -290,11 +294,13 @@ exactly, so `ID-AbC` and `ID-abc` remain distinct. ExifTool's official
 [`GetGroup` documentation](https://exiftool.org/ExifTool.html#GetGroup) states
 that family-7 tag IDs are case-sensitive.
 
-“Edit destination…” atomically replaces one New Property draft slot by deleting
+“Edit…” changes a New Property's semantic value in its exact existing target
+slot. “Edit destination…” atomically replaces that exact slot by deleting
 the exact original target and upserting the replacement with the original edit
 in one mutation batch. A failed or stale replacement leaves the original
 untouched. The operation is unavailable while that target has an unresolved
-verification outcome.
+verification outcome; semantic value editing follows the same policy. Neither
+operation chooses another draft by schema.
 
 ## Wire formats and persistence
 
@@ -302,7 +308,8 @@ Transient scan and readback occurrences cross the Rust/TypeScript boundary as
 `{ id, schema_id, value, tag_info, observed_selector, write_target }`.
 `schema_id` is required; `tag_info`, `observed_selector`, and `write_target` are
 nullable. A present `TagInfo.id` must exactly
-match `schema_id`.
+match `schema_id`. A present write target also requires an identical observed
+selector; malformed snapshots are rejected before entering occurrence state.
 
 Target drafts continue to persist a complete `ExistingOccurrence` or
 `NewProperty { schema_id, write_target }` beside the semantic edit. New Property

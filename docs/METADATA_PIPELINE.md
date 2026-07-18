@@ -46,6 +46,12 @@ semantic values, and keep same-schema siblings separate. Editors resolve complet
 `ExistingOccurrence` or `NewProperty` targets before staging. Ambiguous and
 read-only inputs fail without partial mutation.
 
+At the transient TypeScript boundary, an occurrence may have neither selector,
+or an observed selector without a write target. A non-null write target requires
+an observed selector with exactly equal `group1`, `group7`, and `tag_name` text.
+This structural invariant deliberately does not use occupancy equality: occupancy
+folds family 1 and tag name but keeps family 7 case-sensitive.
+
 `ExistingOccurrence` snapshots occurrence ID, resolved schema ID and a proven
 runtime write target, then revalidates the complete snapshot before apply.
 `NewProperty` stores the exact selected schema plus an intended complete
@@ -74,11 +80,14 @@ tag-ID portion of [family-7 group names is case-sensitive](https://exiftool.org/
 The dialog's destination suggestions are advisory and unknown valid family-1
 tokens remain enterable.
 
-Editing a New Property destination atomically moves the existing draft slot by
+New Property value editing and destination editing are separate actions. Value
+editing reopens the typed editor from the staged semantic edit and replaces only
+the edit in the same exact target slot. Destination editing atomically moves the existing draft slot by
 one exact mutation batch: delete the original target and upsert the replacement
 with the original semantic edit. Failed replacement leaves the original draft
-unchanged. Destination editing is blocked while the original target has an
-unresolved verification outcome.
+unchanged. Both operations preserve exact target ownership, never select another
+same-schema draft, and are blocked while the target has an unresolved verification
+outcome.
 
 ## Draft state and persistence
 

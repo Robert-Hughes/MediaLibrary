@@ -62,7 +62,7 @@ const occurrence = (
   id: occurrenceId(),
   value: { kind: "Integer", value: 300 },
   tag_info: tagInfo(),
-  observed_selector: null,
+  observed_selector: structuredClone(overrides.write_target ?? writeTarget()),
   write_target: writeTarget(),
   ...overrides,
   schema_id: overrides.schema_id ?? overrides.tag_info?.id ?? tagInfo().id,
@@ -117,6 +117,24 @@ describe("metadata draft target construction", () => {
       kind: "read-only",
       reason: expect.stringMatching(/runtime write target/),
     });
+    expect(
+      existingOccurrenceTargetFromOccurrence(
+        occurrence({ observed_selector: null }),
+      ),
+    ).toMatchObject({
+      kind: "read-only",
+      reason: expect.stringMatching(/identical observed selector/),
+    });
+    expect(
+      existingOccurrenceTargetFromOccurrence(
+        occurrence({
+          observed_selector: writeTarget({ group1: "ifd0" }),
+        }),
+      ),
+    ).toMatchObject({
+      kind: "read-only",
+      reason: expect.stringMatching(/identical observed selector/),
+    });
   });
 
   it("keeps IFD0 and IFD1 same-schema occurrences distinct", () => {
@@ -139,7 +157,7 @@ describe("metadata draft target construction", () => {
     const source = occurrence({
       id: occurrenceId({ document: "Doc1", copy: 2 }),
       tag_info: tagInfo(true, schemaId(0)),
-      observed_selector: null,
+      observed_selector: writeTarget({ group1: "IFD1" }),
       write_target: writeTarget({ group1: "IFD1" }),
     });
 
@@ -564,7 +582,7 @@ describe("metadata draft slot token identity", () => {
       occurrence({
         id: occurrenceId({ document: "Doc1", copy: 3 }),
         tag_info: tagInfo(true, schemaId(2)),
-        observed_selector: null,
+        observed_selector: writeTarget({ group1: "IFD1" }),
         write_target: writeTarget({ group1: "IFD1" }),
       }),
     );

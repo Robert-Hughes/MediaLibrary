@@ -43,6 +43,10 @@ function occurrence(
     writeTarget?: { group1: string; group7: string; tag_name: string } | null;
   } = {},
 ): MetadataOccurrence {
+  const writeTarget =
+    options.writeTarget === undefined
+      ? { group1: "GPS", group7: "ID-Test", tag_name: "GPSLatitude" }
+      : options.writeTarget;
   return {
     id: {
       document: null,
@@ -61,11 +65,8 @@ function occurrence(
       options.tagInfo === undefined
         ? info(id, { writable: options.writable })
         : options.tagInfo,
-    observed_selector: null,
-    write_target:
-      options.writeTarget === undefined
-        ? { group1: "GPS", group7: "ID-Test", tag_name: "GPSLatitude" }
-        : options.writeTarget,
+    observed_selector: structuredClone(writeTarget),
+    write_target: structuredClone(writeTarget),
   };
 }
 

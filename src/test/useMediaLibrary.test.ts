@@ -1190,6 +1190,11 @@ describe("useMediaLibrary", () => {
         copy: 1,
       },
       value: { kind: "Integer" as const, value: 72 },
+      observed_selector: {
+        group1: "IFD1",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
       write_target: {
         group1: "IFD1",
         group7: "ID-Test",
@@ -1920,6 +1925,18 @@ describe("useMediaLibrary", () => {
       );
     });
     expect(moved).toBe(false);
+    let valueEdited = true;
+    await act(async () => {
+      valueEdited = await result.current[1].setNewPropertyDraft(
+        "move.jpg",
+        replacement,
+        {
+          intent: "Set",
+          value: { kind: "Text", value: "blocked value" },
+        },
+      );
+    });
+    expect(valueEdited).toBe(false);
     expect(
       Object.values(
         state.targetDraftEditsStore.getMetadataFile("move.jpg") ?? {},
@@ -2014,7 +2031,7 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "shared.jpg");
     const deferred = deferNextTagInfoLookup(mock);
-    let request!: Promise<void>;
+    let request!: Promise<boolean>;
     act(() => {
       request = result.current[1].setNewPropertyDraft(
         "shared.jpg",
@@ -2069,7 +2086,7 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "shared.jpg");
     const deferred = deferNextTagInfoLookup(mock);
-    let request!: Promise<void>;
+    let request!: Promise<boolean>;
     act(() => {
       request = result.current[1].setNewPropertyDraft(
         "shared.jpg",
@@ -2119,7 +2136,7 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "closed.jpg");
     const deferred = deferNextTagInfoLookup(mock);
-    let request!: Promise<void>;
+    let request!: Promise<boolean>;
     act(() => {
       request = result.current[1].setNewPropertyDraft(
         "closed.jpg",
@@ -2155,7 +2172,7 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "shared.jpg");
     const deferred = deferNextTagInfoLookup(mock);
-    let request!: Promise<void>;
+    let request!: Promise<boolean>;
     act(() => {
       request = result.current[1].setNewPropertyDraft(
         "shared.jpg",
@@ -2209,7 +2226,7 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "current.jpg");
     const deferred = deferNextTagInfoLookup(mock);
-    let request!: Promise<void>;
+    let request!: Promise<boolean>;
     act(() => {
       request = result.current[1].setNewPropertyDraft(
         "current.jpg",
@@ -2255,7 +2272,7 @@ describe("useMediaLibrary", () => {
       ).length;
     const startDeferredRequest = (path: string, id: SchemaDefinitionId) => {
       const deferred = deferNextTagInfoLookup(mock);
-      let request!: Promise<void>;
+      let request!: Promise<boolean>;
       act(() => {
         request = result.current[1].setNewPropertyDraft(
           path,

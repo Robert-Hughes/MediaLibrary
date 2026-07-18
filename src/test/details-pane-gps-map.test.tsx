@@ -115,7 +115,11 @@ describe("DetailsPane GPS Map integration", () => {
           kind: { kind: value.kind } as any,
           description: null,
         },
-        observed_selector: null,
+        observed_selector: {
+          group1: group,
+          group7: "ID-Test",
+          tag_name: name,
+        },
         write_target: { group1: group, group7: "ID-Test", tag_name: name },
       };
     });

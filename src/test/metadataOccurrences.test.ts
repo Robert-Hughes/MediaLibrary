@@ -111,7 +111,11 @@ describe("schema occurrence resolution", () => {
         tag_info: tagInfo(schemaId, false),
       }),
       occurrence(id("IFD2", 3), 144, {
-        observed_selector: null,
+        observed_selector: {
+          group1: "IFD2",
+          group7: "ID-Test",
+          tag_name: "XResolution",
+        },
         write_target: {
           group1: "IFD2",
           group7: "ID-Test",

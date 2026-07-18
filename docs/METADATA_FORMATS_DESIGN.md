@@ -69,6 +69,12 @@ target. `ImageMetadata` contains only this authoritative occurrence collection.
 Schema-oriented read-only consumers derive safe values on demand; no second
 schema-keyed scan store or wire field exists.
 
+The occurrence relationship is validated structurally: a write target is legal
+only when a non-null observed selector has exactly equal `group1`, `group7`, and
+`tag_name`. Case-only differences are rejected here. This is distinct from
+selector occupancy equality, where family 1 and tag name are case-insensitive
+and family 7 remains case-sensitive.
+
 ## Draft and audit persistence
 
 `MediaLibraryTargetDraftEdits.jsonl` is the only draft file read or written.
@@ -134,10 +140,12 @@ occurrence with no safely represented observed selector blocks conservatively;
 an unknown-selector occurrence from another schema does not. Families 3, 4,
 and 5 remain extraction identity rather than supported direct-write coordinates.
 
-Destination editing uses one exact mutation batch to delete the original New
+Semantic value editing preserves the complete New Property target and updates
+only its staged edit. Destination editing uses one exact mutation batch to delete the original New
 Property slot and upsert the replacement with the unchanged semantic edit.
 Validation failure preserves the original slot. A pending verification outcome
-blocks destination editing until resolved.
+blocks either operation until resolved. Neither operation falls back to another
+same-schema target.
 
 The numeric family qualification follows ExifTool's official
 [tag-operations documentation](https://exiftool.org/exiftool_pod2.html#Tag-operations),

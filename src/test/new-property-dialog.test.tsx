@@ -284,6 +284,12 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
         }}
       />,
     );
+    expect(
+      screen.getByRole("heading", { name: "Edit Property Destination" }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("new-property-next")).toHaveTextContent(
+      "Save destination",
+    );
     expect(await screen.findByDisplayValue("Saved-Custom")).toBeInTheDocument();
     const options = Array.from(
       document.querySelectorAll<HTMLDataListElement>(

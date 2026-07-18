@@ -50,7 +50,11 @@ function makeOccurrence(value = "Canon"): MetadataOccurrence {
       kind: { kind: "Text" },
       description: null,
     },
-    observed_selector: null,
+    observed_selector: {
+      group1: "IFD0",
+      group7: "ID-Test",
+      tag_name: "Make",
+    },
     write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "Make" },
   };
 }
@@ -598,7 +602,11 @@ describe("Draft Metadata Editing Integration", () => {
         kind: { kind: "Text" },
         description: null,
       },
-      observed_selector: null,
+      observed_selector: {
+        group1: "XMP-dc",
+        group7: "ID-Test",
+        tag_name: "Description",
+      },
       write_target: {
         group1: "XMP-dc",
         group7: "ID-Test",
@@ -668,7 +676,11 @@ describe("Draft Metadata Editing Integration", () => {
         kind: { kind: "Text" },
         description: null,
       },
-      observed_selector: null,
+      observed_selector: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "Description",
+      },
       write_target: {
         group1: "IFD0",
         group7: "ID-Test",
@@ -679,6 +691,11 @@ describe("Draft Metadata Editing Integration", () => {
       ...occurrenceA,
       id: { ...occurrenceA.id, path: "JPEG-APP1-IFD1", copy: 1 },
       value: { kind: "Text", value: "IFD1 value" },
+      observed_selector: {
+        group1: "IFD1",
+        group7: "ID-Test",
+        tag_name: "Description",
+      },
       write_target: {
         group1: "IFD1",
         group7: "ID-Test",
