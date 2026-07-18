@@ -81,6 +81,11 @@ export function occurrenceFromSchemaValue(
     schema_id: structuredClone(id),
     value: structuredClone(value),
     tag_info: info,
+    observed_selector: {
+      group1: info.group,
+      group7: "ID-Test",
+      tag_name: info.name,
+    },
     write_target: {
       group1: info.group,
       group7: "ID-Test",

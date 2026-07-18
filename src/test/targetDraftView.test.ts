@@ -31,6 +31,7 @@ const occurrence: MetadataOccurrence = {
     kind: { kind: "Integer", data: { min: null, max: null } },
     description: null,
   },
+  observed_selector: null,
   write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 };
 const target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }> = {
@@ -249,6 +250,7 @@ describe("schema-keyed target draft presentation", () => {
     id: { ...occurrence.id, path: "JPEG-APP1-IFD1", copy: 1 },
     value: { kind: "Integer", value: 72 },
     tag_info: { ...occurrence.tag_info!, group: "IFD1" },
+    observed_selector: null,
     write_target: {
       group1: "IFD1",
       group7: "ID-Test",

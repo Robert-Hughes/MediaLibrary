@@ -37,6 +37,7 @@ function occurrence(
       kind: { kind: "Text" },
       description: null,
     },
+    observed_selector: null,
     write_target:
       options.writeTarget === false
         ? null

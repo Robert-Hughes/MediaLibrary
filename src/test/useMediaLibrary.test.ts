@@ -39,6 +39,7 @@ function targetV5Result(
     schema_id: structuredClone(id),
     value: { kind: "Text", value: value ?? "" },
     tag_info: null,
+    observed_selector: null,
     write_target: null,
   };
   return {
@@ -114,6 +115,11 @@ function occurrenceFor(id: SchemaDefinitionId, copy = 0): MetadataOccurrence {
     schema_id: structuredClone(id),
     value: { kind: "Text", value: `existing-${copy}` },
     tag_info: tagInfoFor(id),
+    observed_selector: {
+      group1: "XMP-test",
+      group7: family7GroupFromRuntimeTagId(runtimeTagId),
+      tag_name: "TestField",
+    },
     write_target: {
       group1: "XMP-test",
       group7: family7GroupFromRuntimeTagId(runtimeTagId),
@@ -1159,6 +1165,11 @@ describe("useMediaLibrary", () => {
         kind: { kind: "Rational" as const },
         description: "X resolution",
       },
+      observed_selector: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
       write_target: {
         group1: "IFD0",
         group7: "ID-Test",
@@ -1266,6 +1277,7 @@ describe("useMediaLibrary", () => {
             schema_id: { table: "Exif::Main", tag_id: "272" },
             value: { kind: "Text", value: "stale" },
             tag_info: null,
+            observed_selector: null,
             write_target: null,
           },
         ],
@@ -1575,7 +1587,22 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "present.jpg",
       presentId,
-      "metadata-v5-new-property-already-exists",
+      "metadata-v5-new-property-destination-occupied",
+    );
+
+    const crossSchemaId = testId("XMP-test:CrossSchemaNew");
+    const otherSchemaId = testId("XMP-test:CrossSchemaExisting");
+    const crossSchemaOccurrence = occurrenceFor(otherSchemaId);
+    crossSchemaOccurrence.observed_selector = structuredClone(
+      newPropertyTargetFor(crossSchemaId).write_target,
+    );
+    crossSchemaOccurrence.write_target = null;
+    await publishOccurrences(mock, "cross-schema.jpg", [crossSchemaOccurrence]);
+    mock.tagInfos = [tagInfoFor(crossSchemaId)];
+    await expectRejected(
+      "cross-schema.jpg",
+      crossSchemaId,
+      "metadata-v5-new-property-destination-occupied",
     );
 
     const repeatedId = testId("XMP-test:Repeated");
@@ -1587,7 +1614,21 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "repeated.jpg",
       repeatedId,
-      "metadata-v5-new-property-already-exists",
+      "metadata-v5-new-property-destination-occupied",
+    );
+
+    const unknownDestinationId = testId("XMP-test:UnknownDestination");
+    const unknownDestination = occurrenceFor(unknownDestinationId);
+    unknownDestination.observed_selector = null;
+    unknownDestination.write_target = null;
+    await publishOccurrences(mock, "unknown-destination.jpg", [
+      unknownDestination,
+    ]);
+    mock.tagInfos = [tagInfoFor(unknownDestinationId)];
+    await expectRejected(
+      "unknown-destination.jpg",
+      unknownDestinationId,
+      "metadata-v5-new-property-destination-unknown",
     );
 
     const missingId = testId("XMP-test:MissingDefinition");
@@ -1749,12 +1790,37 @@ describe("useMediaLibrary", () => {
     expect(saveCount()).toBe(collisionSaveCount);
     expect(lastErrorType()).toBe("metadata-v5-new-property-selector-collision");
 
+    const family7Upper = testId("XMP-test:AbC");
+    const family7Lower = testId("XMP-test:abc");
+    await publishOccurrences(mock, "family7-case.jpg");
+    mock.tagInfos = [tagInfoFor(family7Upper), tagInfoFor(family7Lower)];
+    const family7SaveCount = saveCount();
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft(
+        "family7-case.jpg",
+        newPropertyTargetFor(family7Upper),
+        edit,
+      );
+      await result.current[1].setNewPropertyDraft(
+        "family7-case.jpg",
+        newPropertyTargetFor(family7Lower),
+        edit,
+      );
+    });
+    expect(saveCount()).toBe(family7SaveCount + 2);
+    expect(
+      Object.values(stateStore().getMetadataFile("family7-case.jpg") ?? {}),
+    ).toHaveLength(2);
+
     const supportedId: SchemaDefinitionId = {
       table: "XMP::test",
       tag_id: "supported",
       index: 0,
     };
-    await publishOccurrences(mock, "supported.jpg");
+    const unrelatedUnknown = occurrenceFor(testId("XMP-test:UnrelatedUnknown"));
+    unrelatedUnknown.observed_selector = null;
+    unrelatedUnknown.write_target = null;
+    await publishOccurrences(mock, "supported.jpg", [unrelatedUnknown]);
     mock.tagInfos = [tagInfoFor(supportedId)];
     const supportedSaveCount = saveCount();
     await act(async () => {
@@ -1769,6 +1835,166 @@ describe("useMediaLibrary", () => {
       Object.values(stateStore().getMetadataFile("supported.jpg") ?? {})[0]
         ?.target,
     ).toEqual(newPropertyTargetFor(supportedId));
+  });
+
+  it("atomically moves a New Property draft and preserves its semantic edit", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "move.jpg");
+
+    const id = testId("XMP-test:Move");
+    const original = newPropertyTargetFor(id);
+    const replacement = {
+      ...structuredClone(original),
+      write_target: { ...original.write_target, group1: "XMP-moved" },
+    };
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "preserved" },
+    };
+    mock.tagInfos = [tagInfoFor(id)];
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft("move.jpg", original, edit);
+    });
+    const saveCount = () =>
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
+      ).length;
+    const beforeMoveSaves = saveCount();
+
+    let moved = false;
+    await act(async () => {
+      moved = await result.current[1].replaceNewPropertyDraftTarget(
+        "move.jpg",
+        original,
+        replacement,
+        edit,
+      );
+    });
+    expect(moved).toBe(true);
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    const entries = Object.values(
+      state.targetDraftEditsStore.getMetadataFile("move.jpg") ?? {},
+    );
+    expect(entries).toEqual([{ target: replacement, edit }]);
+    expect(saveCount()).toBe(beforeMoveSaves + 1);
+
+    const unchangedSaveCount = saveCount();
+    await act(async () => {
+      moved = await result.current[1].replaceNewPropertyDraftTarget(
+        "move.jpg",
+        replacement,
+        structuredClone(replacement),
+        edit,
+      );
+    });
+    expect(moved).toBe(true);
+    expect(saveCount()).toBe(unchangedSaveCount);
+
+    const verification = targetVerifyOutcomeFromBackend("move.jpg", {
+      target: replacement,
+      draft_reconciliation: { kind: "Keep" },
+      display_name: "Move",
+      kind: "Mismatch",
+      sent: edit.value,
+      before: null,
+      observed: { kind: "Text", value: "readback" },
+      message: "pending verification",
+    })!;
+    act(() =>
+      state.targetVerifyOutcomesStore.replaceFile("move.jpg", [verification]),
+    );
+    await act(async () => {
+      moved = await result.current[1].replaceNewPropertyDraftTarget(
+        "move.jpg",
+        replacement,
+        {
+          ...structuredClone(replacement),
+          write_target: { ...replacement.write_target, group1: "XMP-blocked" },
+        },
+        edit,
+      );
+    });
+    expect(moved).toBe(false);
+    expect(
+      Object.values(
+        state.targetDraftEditsStore.getMetadataFile("move.jpg") ?? {},
+      ),
+    ).toEqual([{ target: replacement, edit }]);
+  });
+
+  it("leaves the original New Property draft untouched when a move is stale or collides", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "move-failure.jpg");
+
+    const id = testId("XMP-test:MoveFailure");
+    const original = newPropertyTargetFor(id);
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "original" },
+    };
+    mock.tagInfos = [tagInfoFor(id)];
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft(
+        "move-failure.jpg",
+        original,
+        edit,
+      );
+    });
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    const store = state.targetDraftEditsStore;
+    const collisionTarget = {
+      ...newPropertyTargetFor(testId("XMP-test:Other")),
+      write_target: { ...original.write_target, group1: "XMP-occupied" },
+    };
+    act(() => {
+      store.setMetadataTarget("move-failure.jpg", collisionTarget, edit);
+    });
+    const replacement = {
+      ...structuredClone(original),
+      write_target: structuredClone(collisionTarget.write_target),
+    };
+    let moved = true;
+    await act(async () => {
+      moved = await result.current[1].replaceNewPropertyDraftTarget(
+        "move-failure.jpg",
+        original,
+        replacement,
+        edit,
+      );
+    });
+    expect(moved).toBe(false);
+    expect(
+      Object.values(store.getMetadataFile("move-failure.jpg") ?? {}),
+    ).toEqual(
+      expect.arrayContaining([
+        { target: original, edit },
+        { target: collisionTarget, edit },
+      ]),
+    );
+
+    await act(async () => {
+      moved = await result.current[1].replaceNewPropertyDraftTarget(
+        "move-failure.jpg",
+        original,
+        {
+          ...structuredClone(original),
+          write_target: { ...original.write_target, group1: "XMP-free" },
+        },
+        { ...edit, value: { kind: "Text", value: "stale" } },
+      );
+    });
+    expect(moved).toBe(false);
+    expect(store.getMetadataFile("move-failure.jpg")).toBeDefined();
   });
 
   it("abandons a deferred new-property lookup after switching folders", async () => {

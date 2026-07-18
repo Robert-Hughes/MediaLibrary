@@ -365,6 +365,7 @@ describe("inactive TargetApplyControllerV5 lifecycle", () => {
             schema_id: { table: "Exif::Main", tag_id: "282" },
             value: { kind: "Text", value: "authoritative" },
             tag_info: null,
+            observed_selector: null,
             write_target: null,
           },
         ],

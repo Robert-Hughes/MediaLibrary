@@ -1615,6 +1615,7 @@ mod tests {
                 schema_id: schema("1"),
                 value: MetadataValue::Text("authoritative".into()),
                 tag_info: None,
+                observed_selector: None,
                 write_target: None,
             }]),
         };

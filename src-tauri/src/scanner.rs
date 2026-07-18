@@ -13,8 +13,9 @@ use std::sync::Arc;
 use walkdir::WalkDir;
 
 use crate::metadata_occurrence::{
-    family7_group_from_runtime_tag_id, MetadataOccurrence, MetadataOccurrenceId,
-    MetadataOccurrences, MetadataWriteTarget, RuntimeTagIdScope,
+    family7_group_from_runtime_tag_id, MetadataObservedSelector, MetadataOccurrence,
+    MetadataOccurrenceId, MetadataOccurrences, MetadataSelectorKey, MetadataWriteTarget,
+    RuntimeTagIdScope,
 };
 use crate::metadata_value::{parse_metadata_value, MetadataValue};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
@@ -1042,29 +1043,32 @@ fn selector_component_is_safe(component: &str, reject_colon: bool) -> bool {
 
 fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
     let mut selector_counts = BTreeMap::new();
-    for occurrence in occurrences.iter() {
-        let group7 = family7_group_from_runtime_tag_id(&occurrence.occurrence.id.runtime_tag_id);
-        *selector_counts
-            .entry((
-                occurrence.runtime_group1.to_ascii_lowercase(),
-                group7.to_ascii_lowercase(),
-                occurrence.runtime_tag_name.to_ascii_lowercase(),
-            ))
-            .or_insert(0usize) += 1;
+    for canonical in occurrences.iter_mut() {
+        canonical.occurrence.observed_selector = None;
+        canonical.occurrence.write_target = None;
+        // Restore family 7 from runtime identity, never static schema identity.
+        let group7 = family7_group_from_runtime_tag_id(&canonical.occurrence.id.runtime_tag_id);
+        if selector_component_is_safe(&canonical.runtime_group1, false)
+            && selector_component_is_safe(&group7, true)
+            && selector_component_is_safe(&canonical.runtime_tag_name, true)
+        {
+            let observed = MetadataObservedSelector {
+                group1: canonical.runtime_group1.clone(),
+                group7,
+                tag_name: canonical.runtime_tag_name.clone(),
+            };
+            *selector_counts
+                .entry(MetadataSelectorKey::from_observed_selector(&observed))
+                .or_insert(0usize) += 1;
+            canonical.occurrence.observed_selector = Some(observed);
+        }
     }
 
     for canonical in occurrences {
-        canonical.occurrence.write_target = None;
-        // The scanner removed exactly one transport-level `ID-` prefix while
-        // parsing this concrete occurrence. Restore it here from runtime
-        // identity, never from static schema identity. Runtime family 7 is not
-        // necessarily identical to the static schema tag ID.
-        let group7 = family7_group_from_runtime_tag_id(&canonical.occurrence.id.runtime_tag_id);
-        let selector_key = (
-            canonical.runtime_group1.to_ascii_lowercase(),
-            group7.to_ascii_lowercase(),
-            canonical.runtime_tag_name.to_ascii_lowercase(),
-        );
+        let Some(observed) = canonical.occurrence.observed_selector.as_ref() else {
+            continue;
+        };
+        let selector_key = MetadataSelectorKey::from_observed_selector(observed);
         let Some(tag_info) = canonical.occurrence.tag_info.as_ref() else {
             continue;
         };
@@ -1073,9 +1077,6 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
             || canonical.is_lang_alt
             || canonical.language.is_some()
             || canonical.runtime_tag_name != tag_info.name
-            || !selector_component_is_safe(&canonical.runtime_group1, false)
-            || !selector_component_is_safe(&group7, true)
-            || !selector_component_is_safe(&canonical.runtime_tag_name, true)
             || selector_counts.get(&selector_key) != Some(&1)
         {
             continue;
@@ -1086,9 +1087,9 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
         // family-1/family-7/tag-name selector identifying one occurrence.
         // Schema table/index and TagInfo::group are not occurrence destinations.
         canonical.occurrence.write_target = Some(MetadataWriteTarget {
-            group1: canonical.runtime_group1.clone(),
-            group7,
-            tag_name: canonical.runtime_tag_name.clone(),
+            group1: observed.group1.clone(),
+            group7: observed.group7.clone(),
+            tag_name: observed.tag_name.clone(),
         });
     }
 }
@@ -1166,6 +1167,7 @@ fn canonical_occurrences_from_exiftool_pair(
                     MetadataValue::LangAlt(BTreeMap::from([(language.clone(), text)])),
                     Some(info.clone()),
                     None,
+                    None,
                 )
                 .map_err(|error| {
                     format!(
@@ -1198,11 +1200,17 @@ fn canonical_occurrences_from_exiftool_pair(
             &value,
             warnings_accumulator.as_deref_mut(),
         );
-        let occurrence =
-            MetadataOccurrence::try_new(occurrence_id, id.clone(), value, info.cloned(), None)
-                .map_err(|error| {
-                    format!("invalid metadata occurrence constructed for {rel_path}: {error}")
-                })?;
+        let occurrence = MetadataOccurrence::try_new(
+            occurrence_id,
+            id.clone(),
+            value,
+            info.cloned(),
+            None,
+            None,
+        )
+        .map_err(|error| {
+            format!("invalid metadata occurrence constructed for {rel_path}: {error}")
+        })?;
         values.push(CanonicalRuntimeOccurrence {
             occurrence,
             friendly_name: property.friendly_name.clone(),
@@ -1710,6 +1718,7 @@ mod tests {
                 schema_id,
                 value,
                 tag_info,
+                observed_selector: None,
                 write_target: None,
             },
             friendly_name: format!("{group1}:{tag_name}"),
@@ -2551,6 +2560,62 @@ mod tests {
         assert!(occurrences
             .iter()
             .all(|item| item.occurrence.write_target.is_none()));
+        assert!(occurrences
+            .iter()
+            .all(|item| item.occurrence.observed_selector.is_some()));
+    }
+
+    #[test]
+    fn selector_uniqueness_preserves_runtime_family7_case() {
+        let mut upper = write_target_test_occurrence(
+            "IFD0",
+            "XResolution",
+            "upper",
+            0,
+            None,
+            Some(write_target_test_info(true, TagKind::Rational)),
+            MetadataValue::Integer(300),
+        );
+        upper.occurrence.id.runtime_tag_id = "AbC".into();
+        let mut lower = write_target_test_occurrence(
+            "ifd0",
+            "xresolution",
+            "lower",
+            0,
+            None,
+            Some({
+                let mut info = write_target_test_info(true, TagKind::Rational);
+                info.name = "xresolution".into();
+                info
+            }),
+            MetadataValue::Integer(72),
+        );
+        lower.occurrence.id.runtime_tag_id = "abc".into();
+        let mut occurrences = vec![upper, lower];
+
+        assign_exact_write_targets(&mut occurrences);
+
+        assert_eq!(
+            occurrences[0]
+                .occurrence
+                .observed_selector
+                .as_ref()
+                .unwrap()
+                .group7,
+            "ID-AbC"
+        );
+        assert_eq!(
+            occurrences[1]
+                .occurrence
+                .observed_selector
+                .as_ref()
+                .unwrap()
+                .group7,
+            "ID-abc"
+        );
+        assert!(occurrences
+            .iter()
+            .all(|item| item.occurrence.write_target.is_some()));
     }
 
     #[test]
@@ -2567,6 +2632,7 @@ mod tests {
         );
         assign_exact_write_targets(std::slice::from_mut(&mut alias));
         assert!(alias.occurrence.write_target.is_none());
+        assert!(alias.occurrence.observed_selector.is_some());
 
         for (group1, tag_name) in [
             ("", "XResolution"),
@@ -2591,6 +2657,7 @@ mod tests {
             );
             assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
             assert!(occurrence.occurrence.write_target.is_none());
+            assert!(occurrence.occurrence.observed_selector.is_none());
         }
 
         let mut lang_alt_info = write_target_test_info(true, TagKind::LangAlt);
@@ -2608,6 +2675,7 @@ mod tests {
         lang_alt.language = Some("en".into());
         assign_exact_write_targets(std::slice::from_mut(&mut lang_alt));
         assert!(lang_alt.occurrence.write_target.is_none());
+        assert!(lang_alt.occurrence.observed_selector.is_some());
     }
 
     #[test]
@@ -2634,6 +2702,11 @@ mod tests {
                 .map(MetadataWriteTarget::selector),
             Some("1IFD0:7ID-282:XResolution".into())
         );
+        let observed = occurrence.occurrence.observed_selector.as_ref().unwrap();
+        let writable = occurrence.occurrence.write_target.as_ref().unwrap();
+        assert_eq!(observed.group1, writable.group1);
+        assert_eq!(observed.group7, writable.group7);
+        assert_eq!(observed.tag_name, writable.tag_name);
         assert!(occurrence.occurrence.is_writable());
     }
 

@@ -3,6 +3,7 @@ import {
   family7GroupFromRuntimeTagId,
   family7GroupFromSchemaId,
   metadataWriteSelector,
+  metadataWriteSelectorsEqual,
   metadataWriteTargetEquals,
   metadataWriteTargetToken,
   validateFamily1Group,
@@ -49,6 +50,24 @@ describe("metadata write targets", () => {
         tag_id: "AAPL:Keywords",
       }),
     ).toBe("ID-AAPL3aKeywords");
+  });
+
+  it("folds family 1 and tag name but keeps family 7 case-sensitive", () => {
+    const target = {
+      group1: "IFD0",
+      group7: "ID-AbC",
+      tag_name: "XResolution",
+    };
+    expect(
+      metadataWriteSelectorsEqual(target, {
+        ...target,
+        group1: "ifd0",
+        tag_name: "xresolution",
+      }),
+    ).toBe(true);
+    expect(
+      metadataWriteSelectorsEqual(target, { ...target, group7: "ID-abc" }),
+    ).toBe(false);
   });
 
   it("matches the backend family-1 token grammar", () => {

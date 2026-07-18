@@ -249,6 +249,7 @@ export function createMockTauriApi(): MockTauriApi {
                 schema_id: testId(name),
                 value,
                 tag_info: null,
+                observed_selector: null,
                 write_target: null,
               })),
           },

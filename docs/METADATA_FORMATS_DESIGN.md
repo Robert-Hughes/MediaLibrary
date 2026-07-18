@@ -6,7 +6,7 @@ draft always contains a complete `MetadataDraftTarget` and a semantic
 
 ## Occurrence concerns and identity layers
 
-The editing model distinguishes five concepts:
+The editing model distinguishes six concepts:
 
 1. A friendly property label (`TagInfo.group` plus `TagInfo.name`) is human
    display, search and explanation text, not execution identity.
@@ -19,10 +19,14 @@ The editing model distinguishes five concepts:
 4. `MetadataOccurrenceId` identifies one concrete value using family-3
    document/sample, family-5 metadata path, family-7 runtime ID, wrapped scope,
    and family-4 copy.
-5. `MetadataWriteTarget { group1, group7, tag_name }` is the structured
+5. `MetadataObservedSelector { group1, group7, tag_name }` records a complete
+   selector observed in the file. It establishes occupancy, not writability.
+6. `MetadataWriteTarget { group1, group7, tag_name }` is the proven structured
    ExifTool write selector. It is nullable on occurrences because existing
-   occurrences require proof, and required on New Property drafts because they
-   carry an intended destination.
+   occurrences require independent-targeting proof, and required on New
+   Property drafts because they carry an intended destination. Every assigned
+   existing `write_target` normally equals `observed_selector`, but an observed
+   selector may exist when `write_target` is null.
 
 Nullable `tag_info` supplies registry interpretation, friendly labels and
 description metadata. When present, `TagInfo.id` must exactly match
@@ -59,7 +63,7 @@ schema-controlled.
 ## Transient occurrence format
 
 Scan and readback payloads use the required shape
-`{ id, schema_id, value, tag_info, write_target }`. Unknown local schemas retain
+`{ id, schema_id, value, tag_info, observed_selector, write_target }`. Unknown local schemas retain
 their exact table, tag ID and optional index with null interpretation and write
 target. `ImageMetadata` contains only this authoritative occurrence collection.
 Schema-oriented read-only consumers derive safe values on demand; no second
@@ -121,12 +125,19 @@ Clear results require no attention row. Keep, Replace, Blocked, unavailable
 readback, missing values, mismatches, coercions, lingering deletes, and
 observed nulls retain exact target context for review.
 
-Selector occupancy and planned-write collision keys compare family 1, family 7,
-and tag name case-insensitively. A proven same-schema occurrence at a different
-selector is allowed. A same-schema occurrence with no exact target blocks
-creation conservatively because absence of proof is not proof that a
-destination is free. Families 3, 4, and 5 remain extraction identity rather
-than supported direct-write coordinates.
+Selector occupancy and planned-write collision keys compare family 1 and tag
+name case-insensitively, but preserve and compare family-7 tag-ID group text
+case-sensitively. ExifTool documents this family-7 rule in its official
+[`GetGroup` reference](https://exiftool.org/ExifTool.html#GetGroup). Every exact
+observed-selector collision blocks New Property across schemas. A same-schema
+occurrence with no safely represented observed selector blocks conservatively;
+an unknown-selector occurrence from another schema does not. Families 3, 4,
+and 5 remain extraction identity rather than supported direct-write coordinates.
+
+Destination editing uses one exact mutation batch to delete the original New
+Property slot and upsert the replacement with the unchanged semantic edit.
+Validation failure preserves the original slot. A pending verification outcome
+blocks destination editing until resolved.
 
 The numeric family qualification follows ExifTool's official
 [tag-operations documentation](https://exiftool.org/exiftool_pod2.html#Tag-operations),

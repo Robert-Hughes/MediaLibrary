@@ -7,8 +7,9 @@ target-aware, and occurrence-based from draft creation through audit.
 
 The scanner returns authoritative `MetadataOccurrence` values with a semantic
 `value` plus four independent identity, interpretation and targeting concerns:
-runtime `id`, always-present exact `schema_id`, optional resolved `tag_info`, and
-optional proven `write_target`. `TagInfo` supplies interpretation and labels; it
+runtime `id`, always-present exact `schema_id`, optional resolved `tag_info`,
+optional observed `observed_selector`, and optional proven `write_target`.
+`TagInfo` supplies interpretation and labels; it
 is not the source of occurrence schema identity. When present, `tag_info.id`
 must exactly match `schema_id`, and malformed wire payloads are rejected rather
 than repaired.
@@ -17,7 +18,10 @@ The names are intentionally precise: the friendly property label is for
 people; `id.tag_id_scope` is the raw wrapped runtime table/ID/index scope;
 `schema_id` is the resolved static semantic definition; `id` is the complete
 runtime occurrence identity (document/sample, path, family-7 ID, wrapped scope
-and copy); and `write_target` is the separately proven mutation selector.
+and copy); `observed_selector` records that a complete selector is occupied in
+the file; and `write_target` additionally proves that selector can target this
+occurrence independently. A null `write_target` does not mean the selector is
+unoccupied.
 Multiple occurrences may share a schema. No path may use that shared schema to
 first-select one of them.
 
@@ -60,11 +64,21 @@ every other UTF-8 byte as two lowercase hexadecimal digits, matching ExifTool's
 
 New Property draft identity includes schema and complete destination. Multiple
 same-schema destinations therefore coexist; unoverlayable destinations appear
-as separate target-aware rows. Exact selector occupancy uses case-insensitive
-family 1 + family 7 + tag name. A proven same-schema occurrence elsewhere is
-allowed, while a same-schema occurrence without a proven target blocks creation
-conservatively. The dialog's destination suggestions are advisory and unknown
-valid family-1 tokens remain enterable.
+as separate target-aware rows. New Property checks every observed selector,
+across schemas, before any ExifTool arguments are generated. Family 1 and tag
+name compare case-insensitively, while the complete canonical family-7 group is
+compared case-sensitively. A same-schema occurrence without a safely retained
+observed selector blocks creation conservatively; an unknown-selector occurrence
+of another schema does not block every destination. ExifTool documents that the
+tag-ID portion of [family-7 group names is case-sensitive](https://exiftool.org/ExifTool.html#GetGroup).
+The dialog's destination suggestions are advisory and unknown valid family-1
+tokens remain enterable.
+
+Editing a New Property destination atomically moves the existing draft slot by
+one exact mutation batch: delete the original target and upsert the replacement
+with the original semantic edit. Failed replacement leaves the original draft
+unchanged. Destination editing is blocked while the original target has an
+unresolved verification outcome.
 
 ## Draft state and persistence
 

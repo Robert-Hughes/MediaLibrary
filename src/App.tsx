@@ -412,6 +412,9 @@ function LoadedView({
           onRemoveMetadataFieldsV5={actions.removeMetadataFieldsV5}
           onSetGpsTargetDraftBatch={actions.setGpsTargetDraftBatch}
           onSetNewPropertyDraft={actions.setNewPropertyDraft}
+          onReplaceNewPropertyDraftTarget={
+            actions.replaceNewPropertyDraftTarget
+          }
           onDiscardTargetPropertyDraft={actions.discardTargetPropertyDraft}
           onDiscardTargetDraftBatch={actions.discardTargetDraftValues}
           onDiscardAllEdits={actions.discardAllDraftEdits}

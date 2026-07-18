@@ -50,6 +50,7 @@ function makeOccurrence(value = "Canon"): MetadataOccurrence {
       kind: { kind: "Text" },
       description: null,
     },
+    observed_selector: null,
     write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "Make" },
   };
 }
@@ -597,6 +598,7 @@ describe("Draft Metadata Editing Integration", () => {
         kind: { kind: "Text" },
         description: null,
       },
+      observed_selector: null,
       write_target: {
         group1: "XMP-dc",
         group7: "ID-Test",
@@ -666,6 +668,7 @@ describe("Draft Metadata Editing Integration", () => {
         kind: { kind: "Text" },
         description: null,
       },
+      observed_selector: null,
       write_target: {
         group1: "IFD0",
         group7: "ID-Test",

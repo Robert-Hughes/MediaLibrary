@@ -60,6 +60,7 @@ function occurrence(
     schema_id: (options.info ?? tagInfo).id,
     value: { kind: "Integer", value },
     tag_info: options.info ?? tagInfo,
+    observed_selector: null,
     write_target: {
       group1: options.group1 ?? "IFD0",
       group7: "ID-Test",
@@ -97,6 +98,7 @@ function renderPane(options: {
     onRemoveMetadataFieldsV5: vi.fn(),
     onSetGpsTargetDraftBatch: vi.fn(() => true),
     onSetNewPropertyDraft: vi.fn(),
+    onReplaceNewPropertyDraftTarget: vi.fn(async () => true),
     onDiscardTargetPropertyDraft: vi.fn(),
     onDiscardTargetDraftBatch: vi.fn(),
   };
@@ -557,6 +559,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
           schema_id: gpsInfo.id,
           value: { kind: "Real", value: 51.5 },
           tag_info: gpsInfo,
+          observed_selector: null,
           write_target: {
             group1: "GPS",
             group7: "ID-Test",
@@ -699,6 +702,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
       schema_id: gpsInfo.id,
       value: { kind: "Real", value: 51.5 },
       tag_info: gpsInfo,
+      observed_selector: null,
       write_target: {
         group1: "GPS",
         group7: "ID-Test",
@@ -722,7 +726,7 @@ describe("DetailsPane exact ordinary editor identity", () => {
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
   });
 
-  it("keeps New Property editing on its target-aware callback", async () => {
+  it("moves a New Property destination without reopening the value editor", async () => {
     const newId: SchemaDefinitionId = {
       table: "XMP::dc",
       tag_id: "title",
@@ -763,19 +767,25 @@ describe("DetailsPane exact ordinary editor identity", () => {
         "XMP-custom",
       );
     });
+    const destination = screen.getByTestId("new-property-destination-group");
+    await userEvent.clear(destination);
+    await userEvent.type(destination, "XMP-moved");
     await userEvent.click(screen.getByTestId("new-property-next"));
-    const input = screen.getByTestId("value-edit-input");
-    expect(input).toHaveValue("draft title");
-    await userEvent.clear(input);
-    await userEvent.type(input, "updated title");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(
-      newTarget,
-      expect.objectContaining({
-        intent: "Set",
-        value: { kind: "Text", value: "updated title" },
-      }),
+    await waitFor(() =>
+      expect(view.onReplaceNewPropertyDraftTarget).toHaveBeenCalledWith(
+        newTarget,
+        {
+          ...newTarget,
+          write_target: { ...newTarget.write_target, group1: "XMP-moved" },
+        },
+        {
+          intent: "Set",
+          value: { kind: "Text", value: "draft title" },
+        },
+      ),
     );
+    expect(screen.queryByTestId("value-edit-input")).toBeNull();
+    expect(view.onSetNewPropertyDraft).not.toHaveBeenCalled();
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
   });
 });

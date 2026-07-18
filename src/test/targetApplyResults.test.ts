@@ -58,6 +58,7 @@ function occurrence(numerator = 1): MetadataOccurrence {
       description: null,
       storage_count: undefined,
     },
+    observed_selector: null,
     write_target: structuredClone(target.write_target),
   };
 }

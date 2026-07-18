@@ -396,6 +396,11 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
             schema_id: testDefinitions[2].id,
             value: { kind: "Text", value: "Auto" },
             tag_info: testDefinitions[2],
+            observed_selector: {
+              group1: "MakerNotes",
+              group7: "ID-4",
+              tag_name: "WhiteBalance",
+            },
             write_target: {
               group1: "MakerNotes",
               group7: "ID-4",
@@ -423,6 +428,68 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.getByTestId("new-property-duplicate-warning")).toBeVisible();
     expect(screen.getByTestId("new-property-next")).toBeDisabled();
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("blocks a cross-schema observed selector even without a write target and preserves family-7 case", async () => {
+    const occurrence = {
+      id: {
+        document: null,
+        path: "XMP",
+        runtime_tag_id: "title",
+        tag_id_scope: {
+          table: testDefinitions[1].id.table,
+          tag_id: testDefinitions[1].id.tag_id,
+          index: null,
+        },
+        copy: 0,
+      },
+      schema_id: testDefinitions[1].id,
+      value: { kind: "Text" as const, value: "occupied" },
+      tag_info: testDefinitions[1],
+      observed_selector: {
+        group1: "xmp-DC",
+        group7: "ID-title",
+        tag_name: "title",
+      },
+      write_target: null,
+    };
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    const view = render(
+      <NewPropertyDialog
+        onSave={() => {}}
+        onCancel={() => {}}
+        existingOccurrences={[occurrence]}
+      />,
+    );
+    fireEvent.change(screen.getByTestId("new-property-key"), {
+      target: { value: "Document Title" },
+    });
+    await userEvent.click(
+      screen.getByTestId(
+        `schema-option-${schemaDefinitionIdToken(testDefinitions[0].id)}`,
+      ),
+    );
+    expect(
+      screen.getByTestId("new-property-duplicate-warning"),
+    ).toHaveTextContent("complete ExifTool destination already present");
+
+    view.rerender(
+      <NewPropertyDialog
+        onSave={() => {}}
+        onCancel={() => {}}
+        existingOccurrences={[
+          {
+            ...occurrence,
+            observed_selector: {
+              ...occurrence.observed_selector,
+              group7: "ID-Title",
+            },
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByTestId("new-property-duplicate-warning")).toBeNull();
+    expect(screen.getByTestId("new-property-next")).toBeEnabled();
   });
 
   it("shows and distinguishes index: Some(0) from omitted index", () => {

@@ -1028,6 +1028,11 @@ mod tests {
             schema_id: schema_id.clone(),
             value: MetadataValue::Integer(300),
             tag_info: Some(tag_info.clone()),
+            observed_selector: Some(crate::metadata_occurrence::MetadataObservedSelector {
+                group1: group1.into(),
+                group7: "ID-282".into(),
+                tag_name: "XResolution".into(),
+            }),
             write_target: Some(MetadataWriteTarget {
                 group1: group1.into(),
                 group7: "ID-282".into(),

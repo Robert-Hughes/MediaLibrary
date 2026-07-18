@@ -69,6 +69,7 @@ describe("exact occurrence lookup", () => {
     schema_id: { table: "Unknown::Table", tag_id: "1" },
     value: { kind: "Text" as const, value: "value" },
     tag_info: null,
+    observed_selector: null,
     write_target: null,
   };
 

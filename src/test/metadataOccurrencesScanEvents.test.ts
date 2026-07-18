@@ -34,6 +34,7 @@ const occurrence = (
   id: id(),
   value: { kind: "Text", value: "300 dpi" },
   tag_info: null,
+  observed_selector: null,
   write_target: null,
   ...overrides,
   schema_id: overrides.schema_id ?? { table: "Exif::Main", tag_id: "282" },
@@ -49,6 +50,7 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
     const value = occurrence({
       value: { kind: "Integer", value: 300 },
       tag_info: tagInfo({ kind: "Integer", data: { min: 0, max: null } }),
+      observed_selector: null,
       write_target: {
         group1: "IFD0",
         group7: "ID-Test",

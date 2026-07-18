@@ -80,6 +80,7 @@ function mockOccurrences(
         kind: { kind: "Text" },
         description: null,
       },
+      observed_selector: { group1: group, group7: "ID-Test", tag_name: name },
       write_target: readOnly.includes(friendly)
         ? null
         : { group1: group, group7: "ID-Test", tag_name: name },
@@ -888,6 +889,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               schema_id: structuredClone(id),
               value: { kind: "Text", value: firstValue },
               tag_info: info,
+              observed_selector: structuredClone(target.write_target),
               write_target: target.write_target,
             },
             {
@@ -895,6 +897,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               schema_id: structuredClone(id),
               value: { kind: "Text", value: secondValue },
               tag_info: info,
+              observed_selector: structuredClone(target.write_target),
               write_target: target.write_target,
             },
           ]}
@@ -937,6 +940,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
             schema_id: structuredClone(id),
             value: { kind: "Text", value: "unresolved" },
             tag_info: null,
+            observed_selector: null,
             write_target: null,
           },
         ]}
@@ -1019,6 +1023,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               kind: { kind: "Text" },
               description: null,
             },
+            observed_selector: null,
             write_target: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1152,6 +1157,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               kind: { kind: "Text" },
               description: null,
             },
+            observed_selector: structuredClone(target.write_target),
             write_target: target.write_target,
           },
         ]}
@@ -1205,6 +1211,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               kind: { kind: "Text" },
               description: null,
             },
+            observed_selector: null,
             write_target: target.write_target,
           },
         ]}
@@ -1377,6 +1384,7 @@ describe("DetailsPane: read-only row context menu", () => {
               kind: { kind: "Text" },
               description: null,
             },
+            observed_selector: null,
             write_target: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1439,6 +1447,7 @@ describe("DetailsPane: read-only row context menu", () => {
               kind: { kind: "Text" },
               description: null,
             },
+            observed_selector: null,
             write_target: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1548,6 +1557,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           kind: { kind: value.kind } as any,
           description: null,
         },
+        observed_selector: null,
         write_target: { group1: group, group7: "ID-Test", tag_name: name },
       };
     });

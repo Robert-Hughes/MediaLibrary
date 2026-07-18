@@ -50,6 +50,7 @@ const occurrence = (
   schema_id: schema(),
   value: { kind: "Rational", value: { numerator: value, denominator: 1 } },
   tag_info: tagInfo(),
+  observed_selector: null,
   write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 });
 
