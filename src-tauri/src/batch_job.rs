@@ -257,7 +257,7 @@ impl<'a> BatchProgressEmitter<'a> {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&crate::draft_edits::MetadataDraftMap>,
+        edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
     ) {
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -279,7 +279,9 @@ impl<'a> BatchProgressEmitter<'a> {
                 relative_path,
                 status,
                 error,
-                edits: edits.cloned().map(crate::draft_edits::draft_entries),
+                edits: edits
+                    .cloned()
+                    .map(crate::draft_edits::schema_metadata_edit_entries),
             },
         );
     }

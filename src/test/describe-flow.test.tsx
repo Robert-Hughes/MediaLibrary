@@ -262,7 +262,7 @@ describe("AI-description flow", () => {
 
   it("stages backend-emitted edits as exact target-aware targets", async () => {
     // Regression: the frontend used to rely on the backend writing
-    // draft_edits.jsonl directly, so the UI never saw the new edits
+    // the persisted target-draft file directly, so the UI never saw the new edits
     // after a describe run completed. The architecture now ships edits
     // in the per-image progress event and the hook funnels them through
     // semantic draft batch setter — proven here by inspecting the mock's draft store

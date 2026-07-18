@@ -5,7 +5,7 @@
 //! case-sensitive, preserve first-seen order.
 
 use super::{bag_edit, text_edit, CreatorInput, GroupOutput};
-use crate::draft_edits::MetadataDraftMap;
+use crate::draft_edits::SchemaMetadataEditMap;
 use crate::known_ids;
 use std::collections::HashSet;
 
@@ -70,7 +70,7 @@ pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
         return None;
     }
 
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     edits.insert(known_ids::xmp_creator(), bag_edit(&canonical));
     edits.insert(
         known_ids::artist(),

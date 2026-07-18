@@ -21,7 +21,7 @@ use super::{
     collapse_whitespace_single_line, lang_alt_edit, text_edit, truncate_at_word, AiCallUsage,
     DescriptionInput, DescriptionMergePrompt, GroupOutput, NormaliseAiClient, NormaliseAiError,
 };
-use crate::draft_edits::MetadataDraftMap;
+use crate::draft_edits::SchemaMetadataEditMap;
 use crate::known_ids;
 
 const IPTC_CAPTION_ABSTRACT_LIMIT: usize = 2000;
@@ -295,7 +295,7 @@ pub async fn normalise_description(
     let projection_image = ascii_fold(&canonical);
     let projection_caption = project_caption_abstract(&canonical, input.iptc_charset_is_utf8);
 
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     if input.description.as_deref() != Some(canonical.as_str()) {
         edits.insert(
             known_ids::xmp_description(),

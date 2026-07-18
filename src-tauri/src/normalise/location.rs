@@ -28,7 +28,7 @@ use crate::country_code::{
     canonical_country_code, canonical_iptc_country_code_readback, iptc_country_code_projection,
     xmp_country_code_projection,
 };
-use crate::draft_edits::MetadataDraftMap;
+use crate::draft_edits::SchemaMetadataEditMap;
 use crate::known_ids;
 use crate::tag_schema::SchemaDefinitionId;
 
@@ -210,7 +210,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         ),
     ];
 
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     let mut conflicts: u32 = 0;
     for (xmp_key, iptc_key, xmp, iptc, xmp_canon, iptc_canon, xmp_projection, iptc_projection) in
         pairs

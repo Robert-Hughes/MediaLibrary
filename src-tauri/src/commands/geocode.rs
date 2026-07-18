@@ -83,7 +83,7 @@ impl<'a> geocode::GeocodeEventSink for TauriGeocodeSink<'a> {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&crate::draft_edits::MetadataDraftMap>,
+        edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
     ) {
         self.emitter
             .progress_metadata(current, total, relative_path, status, error, edits);

@@ -7,7 +7,7 @@
 use super::{
     collapse_whitespace_single_line, text_edit, truncate_at_word, GroupOutput, HeadlineInput,
 };
-use crate::draft_edits::MetadataDraftMap;
+use crate::draft_edits::SchemaMetadataEditMap;
 
 use crate::known_ids;
 
@@ -42,7 +42,7 @@ pub fn normalise_headline(input: &HeadlineInput) -> Option<GroupOutput> {
         return None;
     }
     let iptc = truncate_at_word(&canonical, IPTC_HEADLINE_LIMIT);
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     edits.insert(known_ids::xmp_headline(), text_edit(canonical.clone()));
     edits.insert(known_ids::iptc_headline(), text_edit(iptc));
     Some(GroupOutput { edits })

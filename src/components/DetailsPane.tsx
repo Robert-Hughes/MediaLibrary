@@ -393,7 +393,7 @@ function DetailsImageRow({
       readOnly = tagInfo != null && !tagInfo.writable;
       break;
     case "multiple":
-      // This is only a compatibility aggregate. Never replace it with one
+      // This is only a schema projection. Never replace it with one
       // arbitrarily selected concrete occurrence.
       originalSemanticValue = rawValue;
       readOnly = true;

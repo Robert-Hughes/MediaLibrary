@@ -5,7 +5,7 @@
 //! are used only as a local comparison/projection hint.
 
 use super::{DatesInput, GroupOutput};
-use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::known_ids;
 use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
@@ -312,7 +312,7 @@ fn has_non_empty_value(value: Option<&MetadataValue>) -> bool {
 
 #[derive(Debug, Clone, Default)]
 struct DateSubgroupResult {
-    edits: MetadataDraftMap,
+    edits: SchemaMetadataEditMap,
     conflict: bool,
 }
 
@@ -351,7 +351,7 @@ fn process_date_subgroup(
         return DateSubgroupResult::default();
     };
 
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     if existing_exif
         .map(|v| v.compare_for_dates_normaliser(&canonical) == TimestampComparison::Equivalent)
         != Some(true)
@@ -504,7 +504,7 @@ fn normalise_dates_inner(
     input: &DatesInput,
     iptc_fallback_offset: Option<UtcOffsetValue>,
 ) -> DatesOutcome {
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     let mut n_conflict = 0;
     let mut n_unparseable = 0;
     let mut n_from_filename = 0;

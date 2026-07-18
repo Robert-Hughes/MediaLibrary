@@ -34,7 +34,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::country_code::{iptc_country_code_projection, xmp_country_code_projection};
-use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataDraftMap};
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
 use crate::metadata_value::MetadataValue;
 use crate::{known_ids, tag_schema::SchemaDefinitionId};
@@ -348,7 +348,7 @@ pub fn geocode_target_tags() -> [SchemaDefinitionId; 10] {
 /// empty `AddressFields`: that case is the `nominatim_empty` failure
 /// and writes no drafts (see file-level doc-comment "All-empty result
 /// is a failure, not a success").
-pub fn compose_geocode_edits(addr: &AddressFields) -> MetadataDraftMap {
+pub fn compose_geocode_edits(addr: &AddressFields) -> SchemaMetadataEditMap {
     debug_assert!(
         addr.has_any_usable(),
         "compose_geocode_edits called on an empty address — callers must \
@@ -381,7 +381,7 @@ pub fn compose_geocode_edits(addr: &AddressFields) -> MetadataDraftMap {
     // tag mirror. Keeping them paired in code makes the
     // coherent-replacement intent obvious to a reader and keeps the
     // legacy IIM mirror in lockstep with the XMP source of truth.
-    let mut edits = MetadataDraftMap::new();
+    let mut edits = SchemaMetadataEditMap::new();
     let mut put = |xmp: SchemaDefinitionId,
                    iptc: SchemaDefinitionId,
                    value: Option<&str>,
@@ -883,7 +883,7 @@ pub trait GeocodeEventSink {
         relative_path: &str,
         status: &str,
         error: Option<&str>,
-        edits: Option<&MetadataDraftMap>,
+        edits: Option<&SchemaMetadataEditMap>,
     );
     fn complete(
         &self,

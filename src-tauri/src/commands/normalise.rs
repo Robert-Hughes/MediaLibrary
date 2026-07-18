@@ -124,7 +124,7 @@ struct NormaliseEstimateErrorPayload {
 fn count_overwrites_for_group(
     group: normalise::NormaliseGroup,
     inputs: &normalise::GroupInputs,
-    edits: &crate::draft_edits::MetadataDraftMap,
+    edits: &crate::draft_edits::SchemaMetadataEditMap,
     fires_description_ai: bool,
     fires_title_ai: bool,
 ) -> u32 {
