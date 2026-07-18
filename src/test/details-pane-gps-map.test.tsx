@@ -202,6 +202,116 @@ describe("DetailsPane GPS Map integration", () => {
     expect(optionLabels()).toEqual(overviewLabels);
   });
 
+  it("keeps GPS menu actions and counts based on the full group while rows are filtered", async () => {
+    _setTagInfoCacheEntry("GPS:GPSVersionID", {
+      group: "GPS",
+      name: "GPSVersionID",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 51.5001,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0.1262,
+      "GPS:GPSLongitudeRef": "W",
+      "GPS:GPSVersionID": "2.2.0.0",
+      "IFD0:Make": "Canon",
+    });
+    const occurrences = occurrencesFor(metadata);
+    const occurrenceNamed = (name: string) =>
+      occurrences.find((occurrence) => occurrence.tag_info?.name === name)!;
+    const targetFor = (name: string) => {
+      const result = existingOccurrenceTargetFromOccurrence(
+        occurrenceNamed(name),
+      );
+      if (result.kind !== "targetable") {
+        throw new Error(`test occurrence ${name} must be targetable`);
+      }
+      return result.target;
+    };
+    const latitudeTarget = targetFor("GPSLatitude");
+    const longitudeTarget = targetFor("GPSLongitude");
+    const makeTarget = targetFor("Make");
+    const store = new TargetDraftEditsStore();
+    store.setMetadataBatch(photo.relative_path, [
+      {
+        target: latitudeTarget,
+        edit: { intent: "Set", value: { kind: "Real", value: 52 } },
+      },
+      {
+        target: longitudeTarget,
+        edit: { intent: "Set", value: { kind: "Real", value: 1 } },
+      },
+      {
+        target: makeTarget,
+        edit: { intent: "Set", value: { kind: "Text", value: "Nikon" } },
+      },
+    ]);
+    const writableGpsCount = occurrences.filter(
+      (occurrence) =>
+        occurrence.tag_info?.group === "GPS" &&
+        occurrence.tag_info.writable === true,
+    ).length;
+    const expectedRemoveLabel = `Remove all ${writableGpsCount} writable GPS fields…`;
+
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrences}
+        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onRemoveMetadataFields={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn(() => true)}
+      />,
+    );
+
+    fireEvent.change(screen.getByTestId("details-search-input"), {
+      target: { value: "GPSVersionID" },
+    });
+
+    const gpsSection = screen.getByTestId("details-section-GPS");
+    expect(gpsSection).toBeInTheDocument();
+    expect(within(gpsSection).getByText("GPSVersionID")).toBeInTheDocument();
+    expect(within(gpsSection).queryByText("GPSLatitude")).toBeNull();
+    expect(within(gpsSection).queryByText("GPSLongitude")).toBeNull();
+    expect(within(gpsSection).getAllByTestId("details-row")).toHaveLength(1);
+    expect(writableGpsCount).toBeGreaterThan(1);
+    expect(screen.getByTestId("gps-map-overview")).toBeInTheDocument();
+    expect(screen.getAllByTestId("gps-map")).toHaveLength(4);
+
+    const optionLabels = () =>
+      within(screen.getByTestId("context-menu"))
+        .getAllByRole("button")
+        .map((button) => button.textContent);
+
+    fireEvent.contextMenu(screen.getByTestId("gps-map-overview-grid"));
+    const overviewMenu = screen.getByTestId("context-menu");
+    expect(
+      within(overviewMenu).getByRole("button", { name: "Edit GPS…" }),
+    ).toBeEnabled();
+    expect(
+      within(overviewMenu).getByRole("button", {
+        name: "Discard all 2 GPS edits…",
+      }),
+    ).toBeEnabled();
+    expect(
+      within(overviewMenu).getByRole("button", { name: expectedRemoveLabel }),
+    ).toBeEnabled();
+    const overviewLabels = optionLabels();
+
+    fireEvent.mouseDown(document.body);
+    fireEvent.contextMenu(gpsHeading());
+    expect(optionLabels()).toEqual(overviewLabels);
+
+    fireEvent.click(
+      within(screen.getByTestId("context-menu")).getByRole("button", {
+        name: "Edit GPS…",
+      }),
+    );
+    expect(await screen.findByText("Edit GPS location")).toBeInTheDocument();
+  });
+
   it("keeps non-GPS group menus unchanged", () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5001,
