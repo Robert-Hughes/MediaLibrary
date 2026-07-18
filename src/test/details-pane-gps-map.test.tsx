@@ -155,7 +155,7 @@ describe("DetailsPane GPS Map integration", () => {
         photo={photo}
         occurrences={occurrencesFor(validGpsMetadata())}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
       />,
     );
@@ -180,7 +180,7 @@ describe("DetailsPane GPS Map integration", () => {
         photo={photo}
         occurrences={occurrencesFor(validGpsMetadata())}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
       />,
     );
@@ -261,7 +261,7 @@ describe("DetailsPane GPS Map integration", () => {
         occurrences={occurrences}
         targetDraftEdits={store.getMetadataFile(photo.relative_path)}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn(() => true)}
       />,
     );
@@ -325,7 +325,7 @@ describe("DetailsPane GPS Map integration", () => {
         photo={photo}
         occurrences={occurrencesFor(metadata)}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
       />,
     );
@@ -344,7 +344,7 @@ describe("DetailsPane GPS Map integration", () => {
       <DetailsPane
         photo={photo}
         occurrences={occurrencesFor(validGpsMetadata())}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
       />,
     );
@@ -390,7 +390,7 @@ describe("DetailsPane GPS Map integration", () => {
         photo={photo}
         occurrences={occurrences}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
       />,
     );
@@ -415,7 +415,7 @@ describe("DetailsPane GPS Map integration", () => {
         photo={photo}
         occurrences={occurrencesFor(validGpsMetadata())}
         targetDraftPersistence={{ status: "load-failed", error: "invalid" }}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
       />,
     );
@@ -494,7 +494,7 @@ describe("DetailsPane GPS Map integration", () => {
         occurrences={occurrences}
         targetDraftEdits={store.getMetadataFile(photo.relative_path)}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,
     );
@@ -526,7 +526,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={occurrencesFromMetadataCollection(metadata)}
@@ -551,7 +551,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={occurrencesFromMetadataCollection(metadata)}
@@ -569,7 +569,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={occurrencesFromMetadataCollection(metadata)}
@@ -613,7 +613,7 @@ describe("DetailsPane GPS Map integration", () => {
       },
     ]);
     const baseProps = {
-      onRemoveMetadataFields: vi.fn(),
+      onRemoveMetadataTargets: vi.fn(),
       onApplyGpsTargetDraftBatch: vi.fn(() => true),
       onDiscardTargetDraftBatch: vi.fn(),
       photo,
@@ -841,7 +841,7 @@ describe("DetailsPane GPS Map integration", () => {
 
       render(
         <DetailsPane
-          onRemoveMetadataFields={vi.fn()}
+          onRemoveMetadataTargets={vi.fn()}
           onApplyGpsTargetDraftBatch={vi.fn(() => true)}
           onDiscardTargetDraftBatch={vi.fn()}
           photo={photo}
@@ -890,7 +890,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
@@ -927,7 +927,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={occurrencesFromMetadataCollection(metadata)}

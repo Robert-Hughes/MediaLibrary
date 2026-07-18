@@ -116,7 +116,7 @@ function renderExisting(options: {
       }
       targetDraftPersistence={{ status: "ready" }}
       onSetExistingOccurrenceDraft={vi.fn()}
-      onRemoveMetadataFields={vi.fn()}
+      onRemoveMetadataTargets={vi.fn()}
       onSetNewPropertyDraft={vi.fn()}
       onDiscardTargetPropertyDraft={vi.fn()}
       onDiscardTargetDraftBatch={vi.fn()}
@@ -140,7 +140,7 @@ function renderNewProperty(options: {
       targetDraftEdits={newPropertyDraft(options.id, options.edit)}
       targetDraftPersistence={{ status: "ready" }}
       onSetExistingOccurrenceDraft={vi.fn()}
-      onRemoveMetadataFields={vi.fn()}
+      onRemoveMetadataTargets={vi.fn()}
       onSetNewPropertyDraft={vi.fn()}
       onDiscardTargetPropertyDraft={vi.fn()}
       onDiscardTargetDraftBatch={vi.fn()}
@@ -153,7 +153,7 @@ function rowFor(id: SchemaDefinitionId): HTMLElement {
   const token = schemaDefinitionIdToken(id);
   const row = screen
     .getAllByTestId("details-row")
-    .find((candidate) => candidate.dataset.rowKey === token);
+    .find((candidate) => candidate.dataset.schemaId === token);
   if (!row) throw new Error(`Details row not found for ${token}`);
   return row;
 }

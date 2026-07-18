@@ -39,7 +39,7 @@ const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 async function renderGallery(
   overrides: Partial<ComponentProps<typeof GalleryView>> = {},
 ) {
-  const onRemoveMetadataFields = vi.fn();
+  const onRemoveMetadataTargets = vi.fn();
   const onDiscardTargetDraftBatch = vi.fn();
 
   const props = {
@@ -56,8 +56,8 @@ async function renderGallery(
   const result = render(
     <GalleryView
       {...props}
-      onRemoveMetadataFields={
-        overrides.onRemoveMetadataFields ?? onRemoveMetadataFields
+      onRemoveMetadataTargets={
+        overrides.onRemoveMetadataTargets ?? onRemoveMetadataTargets
       }
       onDiscardTargetDraftBatch={
         overrides.onDiscardTargetDraftBatch ?? onDiscardTargetDraftBatch

@@ -60,7 +60,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const onGeocode = vi.fn();
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={[]}
@@ -73,7 +73,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
   it("does not render the button when onGeocode is not provided", () => {
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={[]}
@@ -87,7 +87,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={occurrencesFromMetadataCollection(
@@ -112,7 +112,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={occurrencesFromMetadataCollection(
@@ -146,7 +146,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     );
     render(
       <DetailsPane
-        onRemoveMetadataFields={vi.fn()}
+        onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         photo={photo}
         occurrences={[]}
