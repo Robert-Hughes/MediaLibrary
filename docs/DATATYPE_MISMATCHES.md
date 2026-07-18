@@ -1,10 +1,10 @@
 # Datatype mismatches between schema and runtime value
 
-When the Details pane renders a row, two datatype badges may appear:
+When the Details pane renders one authoritative occurrence row, two datatype
+badges may appear. Equal same-schema occurrences retain separate rows and each
+row compares its own runtime value with the schema interpretation:
 
 - `[X]` schema badge — derived from `TagInfo.kind` (ExifTool `-listx`).
-- `(Y)` value badge — derived from the actual `MetadataValue` returned by the
-  scanner for this file.
 
 Today these can disagree on tags that come straight from ExifTool, with no
 user edit involved. The most visible example is `ExifIFD:ComponentsConfiguration`:

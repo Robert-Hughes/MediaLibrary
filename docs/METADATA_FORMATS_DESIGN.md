@@ -23,6 +23,36 @@ only when a non-null observed selector has exactly equal `group1`, `group7` and
 `tag_name`. This differs from occupancy comparison, where family 1 and tag name
 are case-insensitive and family 7 remains case-sensitive.
 
+## Details presentation format
+
+The Details pane uses a transient discriminated row union rather than a
+persisted format:
+
+- `ExistingOccurrenceRow` owns one complete authoritative occurrence, exact
+  targetability, an exact matching draft where valid and stale/duplicate state;
+- `NewPropertyRow` owns one complete intended target and semantic edit; and
+- `MissingOccurrenceDraftRow` owns one complete stored ExistingOccurrence
+  operation whose authoritative occurrence cannot be selected safely.
+
+Internal row keys are stable JavaScript collection tokens only. They are never
+persisted or sent through Tauri and are not domain identity.
+
+Friendly groups and labels are projections. Existing rows choose their group
+from observed family 1, resolved `TagInfo.group`, then a schema-table fallback.
+New Property and target-only rows use the stored destination's family 1. Every
+existing occurrence remains a separate row even when schema and value are
+equal. OS Metadata remains a separate read-only section.
+
+A stored ExistingOccurrence edit is displayed as an overlay only when its
+complete target exactly matches the current exact target for a unique
+occurrence ID. Stale targets remain visible without staged-value overlay or
+redirection. New Property rows remain destination operations rather than being
+converted to occurrences when a destination is occupied.
+
+Group operations consume complete row targets from the unfiltered group. Search
+changes visibility only. Exact group removal is atomic and target-addressed;
+schema-wide removal remains a separate column or multi-file request boundary.
+
 ## Draft and audit persistence
 
 `MediaLibraryTargetDraftEdits.jsonl` is the only draft file read or written.
