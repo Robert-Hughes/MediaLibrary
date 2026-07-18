@@ -1701,7 +1701,6 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       />,
     );
 
-    openContextMenu("GPSLatitude");
     // Wait for context menu close logic if no options are available
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
@@ -1918,6 +1917,28 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(rowEditGps).toBeDisabled();
     expect(rowEditGps.getAttribute("title")).toContain(
       "Several staged New Property destinations",
+    );
+  });
+
+  it("keeps ordinary GPS row actions available when the composite callback is absent", () => {
+    const metadata = mockMetadata({ "GPS:GPSLatitude": 51.5 });
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(metadata)}
+        onSetExistingOccurrenceDraft={vi.fn()}
+        onRemoveMetadataFields={vi.fn()}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeEnabled();
+    const editGps = screen.getByRole("button", { name: "Edit GPS…" });
+    expect(editGps).toBeDisabled();
+    expect(editGps).toHaveAttribute(
+      "title",
+      "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
     );
   });
 

@@ -652,17 +652,17 @@ function DetailsRowContextMenu({
           ...(onEditDestination
             ? [{ label: "Edit destination…", onClick: onEditDestination }]
             : []),
-          ...(gpsGroup && onEditGps
-            ? [
-                {
-                  label: "Edit GPS…",
-                  onClick: onEditGps,
-                  disabled: gpsEditingUnavailableReason !== undefined,
-                  title: gpsEditingUnavailableReason,
-                },
-              ]
-            : []),
         ]),
+    ...(gpsGroup && onEditGps
+      ? [
+          {
+            label: "Edit GPS…",
+            onClick: onEditGps,
+            disabled: gpsEditingUnavailableReason !== undefined,
+            title: gpsEditingUnavailableReason,
+          },
+        ]
+      : []),
     ...(contextMenu.draftValue !== undefined
       ? [{ label: "Discard edit", onClick: onDiscard }]
       : []),
@@ -707,15 +707,15 @@ function compositeGpsEditingAvailability({
   targetDraftPersistence: TargetDraftPersistenceState;
   callbackAvailable: boolean;
 }): { blocked?: string } {
-  if (!callbackAvailable)
-    return {
-      blocked:
-        "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
-    };
   if (targetDraftPersistence.status !== "ready")
     return {
       blocked:
         "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
+    };
+  if (!callbackAvailable)
+    return {
+      blocked:
+        "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
     };
   try {
     planGpsTargetDraftBatch(
@@ -926,13 +926,13 @@ function DetailsGroupContextMenu({
   }
 
   const options = [
-    ...(gpsEditPreview && gpsGroup && onEditGps
+    ...(gpsEditPreview && gpsGroup
       ? [
           {
             label: "Edit GPS…",
             onClick: () => {
               onClose();
-              onEditGps(gpsGroup);
+              onEditGps?.(gpsGroup);
             },
             disabled: gpsEditPreview.blocked !== undefined,
             title: gpsEditPreview.blocked,
@@ -1783,9 +1783,6 @@ export function DetailsPane({
   const editingUnavailableReasonFor = (
     id: SchemaDefinitionId,
   ): string | undefined => {
-    if (gpsMemberGroup(id) !== null && !onApplyGpsTargetDraftBatch) {
-      return "Target-aware GPS editing is unavailable in this view.";
-    }
     const targetSchemaResolution = targetSchemaResolutions.get(
       schemaDefinitionIdToken(id),
     );
