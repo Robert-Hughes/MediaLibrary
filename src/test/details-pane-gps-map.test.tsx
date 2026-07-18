@@ -339,7 +339,7 @@ describe("DetailsPane GPS Map integration", () => {
     expect(within(menu).getByRole("button", { name: /Remove/ })).toBeEnabled();
   });
 
-  it("disables Edit GPS when the composite callback is unavailable", () => {
+  it("keeps heading and map callback-unavailable menus in parity", () => {
     render(
       <DetailsPane
         photo={photo}
@@ -349,15 +349,30 @@ describe("DetailsPane GPS Map integration", () => {
       />,
     );
 
+    const labels = () =>
+      within(screen.getByTestId("context-menu"))
+        .getAllByRole("button")
+        .map((button) => button.textContent);
+    const assertUnavailable = () => {
+      const editGps = within(screen.getByTestId("context-menu")).getByRole(
+        "button",
+        { name: "Edit GPS…" },
+      );
+      expect(editGps).toBeDisabled();
+      expect(editGps).toHaveAttribute(
+        "title",
+        "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
+      );
+    };
+
     fireEvent.contextMenu(gpsHeading());
-    const menu = screen.getByTestId("context-menu");
-    const editGps = within(menu).getByRole("button", { name: "Edit GPS…" });
-    expect(editGps).toBeDisabled();
-    expect(editGps).toHaveAttribute(
-      "title",
-      "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
-    );
-    expect(within(menu).getByRole("button", { name: /Remove/ })).toBeEnabled();
+    assertUnavailable();
+    const headingLabels = labels();
+
+    fireEvent.mouseDown(document.body);
+    fireEvent.contextMenu(screen.getByTestId("gps-map-overview-grid"));
+    assertUnavailable();
+    expect(labels()).toEqual(headingLabels);
   });
 
   it("shows planner-blocked GPS editing without allowing the editor to open", () => {
@@ -394,28 +409,47 @@ describe("DetailsPane GPS Map integration", () => {
     expect(screen.queryByText("Edit GPS location")).toBeNull();
   });
 
-  it("blocks GPS editing when target-draft persistence is unsafe", () => {
+  it("uses persistence safety before callback availability on every GPS menu", () => {
     render(
       <DetailsPane
         photo={photo}
         occurrences={occurrencesFor(validGpsMetadata())}
         targetDraftPersistence={{ status: "load-failed", error: "invalid" }}
-        onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataFields={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
       />,
     );
 
+    const assertPersistenceReason = () => {
+      const editGps = within(screen.getByTestId("context-menu")).getByRole(
+        "button",
+        { name: "Edit GPS…" },
+      );
+      expect(editGps).toBeDisabled();
+      expect(editGps).toHaveAttribute(
+        "title",
+        expect.stringMatching(/persistence did not load safely/),
+      );
+      expect(editGps).not.toHaveAttribute(
+        "title",
+        "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
+      );
+    };
+
     fireEvent.contextMenu(gpsHeading());
-    const edit = within(screen.getByTestId("context-menu")).getByRole(
-      "button",
-      { name: "Edit GPS…" },
-    );
-    expect(edit).toBeDisabled();
-    expect(edit).toHaveAttribute(
-      "title",
-      expect.stringMatching(/persistence did not load safely/),
-    );
+    assertPersistenceReason();
+
+    fireEvent.mouseDown(document.body);
+    fireEvent.contextMenu(screen.getByTestId("gps-map-overview-grid"));
+    assertPersistenceReason();
+
+    fireEvent.mouseDown(document.body);
+    const latitudeRow = screen
+      .getAllByTestId("details-row")
+      .find((row) => within(row).queryByText("GPSLatitude"));
+    expect(latitudeRow).toBeDefined();
+    fireEvent.contextMenu(latitudeRow!);
+    assertPersistenceReason();
   });
 
   it("counts and discards only complete exact GPS draft targets", async () => {
