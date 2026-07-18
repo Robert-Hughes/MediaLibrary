@@ -1678,36 +1678,49 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
   });
 
-  it("does not show edit actions for read-only GPS row", async () => {
-    // Make GPSLatitude read-only
-    _setTagInfoCacheEntry("GPS:GPSLatitude", {
-      group: "GPS",
-      name: "GPSLatitude",
+  it("does not show ordinary mutation actions for a read-only GPS row", () => {
+    const occurrences = occurrencesFromMetadataCollection(
+      mockMetadata({ "GPS:GPSLatitude": 51.5 }),
+    );
+    const latitude = occurrences.find(
+      (occurrence) => occurrence.tag_info?.name === "GPSLatitude",
+    );
+    expect(latitude).toBeDefined();
+    latitude!.tag_info = {
+      ...latitude!.tag_info!,
       writable: false,
-      kind: { kind: "Real" },
-      description: null,
-    });
+    };
 
     render(
       <DetailsPane
         onRemoveMetadataFields={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
+        onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         photo={photo}
-        occurrences={occurrencesFromMetadataCollection(
-          mockMetadata({
-            "GPS:GPSLatitude": 51.5,
-          }),
-        )}
+        occurrences={occurrences}
       />,
     );
 
-    // Wait for context menu close logic if no options are available
-    await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
-    });
-  });
+    const row = screen
+      .getAllByTestId("details-row")
+      .find((candidate) => within(candidate).queryByText("GPSLatitude"));
+    expect(row).toBeDefined();
+    expect(row).toHaveAttribute("data-readonly", "true");
+    fireEvent.contextMenu(row!);
 
+    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Edit destination…" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    const editGps = screen.getByRole("button", { name: "Edit GPS…" });
+    expect(editGps).toBeDisabled();
+    expect(editGps.getAttribute("title")?.toLowerCase()).toMatch(
+      /read-only|not writable/,
+    );
+    fireEvent.click(editGps);
+    expect(screen.queryByTestId("gps-editor-lat-input")).toBeNull();
+  });
   it("generic Edit uses semantic GPS latitude instead of the degree-formatted row", async () => {
     const metadata = mockMetadata({ "GPS:GPSLatitude": 53.983856 });
     render(
