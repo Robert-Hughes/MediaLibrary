@@ -251,6 +251,44 @@ beforeEach(() => {
 });
 
 describe("DetailsPane exact target-owned row presentation", () => {
+  it("keeps a pending-conflicted New Property exactly discardable and destination-editable", () => {
+    const staged = stagedNewProperty();
+    const conflictingTarget = {
+      ...exactTarget(occurrenceA),
+      write_target: {
+        ...staged.target.write_target,
+        group1: staged.target.write_target.group1.toUpperCase(),
+        tag_name: staged.target.write_target.tag_name.toLowerCase(),
+      },
+    };
+    staged.store.setMetadataTarget(photo.relative_path, conflictingTarget, {
+      intent: "Set",
+      value: { kind: "Integer", value: 301 },
+    });
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: staged.store.getMetadataFile(photo.relative_path),
+    });
+
+    const row = rowForNewPropertyTarget(staged.target);
+    expect(row).toHaveTextContent("Destination used by pending edit");
+    expect(row).toHaveAttribute(
+      "title",
+      expect.stringContaining(JSON.stringify(conflictingTarget)),
+    );
+    fireEvent.contextMenu(row);
+    expect(
+      screen.getByRole("button", { name: "Edit destination…" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+    expect(view.onDiscardTargetPropertyDraft).toHaveBeenCalledWith(
+      staged.target,
+    );
+    expect(view.onDiscardTargetPropertyDraft).not.toHaveBeenCalledWith(
+      conflictingTarget,
+    );
+  });
+
   it("keeps a same-schema Set draft on its exact occurrence row", () => {
     const { drafts } = targetDrafts(occurrenceA, {
       intent: "Set",

@@ -29,7 +29,10 @@ import {
 } from "../utils/schemaDefinitionId";
 import { metadataWriteSelector } from "../utils/metadataWriteTarget";
 import { applyMetadataDraftEditExactly } from "../utils/effectiveMetadata";
-import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
+import {
+  classifyNewPropertyDestination,
+  type NewPropertyDestinationSafety,
+} from "../utils/newPropertyDestinationSafety";
 
 export type OccurrenceDetailsGroupSource =
   "observed-selector" | "tag-info" | "schema-table-fallback" | "write-target";
@@ -42,6 +45,7 @@ export type OccurrenceDetailsRowStatusCode =
   | "duplicate-occurrence-id"
   | "new"
   | "destination-occupied"
+  | "pending-target-conflict"
   | "destination-unknown"
   | "missing-occurrence"
   | "conflicting-targets";
@@ -92,6 +96,7 @@ export interface NewPropertyRow extends OccurrenceDetailsRowCommon {
   edit: MetadataDraftEdit;
   tagInfo: TagInfo | null;
   intendedDestination: MetadataWriteTarget;
+  destinationSafety: NewPropertyDestinationSafety;
 }
 
 export interface MissingOccurrenceDraftRow extends OccurrenceDetailsRowCommon {
@@ -214,6 +219,7 @@ function status(
     "duplicate-occurrence-id": "Duplicate occurrence ID",
     new: "New",
     "destination-occupied": "Destination occupied",
+    "pending-target-conflict": "Destination used by pending edit",
     "destination-unknown": "Destination cannot be verified",
     "missing-occurrence": "Missing occurrence",
     "conflicting-targets": "Conflicting targets",
@@ -503,16 +509,17 @@ export function buildOccurrenceDetailsPresentation(
       schemaId: entry.target.schema_id,
       writeTarget: entry.target.write_target,
       occurrences,
-      pendingTargets: newDraftEntries.map((candidate) => candidate.target),
+      pendingTargets: draftEntries.map((candidate) => candidate.target),
       ignoredPendingTarget: entry.target,
     });
     const rowStatus =
-      destinationSafety.kind === "occupied" ||
-      destinationSafety.kind === "pending-collision"
+      destinationSafety.kind === "occupied"
         ? status("destination-occupied")
-        : destinationSafety.kind === "unknown-same-schema"
-          ? status("destination-unknown")
-          : status("new");
+        : destinationSafety.kind === "pending-collision"
+          ? status("pending-target-conflict")
+          : destinationSafety.kind === "unknown-same-schema"
+            ? status("destination-unknown")
+            : status("new");
     const searchParts = targetSearchParts({
       target: entry.target,
       edit: entry.edit,
@@ -522,6 +529,13 @@ export function buildOccurrenceDetailsPresentation(
       rowStatus,
       tagInfo,
     });
+    if (destinationSafety.kind === "pending-collision") {
+      searchParts.push(
+        "Destination used by pending edit",
+        JSON.stringify(destinationSafety.target),
+        metadataDraftTargetToken(destinationSafety.target),
+      );
+    }
     rows.push({
       fallback: false,
       row: {
@@ -542,6 +556,7 @@ export function buildOccurrenceDetailsPresentation(
         edit: entry.edit,
         tagInfo: tagInfo ? structuredClone(tagInfo) : null,
         intendedDestination: structuredClone(entry.target.write_target),
+        destinationSafety: structuredClone(destinationSafety),
       },
     });
   }
