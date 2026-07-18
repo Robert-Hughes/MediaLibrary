@@ -295,10 +295,18 @@ describe("buildOccurrenceDetailsPresentation", () => {
         first: { kind: "Text", value: "one" },
       },
     };
-    const current = occurrence("structured-list", {
-      kind: "List",
-      value: { list_kind: "Bag", items: [originalItem] },
-    });
+    const current = occurrence(
+      "structured-list",
+      {
+        kind: "List",
+        value: { list_kind: "Bag", items: [originalItem] },
+      },
+      {
+        tag_info: tagInfo(schema, {
+          kind: { kind: "Bag", data: { kind: "Struct", data: {} } },
+        }),
+      },
+    );
     const target = exactTarget(current);
 
     const removed = buildOccurrenceDetailsPresentation({
@@ -340,10 +348,18 @@ describe("buildOccurrenceDetailsPresentation", () => {
       kind: "Rational",
       value: { numerator: 2, denominator: 4 },
     };
-    const current = occurrence("rational-list", {
-      kind: "List",
-      value: { list_kind: "Seq", items: [half] },
-    });
+    const current = occurrence(
+      "rational-list",
+      {
+        kind: "List",
+        value: { list_kind: "Seq", items: [half] },
+      },
+      {
+        tag_info: tagInfo(schema, {
+          kind: { kind: "Seq", data: { kind: "Rational" } },
+        }),
+      },
+    );
     const target = exactTarget(current);
 
     const removed = buildOccurrenceDetailsPresentation({
@@ -372,6 +388,65 @@ describe("buildOccurrenceDetailsPresentation", () => {
       value: { list_kind: "Seq", items: [] },
     });
     expect(added.effectiveDraftValue).toEqual(current.value);
+  });
+
+  it.each([
+    [
+      "ListAdd",
+      { kind: "Text", value: "staged" },
+      { kind: "Text", value: "staged" },
+      "staged",
+    ],
+    ["ListRemove", { kind: "Text", value: "disk" }, null, null],
+  ] as const)(
+    "previews scalar %s with the backend fallback semantics",
+    (intent, staged, expectedValue, expectedDisplay) => {
+      const current = occurrence(
+        "scalar-list-fallback",
+        {
+          kind: "Text",
+          value: "disk",
+        },
+        {
+          tag_info: tagInfo(schema, { kind: { kind: "Text" } }),
+        },
+      );
+      const target = exactTarget(current);
+      const row = buildOccurrenceDetailsPresentation({
+        occurrences: [current],
+        targetDrafts: collection([{ target, edit: { intent, value: staged } }]),
+      }).groups[0].rows[0];
+
+      expect(row.kind).toBe("ExistingOccurrenceRow");
+      if (row.kind !== "ExistingOccurrenceRow")
+        throw new Error("wrong row kind");
+      expect(row.effectiveDraftValue).toEqual(expectedValue);
+      expect(row.stagedValue).toBe(expectedDisplay);
+    },
+  );
+
+  it.each([
+    ["South", "S"],
+    ["West", "W"],
+  ])("preserves the complete Set display label %s", (display, value) => {
+    const current = occurrence(
+      "labelled-set",
+      { kind: "Text", value: "N" },
+      {
+        tag_info: tagInfo(schema, { kind: { kind: "Text" } }),
+      },
+    );
+    const row = buildOccurrenceDetailsPresentation({
+      occurrences: [current],
+      targetDrafts: collection([
+        {
+          target: exactTarget(current),
+          edit: { intent: "Set", value: { kind: "Text", value }, display },
+        },
+      ]),
+    }).groups[0].rows[0];
+
+    expect(row.stagedValue).toBe(display);
   });
 
   it("retains a stale target snapshot without overlaying its staged value", () => {

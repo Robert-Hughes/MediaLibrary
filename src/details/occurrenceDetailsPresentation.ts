@@ -47,6 +47,7 @@ export type OccurrenceDetailsRowStatusCode =
   | "destination-occupied"
   | "pending-target-conflict"
   | "destination-unknown"
+  | "preview-unsupported"
   | "missing-occurrence"
   | "conflicting-targets";
 
@@ -221,6 +222,7 @@ function status(
     "destination-occupied": "Destination occupied",
     "pending-target-conflict": "Destination used by pending edit",
     "destination-unknown": "Destination cannot be verified",
+    "preview-unsupported": "Staged preview unavailable",
     "missing-occurrence": "Missing occurrence",
     "conflicting-targets": "Conflicting targets",
   };
@@ -434,11 +436,16 @@ export function buildOccurrenceDetailsPresentation(
       input.tagInfos?.[schemaDefinitionIdToken(occurrence.schema_id)] ??
       occurrence.tag_info;
     const currentValue = currentDisplay(occurrence, displayTagInfo);
-    const effectiveDraftValue =
+    const effectiveDraft =
       draft === null
         ? null
-        : (applyMetadataDraftEditExactly(occurrence.value, draft.edit).value ??
-          null);
+        : applyMetadataDraftEditExactly(
+            occurrence.value,
+            draft.edit,
+            displayTagInfo?.kind,
+          );
+    const effectiveDraftValue =
+      effectiveDraft?.applied === true ? (effectiveDraft.value ?? null) : null;
     const stagedValue = draftDisplay(
       occurrence.schema_id,
       draft,
@@ -449,11 +456,13 @@ export function buildOccurrenceDetailsPresentation(
       ? status("duplicate-occurrence-id")
       : staleDraft
         ? status("stale-target")
-        : draft
-          ? status("edited")
-          : targetability.kind === "read-only"
-            ? status("read-only")
-            : status("current");
+        : effectiveDraft?.applied === false
+          ? status("preview-unsupported")
+          : draft
+            ? status("edited")
+            : targetability.kind === "read-only"
+              ? status("read-only")
+              : status("current");
     const searchParts = occurrenceSearchParts({
       occurrence,
       label,
@@ -465,6 +474,9 @@ export function buildOccurrenceDetailsPresentation(
       draft,
       staleDraft,
     });
+    if (effectiveDraft?.applied === false) {
+      searchParts.push(effectiveDraft.reason);
+    }
 
     rows.push({
       fallback: group.fallback,

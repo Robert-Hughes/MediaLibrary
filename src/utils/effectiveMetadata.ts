@@ -5,12 +5,16 @@ import type {
   MetadataDraftEdit,
   MetadataValue,
   SchemaDefinitionId,
+  TagKind,
 } from "../types";
 import { metadataValueEqual } from "../types";
 import { buildSchemaDraftDisplayProjection } from "../targetDraftView";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
 import { schemaMetadataCollectionFromOccurrences } from "./schemaMetadataProjection";
-import { schemaDefinitionIdToken } from "./schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "./schemaDefinitionId";
 
 function valueFromEntry(
   entry: ImageMetadataEntry | undefined,
@@ -24,11 +28,22 @@ function listItems(value: MetadataValue): MetadataValue[] {
   return value.kind === "List" ? value.value.items : [value];
 }
 
+function listKindFromSchema(
+  kind: TagKind | null | undefined,
+): "Bag" | "Seq" | "Alt" | undefined {
+  return kind?.kind === "Bag" || kind?.kind === "Seq" || kind?.kind === "Alt"
+    ? kind.kind
+    : undefined;
+}
+
 /** Apply one semantic edit only when its exact effective result is known. */
 export function applyMetadataDraftEditExactly(
   current: MetadataValue | undefined,
   edit: MetadataDraftEdit,
-): { applied: boolean; value: MetadataValue | undefined } {
+  schemaKind?: TagKind | null,
+):
+  | { applied: true; value: MetadataValue | undefined }
+  | { applied: false; value: undefined; reason: string } {
   if (edit.intent === "Delete") {
     return { applied: true, value: undefined };
   }
@@ -38,19 +53,52 @@ export function applyMetadataDraftEditExactly(
       value: edit.value === null ? undefined : structuredClone(edit.value),
     };
   }
-  if (current?.kind !== "List" || edit.value === null) {
-    return { applied: false, value: current };
+  const schemaListKind =
+    listKindFromSchema(schemaKind) ??
+    (schemaKind == null && current?.kind === "List"
+      ? current.value.list_kind === "Bag" ||
+        current.value.list_kind === "Seq" ||
+        current.value.list_kind === "Alt"
+        ? current.value.list_kind
+        : undefined
+      : undefined);
+  if (schemaListKind === undefined) {
+    if (edit.intent === "ListRemove" || edit.value === null) {
+      return { applied: true, value: undefined };
+    }
+    if (edit.value.kind === "List") {
+      return {
+        applied: false,
+        value: undefined,
+        reason: "A list payload cannot be rendered for a non-list schema.",
+      };
+    }
+    return { applied: true, value: structuredClone(edit.value) };
   }
 
-  const staged = listItems(edit.value);
+  if (
+    current === undefined &&
+    (edit.intent === "ListRemove" || edit.value === null)
+  ) {
+    return { applied: true, value: undefined };
+  }
+
+  const currentList =
+    current?.kind === "List"
+      ? current.value
+      : {
+          list_kind: schemaListKind,
+          items: current === undefined ? [] : [current],
+        };
+  const staged = edit.value === null ? [] : listItems(edit.value);
   if (edit.intent === "ListRemove") {
     return {
       applied: true,
       value: {
         kind: "List",
         value: {
-          ...structuredClone(current.value),
-          items: current.value.items
+          ...structuredClone(currentList),
+          items: currentList.items
             .filter(
               (item) =>
                 !staged.some((candidate) =>
@@ -68,13 +116,13 @@ export function applyMetadataDraftEditExactly(
     value: {
       kind: "List",
       value: {
-        ...structuredClone(current.value),
+        ...structuredClone(currentList),
         items: [
-          ...current.value.items.map((item) => structuredClone(item)),
+          ...currentList.items.map((item) => structuredClone(item)),
           ...staged
             .filter(
               (candidate) =>
-                !current.value.items.some((item) =>
+                !currentList.items.some((item) =>
                   metadataValueEqual(item, candidate),
                 ),
             )
@@ -119,8 +167,21 @@ export function buildEffectiveMetadataForFile(input: {
   });
   for (const { id, edit } of Object.values(displayDrafts)) {
     const current = valueFromEntry(metadataGet(effective, id));
-    const applied = applyMetadataDraftEditExactly(current, edit);
-    if (applied.applied) setEffectiveValue(effective, id, applied.value);
+    const matchingOccurrences = Array.isArray(input.occurrences)
+      ? input.occurrences.filter((occurrence) =>
+          schemaDefinitionIdEquals(occurrence.schema_id, id),
+        )
+      : [];
+    const schemaKind =
+      matchingOccurrences.length === 1
+        ? matchingOccurrences[0].tag_info?.kind
+        : undefined;
+    const applied = applyMetadataDraftEditExactly(current, edit, schemaKind);
+    setEffectiveValue(
+      effective,
+      id,
+      applied.applied ? applied.value : undefined,
+    );
   }
 
   return effective;

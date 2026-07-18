@@ -81,6 +81,10 @@ pub(crate) fn verify_list_add_value(
     observed: Option<&MetadataValue>,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    if kind.is_some_and(|kind| !matches!(kind, TagKind::Bag(_) | TagKind::Seq(_) | TagKind::Alt(_)))
+    {
+        return verify_set_value(key, expected, observed, kind);
+    }
     let expected = match expected {
         Some(value) => value,
         None => return ("Match".to_string(), None),
@@ -102,6 +106,10 @@ pub(crate) fn verify_list_remove_value(
     observed: Option<&MetadataValue>,
     kind: Option<&TagKind>,
 ) -> (String, Option<String>) {
+    if kind.is_some_and(|kind| !matches!(kind, TagKind::Bag(_) | TagKind::Seq(_) | TagKind::Alt(_)))
+    {
+        return verify_delete_value(key, observed);
+    }
     let expected = match expected {
         Some(value) => value,
         None => return ("Match".to_string(), None),
@@ -601,6 +609,26 @@ mod tests {
             )
             .0,
             "Match"
+        );
+    }
+
+    #[test]
+    fn non_list_list_operations_verify_as_set_and_delete() {
+        let key = id("XMP::dc", "Title");
+        let staged = MetadataValue::Text("new".to_string());
+        let lingering = MetadataValue::Text("old".to_string());
+
+        assert_eq!(
+            verify_list_add_value(&key, Some(&staged), Some(&staged), Some(&TagKind::Text)).0,
+            "Match"
+        );
+        assert_eq!(
+            verify_list_remove_value(&key, Some(&staged), Some(&lingering), Some(&TagKind::Text)).0,
+            "DeleteLingering"
+        );
+        assert_eq!(
+            verify_list_remove_value(&key, Some(&staged), None, Some(&TagKind::Text)).0,
+            "DeleteOk"
         );
     }
 }

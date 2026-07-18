@@ -319,6 +319,17 @@ describe("DetailsPane target-aware datatype badges", () => {
     expect(row.querySelector(".draft-new")).toHaveTextContent("two");
   });
 
+  it("derives the scalar ListAdd draft badge from the replacement value", () => {
+    const row = renderExisting({
+      id: schemaId("scalar-list-add"),
+      kind: { kind: "Text" },
+      value: { kind: "Text", value: "before" },
+      edit: { intent: "ListAdd", value: { kind: "Integer", value: 7 } },
+    });
+    expectBadges(row, { schema: "S", value: null, draft: "I" });
+    expect(row.querySelector(".draft-new")).toHaveTextContent("7");
+  });
+
   it("shows a scalar runtime badge under a list schema", () => {
     const row = renderExisting({
       id: schemaId("scalar-under-list"),

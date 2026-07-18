@@ -6,7 +6,10 @@ import type {
   MetadataValue,
   SchemaDefinitionId,
 } from "../types";
-import { buildEffectiveMetadataForFile } from "../utils/effectiveMetadata";
+import {
+  applyMetadataDraftEditExactly,
+  buildEffectiveMetadataForFile,
+} from "../utils/effectiveMetadata";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetSlotToken,
@@ -83,6 +86,34 @@ function valueOf(collection: MetadataCollection): MetadataValue | undefined {
 }
 
 describe("buildEffectiveMetadataForFile", () => {
+  it("defines missing-current list-operation semantics", () => {
+    expect(
+      applyMetadataDraftEditExactly(undefined, {
+        intent: "ListAdd",
+        value: text("created"),
+      }),
+    ).toEqual({ applied: true, value: text("created") });
+    expect(
+      applyMetadataDraftEditExactly(undefined, {
+        intent: "ListRemove",
+        value: text("absent"),
+      }),
+    ).toEqual({ applied: true, value: undefined });
+    expect(
+      applyMetadataDraftEditExactly(
+        undefined,
+        { intent: "ListAdd", value: text("created") },
+        { kind: "Bag", data: { kind: "Text" } },
+      ),
+    ).toEqual({
+      applied: true,
+      value: {
+        kind: "List",
+        value: { list_kind: "Bag", items: [text("created")] },
+      },
+    });
+  });
+
   it("derives one authoritative schema value", () => {
     expect(
       valueOf(
@@ -226,6 +257,36 @@ describe("buildEffectiveMetadataForFile", () => {
       kind: "List",
       value: { list_kind: "Bag", items: [text("b")] },
     });
+  });
+
+  it("matches the Rust scalar list-operation fallbacks", () => {
+    const item = occurrence(text("disk"));
+    expect(
+      valueOf(
+        buildEffectiveMetadataForFile({
+          occurrences: [item],
+          targetDrafts: targets(
+            existingEntry(item, {
+              intent: "ListAdd",
+              value: text("pending"),
+            }),
+          ),
+        }),
+      ),
+    ).toEqual(text("pending"));
+    expect(
+      valueOf(
+        buildEffectiveMetadataForFile({
+          occurrences: [item],
+          targetDrafts: targets(
+            existingEntry(item, {
+              intent: "ListRemove",
+              value: text("disk"),
+            }),
+          ),
+        }),
+      ),
+    ).toBeUndefined();
   });
 
   it("does not mutate occurrences or target drafts", () => {

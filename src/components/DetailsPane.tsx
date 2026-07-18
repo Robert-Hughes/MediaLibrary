@@ -833,6 +833,7 @@ export function DetailsPane({
     return applyMetadataDraftEditExactly(
       existingOccurrenceEditResolution.occurrence.value,
       owner.edit,
+      existingOccurrenceEditResolution.occurrence.tag_info?.kind,
     ).value;
   })();
   const editDialogRenderKey = editDialog

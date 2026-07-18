@@ -940,6 +940,26 @@ mod tests {
     }
 
     #[test]
+    fn scalar_list_fallback_contract_covers_missing_values() {
+        let i = info(TagKind::Text);
+        let add = MetadataDraftEdit {
+            value: None,
+            intent: EditIntent::ListAdd,
+            display: None,
+        };
+        let remove = MetadataDraftEdit {
+            value: None,
+            intent: EditIntent::ListRemove,
+            display: None,
+        };
+
+        let add_args = build_new_property_fixture_args("XMP-dc", "Title", &i, &add).unwrap();
+        let remove_args = build_new_property_fixture_args("XMP-dc", "Title", &i, &remove).unwrap();
+        assert_eq!(add_args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
+        assert_eq!(remove_args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
+    }
+
+    #[test]
     fn binary_schema_is_rejected_before_argument_rendering() {
         let info = info(TagKind::Binary);
         let error =

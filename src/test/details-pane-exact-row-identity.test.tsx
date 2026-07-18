@@ -785,6 +785,41 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     }
   });
 
+  it.each([
+    ["ListAdd", "pending"],
+    ["ListRemove", ""],
+  ] as const)(
+    "reopens a scalar %s from its backend-effective value",
+    (intent, expected) => {
+      const textInfo: TagInfo = {
+        ...tagInfo,
+        kind: { kind: "Text" },
+      };
+      const textOccurrence: MetadataOccurrence = {
+        ...occurrenceA,
+        value: { kind: "Text", value: "disk" },
+        tag_info: textInfo,
+      };
+      _setTagInfoCacheEntry(schemaId, textInfo);
+      const { drafts } = targetDrafts(textOccurrence, {
+        intent,
+        value: { kind: "Text", value: "pending" },
+      });
+      renderPane({
+        occurrences: [textOccurrence],
+        targetDraftEdits: drafts,
+      });
+
+      const row = rowForOccurrence(textOccurrence);
+      expect(row.querySelector(".draft-new")).toHaveTextContent(
+        intent === "ListAdd" ? "pending" : "—",
+      );
+      fireEvent.contextMenu(row);
+      fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+      expect(screen.getByTestId("value-edit-input")).toHaveValue(expected);
+    },
+  );
+
   it("routes individual GPS edits only through the target-aware GPS callback", async () => {
     const gpsInfo: TagInfo = {
       id: GPS_IDS.latitude,
