@@ -164,6 +164,55 @@ describe("metadata occurrence wire guard", () => {
     expect(unresolved.schema_id).toEqual(sibling.schema_id);
     expect(unresolved.id).not.toEqual(sibling.id);
   });
+
+  it("enforces the exact observed-selector/write-target relationship", () => {
+    const value = validOccurrence();
+    const selector = structuredClone(value.write_target);
+
+    expect(
+      isMetadataOccurrence({
+        ...value,
+        observed_selector: null,
+        write_target: null,
+      }),
+    ).toBe(true);
+    expect(
+      isMetadataOccurrence({
+        ...value,
+        observed_selector: selector,
+        write_target: null,
+      }),
+    ).toBe(true);
+    expect(
+      isMetadataOccurrence({
+        ...value,
+        observed_selector: selector,
+        write_target: structuredClone(selector),
+      }),
+    ).toBe(true);
+
+    expect(
+      isMetadataOccurrence({
+        ...value,
+        observed_selector: null,
+        write_target: selector,
+      }),
+    ).toBe(false);
+    for (const observed_selector of [
+      { ...selector, group1: "IFD1" },
+      { ...selector, group1: "ifd0" },
+      { ...selector, group7: "ID-Other" },
+      { ...selector, tag_name: "xResolution" },
+    ]) {
+      expect(
+        isMetadataOccurrence({
+          ...value,
+          observed_selector,
+          write_target: selector,
+        }),
+      ).toBe(false);
+    }
+  });
 });
 
 describe("schema-v5 target and edit wire guards", () => {

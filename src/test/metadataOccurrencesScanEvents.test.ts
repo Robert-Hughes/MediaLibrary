@@ -50,7 +50,11 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
     const value = occurrence({
       value: { kind: "Integer", value: 300 },
       tag_info: tagInfo({ kind: "Integer", data: { min: 0, max: null } }),
-      observed_selector: null,
+      observed_selector: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
       write_target: {
         group1: "IFD0",
         group7: "ID-Test",
@@ -58,6 +62,31 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
       },
     });
     expect(normalizeMetadataOccurrencesFromTauri([value])).toEqual([value]);
+  });
+
+  it("drops scan occurrences whose write target lacks the identical observed selector", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const valid = occurrence({ id: id({ copy: 1 }) });
+    const malformed = occurrence({
+      id: id({ copy: 2 }),
+      observed_selector: {
+        group1: "ifd0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
+      write_target: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
+    });
+    expect(normalizeMetadataOccurrencesFromTauri([valid, malformed])).toEqual([
+      valid,
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      "[metadata] Dropped 1 invalid occurrence value(s)",
+    );
+    warn.mockRestore();
   });
 
   it("rejects the complete payload when TagInfo conflicts with the occurrence schema", () => {

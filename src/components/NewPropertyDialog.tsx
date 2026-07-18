@@ -172,9 +172,17 @@ export function NewPropertyDialog({
   };
 
   return (
-    <ModalDialog open onDismiss={onCancel} aria-label="Add new property">
+    <ModalDialog
+      open
+      onDismiss={onCancel}
+      aria-label={
+        initialTarget ? "Edit property destination" : "Add new property"
+      }
+    >
       <div className="dialog-content" style={{ minWidth: "400px" }}>
-        <h3>Add New Property</h3>
+        <h3>
+          {initialTarget ? "Edit Property Destination" : "Add New Property"}
+        </h3>
         <div
           className="dialog-body"
           style={{ display: "flex", flexDirection: "column", gap: "12px" }}
@@ -437,7 +445,7 @@ export function NewPropertyDialog({
             disabled={disabled}
             data-testid="new-property-next"
           >
-            Next
+            {initialTarget ? "Save destination" : "Next"}
           </button>
         </div>
       </div>

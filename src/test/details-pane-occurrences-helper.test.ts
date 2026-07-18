@@ -36,7 +36,11 @@ function occurrence(
     schema_id: tagInfo.id,
     value: { kind: "Integer", value },
     tag_info: tagInfo,
-    observed_selector: null,
+    observed_selector: {
+      group1: "IFD0",
+      group7: "ID-Test",
+      tag_name: "XResolution",
+    },
     write_target: {
       group1: "IFD0",
       group7: "ID-Test",
@@ -376,7 +380,12 @@ describe("supplementalResolvedMetadataOccurrences", () => {
 
   it("labels a missing write target as a schema-group display fallback", () => {
     const entry = supplemental(
-      [occurrence(ifd0(), 300, { write_target: null })],
+      [
+        occurrence(ifd0(), 300, {
+          observed_selector: null,
+          write_target: null,
+        }),
+      ],
       {},
     )[0];
     expect(entry.origin).toContain("IFD0");

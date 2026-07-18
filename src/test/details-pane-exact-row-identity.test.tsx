@@ -60,7 +60,11 @@ function occurrence(
     schema_id: (options.info ?? tagInfo).id,
     value: { kind: "Integer", value },
     tag_info: options.info ?? tagInfo,
-    observed_selector: null,
+    observed_selector: {
+      group1: options.group1 ?? "IFD0",
+      group7: "ID-Test",
+      tag_name: "XResolution",
+    },
     write_target: {
       group1: options.group1 ?? "IFD0",
       group7: "ID-Test",
@@ -74,6 +78,39 @@ const occurrenceB = occurrence("JPEG-APP1-IFD1", 72, {
   copy: 1,
   group1: "IFD1",
 });
+
+function stagedNewProperty() {
+  const schema: SchemaDefinitionId = {
+    table: "XMP::dc",
+    tag_id: "title",
+  };
+  const info: TagInfo = {
+    id: schema,
+    group: "XMP-dc",
+    name: "Title",
+    writable: true,
+    kind: { kind: "Text" },
+    description: null,
+  };
+  _setTagInfoCacheEntry(schema, info);
+  _setWritableSchemaDefinitionsCache([info]);
+  const target = {
+    kind: "NewProperty" as const,
+    schema_id: schema,
+    write_target: {
+      group1: "XMP-custom",
+      group7: "ID-title",
+      tag_name: "Title",
+    },
+  };
+  const edit: MetadataDraftEdit = {
+    intent: "Set",
+    value: { kind: "Text", value: "draft title" },
+  };
+  const store = new TargetDraftEditsStore();
+  store.setMetadataTarget(photo.relative_path, target, edit);
+  return { schema, info, target, edit, store };
+}
 
 function targetDrafts(source: MetadataOccurrence, edit: MetadataDraftEdit) {
   const target = existingOccurrenceTargetFromOccurrence(source);
@@ -97,7 +134,7 @@ function renderPane(options: {
     onSetExistingOccurrenceDraft: vi.fn(),
     onRemoveMetadataFieldsV5: vi.fn(),
     onSetGpsTargetDraftBatch: vi.fn(() => true),
-    onSetNewPropertyDraft: vi.fn(),
+    onSetNewPropertyDraft: vi.fn(async () => true),
     onReplaceNewPropertyDraftTarget: vi.fn(async () => true),
     onDiscardTargetPropertyDraft: vi.fn(),
     onDiscardTargetDraftBatch: vi.fn(),
@@ -470,7 +507,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
     [
       "missing write target",
       { ...occurrenceA, write_target: null },
-      /no runtime write target/i,
+      /not backed by the identical observed selector/i,
     ],
   ])("keeps a derived row read-only for %s", (label, item, reason) => {
     renderPane({ occurrences: [item] });
@@ -559,7 +596,11 @@ describe("DetailsPane exact target-owned row presentation", () => {
           schema_id: gpsInfo.id,
           value: { kind: "Real", value: 51.5 },
           tag_info: gpsInfo,
-          observed_selector: null,
+          observed_selector: {
+            group1: "GPS",
+            group7: "ID-Test",
+            tag_name: "GPSLatitude",
+          },
           write_target: {
             group1: "GPS",
             group7: "ID-Test",
@@ -702,7 +743,11 @@ describe("DetailsPane exact ordinary editor identity", () => {
       schema_id: gpsInfo.id,
       value: { kind: "Real", value: 51.5 },
       tag_info: gpsInfo,
-      observed_selector: null,
+      observed_selector: {
+        group1: "GPS",
+        group7: "ID-Test",
+        tag_name: "GPSLatitude",
+      },
       write_target: {
         group1: "GPS",
         group7: "ID-Test",
@@ -761,7 +806,10 @@ describe("DetailsPane exact ordinary editor identity", () => {
     });
     const row = screen.getByText("draft title").closest("tr")!;
     fireEvent.contextMenu(row);
-    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Edit destination…" }),
+    );
     await waitFor(() => {
       expect(screen.getByTestId("new-property-destination-group")).toHaveValue(
         "XMP-custom",
@@ -787,5 +835,127 @@ describe("DetailsPane exact ordinary editor identity", () => {
     expect(screen.queryByTestId("value-edit-input")).toBeNull();
     expect(view.onSetNewPropertyDraft).not.toHaveBeenCalled();
     expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
+  });
+
+  it("offers separate ordinary-row actions and edits only the exact New Property value", async () => {
+    const { target, store } = stagedNewProperty();
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    const row = screen.getByText("draft title").closest("tr")!;
+    fireEvent.contextMenu(row);
+    expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit destination…" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Discard edit" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    expect(screen.queryByTestId("new-property-destination-group")).toBeNull();
+    const input = screen.getByTestId("value-edit-input");
+    expect(input).toHaveValue("draft title");
+    await userEvent.clear(input);
+    await userEvent.type(input, "updated title");
+    await userEvent.click(screen.getByTestId("value-edit-save"));
+
+    await waitFor(() =>
+      expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(target, {
+        intent: "Set",
+        value: { kind: "Text", value: "updated title" },
+      }),
+    );
+    expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("value-edit-input")).toBeNull();
+  });
+
+  it("keeps the value editor open when async staging fails", async () => {
+    const { store } = stagedNewProperty();
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    view.onSetNewPropertyDraft.mockResolvedValueOnce(false);
+    fireEvent.contextMenu(screen.getByText("draft title").closest("tr")!);
+    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    await userEvent.click(screen.getByTestId("value-edit-save"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/remains open/i),
+    );
+    expect(screen.getByTestId("value-edit-input")).toBeInTheDocument();
+    expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
+  });
+
+  it("cancels New Property value editing without changing either target or edit", async () => {
+    const { store } = stagedNewProperty();
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    fireEvent.contextMenu(screen.getByText("draft title").closest("tr")!);
+    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+    await userEvent.clear(screen.getByTestId("value-edit-input"));
+    await userEvent.type(screen.getByTestId("value-edit-input"), "cancelled");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(view.onSetNewPropertyDraft).not.toHaveBeenCalled();
+    expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("value-edit-input")).toBeNull();
+  });
+
+  it("blocks a stale exact New Property target without retargeting a sibling", async () => {
+    const { schema, target, edit, store } = stagedNewProperty();
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    fireEvent.contextMenu(screen.getByText("draft title").closest("tr")!);
+    await userEvent.click(screen.getByRole("button", { name: "Edit…" }));
+
+    const sibling = {
+      ...structuredClone(target),
+      write_target: { ...target.write_target, group1: "XMP-sibling" },
+    };
+    const replacementStore = new TargetDraftEditsStore();
+    replacementStore.setMetadataTarget(photo.relative_path, sibling, edit);
+    view.rerenderPane({
+      occurrences: [],
+      targetDraftEdits: replacementStore.getMetadataFile(photo.relative_path),
+    });
+    await userEvent.click(screen.getByTestId("value-edit-save"));
+
+    expect(view.onSetNewPropertyDraft).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /changed or disappeared/i,
+    );
+    expect(screen.getByTestId("value-edit-input")).toBeInTheDocument();
+    expect(sibling.schema_id).toEqual(schema);
+  });
+
+  it("edits each additional same-schema New Property row by exact target", async () => {
+    const { target, edit, store } = stagedNewProperty();
+    const sibling = {
+      ...structuredClone(target),
+      write_target: { ...target.write_target, group1: "XMP-sibling" },
+    };
+    store.setMetadataTarget(photo.relative_path, sibling, edit);
+    const view = renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    const items = screen.getAllByTestId("details-unresolved-target-item");
+    const siblingItem = items.find((item) =>
+      item.textContent?.includes("XMP-sibling"),
+    )!;
+    await userEvent.click(
+      siblingItem.querySelector("button") as HTMLButtonElement,
+    );
+    await userEvent.click(screen.getByTestId("value-edit-save"));
+    await waitFor(() =>
+      expect(view.onSetNewPropertyDraft).toHaveBeenCalledWith(sibling, edit),
+    );
+    expect(view.onSetNewPropertyDraft).not.toHaveBeenCalledWith(target, edit);
   });
 });

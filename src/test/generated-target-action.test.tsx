@@ -15,6 +15,10 @@ function occurrence(
   value = "current",
   options: { copy?: number; writable?: boolean; writeTarget?: boolean } = {},
 ): MetadataOccurrence {
+  const writeTarget =
+    options.writeTarget === false
+      ? null
+      : { group1: "XMP-mlib", group7: "ID-Test", tag_name: id.tag_id };
   return {
     id: {
       document: null,
@@ -37,11 +41,8 @@ function occurrence(
       kind: { kind: "Text" },
       description: null,
     },
-    observed_selector: null,
-    write_target:
-      options.writeTarget === false
-        ? null
-        : { group1: "XMP-mlib", group7: "ID-Test", tag_name: id.tag_id },
+    observed_selector: structuredClone(writeTarget),
+    write_target: structuredClone(writeTarget),
   };
 }
 

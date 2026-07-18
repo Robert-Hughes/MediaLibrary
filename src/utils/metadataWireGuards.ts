@@ -24,6 +24,7 @@ import {
   schemaDefinitionIdEquals,
 } from "./schemaDefinitionId";
 import { hasOwnStringKey } from "./stringRecord";
+import { metadataWriteTargetEquals } from "./metadataWriteTarget";
 
 const U32_MAX = 0xffff_ffff;
 
@@ -391,7 +392,27 @@ export function isMetadataOccurrence(
       schemaDefinitionIdEquals(value.tag_info.id, value.schema_id)) &&
     (value.observed_selector === null ||
       isMetadataObservedSelector(value.observed_selector)) &&
-    (value.write_target === null || isMetadataWriteTarget(value.write_target))
+    (value.write_target === null ||
+      isMetadataWriteTarget(value.write_target)) &&
+    metadataOccurrenceSelectorRelationshipIsValid(
+      value.observed_selector,
+      value.write_target,
+    )
+  );
+}
+
+/**
+ * Rust emits a write target only when the identical selector was observed.
+ * This wire invariant is exact; semantic selector equality is reserved for
+ * ExifTool occupancy checks and would incorrectly accept case-only changes.
+ */
+function metadataOccurrenceSelectorRelationshipIsValid(
+  observed: MetadataObservedSelector | null,
+  writeTarget: MetadataWriteTarget | null,
+): boolean {
+  return (
+    writeTarget === null ||
+    (observed !== null && metadataWriteTargetEquals(observed, writeTarget))
   );
 }
 

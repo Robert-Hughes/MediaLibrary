@@ -1023,7 +1023,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               kind: { kind: "Text" },
               description: null,
             },
-            observed_selector: null,
+            observed_selector: structuredClone(target.write_target),
             write_target: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1211,7 +1211,7 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               kind: { kind: "Text" },
               description: null,
             },
-            observed_selector: null,
+            observed_selector: structuredClone(target.write_target),
             write_target: target.write_target,
           },
         ]}
@@ -1384,7 +1384,11 @@ describe("DetailsPane: read-only row context menu", () => {
               kind: { kind: "Text" },
               description: null,
             },
-            observed_selector: null,
+            observed_selector: {
+              group1: "IFD0",
+              group7: "ID-Test",
+              tag_name: "Make",
+            },
             write_target: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1447,7 +1451,11 @@ describe("DetailsPane: read-only row context menu", () => {
               kind: { kind: "Text" },
               description: null,
             },
-            observed_selector: null,
+            observed_selector: {
+              group1: "IFD0",
+              group7: "ID-Test",
+              tag_name: "Make",
+            },
             write_target: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1557,7 +1565,11 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           kind: { kind: value.kind } as any,
           description: null,
         },
-        observed_selector: null,
+        observed_selector: {
+          group1: group,
+          group7: "ID-Test",
+          tag_name: name,
+        },
         write_target: { group1: group, group7: "ID-Test", tag_name: name },
       };
     });
@@ -1879,7 +1891,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(onSetGpsTargetDraftBatch).not.toHaveBeenCalled();
     expect(screen.getByTestId("gps-editor-overlay")).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
-      /destination changed.*nothing was saved/i,
+      /not backed by the identical observed selector.*nothing was saved/i,
     );
   });
 

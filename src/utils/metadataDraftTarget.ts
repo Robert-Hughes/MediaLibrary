@@ -44,7 +44,8 @@ export type ExistingOccurrenceDraftTargetResolution =
         | "schema_mismatch"
         | "read_only_schema"
         | "unsupported_schema_kind"
-        | "missing_write_target";
+        | "missing_write_target"
+        | "invalid_selector_relationship";
     };
 
 export type ExistingOccurrenceTargetResolution =
@@ -200,6 +201,18 @@ export function existingOccurrenceDraftTarget(
   if (occurrence.write_target == null) {
     return { kind: "unavailable", reason: "missing_write_target" };
   }
+  if (
+    occurrence.observed_selector === null ||
+    !metadataWriteTargetEquals(
+      occurrence.observed_selector,
+      occurrence.write_target,
+    )
+  ) {
+    return {
+      kind: "unavailable",
+      reason: "invalid_selector_relationship",
+    };
+  }
 
   throw new Error("Unreachable targetability state");
 }
@@ -238,11 +251,18 @@ export function existingOccurrenceTargetFromOccurrence(
         "This occurrence's schema kind is unsupported for metadata writes.",
     };
   }
-  if (occurrence.write_target === null) {
+  if (
+    occurrence.observed_selector === null ||
+    occurrence.write_target === null ||
+    !metadataWriteTargetEquals(
+      occurrence.observed_selector,
+      occurrence.write_target,
+    )
+  ) {
     return {
       kind: "read-only",
       reason:
-        "This occurrence has no runtime write target and cannot be edited safely.",
+        "This occurrence's runtime write target is not backed by the identical observed selector and cannot be edited safely.",
     };
   }
 

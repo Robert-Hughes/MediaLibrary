@@ -247,7 +247,11 @@ describe("Gallery details pane content", () => {
           kind: { kind: "Text" },
           description: null,
         },
-        observed_selector: null,
+        observed_selector: {
+          group1: "IFD0",
+          group7: "ID-Test",
+          tag_name: "Make",
+        },
         write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "Make" },
       },
     ]);

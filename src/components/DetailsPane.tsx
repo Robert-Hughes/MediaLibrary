@@ -12,7 +12,10 @@ import type {
   TargetDraftPersistenceStateV5,
 } from "../types";
 import { metadataValueEqual } from "../types";
-import type { TargetDraftCollection } from "../targetDraftEdits";
+import {
+  metadataDraftEntryV5EqualsExact,
+  type TargetDraftCollection,
+} from "../targetDraftEdits";
 import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
@@ -77,7 +80,10 @@ import {
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
 import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
-import { metadataWriteSelector } from "../utils/metadataWriteTarget";
+import {
+  metadataWriteSelector,
+  validateFamily1Group,
+} from "../utils/metadataWriteTarget";
 import { planGpsTargetDraftBatchV5 } from "../gpsTargetDrafts";
 import { previewMetadataRemovalTargetsV5 } from "../metadataRemovalTargets";
 
@@ -103,6 +109,7 @@ type EditDialogState =
       kind: "new-property";
       schemaId: SchemaDefinitionId;
       openedTarget: NewPropertyTarget;
+      openedEdit: MetadataDraftEdit;
     };
 
 type PresentedTargetDraft =
@@ -136,7 +143,7 @@ interface Props {
   onSetNewPropertyDraft?: (
     target: NewPropertyTarget,
     edit: MetadataDraftEdit,
-  ) => void;
+  ) => Promise<boolean>;
   onReplaceNewPropertyDraftTarget?: (
     originalTarget: NewPropertyTarget,
     replacementTarget: NewPropertyTarget,
@@ -590,6 +597,7 @@ function DetailsRowContextMenu({
   contextMenu,
   occurrenceResolution,
   onEdit,
+  onEditDestination,
   onEditGps,
   onDiscard,
   onRemove,
@@ -605,6 +613,7 @@ function DetailsRowContextMenu({
   };
   occurrenceResolution: SchemaOccurrenceResolution;
   onEdit: () => void;
+  onEditDestination?: () => void;
   onEditGps?: () => void;
   onDiscard: () => void;
   onRemove: () => void;
@@ -635,6 +644,9 @@ function DetailsRowContextMenu({
             onClick: onEdit,
             title: editingUnavailableReason,
           },
+          ...(onEditDestination
+            ? [{ label: "Edit destination…", onClick: onEditDestination }]
+            : []),
           ...(gpsGroup && onEditGps
             ? [{ label: "Edit GPS…", onClick: onEditGps }]
             : []),
@@ -932,7 +944,15 @@ export function DetailsPane({
     setShowNewPropertyDialog(false);
     setNewPropertyTarget(null);
     setNewPropertyDestinationInitial(null);
-  }, [targetDraftsWritable]);
+    if (editDialog?.kind === "new-property") {
+      setEditDialogUnavailableMessage(
+        "Target-draft persistence changed while the New Property editor was open. Nothing was saved.",
+      );
+    }
+    setEditDialog((current) =>
+      current?.kind === "new-property" ? null : current,
+    );
+  }, [editDialog?.kind, targetDraftsWritable]);
 
   const occurrenceResolutionIndex = useMemo(
     () =>
@@ -1170,8 +1190,11 @@ export function DetailsPane({
     for (const [, entry] of presentedTargetDrafts) {
       ids.push(entry.target.schema_id);
     }
+    for (const entry of unresolvedTargetDrafts) {
+      ids.push(entry.target.schema_id);
+    }
     return ids;
-  }, [metadata, occurrenceResolutionIndex, presentedTargetDrafts]);
+  }, [metadata, presentedTargetDrafts, unresolvedTargetDrafts]);
   const schemaLookupIds = useMemo(
     () =>
       displayIds.filter(
@@ -1393,12 +1416,9 @@ export function DetailsPane({
         : undefined;
     }
     if (editDialog.kind === "new-property") {
-      const entry = Object.values(targetDraftEdits ?? {}).find((candidate) =>
-        metadataDraftTargetEquals(candidate.target, editDialog.openedTarget),
-      );
-      return entry?.edit.intent === "Set"
-        ? (entry.edit.value ?? undefined)
-        : undefined;
+      return editDialog.openedEdit.intent === "Delete"
+        ? undefined
+        : (editDialog.openedEdit.value ?? undefined);
     }
     if (ordinaryEditResolution?.kind !== "available") return undefined;
     const presented =
@@ -1422,6 +1442,8 @@ export function DetailsPane({
             editDialog.kind === "existing-occurrence"
               ? editDialog.occurrenceId
               : null,
+          target:
+            editDialog.kind === "new-property" ? editDialog.openedTarget : null,
           value: editDialogInitialValue,
         },
       )}`
@@ -1632,6 +1654,22 @@ export function DetailsPane({
       : resolutionForSchema(occurrenceResolutionIndex, id);
   };
 
+  const presentedNewPropertyDraftFor = (
+    id: SchemaDefinitionId,
+  ): (MetadataDraftEntryV5 & { target: NewPropertyTarget }) | undefined => {
+    const resolution = targetSchemaResolutions.get(schemaDefinitionIdToken(id));
+    if (
+      resolution?.kind !== "unique" ||
+      resolution.entry.target.kind !== "NewProperty" ||
+      !presentedTargetDrafts.some(([, entry]) => entry === resolution.entry)
+    ) {
+      return undefined;
+    }
+    return resolution.entry as MetadataDraftEntryV5 & {
+      target: NewPropertyTarget;
+    };
+  };
+
   const editingUnavailableReasonFor = (
     id: SchemaDefinitionId,
   ): string | undefined => {
@@ -1714,6 +1752,70 @@ export function DetailsPane({
         : undefined);
     if (!occurrence) return;
     openExactOccurrenceEditor(occurrence);
+  };
+
+  const currentNewPropertyDraftEntry = (
+    target: NewPropertyTarget,
+  ): MetadataDraftEntryV5 | undefined =>
+    Object.values(targetDraftEdits ?? {}).find(
+      (entry) =>
+        entry.target.kind === "NewProperty" &&
+        metadataDraftTargetEquals(entry.target, target),
+    );
+
+  const newPropertyValueEditorIsCurrent = (
+    target: NewPropertyTarget,
+    openedEdit: MetadataDraftEdit,
+  ): boolean => {
+    if (!targetDraftsWritable) return false;
+    const current = currentNewPropertyDraftEntry(target);
+    if (
+      current === undefined ||
+      !metadataDraftEntryV5EqualsExact(current, {
+        target,
+        edit: openedEdit,
+      })
+    ) {
+      return false;
+    }
+    const info = displayTagInfos[schemaDefinitionIdToken(target.schema_id)];
+    if (
+      info === undefined ||
+      info === null ||
+      info === "loading" ||
+      !schemaDefinitionIdEquals(info.id, target.schema_id)
+    ) {
+      return false;
+    }
+    const schemaTarget = newPropertyDraftTarget(info);
+    return (
+      schemaTarget.kind === "available" &&
+      target.write_target.group7 === schemaTarget.target.write_target.group7 &&
+      target.write_target.tag_name ===
+        schemaTarget.target.write_target.tag_name &&
+      validateFamily1Group(target.write_target.group1) === null
+    );
+  };
+
+  const openNewPropertyValueEditor = (target: NewPropertyTarget) => {
+    const entry = currentNewPropertyDraftEntry(target);
+    if (
+      entry === undefined ||
+      entry.edit.intent === "Delete" ||
+      !newPropertyValueEditorIsCurrent(target, entry.edit)
+    ) {
+      setEditDialogUnavailableMessage(
+        "This New Property draft changed or disappeared while the editor was open. Nothing was saved.",
+      );
+      return;
+    }
+    setEditDialogUnavailableMessage(null);
+    setEditDialog({
+      kind: "new-property",
+      schemaId: structuredClone(target.schema_id),
+      openedTarget: structuredClone(target),
+      openedEdit: structuredClone(entry.edit),
+    });
   };
 
   const openGpsCompositeEditor = (group: GpsTagGroup) => {
@@ -2081,6 +2183,19 @@ export function DetailsPane({
                         <button
                           className="button button--secondary"
                           disabled={!targetDraftsWritable}
+                          onClick={() =>
+                            openNewPropertyValueEditor(
+                              entry.target as NewPropertyTarget,
+                            )
+                          }
+                        >
+                          Edit value…
+                        </button>
+                      )}{" "}
+                      {entry.target.kind === "NewProperty" && (
+                        <button
+                          className="button button--secondary"
+                          disabled={!targetDraftsWritable}
                           onClick={() => {
                             setNewPropertyDestinationInitial(
                               structuredClone({
@@ -2230,26 +2345,29 @@ export function DetailsPane({
           contextMenu={contextMenu}
           occurrenceResolution={ordinaryOccurrenceResolutionFor(contextMenu.id)}
           onEdit={() => {
-            const targetResolution = targetSchemaResolutions.get(
-              schemaDefinitionIdToken(contextMenu.id),
-            );
             setEditDialogUnavailableMessage(null);
-            if (
-              targetResolution?.kind === "unique" &&
-              targetResolution.entry.target.kind === "NewProperty"
-            ) {
-              setNewPropertyDestinationInitial(
-                structuredClone({
-                  target: targetResolution.entry.target,
-                  edit: targetResolution.entry.edit,
-                }),
-              );
-              setShowNewPropertyDialog(true);
+            const newProperty = presentedNewPropertyDraftFor(contextMenu.id);
+            if (newProperty) {
+              openNewPropertyValueEditor(newProperty.target);
             } else {
               openExistingOccurrenceEditor(contextMenu.id);
             }
             setContextMenu(null);
           }}
+          onEditDestination={(() => {
+            const newProperty = presentedNewPropertyDraftFor(contextMenu.id);
+            if (!newProperty) return undefined;
+            return () => {
+              setNewPropertyDestinationInitial(
+                structuredClone({
+                  target: newProperty.target,
+                  edit: newProperty.edit,
+                }),
+              );
+              setShowNewPropertyDialog(true);
+              setContextMenu(null);
+            };
+          })()}
           onEditGps={() => {
             const group = gpsMemberGroup(contextMenu.id);
             if (group) openGpsCompositeEditor(group);
@@ -2416,7 +2534,7 @@ export function DetailsPane({
                 );
               }
             }}
-            onSaveMetadata={(edit) => {
+            onSaveMetadata={async (edit) => {
               const propertyId = editDialogPropertyId!;
               if (gpsMemberGroup(propertyId) !== null) {
                 const openedTarget =
@@ -2445,8 +2563,28 @@ export function DetailsPane({
                   );
                 }
               } else if (editDialog.kind === "new-property") {
-                onSetNewPropertyDraft?.(editDialog.openedTarget, edit);
-                setEditDialog(null);
+                if (
+                  !newPropertyValueEditorIsCurrent(
+                    editDialog.openedTarget,
+                    editDialog.openedEdit,
+                  )
+                ) {
+                  setEditDialogUnavailableMessage(
+                    "This New Property draft changed or disappeared while the editor was open. Nothing was saved.",
+                  );
+                  return;
+                }
+                const saved = await onSetNewPropertyDraft?.(
+                  editDialog.openedTarget,
+                  edit,
+                );
+                if (saved) {
+                  setEditDialog(null);
+                } else {
+                  setEditDialogUnavailableMessage(
+                    "The New Property value could not be saved. The editor remains open and the destination was not changed.",
+                  );
+                }
               } else if (
                 editDialog.kind === "existing-occurrence" &&
                 ordinaryEditResolution?.kind === "available"
@@ -2504,10 +2642,14 @@ export function DetailsPane({
               : undefined
           }
           metadataForFile={effectiveMetadata}
-          onSaveMetadataBatch={(edits) => {
+          onSaveMetadataBatch={async (edits) => {
+            const saves: Promise<boolean>[] = [];
             for (const { id, edit } of edits) {
               if (schemaDefinitionIdEquals(id, newPropertyTarget.schema_id)) {
-                onSetNewPropertyDraft?.(newPropertyTarget, edit);
+                saves.push(
+                  onSetNewPropertyDraft?.(newPropertyTarget, edit) ??
+                    Promise.resolve(false),
+                );
                 continue;
               }
               const info = displayTagInfos[schemaDefinitionIdToken(id)];
@@ -2516,14 +2658,33 @@ export function DetailsPane({
                   ? newPropertyDraftTarget(info)
                   : null;
               if (resolution?.kind === "available") {
-                onSetNewPropertyDraft?.(resolution.target, edit);
+                saves.push(
+                  onSetNewPropertyDraft?.(resolution.target, edit) ??
+                    Promise.resolve(false),
+                );
               }
             }
-            setNewPropertyTarget(null);
+            const results = await Promise.all(saves);
+            if (results.length > 0 && results.every(Boolean)) {
+              setNewPropertyTarget(null);
+            } else {
+              setEditDialogUnavailableMessage(
+                "The New Property value could not be saved. The editor remains open.",
+              );
+            }
           }}
-          onSaveMetadata={(edit) => {
-            onSetNewPropertyDraft?.(newPropertyTarget, edit);
-            setNewPropertyTarget(null);
+          onSaveMetadata={async (edit) => {
+            const saved = await onSetNewPropertyDraft?.(
+              newPropertyTarget,
+              edit,
+            );
+            if (saved) {
+              setNewPropertyTarget(null);
+            } else {
+              setEditDialogUnavailableMessage(
+                "The New Property value could not be saved. The editor remains open.",
+              );
+            }
           }}
           onCancel={() => setNewPropertyTarget(null)}
         />

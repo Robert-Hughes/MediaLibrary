@@ -41,7 +41,11 @@ function occurrence(
       kind: { kind: "Integer", data: { min: null, max: null } },
       description: null,
     },
-    observed_selector: null,
+    observed_selector: {
+      group1: "IFD0",
+      group7: "ID-Test",
+      tag_name: "XResolution",
+    },
     write_target: {
       group1: "IFD0",
       group7: "ID-Test",
@@ -121,7 +125,11 @@ describe("planMetadataRemovalTargetsV5", () => {
         ...occurrence().tag_info!,
         id: { ...id, index: 0 },
       },
-      observed_selector: null,
+      observed_selector: {
+        group1: "IFD1",
+        group7: "ID-Test",
+        tag_name: "ExactName",
+      },
       write_target: {
         group1: "IFD1",
         group7: "ID-Test",

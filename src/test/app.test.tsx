@@ -643,7 +643,11 @@ describe("App occurrence wiring regression", () => {
       schema_id: info.id,
       value: { kind: "Integer", value: 301 },
       tag_info: info,
-      observed_selector: null,
+      observed_selector: {
+        group1: "IFD0",
+        group7: "ID-Test",
+        tag_name: "XResolution",
+      },
       write_target: {
         group1: "IFD0",
         group7: "ID-Test",
@@ -666,7 +670,11 @@ describe("App occurrence wiring regression", () => {
         schema_id: info.id,
         value: { kind: "Integer", value: 300 },
         tag_info: info,
-        observed_selector: null,
+        observed_selector: {
+          group1: "IFD0",
+          group7: "ID-Test",
+          tag_name: "XResolution",
+        },
         write_target: {
           group1: "IFD0",
           group7: "ID-Test",
@@ -688,7 +696,11 @@ describe("App occurrence wiring regression", () => {
         schema_id: info.id,
         value: { kind: "Integer", value: 300 },
         tag_info: info,
-        observed_selector: null,
+        observed_selector: {
+          group1: "IFD1",
+          group7: "ID-Test",
+          tag_name: "XResolution",
+        },
         write_target: {
           group1: "IFD1",
           group7: "ID-Test",

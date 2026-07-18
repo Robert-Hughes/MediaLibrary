@@ -49,7 +49,11 @@ function occurrence(
       description: null,
       storage_count: undefined,
     },
-    observed_selector: null,
+    observed_selector: {
+      group1: "XMP-dc",
+      group7: "ID-Test",
+      tag_name: "Title",
+    },
     write_target: { group1: "XMP-dc", group7: "ID-Test", tag_name: "Title" },
   };
 }
