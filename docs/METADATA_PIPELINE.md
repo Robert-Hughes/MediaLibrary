@@ -12,33 +12,55 @@ information, optional observed selector and optional proven write target.
 Malformed relationships are rejected rather than repaired. Unknown schemas
 remain visible and diagnosable but read-only.
 
-`ImageMetadata` contains only authoritative occurrences. List, Details Pane,
-GPS, normalisation, overwrite, column and sorting consumers derive safe
-schema-oriented read-only views on demand. Conflicting same-schema values remain
-unavailable without affecting exact occurrence visibility.
+`ImageMetadata` contains only authoritative occurrences. Columns, sorting,
+normalisation, overwrite, generated workflows and composite semantic editors
+may derive deliberate schema-oriented read-only projections. Those projections
+never decide the identity or ownership of an existing Details row.
 
-Details Pane rows show exact pending target values and reopen editors from
-staged semantic values. Editors construct complete ExistingOccurrence or New
-Property targets before staging. A schema may select an editor, but mutations
-carry the complete target. Stale, ambiguous and read-only inputs fail without
-partial mutation or same-schema redirection.
+The Details pane builds a pure occurrence-first presentation model before
+rendering React components. Every authoritative occurrence becomes one
+`ExistingOccurrenceRow`, including equal same-schema values. Pending New
+Property drafts become `NewPropertyRow` values in their stored destination
+group. Stored ExistingOccurrence operations whose occurrence is missing or
+unsafe to select become target-only `MissingOccurrenceDraftRow` warnings.
+
+Friendly grouping follows the runtime occurrence or intended destination and
+is not identity. Search filters displayed rows but the map, GPS group menu,
+removal and discard operations retain the complete unfiltered group. Every row
+search document contains the friendly label, group, current and staged values,
+status, schema diagnostics, complete occurrence diagnostics where applicable,
+observed selector and write target.
+
+An exact ExistingOccurrence draft overlays a row only when the occurrence ID is
+unique and the complete stored target equals the target reconstructed from that
+same current occurrence. A stale target remains visible with status, is not
+overlaid or redirected, and can be discarded by its stored target. Missing and
+duplicate occurrence operations remain target-only warnings. New Property rows
+remain intended destinations even when occupied or otherwise unsafe.
+
+One metadata-row component and one row-context-menu pathway handle all row
+kinds. Existing rows expose edit, GPS, discard and remove actions only when the
+complete target makes each action safe. New Property value editing preserves
+the complete target; destination editing atomically replaces the exact original
+target while retaining the semantic edit. Target-only warnings expose only
+operations safe for their stored target.
 
 A fresh composite GPS editor resolves its six schema fields into complete
 targets before it opens. Saving pairs semantic edits with those captured
 targets, validates each target directly against current authoritative state and
 applies the exact batch atomically. It does not plan a replacement destination
-from a schema at save time. Same-schema targets at other occurrences or New
-Property destinations remain independent and do not own an ordinary row.
+from a schema at save time. An individually targetable GPS occurrence can be
+edited through its exact captured target even when another occurrence shares
+its schema. Composite GPS editing remains disabled when the six-member set is
+ambiguous.
 
-New Property value editing and destination editing are separate operations.
-Value editing preserves the exact stored target, including a custom GPS
-destination. Destination editing performs one atomic exact-target move. Pending
-verification blocks both operations until the outcome is resolved.
-
-Schema-addressed removal is only the request boundary. Planning expands every
-requested schema into exact ExistingOccurrence Delete upserts and exact staged
-New Property cancellations. Deduplication, no-op detection and failure are by
-target slot, so one schema request may affect several independent targets.
+Details group removal calls the target-addressed removal planner with only the
+complete targets assigned to that displayed group. Targetable existing rows
+become exact Delete upserts, pending New Properties become exact cancellations,
+already-staged Deletes are no-ops, and any stale, missing, duplicate or
+conflicting target rejects the whole mutation. Schema-addressed column and
+multi-file removal remain valid request boundaries and delegate to the same
+exact-target invariants.
 
 ## Draft state and persistence
 

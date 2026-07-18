@@ -86,6 +86,53 @@ When `tag_info` exists, `tag_info.id` must equal `schema_id`. Unknown registry
 definitions retain their exact schema and occurrence IDs but have null
 interpretation and write target, so they remain visible and read-only.
 
+## Occurrence-first Details presentation
+
+Every existing metadata row in the Details pane represents exactly one
+authoritative `MetadataOccurrence`. Equal values and a shared
+`SchemaDefinitionId` do not merge rows: IFD0 and IFD1 siblings, repeated copies
+and document/path variants remain independently visible and actionable.
+
+The row's friendly group is presentation, not identity. Existing occurrences
+use `observed_selector.group1`, then `tag_info.group`, then an explicit fallback
+based on `schema_id.table`. Pending New Property rows use their stored
+`write_target.group1`, so a custom destination appears in its custom group
+rather than the schema's default group. OS Metadata remains a separate
+read-only section.
+
+Friendly labels prefer `TagInfo.name`, then the observed selector's tag name,
+then schema diagnostics. A compact origin qualifier is shown only when needed
+to distinguish otherwise identical labels or expose unusual path, document or
+copy information. The tooltip and search text retain the complete schema,
+occurrence, observed-selector and write-target diagnostics.
+
+The presentation model has three row kinds:
+
+- `ExistingOccurrenceRow` retains the complete occurrence, its exact
+  targetability result and any exactly owned draft;
+- `NewPropertyRow` retains the complete intended target, destination and
+  semantic edit; and
+- `MissingOccurrenceDraftRow` retains a stored ExistingOccurrence operation
+  whose authoritative occurrence is missing or unsafe to select.
+
+An ExistingOccurrence draft overlays a row only when the complete occurrence ID
+is unique, the current occurrence is exactly targetable and the complete stored
+target equals the current target snapshot. A stale snapshot remains visible as
+status on the current occurrence row but its staged value is not presented as
+current and it is never redirected. Missing and duplicate occurrence targets
+are shown as target-only warning rows. Safe exact discard remains available.
+
+New Property rows are intended destinations, not claims that an occurrence
+already exists. Same-schema destinations remain separate rows. Occupied or
+otherwise unsafe destinations stay visible with status and never convert into
+an ExistingOccurrence target.
+
+Group removal and discard use the complete targets owned by the unfiltered
+friendly group. Search affects visibility only. Exact target planning means a
+group action cannot widen from IFD0 to IFD1 merely because both occurrences
+share one schema, and a custom New Property destination belongs to its displayed
+custom group.
+
 ## Observed selectors and write targets
 
 `MetadataObservedSelector { group1, group7, tag_name }` records that a complete
@@ -193,12 +240,14 @@ untouched. They are not parsed, migrated, rewritten, truncated or deleted.
 
 ## Read-only projections and search
 
-`ImageMetadata` stores authoritative occurrences only. Schema-oriented views
-are derived on demand: identical ordinary values may collapse, compatible
-LangAlt values may merge, and conflicts remain unavailable without selecting
-an arbitrary occurrence. Search indexes structured schema and occurrence
-fields, target schema, semantic values, and friendly labels, but never owns or
-mutates identity.
+`ImageMetadata` stores authoritative occurrences only. Deliberate
+schema-oriented views are derived on demand for consumers such as columns,
+sorting, generated workflows and composite semantic editors: identical values
+may collapse, compatible LangAlt values may merge, and conflicts remain
+unavailable without selecting an arbitrary occurrence. Those projections do
+not own Details-row identity. Search indexes structured schema and occurrence
+fields, statuses, stored targets, semantic values and friendly labels, but
+never owns or mutates identity.
 
 ## Rejected heuristics and fallbacks
 
