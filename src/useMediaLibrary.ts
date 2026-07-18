@@ -50,10 +50,8 @@ import {
   metadataDraftTargetSlotToken,
   newPropertyDraftTarget,
 } from "./utils/metadataDraftTarget";
-import {
-  metadataWriteSelectorsEqual,
-  validateFamily1Group,
-} from "./utils/metadataWriteTarget";
+import { validateFamily1Group } from "./utils/metadataWriteTarget";
+import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSafety";
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { validateGpsTargetDraftEntries } from "./gpsTargetDrafts";
@@ -1334,14 +1332,18 @@ export function useMediaLibrary(
           );
           return false;
         }
-        const occupied = occurrenceState.find((occurrence) => {
-          const observed = occurrence.observed_selector;
-          return (
-            observed !== null &&
-            metadataWriteSelectorsEqual(observed, target.write_target)
-          );
+        const destinationSafety = classifyNewPropertyDestination({
+          schemaId: id,
+          writeTarget: target.write_target,
+          occurrences: occurrenceState,
+          pendingTargets: Object.values(
+            targetDraftEditsStoreRef.current.getMetadataFile(
+              fileRelativePath,
+            ) ?? {},
+          ).map((entry) => entry.target),
+          ignoredPendingTarget: target,
         });
-        if (occupied) {
+        if (destinationSafety.kind === "occupied") {
           pushApplicationError(
             "metadata-target-new-property-destination-occupied",
             "The complete ExifTool destination is already present in the file. No new-property draft was staged.",
@@ -1349,12 +1351,7 @@ export function useMediaLibrary(
           );
           return false;
         }
-        const unknownSameSchema = occurrenceState.find(
-          (occurrence) =>
-            occurrence.observed_selector === null &&
-            schemaDefinitionIdEquals(occurrence.schema_id, id),
-        );
-        if (unknownSameSchema) {
+        if (destinationSafety.kind === "unknown-same-schema") {
           pushApplicationError(
             "metadata-target-new-property-destination-unknown",
             "A same-schema occurrence has no safely identifiable destination, so another destination cannot be created safely.",
@@ -1363,15 +1360,7 @@ export function useMediaLibrary(
           return false;
         }
 
-        const pendingCollision = Object.values(
-          targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath) ??
-            {},
-        ).find((entry) => {
-          if (metadataDraftTargetEquals(entry.target, target)) return false;
-          const pending = entry.target.write_target;
-          return metadataWriteSelectorsEqual(pending, target.write_target);
-        });
-        if (pendingCollision) {
+        if (destinationSafety.kind === "pending-collision") {
           pushApplicationError(
             "metadata-target-new-property-selector-collision",
             "Another pending draft already uses the intended complete selector. No new-property draft was staged.",
@@ -1553,15 +1542,18 @@ export function useMediaLibrary(
           );
           return false;
         }
-        const exactOccupied = occurrenceState.find(
-          (occurrence) =>
-            occurrence.observed_selector !== null &&
-            metadataWriteSelectorsEqual(
-              occurrence.observed_selector,
-              replacementTarget.write_target,
-            ),
-        );
-        if (exactOccupied) {
+        const destinationSafety = classifyNewPropertyDestination({
+          schemaId: replacementTarget.schema_id,
+          writeTarget: replacementTarget.write_target,
+          occurrences: occurrenceState,
+          pendingTargets: Object.values(
+            targetDraftEditsStoreRef.current.getMetadataFile(
+              fileRelativePath,
+            ) ?? {},
+          ).map((entry) => entry.target),
+          ignoredPendingTarget: originalTarget,
+        });
+        if (destinationSafety.kind === "occupied") {
           pushApplicationError(
             "metadata-target-new-property-move-destination-occupied",
             "The replacement ExifTool destination is already present in the file. Nothing was moved.",
@@ -1569,15 +1561,7 @@ export function useMediaLibrary(
           );
           return false;
         }
-        const unknownSameSchema = occurrenceState.find(
-          (occurrence) =>
-            occurrence.observed_selector === null &&
-            schemaDefinitionIdEquals(
-              occurrence.schema_id,
-              replacementTarget.schema_id,
-            ),
-        );
-        if (unknownSameSchema) {
+        if (destinationSafety.kind === "unknown-same-schema") {
           pushApplicationError(
             "metadata-target-new-property-move-destination-unknown",
             "A same-schema occurrence has no safely identifiable destination, so the draft cannot be moved safely.",
@@ -1585,18 +1569,7 @@ export function useMediaLibrary(
           );
           return false;
         }
-        const pendingCollision = Object.values(
-          targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath) ??
-            {},
-        ).find(
-          (entry) =>
-            !metadataDraftTargetEquals(entry.target, originalTarget) &&
-            metadataWriteSelectorsEqual(
-              entry.target.write_target,
-              replacementTarget.write_target,
-            ),
-        );
-        if (pendingCollision) {
+        if (destinationSafety.kind === "pending-collision") {
           pushApplicationError(
             "metadata-target-new-property-move-selector-collision",
             "Another pending draft already uses the replacement selector. Nothing was moved.",

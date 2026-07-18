@@ -1593,6 +1593,24 @@ describe("useMediaLibrary", () => {
       "metadata-target-new-property-destination-occupied",
     );
 
+    const selectorCaseId = testId("XMP-test:SelectorCase");
+    const selectorCaseOccurrence = occurrenceFor(selectorCaseId);
+    selectorCaseOccurrence.observed_selector = {
+      ...newPropertyTargetFor(selectorCaseId).write_target,
+      group1: "xmp-TEST",
+      tag_name: "testfield",
+    };
+    selectorCaseOccurrence.write_target = null;
+    await publishOccurrences(mock, "selector-case.jpg", [
+      selectorCaseOccurrence,
+    ]);
+    mock.tagInfos = [tagInfoFor(selectorCaseId)];
+    await expectRejected(
+      "selector-case.jpg",
+      selectorCaseId,
+      "metadata-target-new-property-destination-occupied",
+    );
+
     const crossSchemaId = testId("XMP-test:CrossSchemaNew");
     const otherSchemaId = testId("XMP-test:CrossSchemaExisting");
     const crossSchemaOccurrence = occurrenceFor(otherSchemaId);
