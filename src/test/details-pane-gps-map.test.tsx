@@ -339,7 +339,7 @@ describe("DetailsPane GPS Map integration", () => {
     expect(within(menu).getByRole("button", { name: /Remove/ })).toBeEnabled();
   });
 
-  it("omits Edit GPS when the composite callback is unavailable", () => {
+  it("disables Edit GPS when the composite callback is unavailable", () => {
     render(
       <DetailsPane
         photo={photo}
@@ -351,7 +351,12 @@ describe("DetailsPane GPS Map integration", () => {
 
     fireEvent.contextMenu(gpsHeading());
     const menu = screen.getByTestId("context-menu");
-    expect(within(menu).queryByText("Edit GPS…")).toBeNull();
+    const editGps = within(menu).getByRole("button", { name: "Edit GPS…" });
+    expect(editGps).toBeDisabled();
+    expect(editGps).toHaveAttribute(
+      "title",
+      "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
+    );
     expect(within(menu).getByRole("button", { name: /Remove/ })).toBeEnabled();
   });
 
