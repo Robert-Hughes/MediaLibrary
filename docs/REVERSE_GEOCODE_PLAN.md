@@ -428,7 +428,7 @@ frontend allowlist is exactly `GEOCODE_TARGET_TAGS`; arbitrary location-
 looking schemas are rejected. The current backend deliberately emits both `Set`
 and `Delete` to express coherent replacement of absent address members.
 
-Before the command starts, v5 persistence and authoritative occurrences must be
+Before the command starts, target-draft persistence and authoritative occurrences must be
 available for every file. On each progress result, the complete output batch is
 resolved to exact ExistingOccurrence/NewProperty targets and applied atomically.
 A Delete for an already-missing schema is a no-op; a Delete for an exact staged

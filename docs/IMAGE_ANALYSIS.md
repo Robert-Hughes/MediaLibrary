@@ -290,19 +290,19 @@ src/
 
 ## Current generated-draft staging boundary
 
-The image-analysis backend continues to emit `MetadataDraftEntry[]` semantic
+The image-analysis backend continues to emit `SchemaMetadataEdit[]` semantic
 edits keyed by exact `SchemaDefinitionId`. The frontend accepts only the eight
 known AI output schemas (`AIDescription`, `AIInterpretation`, `AITags`,
 `AIObjects`, `AIOcrText`, `AIModel`, `AIPromptVersion`, and `AIGeneratedAt`) and
-`Set` intent. Before estimation or API invocation, schema-v5 persistence must be
+`Set` intent. Before estimation or API invocation, target-draft persistence must be
 ready and authoritative occurrences must be loaded for every selected file.
 
 Each successful backend result is revalidated against the current runtime state.
 A unique writable occurrence becomes an exact `ExistingOccurrence`; a missing
 schema becomes `NewProperty`. Ambiguous occurrences, stale or
 conflicting target ownership, and foreign schemas fail that file's complete
-batch without affecting earlier files. Changed results produce one atomic v5
-mutation and one v5 autosave; exact no-ops produce neither. A frontend staging
+batch without affecting earlier files. Changed results produce one atomic
+exact-target mutation and one target-draft autosave; exact no-ops produce neither. A frontend staging
 failure is reported as `draft_stage_failed`, distinct from API/backend failure,
 and is retained when the backend complete event arrives. No active image-
 analysis path creates or saves anything except exact target drafts.

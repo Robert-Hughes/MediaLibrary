@@ -1,175 +1,93 @@
 # Metadata formats and editing design
 
-MediaLibrary has one active metadata-edit format: schema-v5 target drafts. A
-draft always contains a complete `MetadataDraftTarget` and a semantic
+MediaLibrary has one active metadata-edit format: target-aware drafts. Every
+persisted entry contains a complete `MetadataDraftTarget` and a semantic
 `MetadataDraftEdit`.
 
-## Occurrence concerns and identity layers
-
-The editing model distinguishes six concepts:
-
-1. A friendly property label (`TagInfo.group` plus `TagInfo.name`) is human
-   display, search and explanation text, not execution identity.
-2. `RuntimeTagIdScope` retains the wrapped table, tag ID and optional index
-   associated with the family-7 runtime ID. It is part of occurrence identity,
-   not necessarily the resolved semantic definition.
-3. Required `schema_id: SchemaDefinitionId` identifies one exact static
-   ExifTool definition, including absent index versus index zero. Several
-   occurrences may share it, so it must not first-select an occurrence.
-4. `MetadataOccurrenceId` identifies one concrete value using family-3
-   document/sample, family-5 metadata path, family-7 runtime ID, wrapped scope,
-   and family-4 copy.
-5. `MetadataObservedSelector { group1, group7, tag_name }` records a complete
-   selector observed in the file. It establishes occupancy, not writability.
-6. `MetadataWriteTarget { group1, group7, tag_name }` is the proven structured
-   ExifTool write selector. It is nullable on occurrences because existing
-   occurrences require independent-targeting proof, and required on New
-   Property drafts because they carry an intended destination. Every assigned
-   existing `write_target` normally equals `observed_selector`, but an observed
-   selector may exist when `write_target` is null.
-
-Nullable `tag_info` supplies registry interpretation, friendly labels and
-description metadata. When present, `TagInfo.id` must exactly match
-`schema_id`.
-
-Friendly labels are presentation and search text only. A missing `TagInfo` does
-not mean schema identity is missing, and a schema ID or selector alone does not
-make an occurrence writable. Same-schema occurrences remain independent
-runtime targets and are never first-selected.
-
-The wrapped runtime scope is not a replacement for `schema_id`. It namespaces
-the runtime tag ID, while `schema_id` remains authoritative interpretation and
-may resolve to a different LangAlt parent. In that case the child runtime tuple
-remains in `occurrence.id.tag_id_scope` and the parent definition is stored in
-`occurrence.schema_id`.
-
-An `ExistingOccurrence` target snapshots its occurrence ID, schema ID and
-runtime `MetadataWriteTarget`, then revalidates all three before apply.
-`NewProperty` identifies a deliberate creation by exact schema ID and complete
-intended selector because no runtime occurrence exists yet. A
-`MetadataWriteTarget` is the ExifTool selector; it is not proof that ExifTool
-will instantiate the exact indexed definition selected by the user. Exact
-schema identity remains alongside the selector for post-write verification.
-
-Runtime family 7 is not necessarily identical to the static schema tag ID.
-Existing occurrence targets derive the complete `ID-...` group from observed
-`runtime_tag_id`; New Property derives it from the selected static tag ID using
-ExifTool's family-7 byte encoding (ASCII letters, digits, hyphen, and underscore
-are retained; every other UTF-8 byte becomes two lowercase hexadecimal digits).
-See [`GetGroup`](https://exiftool.org/ExifTool.html#GetGroup). Only New Property
-family 1 may be overridden. Family 7 and canonical tag name remain
-schema-controlled.
+The identity concepts used here are defined canonically in the
+[metadata identity model](METADATA_IDENTITY_MODEL.md). In short, occurrences
+are authoritative, schema identity is not occurrence identity, observed
+selectors establish occupancy, and every action after target construction uses
+the complete target.
 
 ## Transient occurrence format
 
-Scan and readback payloads use the required shape
-`{ id, schema_id, value, tag_info, observed_selector, write_target }`. Unknown local schemas retain
-their exact table, tag ID and optional index with null interpretation and write
-target. `ImageMetadata` contains only this authoritative occurrence collection.
-Schema-oriented read-only consumers derive safe values on demand; no second
-schema-keyed scan store or wire field exists.
+Scan and readback payloads use
+`{ id, schema_id, value, tag_info, observed_selector, write_target }`.
+Unknown local schemas retain their exact identity with null interpretation and
+write target. `ImageMetadata` contains only authoritative occurrences;
+schema-oriented consumers derive safe read-only values on demand.
 
-The occurrence relationship is validated structurally: a write target is legal
-only when a non-null observed selector has exactly equal `group1`, `group7`, and
-`tag_name`. Case-only differences are rejected here. This is distinct from
-selector occupancy equality, where family 1 and tag name are case-insensitive
-and family 7 remains case-sensitive.
+The occurrence relationship is validated structurally. A write target is legal
+only when a non-null observed selector has exactly equal `group1`, `group7` and
+`tag_name`. This differs from occupancy comparison, where family 1 and tag name
+are case-insensitive and family 7 remains case-sensitive.
 
 ## Draft and audit persistence
 
 `MediaLibraryTargetDraftEdits.jsonl` is the only draft file read or written.
-Its New Property target shape is updated in place to include `write_target`
-while `schema_version` remains 5. There is no old-shape compatibility reader or
-migration. New Property logical slots contain both exact schema and exact
-destination, so same-schema IFD0 and IFD1 drafts do not overwrite one another.
-Each JSONL record retains the full target and edit. Duplicate logical target
-slots and malformed entries are rejected before a save can truncate the file.
+Records use persisted `schema_version: 5`; there is no old-shape compatibility
+reader or migration. New Property logical slots contain both exact schema and
+exact destination, so same-schema destinations do not overwrite one another.
+Duplicate paths, duplicate logical slots and malformed entries are rejected
+before a save can truncate the file.
 
-`MediaLibraryTargetApplyLog.jsonl` is the only apply audit written. Its schema
-version and identity-model marker are unchanged. Newly appended rows naturally
-carry the complete occurrence ID; existing append-only rows are not rewritten.
-Audit rows retain complete targets, semantic values, verification results, and
-reconciliation decisions.
+`MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. Its existing
+format and identity marker are unchanged. Rows retain complete targets,
+semantic values, verification results and reconciliation decisions, and are
+never rewritten.
 
-The historical files `MediaLibraryDraftEdits.jsonl` and
-`MediaLibraryApplyLog.jsonl` are ignored. They are not parsed, migrated,
-rewritten, truncated, or deleted.
+The historical `MediaLibraryDraftEdits.jsonl` and
+`MediaLibraryApplyLog.jsonl` files are ignored. They are not parsed, migrated,
+rewritten, truncated or deleted.
 
 ## Semantic values and edits
 
-`MetadataValue` carries typed values such as text, numbers, rationals, lists,
-structures, dates, times, offsets, and date-times. `MetadataDraftEdit` carries
-`Set`, `Delete`, `ListAdd`, or `ListRemove` plus optional display text. Display
-text is not execution identity and is omitted from JSON when absent.
+`MetadataValue` carries typed text, numbers, rationals, lists, structures,
+dates, times, offsets and date-times. `MetadataDraftEdit` carries `Set`,
+`Delete`, `ListAdd` or `ListRemove`, plus optional display text. Display text is
+not execution identity and is omitted from JSON when absent.
 
 Redundant `Set` suppression uses semantic equality: sequences are ordered,
-bags are unordered, structures ignore object key insertion order, and nested
-children are compared completely. Delete and list mutation intents are never
+bags are unordered, structures ignore object-key insertion order, and nested
+children compare completely. Delete and list mutation intents are not
 suppressed as redundant.
 
-## Write, verify, and reconcile
+## Write, verify and reconcile
 
-The active pipeline is:
+The active operation is:
 
-1. Validate the persisted target against authoritative occurrences and schema,
-   including the family-1 grammar and schema-locked family 7/tag name.
-2. Render `1<group1>:7<group7>:<tag_name>` only at the final write boundary,
-   then produce numeric and textual ExifTool argument passes with stable UTF-8
-   argfile escaping.
-3. Write the file.
-4. Read authoritative occurrences again.
-5. For New Property, require exactly one readback match for exact schema,
-   family 1, runtime family 7, and tag name; then verify semantic results,
-   including rational equivalence, floating-point/GPS tolerance, list
-   semantics, nested values, dates, times, UTC offsets, and the narrow IPTC
+1. Validate the complete persisted target against authoritative occurrences
+   and its stored destination.
+2. Render the structured selector only at the final ExifTool write boundary
+   and produce stable UTF-8 numeric and textual argument passes.
+3. Write the file and read authoritative occurrences again.
+4. For New Property, require exactly one readback match for the intended exact
+   schema and selector.
+5. Verify semantic results, including rational equivalence, GPS tolerance,
+   list semantics, nested values, dates, times, offsets and the narrow IPTC
    country-code padding rule.
-6. Reconcile each exact target as `Clear`, `Keep`, `Replace`, or `Blocked`.
-7. Persist the reconciled target drafts atomically.
-8. Append the target-aware audit record.
+6. Reconcile the exact target as Clear, Keep, Replace or Blocked.
+7. Persist the reconciled drafts atomically and append the audit record.
 
 Clear results require no attention row. Keep, Replace, Blocked, unavailable
-readback, missing values, mismatches, coercions, lingering deletes, and
-observed nulls retain exact target context for review.
+readback, missing values, mismatches, coercions, lingering deletes and observed
+nulls retain exact target context for review.
 
-Selector occupancy and planned-write collision keys compare family 1 and tag
-name case-insensitively, but preserve and compare family-7 tag-ID group text
-case-sensitively. ExifTool documents this family-7 rule in its official
-[`GetGroup` reference](https://exiftool.org/ExifTool.html#GetGroup). Every exact
-observed-selector collision blocks New Property across schemas. A same-schema
-occurrence with no safely represented observed selector blocks conservatively;
-an unknown-selector occurrence from another schema does not. Families 3, 4,
-and 5 remain extraction identity rather than supported direct-write coordinates.
+Every observed-selector collision blocks New Property across schemas. A
+same-schema occurrence without a safely represented observed selector blocks
+conservatively; an unknown-selector occurrence from another schema does not
+block every destination.
 
-Semantic value editing preserves the complete New Property target and updates
-only its staged edit, including custom family-1 destinations for GPS schemas;
-GPS membership never changes the value-edit dispatch. Destination editing uses
-one exact mutation batch to delete the original New
-Property slot and upsert the replacement with the unchanged semantic edit.
-Validation failure preserves the original slot. A pending verification outcome
-blocks either operation until resolved. Neither operation falls back to another
-same-schema target.
-
-The numeric family qualification follows ExifTool's official
-[tag-operations documentation](https://exiftool.org/exiftool_pod2.html#Tag-operations),
-which describes family-number prefixes and permits family 1 and 7 groups in
-write tags.
+Semantic value editing preserves the complete New Property target and changes
+only its staged edit, including custom family-1 destinations for GPS schemas.
+Destination editing atomically deletes the exact original target and upserts
+the replacement with the unchanged semantic edit. A stale or failed operation
+preserves the original slot. Neither action falls back to a same-schema target.
 
 ## Search projection
 
-List search receives every authoritative occurrence's exact schema identity,
-semantic value, and runtime occurrence coordinates. It also receives every
-target draft's exact `target.schema_id` and complete semantic edit. The main
-thread resolves friendly group, name, and description labels, and the worker
-indexes them alongside exact schema and occurrence fields. This supports
-`has:edits`, initial replay, incremental updates, last-draft deletion, retry,
-stale-enrichment protection, and reserved paths.
-
-Search is only a text projection. It never selects, replaces, merges, or
-mutates targets by schema identity; execution identity stays in
-`TargetDraftEditsStore`.
-
-## Removed format
-
-The former schema-keyed apply, cancellation, progress, verification, draft
-persistence, and apply-log pipeline has been removed from production. There is
-no fallback or migration path.
+Search receives every authoritative occurrence's exact schema, semantic value
+and runtime coordinates, plus every target draft's schema and semantic edit.
+Friendly labels are indexed alongside them. Search is a read-only text
+projection: it never selects, replaces, merges or mutates a target.

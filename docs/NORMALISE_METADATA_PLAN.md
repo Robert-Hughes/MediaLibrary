@@ -889,6 +889,6 @@ confirmation the enabled group selection is cloned and retained for that run;
 progress events are checked only against the exact union of
 `NORMALISE_TARGET_TAGS_BY_GROUP` for that immutable snapshot. Each file batch is
 validated completely, resolved through authoritative occurrences, and applied
-as one schema-v5 target-store mutation. A disabled-group field or unsafe target
+as one exact-target store mutation. A disabled-group field or unsafe target
 fails that file as `draft_stage_failed` without stopping later files. No active
 normalise path creates or saves anything except exact target drafts.
