@@ -15,7 +15,10 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
-import { findDuplicateMetadataOccurrenceId } from "./utils/metadataOccurrences";
+import {
+  findDuplicateMetadataOccurrenceId,
+  resolveExactMetadataOccurrence,
+} from "./utils/metadataOccurrences";
 import { wireStructuralEqual } from "./utils/wireStructuralEquality";
 
 type ExistingOccurrenceTarget = Extract<
@@ -75,6 +78,199 @@ export class MetadataRemovalTargetPlanError extends Error {
     super(message);
     this.name = "MetadataRemovalTargetPlanError";
   }
+}
+
+export interface MetadataTargetRemovalPlan {
+  upserts: Array<{
+    target: ExistingOccurrenceTarget;
+    edit: {
+      intent: "Delete";
+      value: null;
+    };
+  }>;
+  deletes: MetadataDraftTarget[];
+  noops: MetadataDraftTarget[];
+}
+
+export type MetadataTargetRemovalPlanErrorCode =
+  | "occurrences-loading"
+  | "empty-request"
+  | "duplicate-target-slot"
+  | "target-slot-mismatch"
+  | "duplicate-stored-target-slot"
+  | "missing-occurrence"
+  | "duplicate-occurrence-id"
+  | "untargetable-occurrence"
+  | "changed-schema-snapshot"
+  | "changed-selector-snapshot"
+  | "missing-new-property-draft"
+  | "stale-target-owner";
+
+export class MetadataTargetRemovalPlanError extends Error {
+  constructor(
+    readonly code: MetadataTargetRemovalPlanErrorCode,
+    message: string,
+    readonly target?: MetadataDraftTarget,
+  ) {
+    super(message);
+    this.name = "MetadataTargetRemovalPlanError";
+  }
+}
+
+function validateStoredTargetCollection(
+  targetDrafts: TargetDraftCollection | undefined,
+): void {
+  const seen = new Set<string>();
+  for (const [recordKey, entry] of Object.entries(targetDrafts ?? {})) {
+    const expected = metadataDraftTargetSlotToken(entry.target);
+    if (recordKey !== expected) {
+      throw new MetadataTargetRemovalPlanError(
+        "target-slot-mismatch",
+        "A stored target-aware draft is filed under a slot that does not match its complete target. Nothing was removed.",
+        structuredClone(entry.target),
+      );
+    }
+    if (seen.has(expected)) {
+      throw new MetadataTargetRemovalPlanError(
+        "duplicate-stored-target-slot",
+        "Several stored target-aware drafts claim the same logical slot. Nothing was removed.",
+        structuredClone(entry.target),
+      );
+    }
+    seen.add(expected);
+  }
+}
+
+/**
+ * Plans removals for complete exact targets selected by an occurrence-oriented
+ * view. The full request is validated before a mutation plan is returned.
+ */
+export function planMetadataTargetRemovals(input: {
+  targets: readonly MetadataDraftTarget[];
+  occurrences: ImageMetadataOccurrencesState;
+  targetDrafts: TargetDraftCollection | undefined;
+}): MetadataTargetRemovalPlan {
+  const { targets, occurrences, targetDrafts } = input;
+  if (!Array.isArray(occurrences)) {
+    throw new MetadataTargetRemovalPlanError(
+      "occurrences-loading",
+      "Authoritative metadata occurrences are still loading. Nothing was removed.",
+    );
+  }
+  if (targets.length === 0) {
+    throw new MetadataTargetRemovalPlanError(
+      "empty-request",
+      "At least one exact metadata target is required. Nothing was removed.",
+    );
+  }
+
+  validateStoredTargetCollection(targetDrafts);
+
+  const requestedSlots = new Set<string>();
+  const clonedTargets = targets.map((target) => structuredClone(target));
+  for (const target of clonedTargets) {
+    const slot = metadataDraftTargetSlotToken(target);
+    if (requestedSlots.has(slot)) {
+      throw new MetadataTargetRemovalPlanError(
+        "duplicate-target-slot",
+        "The removal request contains the same logical target slot more than once. Nothing was removed.",
+        target,
+      );
+    }
+    requestedSlots.add(slot);
+  }
+
+  const plan: MetadataTargetRemovalPlan = {
+    upserts: [],
+    deletes: [],
+    noops: [],
+  };
+
+  for (const target of clonedTargets) {
+    const slot = metadataDraftTargetSlotToken(target);
+    const owner = targetDrafts?.[slot];
+
+    if (target.kind === "NewProperty") {
+      if (owner === undefined) {
+        throw new MetadataTargetRemovalPlanError(
+          "missing-new-property-draft",
+          "The selected New Property target no longer has an exact stored draft. Nothing was removed.",
+          target,
+        );
+      }
+      if (!metadataDraftTargetEquals(owner.target, target)) {
+        throw new MetadataTargetRemovalPlanError(
+          "stale-target-owner",
+          "A stale complete target owns the selected New Property slot. Nothing was removed.",
+          target,
+        );
+      }
+      plan.deletes.push(structuredClone(target));
+      continue;
+    }
+
+    const exact = resolveExactMetadataOccurrence(
+      occurrences,
+      target.occurrence_id,
+    );
+    if (exact.kind === "missing") {
+      throw new MetadataTargetRemovalPlanError(
+        "missing-occurrence",
+        "The selected exact metadata occurrence is no longer present. Nothing was removed.",
+        target,
+      );
+    }
+    if (exact.kind === "duplicate") {
+      throw new MetadataTargetRemovalPlanError(
+        "duplicate-occurrence-id",
+        "The selected complete metadata occurrence ID is duplicated. Nothing was removed.",
+        target,
+      );
+    }
+
+    const current = existingOccurrenceTargetFromOccurrence(exact.occurrence);
+    if (current.kind !== "targetable") {
+      throw new MetadataTargetRemovalPlanError(
+        "untargetable-occurrence",
+        `${current.reason} Nothing was removed.`,
+        target,
+      );
+    }
+    if (!schemaDefinitionIdEquals(current.target.schema_id, target.schema_id)) {
+      throw new MetadataTargetRemovalPlanError(
+        "changed-schema-snapshot",
+        "The selected occurrence's exact schema snapshot has changed. Nothing was removed.",
+        target,
+      );
+    }
+    if (!metadataDraftTargetEquals(current.target, target)) {
+      throw new MetadataTargetRemovalPlanError(
+        "changed-selector-snapshot",
+        "The selected occurrence's exact runtime selector snapshot has changed. Nothing was removed.",
+        target,
+      );
+    }
+    if (owner && !metadataDraftTargetEquals(owner.target, target)) {
+      throw new MetadataTargetRemovalPlanError(
+        "stale-target-owner",
+        "A stale complete target owns the selected occurrence slot. Nothing was removed.",
+        target,
+      );
+    }
+    if (
+      owner &&
+      wireStructuralEqual(owner.edit, { intent: "Delete", value: null })
+    ) {
+      plan.noops.push(structuredClone(target));
+      continue;
+    }
+    plan.upserts.push({
+      target: structuredClone(target),
+      edit: { intent: "Delete", value: null },
+    });
+  }
+
+  return structuredClone(plan);
 }
 
 function describe(id: SchemaDefinitionId): string {
@@ -149,6 +345,7 @@ export function planMetadataRemovalTargets(input: {
       schemaDefinitionIdEquals(entry.target.schema_id, id),
     );
     const authoritativeSlots = new Set<string>();
+    const exactTargets: MetadataDraftTarget[] = [];
 
     for (const occurrence of authoritative) {
       const targetability = existingOccurrenceTargetFromOccurrence(occurrence);
@@ -169,33 +366,12 @@ export function planMetadataRemovalTargets(input: {
         );
       }
       authoritativeSlots.add(slot);
-      const owner = targetDrafts?.[slot];
-      if (owner && !metadataDraftTargetEquals(owner.target, expected)) {
-        throw new MetadataRemovalTargetPlanError(
-          "stale-target-owner",
-          `A stale complete target claims the exact occurrence slot for ${describe(id)}. Nothing was removed.`,
-          structuredClone(id),
-        );
-      }
-      if (
-        owner &&
-        wireStructuralEqual(owner.edit, {
-          intent: "Delete",
-          value: null,
-        })
-      ) {
-        plan.noops.push(structuredClone(id));
-        continue;
-      }
-      plan.upserts.push({
-        target: structuredClone(expected),
-        edit: { intent: "Delete", value: null },
-      });
+      exactTargets.push(structuredClone(expected));
     }
 
     for (const entry of sameSchemaDrafts) {
       if (entry.target.kind === "NewProperty") {
-        plan.deletes.push(structuredClone(entry.target));
+        exactTargets.push(structuredClone(entry.target));
       } else if (
         !authoritativeSlots.has(metadataDraftTargetSlotToken(entry.target))
       ) {
@@ -207,8 +383,40 @@ export function planMetadataRemovalTargets(input: {
       }
     }
 
-    if (authoritative.length === 0 && sameSchemaDrafts.length === 0) {
+    if (exactTargets.length === 0) {
       plan.noops.push(structuredClone(id));
+      continue;
+    }
+
+    try {
+      const exactPlan = planMetadataTargetRemovals({
+        targets: exactTargets,
+        occurrences,
+        targetDrafts,
+      });
+      plan.upserts.push(
+        ...exactPlan.upserts.map((item) => structuredClone(item)),
+      );
+      plan.deletes.push(
+        ...exactPlan.deletes.map((target) => structuredClone(target)),
+      );
+      plan.noops.push(...exactPlan.noops.map(() => structuredClone(id)));
+    } catch (error) {
+      if (!(error instanceof MetadataTargetRemovalPlanError)) throw error;
+      const code: MetadataRemovalTargetPlanErrorCode =
+        error.code === "duplicate-occurrence-id"
+          ? "duplicate-occurrence-id"
+          : error.code === "target-slot-mismatch" ||
+              error.code === "duplicate-stored-target-slot"
+            ? "target-slot-mismatch"
+            : error.code === "stale-target-owner"
+              ? "stale-target-owner"
+              : "untargetable-occurrence";
+      throw new MetadataRemovalTargetPlanError(
+        code,
+        `${error.message} Exact schema: ${describe(id)}.`,
+        structuredClone(id),
+      );
     }
   }
 

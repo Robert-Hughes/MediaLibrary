@@ -2621,6 +2621,58 @@ describe("useMediaLibrary", () => {
     ).toEqual([path]);
   });
 
+  it("removes selected complete metadata targets without widening to their schema", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    const id = testId("Exif::Main:282");
+    const ifd0 = occurrenceFor(id, 0);
+    ifd0.id.path = "JPEG-APP1-IFD0";
+    ifd0.observed_selector = {
+      ...ifd0.observed_selector!,
+      group1: "IFD0",
+    };
+    ifd0.write_target = structuredClone(ifd0.observed_selector);
+    const ifd1 = occurrenceFor(id, 1);
+    ifd1.id.path = "JPEG-APP1-IFD1";
+    ifd1.observed_selector = {
+      ...ifd1.observed_selector!,
+      group1: "IFD1",
+    };
+    ifd1.write_target = structuredClone(ifd1.observed_selector);
+    await publishOccurrences(mock, "shared-schema.jpg", [ifd0, ifd1]);
+
+    const target = {
+      kind: "ExistingOccurrence" as const,
+      occurrence_id: structuredClone(ifd0.id),
+      schema_id: structuredClone(ifd0.schema_id),
+      write_target: structuredClone(ifd0.write_target!),
+    };
+    let removed = false;
+    act(() => {
+      removed = result.current[1].removeMetadataTargets("shared-schema.jpg", [
+        target,
+      ]);
+    });
+
+    expect(removed).toBe(true);
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    expect(
+      Object.values(
+        state.targetDraftEditsStore.getMetadataFile("shared-schema.jpg") ?? {},
+      ),
+    ).toEqual([
+      {
+        target,
+        edit: { intent: "Delete", value: null },
+      },
+    ]);
+  });
+
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");
@@ -2667,7 +2719,7 @@ describe("useMediaLibrary", () => {
         tag_name: "Subject",
       },
     };
-
+    let exactRemovalSucceeded = true;
     let groupRemovalSucceeded = true;
     let selectedRemovalSucceeded = true;
     await act(async () => {
@@ -2687,6 +2739,10 @@ describe("useMediaLibrary", () => {
         "blocked.jpg",
         existingTarget,
       );
+      exactRemovalSucceeded = result.current[1].removeMetadataTargets(
+        "blocked.jpg",
+        [existingTarget],
+      );
       groupRemovalSucceeded = result.current[1].removeMetadataFields(
         "blocked.jpg",
         [id],
@@ -2696,6 +2752,7 @@ describe("useMediaLibrary", () => {
         ["blocked.jpg"],
       );
     });
+    expect(exactRemovalSucceeded).toBe(false);
     expect(groupRemovalSucceeded).toBe(false);
     expect(selectedRemovalSucceeded).toBe(false);
     state = result.current[0];

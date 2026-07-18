@@ -57,7 +57,10 @@ import {
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { validateGpsTargetDraftEntries } from "./gpsTargetDrafts";
-import { planMetadataRemovalTargets } from "./metadataRemovalTargets";
+import {
+  planMetadataRemovalTargets,
+  planMetadataTargetRemovals,
+} from "./metadataRemovalTargets";
 import {
   planGeneratedTargetDraftBatch,
   type GeneratedDraftStageResult,
@@ -101,6 +104,10 @@ export interface MediaLibraryActions {
     producer: GeneratedMetadataProducer,
     edits: SchemaMetadataEdit[],
   ) => GeneratedDraftStageResult;
+  removeMetadataTargets: (
+    relativePath: string,
+    targets: MetadataDraftTarget[],
+  ) => boolean;
   removeMetadataFields: (
     relativePath: string,
     schemaIds: SchemaDefinitionId[],
@@ -1133,6 +1140,38 @@ export function useMediaLibrary(
     [],
   );
 
+  const removeMetadataTargets = useCallback(
+    (relativePath: string, targets: MetadataDraftTarget[]): boolean => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) return false;
+      try {
+        const plan = planMetadataTargetRemovals({
+          targets,
+          occurrences:
+            imageMetadataOccurrencesStoreRef.current.get(relativePath),
+          targetDrafts:
+            targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
+        });
+        targetDraftEditsStoreRef.current.applyExactMutationBatch([
+          {
+            path: relativePath,
+            upserts: plan.upserts.map(({ target, edit }) => ({
+              target: structuredClone(target),
+              edit: structuredClone(edit),
+            })),
+            deletes: plan.deletes.map((target) => structuredClone(target)),
+          },
+        ]);
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-target-remove-exact", error, [
+          relativePath,
+        ]);
+        return false;
+      }
+    },
+    [pushApplicationError, requireTargetDraftPersistenceReady],
+  );
+
   const removeMetadataFields = useCallback(
     (relativePath: string, schemaIds: SchemaDefinitionId[]): boolean => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
@@ -1827,6 +1866,7 @@ export function useMediaLibrary(
       dismissError,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
+      removeMetadataTargets,
       removeMetadataFields,
       removeMetadataFieldFromFiles,
       applyGpsTargetDraftBatch,
@@ -1860,6 +1900,7 @@ export function useMediaLibrary(
       dismissError,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
+      removeMetadataTargets,
       removeMetadataFields,
       removeMetadataFieldFromFiles,
       applyGpsTargetDraftBatch,
