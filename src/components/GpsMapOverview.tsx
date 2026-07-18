@@ -3,14 +3,23 @@ import { GpsMap } from "./GpsMap";
 interface GpsMapOverviewProps {
   lat: number;
   lon: number;
+  onContextMenu?: React.MouseEventHandler<HTMLDivElement>;
 }
 
-export function GpsMapOverview({ lat, lon }: GpsMapOverviewProps) {
+export function GpsMapOverview({
+  lat,
+  lon,
+  onContextMenu,
+}: GpsMapOverviewProps) {
   const position = { lat, lon };
 
   return (
     <div className="gps-map-overview" data-testid="gps-map-overview">
-      <div className="gps-map-overview__grid">
+      <div
+        className="gps-map-overview__grid"
+        data-testid="gps-map-overview-grid"
+        onContextMenu={onContextMenu}
+      >
         <div className="gps-map-overview__item">
           <div className="gps-map-overview__label">World</div>
           <GpsMap

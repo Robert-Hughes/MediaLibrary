@@ -687,6 +687,7 @@ function DetailsGroupContextMenu({
   occurrences,
   targetDraftEdits,
   targetDraftPersistence,
+  onEditGps,
   onRemoveMetadataFieldsV5,
   onDiscardTargetDraftBatch,
   onBlocked,
@@ -701,12 +702,23 @@ function DetailsGroupContextMenu({
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceStateV5;
+  onEditGps?: (group: GpsTagGroup) => void;
   onRemoveMetadataFieldsV5?: (ids: SchemaDefinitionId[]) => boolean;
   onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
   onBlocked: (message: string) => void;
   onClose: () => void;
 }) {
   const group = contextMenu.group;
+  const gpsGroup = useMemo(() => {
+    if (contextMenu.group !== "GPS") return null;
+
+    for (const entry of contextMenu.entries) {
+      const candidate = gpsMemberGroup(entry.id);
+      if (candidate !== null) return candidate;
+    }
+
+    return null;
+  }, [contextMenu.group, contextMenu.entries]);
   const ids = useMemo(
     () =>
       Array.from(
@@ -788,16 +800,48 @@ function DetailsGroupContextMenu({
     targetDraftPersistence.status,
   ]);
 
+  const gpsEditPreview = useMemo<null | { blocked?: string }>(() => {
+    if (gpsGroup === null || onEditGps === undefined) return null;
+    if (targetDraftPersistence.status !== "ready") {
+      return {
+        blocked:
+          "Target-aware GPS editing is unavailable because schema-v5 draft persistence did not load safely. Nothing was saved.",
+      };
+    }
+    try {
+      planGpsTargetDraftBatchV5(
+        gpsGroupIds(gpsGroup).map((id) => ({
+          id,
+          edit: { intent: "Delete" as const, value: null },
+        })),
+        occurrences ?? "loading",
+        targetDraftEdits,
+      );
+      return {};
+    } catch (error) {
+      return {
+        blocked: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }, [
+    gpsGroup,
+    occurrences,
+    onEditGps,
+    targetDraftEdits,
+    targetDraftPersistence.status,
+  ]);
+
   const removeCount = removalPreview.preview?.affectedCount ?? 0;
   const draftCount = targetDraftTargets.length;
+  const showEditGps = gpsEditPreview !== null;
   const showRemove =
     removalIds.length > 0 &&
     (removeCount > 0 || removalPreview.blocked !== undefined);
 
   useEffect(() => {
-    if (!showRemove && draftCount === 0) onClose();
-  }, [draftCount, onClose, showRemove]);
-  if (!showRemove && draftCount === 0) return null;
+    if (!showEditGps && !showRemove && draftCount === 0) onClose();
+  }, [draftCount, onClose, showEditGps, showRemove]);
+  if (!showEditGps && !showRemove && draftCount === 0) return null;
 
   const handleRemove = async () => {
     if (removalPreview.blocked) {
@@ -847,6 +891,19 @@ function DetailsGroupContextMenu({
   }
 
   const options = [
+    ...(gpsEditPreview && gpsGroup && onEditGps
+      ? [
+          {
+            label: "Edit GPS…",
+            onClick: () => {
+              onClose();
+              onEditGps(gpsGroup);
+            },
+            disabled: gpsEditPreview.blocked !== undefined,
+            title: gpsEditPreview.blocked,
+          },
+        ]
+      : []),
     ...(showRemove
       ? [
           {
@@ -1174,6 +1231,18 @@ export function DetailsPane({
       id,
       originalValue,
       draftValue,
+    });
+  };
+  const openGroupContextMenu = (event: React.MouseEvent, group: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    setContextMenu(null);
+    setSupplementalContextMenu(null);
+    setGroupContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      group,
     });
   };
   const normalizedDetailsQuery = useMemo(
@@ -1819,6 +1888,12 @@ export function DetailsPane({
   };
 
   const openGpsCompositeEditor = (group: GpsTagGroup) => {
+    if (!targetDraftsWritable) {
+      setEditDialogUnavailableMessage(
+        "Target-aware GPS editing is unavailable because schema-v5 draft persistence did not load safely. Nothing was saved.",
+      );
+      return;
+    }
     if (!onSetGpsTargetDraftBatch) {
       setEditDialogUnavailableMessage(
         "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
@@ -2064,16 +2139,9 @@ export function DetailsPane({
                 >
                   <h3
                     className="details-section-header"
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setContextMenu(null);
-                      setGroupContextMenu({
-                        x: e.clientX,
-                        y: e.clientY,
-                        group: group.prefix,
-                      });
-                    }}
+                    onContextMenu={(event) =>
+                      openGroupContextMenu(event, group.prefix)
+                    }
                   >
                     {group.prefix}
                   </h3>
@@ -2083,6 +2151,9 @@ export function DetailsPane({
                     <GpsMapOverview
                       lat={resolvedGps.lat}
                       lon={resolvedGps.lon}
+                      onContextMenu={(event) =>
+                        openGroupContextMenu(event, "GPS")
+                      }
                     />
                   ) : null}
                   <table className="details-table">
@@ -2496,6 +2567,9 @@ export function DetailsPane({
           occurrences={occurrences}
           targetDraftEdits={targetDraftEdits}
           targetDraftPersistence={targetDraftPersistence}
+          onEditGps={
+            onSetGpsTargetDraftBatch ? openGpsCompositeEditor : undefined
+          }
           onRemoveMetadataFieldsV5={onRemoveMetadataFieldsV5}
           onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
           onBlocked={setEditDialogUnavailableMessage}
