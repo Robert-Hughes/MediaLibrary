@@ -5,7 +5,7 @@
 //!
 //! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 
-use crate::apply_edits_v5::MetadataDraftReconciliation;
+use crate::apply_edits::MetadataDraftReconciliation;
 use crate::draft_edits::EditIntent;
 use crate::metadata_draft_target::MetadataDraftTarget;
 use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
@@ -18,8 +18,8 @@ use std::path::Path;
 
 const TARGET_LOG_FILE_NAME: &str = "MediaLibraryTargetApplyLog.jsonl";
 const TARGET_LOG_SCHEMA_VERSION: u32 = 1;
-const TARGET_LOG_IDENTITY_MODEL: &str = "TargetV5";
-const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only. Each line is one exact target outcome from one schema-v5 apply. schema_version=1.";
+const TARGET_LOG_IDENTITY_MODEL: &str = "TargetDraft";
+const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only. Each line is one exact target outcome from one target-aware apply. schema_version=1.";
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct TargetApplyAuditRecord {
@@ -448,7 +448,7 @@ mod tests {
             "photo.jpg",
             &[record_without_index, record_with_zero_index],
             &TargetDraftPersistenceOutcome::PersistenceFailed {
-                error: "schema-v5 draft persistence failed for photo.jpg: disk full".into(),
+                error: "target-aware draft persistence failed for photo.jpg: disk full".into(),
             },
         )
         .unwrap();
@@ -456,12 +456,12 @@ mod tests {
         let entries = target_entries(&dir.path().join(TARGET_LOG_FILE_NAME));
         let entry = &entries[0];
         assert_eq!(entry["schema_version"], 1);
-        assert_eq!(entry["identity_model"], "TargetV5");
+        assert_eq!(entry["identity_model"], "TargetDraft");
         assert_eq!(entry["relative_path"], "photo.jpg");
         assert_eq!(entry["draft_persistence"]["kind"], "PersistenceFailed");
         assert_eq!(
             entry["draft_persistence"]["error"],
-            "schema-v5 draft persistence failed for photo.jpg: disk full"
+            "target-aware draft persistence failed for photo.jpg: disk full"
         );
         assert_eq!(entry["target"]["kind"], "ExistingOccurrence");
         assert_eq!(

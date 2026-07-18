@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataOccurrence,
   MetadataValue,
   SchemaDefinitionId,
@@ -60,14 +60,16 @@ function occurrence(
 
 function existingEntry(
   item: MetadataOccurrence,
-  edit: MetadataDraftEntryV5["edit"],
-): MetadataDraftEntryV5 {
+  edit: MetadataTargetDraftEntry["edit"],
+): MetadataTargetDraftEntry {
   const target = existingOccurrenceTargetFromOccurrence(item);
   if (target.kind !== "targetable") throw new Error(target.reason);
   return { target: target.target, edit };
 }
 
-function targets(...entries: MetadataDraftEntryV5[]): TargetDraftCollection {
+function targets(
+  ...entries: MetadataTargetDraftEntry[]
+): TargetDraftCollection {
   return Object.fromEntries(
     entries.map((entry) => [metadataDraftTargetSlotToken(entry.target), entry]),
   );
@@ -131,7 +133,7 @@ describe("buildEffectiveMetadataForFile", () => {
   });
 
   it("overlays a valid missing NewProperty Set", () => {
-    const entry: MetadataDraftEntryV5 = {
+    const entry: MetadataTargetDraftEntry = {
       target: {
         kind: "NewProperty",
         schema_id: ID,

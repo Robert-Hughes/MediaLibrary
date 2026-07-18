@@ -5,7 +5,7 @@ import { createMockTauriApi, type MockTauriApi } from "./mockTauriApi";
 import { makePhoto, makePhotos, testId } from "./factories";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
-  MetadataApplyFileResultV5,
+  MetadataApplyFileResult,
   MetadataOccurrence,
   SchemaDefinitionId,
   TagInfo,
@@ -18,12 +18,12 @@ import {
   family7GroupFromSchemaId,
 } from "../utils/metadataWriteTarget";
 import { sortPhotos } from "../utils/sorting";
-function targetV5Result(
+function targetDraftResult(
   path: string,
   id: SchemaDefinitionId,
   value: string | null,
   options: { occurrenceCopy?: number; persistedDraftEntries?: [] | null } = {},
-): MetadataApplyFileResultV5 {
+): MetadataApplyFileResult {
   const occurrence: MetadataOccurrence = {
     id: {
       document: null,
@@ -1343,7 +1343,7 @@ describe("useMediaLibrary", () => {
     ]);
     expect(state.targetDraftPersistence).toEqual({ status: "ready" });
   });
-  it("invalidates image sorting for v5 progress exactly once when the final result is identical", async () => {
+  it("invalidates image sorting for target-aware progress exactly once when the final result is identical", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1383,13 +1383,14 @@ describe("useMediaLibrary", () => {
         state.imageMetadataOccurrences,
       ).map((photo) => photo.relative_path),
     ).toEqual(["b.jpg", "a.jpg"]);
-    const resultV5 = targetV5Result(
+    const progressResult = targetDraftResult(
       "a.jpg",
       testId("XMP-dc:Title"),
       "Aardvark",
     );
-    mock.targetApplyProgressResultsByPath["a.jpg"] = resultV5;
-    mock.targetApplyFinalResultsByPath["a.jpg"] = structuredClone(resultV5);
+    mock.targetApplyProgressResultsByPath["a.jpg"] = progressResult;
+    mock.targetApplyFinalResultsByPath["a.jpg"] =
+      structuredClone(progressResult);
     const subjectId = testId("XMP-dc:Subject");
     mock.tagInfos = [tagInfoFor(subjectId)];
     await act(async () => {
@@ -1416,7 +1417,7 @@ describe("useMediaLibrary", () => {
     ).toEqual(["a.jpg", "b.jpg"]);
   });
 
-  it("invalidates v5 final-only metadata and invalidates again for a genuinely different final result", async () => {
+  it("invalidates target-aware final-only metadata and invalidates again for a genuinely different final result", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1438,12 +1439,12 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
-    mock.targetApplyProgressResultsByPath["final.jpg"] = targetV5Result(
+    mock.targetApplyProgressResultsByPath["final.jpg"] = targetDraftResult(
       "final.jpg",
       metadataId,
       null,
     );
-    mock.targetApplyFinalResultsByPath["final.jpg"] = targetV5Result(
+    mock.targetApplyFinalResultsByPath["final.jpg"] = targetDraftResult(
       "final.jpg",
       metadataId,
       "final only",
@@ -1461,12 +1462,12 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
-    mock.targetApplyProgressResultsByPath["changed.jpg"] = targetV5Result(
+    mock.targetApplyProgressResultsByPath["changed.jpg"] = targetDraftResult(
       "changed.jpg",
       metadataId,
       "progress",
     );
-    mock.targetApplyFinalResultsByPath["changed.jpg"] = targetV5Result(
+    mock.targetApplyFinalResultsByPath["changed.jpg"] = targetDraftResult(
       "changed.jpg",
       metadataId,
       "different final",
@@ -1477,7 +1478,7 @@ describe("useMediaLibrary", () => {
     expect(state.metadataVersion).toBe(3);
   });
 
-  it("does not bump metadataVersion for a draft-only v5 result", async () => {
+  it("does not bump metadataVersion for a draft-only target-aware result", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1501,7 +1502,7 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
   });
 
-  it("treats a valid empty v5 load as writable", async () => {
+  it("treats a valid empty target-aware load as writable", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1530,9 +1531,7 @@ describe("useMediaLibrary", () => {
       state.targetDraftEditsStore.getMetadataFile("new.jpg"),
     ).toBeDefined();
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(1);
   });
 
@@ -1547,9 +1546,8 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "draft" },
     };
     const saveCount = () =>
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ).length;
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+        .length;
     const stateStore = () => {
       const state = result.current[0];
       if (state.kind !== "loaded") throw new Error("expected loaded state");
@@ -1583,7 +1581,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "loading.jpg",
       loadingId,
-      "metadata-v5-new-property-occurrences-loading",
+      "metadata-target-new-property-occurrences-loading",
     );
 
     const presentId = testId("XMP-test:Present");
@@ -1592,7 +1590,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "present.jpg",
       presentId,
-      "metadata-v5-new-property-destination-occupied",
+      "metadata-target-new-property-destination-occupied",
     );
 
     const crossSchemaId = testId("XMP-test:CrossSchemaNew");
@@ -1607,7 +1605,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "cross-schema.jpg",
       crossSchemaId,
-      "metadata-v5-new-property-destination-occupied",
+      "metadata-target-new-property-destination-occupied",
     );
 
     const repeatedId = testId("XMP-test:Repeated");
@@ -1619,7 +1617,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "repeated.jpg",
       repeatedId,
-      "metadata-v5-new-property-destination-occupied",
+      "metadata-target-new-property-destination-occupied",
     );
 
     const unknownDestinationId = testId("XMP-test:UnknownDestination");
@@ -1633,7 +1631,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "unknown-destination.jpg",
       unknownDestinationId,
-      "metadata-v5-new-property-destination-unknown",
+      "metadata-target-new-property-destination-unknown",
     );
 
     const missingId = testId("XMP-test:MissingDefinition");
@@ -1642,7 +1640,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "missing.jpg",
       missingId,
-      "metadata-v5-new-property-schema-missing",
+      "metadata-target-new-property-schema-missing",
     );
 
     const readOnlyId = testId("XMP-test:ReadOnly");
@@ -1651,7 +1649,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "read-only.jpg",
       readOnlyId,
-      "metadata-v5-new-property-read-only",
+      "metadata-target-new-property-read-only",
     );
 
     const binaryId = testId("XMP-test:Binary");
@@ -1660,7 +1658,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "binary.jpg",
       binaryId,
-      "metadata-v5-new-property-unsupported-kind",
+      "metadata-target-new-property-unsupported-kind",
     );
 
     const unknownId = testId("XMP-test:Unknown");
@@ -1669,7 +1667,7 @@ describe("useMediaLibrary", () => {
     await expectRejected(
       "unknown.jpg",
       unknownId,
-      "metadata-v5-new-property-unsupported-kind",
+      "metadata-target-new-property-unsupported-kind",
     );
 
     const ownedId = testId("XMP-test:Owned");
@@ -1793,7 +1791,9 @@ describe("useMediaLibrary", () => {
       );
     });
     expect(saveCount()).toBe(collisionSaveCount);
-    expect(lastErrorType()).toBe("metadata-v5-new-property-selector-collision");
+    expect(lastErrorType()).toBe(
+      "metadata-target-new-property-selector-collision",
+    );
 
     const family7Upper = testId("XMP-test:AbC");
     const family7Lower = testId("XMP-test:abc");
@@ -1865,9 +1865,8 @@ describe("useMediaLibrary", () => {
       await result.current[1].setNewPropertyDraft("move.jpg", original, edit);
     });
     const saveCount = () =>
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ).length;
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+        .length;
     const beforeMoveSaves = saveCount();
 
     let moved = false;
@@ -2064,7 +2063,7 @@ describe("useMediaLibrary", () => {
     ).toEqual([]);
     expect(
       mock.invocations
-        .filter(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
+        .filter(({ cmd }) => cmd === "save_metadata_draft_edits")
         .map(({ args }) => args?.folderPath),
     ).toEqual([]);
   });
@@ -2117,9 +2116,7 @@ describe("useMediaLibrary", () => {
       ),
     ).toEqual([]);
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toEqual([]);
   });
 
@@ -2152,9 +2149,7 @@ describe("useMediaLibrary", () => {
 
     expect(result.current[0].kind).toBe("idle");
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toEqual([]);
     expect(mock.targetDraftEditsByFolder).toEqual({});
   });
@@ -2196,16 +2191,14 @@ describe("useMediaLibrary", () => {
     expect(
       state.workerErrors.filter(
         ({ worker_type }) =>
-          worker_type === "metadata-v5-new-property-schema-lookup",
+          worker_type === "metadata-target-new-property-schema-lookup",
       ),
     ).toEqual([]);
     expect(
       state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
     ).toBeUndefined();
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toEqual([]);
   });
 
@@ -2253,9 +2246,7 @@ describe("useMediaLibrary", () => {
       },
     ]);
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(1);
   });
 
@@ -2267,9 +2258,8 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "pending" },
     };
     const saveCount = () =>
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ).length;
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+        .length;
     const startDeferredRequest = (path: string, id: SchemaDefinitionId) => {
       const deferred = deferNextTagInfoLookup(mock);
       let request!: Promise<boolean>;
@@ -2407,10 +2397,10 @@ describe("useMediaLibrary", () => {
     if (finalState.kind !== "loaded") return;
     expect(
       finalState.workerErrors[finalState.workerErrors.length - 1]?.worker_type,
-    ).toBe("metadata-v5-unavailable");
+    ).toBe("metadata-target-unavailable");
   });
 
-  it("target verification actions use the exact replacement slot and v5 persistence only", async () => {
+  it("target verification actions use the exact replacement slot and target-aware persistence only", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -2497,9 +2487,7 @@ describe("useMediaLibrary", () => {
     ).toBeDefined();
     expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(1);
 
     act(() => {
@@ -2531,13 +2519,11 @@ describe("useMediaLibrary", () => {
       ),
     );
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(1);
   });
 
-  it("production v5 apply installs authoritative replacement verification and surfaces diagnostics once", async () => {
+  it("production target-aware apply installs authoritative replacement verification and surfaces diagnostics once", async () => {
     const mock = createMockTauriApi();
     const path = "add-property.jpg";
     const id = testId("XMP-dc:Subject");
@@ -2576,7 +2562,7 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text", value: "requested" },
     });
     mock.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
-    const fileResult: MetadataApplyFileResultV5 = {
+    const fileResult: MetadataApplyFileResult = {
       relative_path: path,
       applied: false,
       error: "semantic write failure",
@@ -2622,12 +2608,12 @@ describe("useMediaLibrary", () => {
     );
     expect(
       state.workerErrors.filter(
-        ({ worker_type }) => worker_type === "metadata-v5-file",
+        ({ worker_type }) => worker_type === "metadata-target-file",
       ),
     ).toHaveLength(1);
     expect(
       state.workerErrors.filter(
-        ({ worker_type }) => worker_type === "metadata-v5-warning",
+        ({ worker_type }) => worker_type === "metadata-target-warning",
       ),
     ).toHaveLength(1);
     expect(
@@ -2641,8 +2627,8 @@ describe("useMediaLibrary", () => {
     const api = {
       ...mock.api,
       invoke: (cmd: string, args?: Record<string, unknown>) =>
-        cmd === "load_metadata_draft_edits_v5" && args?.folderPath === "/broken"
-          ? Promise.reject(new Error("malformed v5 file"))
+        cmd === "load_metadata_draft_edits" && args?.folderPath === "/broken"
+          ? Promise.reject(new Error("malformed target-aware file"))
           : mock.api.invoke(cmd, args),
     };
     const { result } = renderHook(() => useMediaLibrary(api));
@@ -2653,7 +2639,7 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(state.targetDraftPersistence).toEqual({
       status: "load-failed",
-      error: "malformed v5 file",
+      error: "malformed target-aware file",
     });
     const targetSnapshot = state.targetDraftEdits;
     const id = testId("XMP-dc:Subject");
@@ -2694,19 +2680,21 @@ describe("useMediaLibrary", () => {
     act(() => {
       result.current[1].setExistingOccurrenceDraft(
         "blocked.jpg",
-        existingTarget.occurrence_id,
+        existingTarget,
         edit,
       );
       result.current[1].discardTargetPropertyDraft(
         "blocked.jpg",
         existingTarget,
       );
-      groupRemovalSucceeded = result.current[1].removeMetadataFieldsV5(
+      groupRemovalSucceeded = result.current[1].removeMetadataFields(
         "blocked.jpg",
         [id],
       );
-      selectedRemovalSucceeded =
-        result.current[1].removeMetadataFieldFromFilesV5(id, ["blocked.jpg"]);
+      selectedRemovalSucceeded = result.current[1].removeMetadataFieldFromFiles(
+        id,
+        ["blocked.jpg"],
+      );
     });
     expect(groupRemovalSucceeded).toBe(false);
     expect(selectedRemovalSucceeded).toBe(false);
@@ -2717,9 +2705,7 @@ describe("useMediaLibrary", () => {
     const loadFailedTargetDraftStore = state.targetDraftEditsStore;
     const loadFailedTargetVerificationStore = state.targetVerifyOutcomesStore;
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(0);
 
     act(() =>
@@ -2763,9 +2749,7 @@ describe("useMediaLibrary", () => {
     expect(state.targetDraftEdits["blocked.jpg"]).toBeDefined();
     expect(state.targetVerifyOutcomes["blocked.jpg"]).toBeDefined();
     expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(0);
 
     await act(async () => {
@@ -2775,12 +2759,12 @@ describe("useMediaLibrary", () => {
     });
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "apply_metadata_draft_edits_v5_cmd",
+        ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       ),
     ).toHaveLength(0);
 
     // Even if a non-UI caller mutates the exposed store directly, the apply
-    // boundary still refuses to invoke v5 for the failed-load folder.
+    // boundary still refuses to invoke target-aware for the failed-load folder.
     act(() =>
       state.targetDraftEditsStore.setMetadataTarget(
         "forced.jpg",
@@ -2803,17 +2787,17 @@ describe("useMediaLibrary", () => {
     });
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "apply_metadata_draft_edits_v5_cmd",
+        ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       ),
     ).toHaveLength(0);
   });
-  it("reports strict v5 load failure, preserves it, then switches safely", async () => {
+  it("reports strict target-aware load failure, preserves it, then switches safely", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const api = {
       ...mock.api,
       invoke: (cmd: string, args?: Record<string, unknown>) =>
-        cmd === "load_metadata_draft_edits_v5" && args?.folderPath === "/photos"
+        cmd === "load_metadata_draft_edits" && args?.folderPath === "/photos"
           ? Promise.reject(new Error("invalid schema version"))
           : mock.api.invoke(cmd, args),
     };
@@ -2827,11 +2811,9 @@ describe("useMediaLibrary", () => {
       status: "load-failed",
       error: "invalid schema version",
     });
-    expect(state.workerErrors[0].worker_type).toBe("metadata-v5-load");
+    expect(state.workerErrors[0].worker_type).toBe("metadata-target-load");
     expect(
-      mock.invocations.some(
-        ({ cmd }) => cmd === "save_metadata_draft_edits_v5",
-      ),
+      mock.invocations.some(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toBe(false);
 
     await act(async () => result.current[1].openRecent("/second"));
@@ -2854,14 +2836,13 @@ describe("useMediaLibrary", () => {
       );
     });
     expect(
-      mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
+      mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_edits")
         ?.args?.folderPath,
     ).toBe("/second");
     expect(
       mock.invocations.some(
         ({ cmd, args }) =>
-          cmd === "save_metadata_draft_edits_v5" &&
-          args?.folderPath === "/photos",
+          cmd === "save_metadata_draft_edits" && args?.folderPath === "/photos",
       ),
     ).toBe(false);
   });
@@ -2898,7 +2879,7 @@ describe("useMediaLibrary", () => {
       );
     });
     const saveFolders = mock.invocations
-      .filter(({ cmd }) => cmd === "save_metadata_draft_edits_v5")
+      .filter(({ cmd }) => cmd === "save_metadata_draft_edits")
       .map(({ args }) => args?.folderPath);
     expect(saveFolders).toEqual(["/first", "/second"]);
     const loaded = result.current[0];

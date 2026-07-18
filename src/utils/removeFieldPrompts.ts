@@ -1,9 +1,9 @@
 import { ask, message } from "@tauri-apps/plugin-dialog";
-import type { MetadataRemovalFilesPreviewV5 } from "../metadataRemovalTargets";
+import type { MetadataRemovalFilesPreview } from "../metadataRemovalTargets";
 
 export interface ConfirmRemoveFieldArgs {
   tag: string;
-  preview: Extract<MetadataRemovalFilesPreviewV5, { kind: "ready" }>;
+  preview: Extract<MetadataRemovalFilesPreview, { kind: "ready" }>;
   scope: "selection" | "all";
 }
 

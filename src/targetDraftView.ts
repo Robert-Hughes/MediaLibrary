@@ -1,7 +1,7 @@
 import type {
   ImageMetadataOccurrencesState,
   MetadataDraftEdit,
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataDraftTarget,
   MetadataOccurrence,
   SchemaDefinitionId,
@@ -44,11 +44,11 @@ export type SchemaDraftDisplayProjection = Record<
 
 export type SchemaDraftPresentationResolution =
   | { kind: "none" }
-  | { kind: "target"; entry: MetadataDraftEntryV5 }
+  | { kind: "target"; entry: MetadataTargetDraftEntry }
   | {
       kind: "blocked";
       reason: string;
-      conflictingTargets: MetadataDraftEntryV5[];
+      conflictingTargets: MetadataTargetDraftEntry[];
     };
 
 interface LoadedPresentationContext {
@@ -196,23 +196,23 @@ export function buildSchemaDraftDisplayProjection(input: {
 
 export type ExistingRowDraftResolution =
   | { kind: "none" }
-  | { kind: "target"; entry: MetadataDraftEntryV5 }
+  | { kind: "target"; entry: MetadataTargetDraftEntry }
   | {
       kind: "blocked";
       reason: string;
-      conflictingTargets: MetadataDraftEntryV5[];
+      conflictingTargets: MetadataTargetDraftEntry[];
     };
 
 export type SupplementalOccurrenceDraftResolution =
   | { kind: "none" }
   | {
       kind: "target";
-      entry: MetadataDraftEntryV5 & { target: ExistingOccurrenceTarget };
+      entry: MetadataTargetDraftEntry & { target: ExistingOccurrenceTarget };
     }
   | {
       kind: "blocked";
       reason: string;
-      conflictingTargets: MetadataDraftEntryV5[];
+      conflictingTargets: MetadataTargetDraftEntry[];
     };
 
 /**
@@ -246,7 +246,7 @@ export function resolveSupplementalOccurrenceDraft(
   const relevantTargets = Object.values(targetDrafts ?? {}).filter(
     (
       entry,
-    ): entry is MetadataDraftEntryV5 & {
+    ): entry is MetadataTargetDraftEntry & {
       target: ExistingOccurrenceTarget;
     } =>
       entry.target.kind === "ExistingOccurrence" &&
@@ -345,8 +345,8 @@ export function resolveExistingRowDraft(
 
 export type TargetDraftSchemaResolution =
   | { kind: "missing" }
-  | { kind: "unique"; entry: MetadataDraftEntryV5 }
-  | { kind: "ambiguous"; entries: MetadataDraftEntryV5[] };
+  | { kind: "unique"; entry: MetadataTargetDraftEntry }
+  | { kind: "ambiguous"; entries: MetadataTargetDraftEntry[] };
 
 export function targetDraftSchemaId(
   target: MetadataDraftTarget,

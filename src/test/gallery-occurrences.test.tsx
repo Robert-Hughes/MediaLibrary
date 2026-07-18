@@ -49,7 +49,7 @@ function props(imageMetadataOccurrences: ImageMetadataOccurrencesStore) {
     onNavigate: vi.fn(),
     loadImage: async () => "data:image/jpeg;base64,FAKE",
     imageMetadataOccurrences,
-    onRemoveMetadataFieldsV5: vi.fn(),
+    onRemoveMetadataFields: vi.fn(),
     onDiscardTargetDraftBatch: vi.fn(),
   };
 }

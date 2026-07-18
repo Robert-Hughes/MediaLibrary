@@ -6,8 +6,8 @@ import App from "../App";
 import { KNOWN_METADATA_IDS } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
-  MetadataApplyFileResultV5,
-  MetadataDraftEntryV5,
+  MetadataApplyFileResult,
+  MetadataTargetDraftEntry,
   MetadataTargetOutcome,
 } from "../types";
 import {
@@ -33,9 +33,9 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
 
 const descriptionId = KNOWN_METADATA_IDS.xmpDescription;
 
-function seedTargetDrafts(paths: string[]): MetadataDraftEntryV5[] {
+function seedTargetDrafts(paths: string[]): MetadataTargetDraftEntry[] {
   const store = new TargetDraftEditsStore();
-  const entries: MetadataDraftEntryV5[] = [];
+  const entries: MetadataTargetDraftEntry[] = [];
   for (const path of paths) {
     const target = {
       kind: "NewProperty" as const,
@@ -59,8 +59,8 @@ function seedTargetDrafts(paths: string[]): MetadataDraftEntryV5[] {
 
 function fileResult(
   relativePath: string,
-  overrides: Partial<MetadataApplyFileResultV5> = {},
-): MetadataApplyFileResultV5 {
+  overrides: Partial<MetadataApplyFileResult> = {},
+): MetadataApplyFileResult {
   return {
     relative_path: relativePath,
     applied: true,
@@ -109,7 +109,7 @@ describe("target-aware Apply All", () => {
     expect(screen.queryByTestId("status-bar-apply-all-btn")).toBeNull();
   });
 
-  it("confirms and invokes only the v5 command", async () => {
+  it("confirms and invokes only the target-aware command", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     const photo = makePhoto({ relative_path: "test.jpg" });
     seedTargetDrafts([photo.relative_path]);
@@ -118,7 +118,7 @@ describe("target-aware Apply All", () => {
     await waitFor(() =>
       expect(
         mockApiInstance.invocations.some(
-          ({ cmd }) => cmd === "apply_metadata_draft_edits_v5_cmd",
+          ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
         ),
       ).toBe(true),
     );
@@ -128,7 +128,7 @@ describe("target-aware Apply All", () => {
     );
     expect(
       mockApiInstance.invocations.find(
-        ({ cmd }) => cmd === "apply_metadata_draft_edits_v5_cmd",
+        ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       )?.args?.relPaths,
     ).toEqual([photo.relative_path]);
   });
@@ -142,7 +142,7 @@ describe("target-aware Apply All", () => {
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeVisible();
     expect(
       mockApiInstance.invocations.some(
-        ({ cmd }) => cmd === "apply_metadata_draft_edits_v5_cmd",
+        ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       ),
     ).toBe(false);
   });
@@ -163,7 +163,7 @@ describe("single-file target apply", () => {
     await waitFor(() =>
       expect(
         mockApiInstance.invocations.find(
-          ({ cmd }) => cmd === "apply_metadata_draft_edits_v5_cmd",
+          ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
         )?.args?.relPaths,
       ).toEqual(["a.jpg"]),
     );
@@ -180,7 +180,7 @@ describe("single-file target apply", () => {
     await waitFor(() =>
       expect(
         mockApiInstance.invocations.find(
-          ({ cmd }) => cmd === "apply_metadata_draft_edits_v5_cmd",
+          ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
         )?.args?.relPaths,
       ).toEqual([photo.relative_path]),
     );

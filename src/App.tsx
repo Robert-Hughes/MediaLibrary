@@ -49,7 +49,7 @@ import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
-import { previewMetadataRemovalFilesV5 } from "./metadataRemovalTargets";
+import { previewMetadataRemovalFiles } from "./metadataRemovalTargets";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -278,7 +278,7 @@ function LoadedView({
 
   const previewRemoveFieldFromPhotos = useCallback(
     (schemaId: SchemaDefinitionId, relativePaths: string[]) =>
-      previewMetadataRemovalFilesV5({
+      previewMetadataRemovalFiles({
         schemaId,
         relativePaths,
         targetDraftPersistence: state.targetDraftPersistence,
@@ -352,7 +352,7 @@ function LoadedView({
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
-          if (!actions.canStageGeneratedMetadataV5(relPaths)) return;
+          if (!actions.canStageGeneratedMetadata(relPaths)) return;
           setDescribeOverwrite(
             countDescribeOverwrites(
               relPaths,
@@ -363,7 +363,7 @@ function LoadedView({
           describe.actions.start(state.folder, relPaths);
         }}
         onGeocode={(relPaths) => {
-          if (!actions.canStageGeneratedMetadataV5(relPaths)) return;
+          if (!actions.canStageGeneratedMetadata(relPaths)) return;
           setGeocodeOverwrite(
             countGeocodeOverwrites(
               relPaths,
@@ -374,7 +374,7 @@ function LoadedView({
           geocode.actions.start(state.folder, buildGeocodeItems(relPaths));
         }}
         onNormalise={(relPaths) => {
-          if (!actions.canStageGeneratedMetadataV5(relPaths)) return;
+          if (!actions.canStageGeneratedMetadata(relPaths)) return;
           // Default enabled groups: every v1 group. User can untick
           // individual groups in the confirm dialog.
           const initialGroups = ALL_NORMALISE_GROUPS;
@@ -390,7 +390,7 @@ function LoadedView({
         onSelectionCountChange={setSelectionCount}
         onPreviewRemoveFieldFromSelectedPhotos={previewRemoveFieldFromPhotos}
         onRemoveFieldFromSelectedPhotos={(id, relPaths) => {
-          return actions.removeMetadataFieldFromFilesV5(id, relPaths);
+          return actions.removeMetadataFieldFromFiles(id, relPaths);
         }}
       />
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
@@ -409,7 +409,7 @@ function LoadedView({
           }
           targetDraftPersistence={state.targetDraftPersistence}
           onSetExistingOccurrenceDraft={actions.setExistingOccurrenceDraft}
-          onRemoveMetadataFieldsV5={actions.removeMetadataFieldsV5}
+          onRemoveMetadataFields={actions.removeMetadataFields}
           onSetGpsTargetDraftBatch={actions.setGpsTargetDraftBatch}
           onSetNewPropertyDraft={actions.setNewPropertyDraft}
           onReplaceNewPropertyDraftTarget={
@@ -420,7 +420,7 @@ function LoadedView({
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => {
-            if (!actions.canStageGeneratedMetadataV5([relPath])) return;
+            if (!actions.canStageGeneratedMetadata([relPath])) return;
             setDescribeOverwrite(
               countDescribeOverwrites(
                 [relPath],
@@ -431,7 +431,7 @@ function LoadedView({
             describe.actions.start(state.folder, [relPath]);
           }}
           onGeocode={(relPath) => {
-            if (!actions.canStageGeneratedMetadataV5([relPath])) return;
+            if (!actions.canStageGeneratedMetadata([relPath])) return;
             setGeocodeOverwrite(
               countGeocodeOverwrites(
                 [relPath],
@@ -442,7 +442,7 @@ function LoadedView({
             geocode.actions.start(state.folder, buildGeocodeItems([relPath]));
           }}
           onNormalise={(relPath) => {
-            if (!actions.canStageGeneratedMetadataV5([relPath])) return;
+            if (!actions.canStageGeneratedMetadata([relPath])) return;
             const initialGroups = ALL_NORMALISE_GROUPS;
             const items = buildNormaliseItems(
               [relPath],
@@ -532,8 +532,8 @@ export default function App() {
     OverwriteCount | undefined
   >(undefined);
   const stageDescribeEdits = useCallback(
-    (relativePath: string, edits: import("./types").MetadataDraftEntry[]) =>
-      actions.applyGeneratedMetadataDraftBatchV5(
+    (relativePath: string, edits: import("./types").SchemaMetadataEdit[]) =>
+      actions.applyGeneratedMetadataDraftBatch(
         relativePath,
         { kind: "describe" },
         edits,
@@ -541,8 +541,8 @@ export default function App() {
     [actions],
   );
   const stageGeocodeEdits = useCallback(
-    (relativePath: string, edits: import("./types").MetadataDraftEntry[]) =>
-      actions.applyGeneratedMetadataDraftBatchV5(
+    (relativePath: string, edits: import("./types").SchemaMetadataEdit[]) =>
+      actions.applyGeneratedMetadataDraftBatch(
         relativePath,
         { kind: "geocode" },
         edits,
@@ -552,10 +552,10 @@ export default function App() {
   const stageNormaliseEdits = useCallback(
     (
       relativePath: string,
-      edits: import("./types").MetadataDraftEntry[],
+      edits: import("./types").SchemaMetadataEdit[],
       confirmedEnabledGroups: readonly import("./types").NormaliseGroup[],
     ) =>
-      actions.applyGeneratedMetadataDraftBatchV5(
+      actions.applyGeneratedMetadataDraftBatch(
         relativePath,
         {
           kind: "normalise",
@@ -571,17 +571,17 @@ export default function App() {
     onApplyEdits: stageNormaliseEdits,
   });
   const confirmDescribe = () => {
-    if (!actions.canStageGeneratedMetadataV5(describe.state.relPaths)) return;
+    if (!actions.canStageGeneratedMetadata(describe.state.relPaths)) return;
     describe.actions.confirm();
   };
   const confirmGeocode = () => {
     const paths = geocode.state.items.map((item) => item.relPath);
-    if (!actions.canStageGeneratedMetadataV5(paths)) return;
+    if (!actions.canStageGeneratedMetadata(paths)) return;
     geocode.actions.confirm();
   };
   const confirmNormalise = () => {
     const paths = normalise.state.items.map((item) => item.relPath);
-    if (!actions.canStageGeneratedMetadataV5(paths)) return;
+    if (!actions.canStageGeneratedMetadata(paths)) return;
     normalise.actions.confirm();
   };
 

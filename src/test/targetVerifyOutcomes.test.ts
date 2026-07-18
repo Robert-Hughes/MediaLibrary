@@ -3,13 +3,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { MetadataDraftTarget, MetadataTargetOutcome } from "../types";
 import { targetDraftsFromWire } from "../targetDraftEdits";
 import {
-  emptyTargetVerifyOutcomesV5,
+  emptyTargetVerifyOutcomes,
   replaceTargetVerifyOutcomesForFile,
   targetVerifyOutcomeFromBackend,
   targetVerifyPrimaryAction,
   validateTargetVerifyOutcomesAgainstDrafts,
 } from "../targetVerifyOutcomes";
-import { TargetVerifyOutcomesStoreV5 } from "../targetVerifyOutcomesStore";
+import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 
 const schema = (index?: number) => ({
@@ -190,7 +190,7 @@ describe("target-aware verification model", () => {
       backend({ kind: "Keep" }),
     )!;
     const snapshot = replaceTargetVerifyOutcomesForFile(
-      emptyTargetVerifyOutcomesV5(),
+      emptyTargetVerifyOutcomes(),
       path,
       [entry],
     );
@@ -224,7 +224,7 @@ describe("target-aware verification model", () => {
 
 describe("target verification store", () => {
   it("preserves exact-repeat references and notifies once per mutation", () => {
-    const store = new TargetVerifyOutcomesStoreV5();
+    const store = new TargetVerifyOutcomesStore();
     const listener = vi.fn();
     store.subscribe(listener);
     const entry = targetVerifyOutcomeFromBackend(
@@ -244,7 +244,7 @@ describe("target verification store", () => {
   });
 
   it("defensively clones and freezes nested targets and values", () => {
-    const store = new TargetVerifyOutcomesStoreV5();
+    const store = new TargetVerifyOutcomesStore();
     const entry = targetVerifyOutcomeFromBackend(
       "a.jpg",
       backend({ kind: "Keep" }),
@@ -262,7 +262,7 @@ describe("target verification store", () => {
   });
 
   it("deletes exact outcomes and prunes only missing or changed targets", () => {
-    const store = new TargetVerifyOutcomesStoreV5();
+    const store = new TargetVerifyOutcomesStore();
     const first = targetVerifyOutcomeFromBackend(
       "a.jpg",
       backend({ kind: "Keep" }, existing(0)),

@@ -10,7 +10,7 @@ import {
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { MetadataDraftEntryV5, MetadataOccurrence } from "../types";
+import type { MetadataTargetDraftEntry, MetadataOccurrence } from "../types";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -27,7 +27,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 function renderTargetDraftRow(
   occurrences: MetadataOccurrence[] | "loading",
-  entries: MetadataDraftEntryV5[],
+  entries: MetadataTargetDraftEntry[],
 ) {
   const thumbnails = new ThumbnailStore();
   const metadata = new ImageMetadataOccurrencesStore();

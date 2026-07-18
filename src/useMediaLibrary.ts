@@ -14,14 +14,13 @@ import type {
   PhotoInfo,
   SortConfig,
   VisibleColumn,
-  MetadataApplyEditsResultV5,
+  MetadataApplyResult,
   MetadataDraftEdit,
-  MetadataDraftEntry,
-  MetadataOccurrenceId,
+  SchemaMetadataEdit,
   SchemaDefinitionId,
   ImageMetadata,
-  TargetDraftPersistenceStateV5,
-  MetadataDraftEntryV5,
+  TargetDraftPersistenceState,
+  MetadataTargetDraftEntry,
   TagInfo,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -32,21 +31,18 @@ import {
 } from "./utils/scanEvents";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 import {
-  metadataDraftEntryV5EqualsExact,
+  metadataTargetDraftEntryEqualsExact,
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
-import { TargetDraftAutosaveGateV5 } from "./targetDraftAutosaveGate";
-import { TargetApplyControllerV5 } from "./targetApplyController";
-import {
-  loadTargetDraftEditsV5,
-  saveTargetDraftEditsV5,
-} from "./targetDraftTauri";
+import { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
+import { TargetApplyController } from "./targetApplyController";
+import { loadTargetDraftEdits, saveTargetDraftEdits } from "./targetDraftTauri";
 import type { MetadataDraftTarget } from "./types";
 import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
-import { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
+import { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 import {
   currentValueForMetadataDraftTarget,
   existingOccurrenceTargetFromOccurrence,
@@ -60,18 +56,18 @@ import {
 } from "./utils/metadataWriteTarget";
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
-import { planGpsTargetDraftBatchV5 } from "./gpsTargetDrafts";
-import { planMetadataRemovalTargetsV5 } from "./metadataRemovalTargets";
+import { planGpsTargetDraftBatch } from "./gpsTargetDrafts";
+import { planMetadataRemovalTargets } from "./metadataRemovalTargets";
 import {
-  planGeneratedTargetDraftBatchV5,
-  type GeneratedDraftStageResultV5,
-  type GeneratedMetadataProducerV5,
+  planGeneratedTargetDraftBatch,
+  type GeneratedDraftStageResult,
+  type GeneratedMetadataProducer,
 } from "./generatedTargetDrafts";
 
 const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
-  "Target-aware drafts could not be loaded safely. Fix the folder's schema-v5 draft persistence file, then reopen the folder.";
+  "Target-aware drafts could not be loaded safely. Fix the folder's target-aware draft persistence file, then reopen the folder.";
 
-const TARGET_DRAFT_NOT_LOADED_STATE: TargetDraftPersistenceStateV5 = {
+const TARGET_DRAFT_NOT_LOADED_STATE: TargetDraftPersistenceState = {
   status: "load-failed",
   error: "Target-aware drafts have not finished loading for this folder.",
 };
@@ -99,17 +95,17 @@ export interface MediaLibraryActions {
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
-  canStageGeneratedMetadataV5: (relativePaths: string[]) => boolean;
-  applyGeneratedMetadataDraftBatchV5: (
+  canStageGeneratedMetadata: (relativePaths: string[]) => boolean;
+  applyGeneratedMetadataDraftBatch: (
     relativePath: string,
-    producer: GeneratedMetadataProducerV5,
-    edits: MetadataDraftEntry[],
-  ) => GeneratedDraftStageResultV5;
-  removeMetadataFieldsV5: (
+    producer: GeneratedMetadataProducer,
+    edits: SchemaMetadataEdit[],
+  ) => GeneratedDraftStageResult;
+  removeMetadataFields: (
     relativePath: string,
     schemaIds: SchemaDefinitionId[],
   ) => boolean;
-  removeMetadataFieldFromFilesV5: (
+  removeMetadataFieldFromFiles: (
     schemaId: SchemaDefinitionId,
     relativePaths: string[],
   ) => boolean;
@@ -119,7 +115,7 @@ export interface MediaLibraryActions {
   ) => boolean;
   setExistingOccurrenceDraft: (
     fileRelativePath: string,
-    occurrenceId: MetadataOccurrenceId,
+    target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }>,
     edit: MetadataDraftEdit,
   ) => void;
   setNewPropertyDraft: (
@@ -144,7 +140,7 @@ export interface MediaLibraryActions {
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
   applyDraftEdits: (
     fileRelativePath?: string | string[],
-  ) => Promise<MetadataApplyEditsResultV5>;
+  ) => Promise<MetadataApplyResult>;
   cancelApplyEdits: () => void;
   acceptTargetVerifyOutcome: (
     relativePath: string,
@@ -183,23 +179,24 @@ export function useMediaLibrary(
   const targetDraftEditsStoreRef = useRef<TargetDraftEditsStore>(
     new TargetDraftEditsStore(),
   );
-  const targetVerifyOutcomesStoreRef = useRef<TargetVerifyOutcomesStoreV5>(
-    new TargetVerifyOutcomesStoreV5(),
+  const targetVerifyOutcomesStoreRef = useRef<TargetVerifyOutcomesStore>(
+    new TargetVerifyOutcomesStore(),
   );
-  const targetDraftAutosaveGateRef = useRef<TargetDraftAutosaveGateV5>(
-    new TargetDraftAutosaveGateV5(),
+  const targetDraftAutosaveGateRef = useRef<TargetDraftAutosaveGate>(
+    new TargetDraftAutosaveGate(),
   );
-  const targetApplyControllerRef = useRef<TargetApplyControllerV5 | null>(null);
+  const targetApplyControllerRef = useRef<TargetApplyController | null>(null);
   const apiRef = useRef(api);
   apiRef.current = api;
   const activeFolderRef = useRef<string | null>(null);
   const targetLoadErrorRef = useRef<WorkerErrorPayload | null>(null);
-  const targetDraftPersistenceRef = useRef<TargetDraftPersistenceStateV5>(
+  const targetDraftPersistenceRef = useRef<TargetDraftPersistenceState>(
     TARGET_DRAFT_NOT_LOADED_STATE,
   );
   const applyActiveRef = useRef(false);
-  const activeApplyPromiseRef =
-    useRef<Promise<MetadataApplyEditsResultV5> | null>(null);
+  const activeApplyPromiseRef = useRef<Promise<MetadataApplyResult> | null>(
+    null,
+  );
 
   const pushApplicationError = useCallback(
     (workerType: string, error: unknown, affectedFiles: string[] = []) => {
@@ -256,12 +253,12 @@ export function useMediaLibrary(
   );
   const isFirstThumbnailFlushRef = useRef<boolean>(true);
 
-  // Construct the sole production v5 controller after mount. Its dependency
+  // Construct the sole production target-aware controller after mount. Its dependency
   // stores keep stable identity for the complete hook lifetime.
   useEffect(() => {
     let controller = targetApplyControllerRef.current;
     if (controller === null) {
-      controller = new TargetApplyControllerV5(
+      controller = new TargetApplyController(
         {
           api: {
             invoke: (command, args) => apiRef.current.invoke(command, args),
@@ -294,13 +291,13 @@ export function useMediaLibrary(
             );
           },
           onProtocolError: ({ error }) =>
-            pushApplicationError("metadata-v5-protocol", error),
+            pushApplicationError("metadata-target-protocol", error),
           onProgressApplicationError: ({ error }) =>
-            pushApplicationError("metadata-v5-progress", error),
+            pushApplicationError("metadata-target-progress", error),
           onFileError: (relativePath, error) =>
-            pushApplicationError("metadata-v5-file", error, [relativePath]),
+            pushApplicationError("metadata-target-file", error, [relativePath]),
           onFileWarning: (relativePath, warning) =>
-            pushApplicationError("metadata-v5-warning", warning, [
+            pushApplicationError("metadata-target-warning", warning, [
               relativePath,
             ]),
         },
@@ -405,11 +402,11 @@ export function useMediaLibrary(
         .catch(() => {});
 
       try {
-        const loaded = await loadTargetDraftEditsV5(api, folder);
+        const loaded = await loadTargetDraftEdits(api, folder);
         targetDraftEditsStoreRef.current.resetMetadata(loaded);
         targetDraftPersistenceRef.current = { status: "ready" };
       } catch (error) {
-        console.error("Failed to load schema-v5 target drafts", error);
+        console.error("Failed to load target-aware target drafts", error);
         targetDraftEditsStoreRef.current.resetMetadata({});
         const errorMessage =
           error instanceof Error ? error.message : String(error);
@@ -419,7 +416,7 @@ export function useMediaLibrary(
         };
         targetLoadErrorRef.current = {
           scan_id: scanId,
-          worker_type: "metadata-v5-load",
+          worker_type: "metadata-target-load",
           error_message: errorMessage,
           affected_files: [],
         };
@@ -779,7 +776,7 @@ export function useMediaLibrary(
   const stateRef = useRef(appState);
   stateRef.current = appState;
 
-  // One production subscription owns both the React snapshot and schema-v5
+  // One production subscription owns both the React snapshot and target-aware
   // autosave. Controller-applied backend snapshots notify this same path while
   // the gate is suppressed, so they update UI without a duplicate save.
   useEffect(() => {
@@ -801,8 +798,8 @@ export function useMediaLibrary(
       ) {
         return;
       }
-      void saveTargetDraftEditsV5(apiRef.current, folder, next).catch((error) =>
-        pushApplicationError("metadata-v5-save", error),
+      void saveTargetDraftEdits(apiRef.current, folder, next).catch((error) =>
+        pushApplicationError("metadata-target-save", error),
       );
     });
   }, [pushApplicationError]);
@@ -924,7 +921,7 @@ export function useMediaLibrary(
       const persistence = targetDraftPersistenceRef.current;
       if (persistence.status === "ready") return true;
       pushApplicationError(
-        "metadata-v5-unavailable",
+        "metadata-target-unavailable",
         `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`,
         affectedFiles,
       );
@@ -1009,7 +1006,7 @@ export function useMediaLibrary(
     });
   }, []);
 
-  const canStageGeneratedMetadataV5 = useCallback(
+  const canStageGeneratedMetadata = useCallback(
     (relativePaths: string[]): boolean => {
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
@@ -1020,7 +1017,7 @@ export function useMediaLibrary(
       );
       if (unavailable !== undefined) {
         pushApplicationError(
-          "metadata-v5-generated-readiness",
+          "metadata-target-generated-readiness",
           `Authoritative metadata occurrences are still loading for '${unavailable}'. Generated metadata was not started.`,
           [unavailable],
         );
@@ -1031,12 +1028,12 @@ export function useMediaLibrary(
     [pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
-  const applyGeneratedMetadataDraftBatchV5 = useCallback(
+  const applyGeneratedMetadataDraftBatch = useCallback(
     (
       relativePath: string,
-      producer: GeneratedMetadataProducerV5,
-      edits: MetadataDraftEntry[],
-    ): GeneratedDraftStageResultV5 => {
+      producer: GeneratedMetadataProducer,
+      edits: SchemaMetadataEdit[],
+    ): GeneratedDraftStageResult => {
       if (edits.length === 0) {
         return { kind: "success", changed: false };
       }
@@ -1053,7 +1050,7 @@ export function useMediaLibrary(
       }
 
       try {
-        const plan = planGeneratedTargetDraftBatchV5({
+        const plan = planGeneratedTargetDraftBatch({
           producer,
           edits,
           occurrences:
@@ -1072,7 +1069,7 @@ export function useMediaLibrary(
         return { kind: "success", changed };
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        pushApplicationError("metadata-v5-generated-stage", reason, [
+        pushApplicationError("metadata-target-generated-stage", reason, [
           relativePath,
         ]);
         return { kind: "failure", reason };
@@ -1088,7 +1085,7 @@ export function useMediaLibrary(
     ): boolean => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const planned = planGpsTargetDraftBatchV5(
+        const planned = planGpsTargetDraftBatch(
           edits,
           imageMetadataOccurrencesStoreRef.current.get(relativePath),
           targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
@@ -1099,7 +1096,7 @@ export function useMediaLibrary(
         );
         return true;
       } catch (error) {
-        pushApplicationError("metadata-v5-gps-plan", error, [relativePath]);
+        pushApplicationError("metadata-target-gps-plan", error, [relativePath]);
         return false;
       }
     },
@@ -1116,13 +1113,13 @@ export function useMediaLibrary(
           ]),
         ).values(),
       );
-      const plan = planMetadataRemovalTargetsV5({
+      const plan = planMetadataRemovalTargets({
         schemaIds: uniqueIds,
         occurrences: imageMetadataOccurrencesStoreRef.current.get(relativePath),
         targetDrafts:
           targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
       });
-      const upserts: MetadataDraftEntryV5[] = plan.upserts.map(
+      const upserts: MetadataTargetDraftEntry[] = plan.upserts.map(
         ({ target, edit }) => ({
           target: structuredClone(target),
           edit: structuredClone(edit),
@@ -1137,7 +1134,7 @@ export function useMediaLibrary(
     [],
   );
 
-  const removeMetadataFieldsV5 = useCallback(
+  const removeMetadataFields = useCallback(
     (relativePath: string, schemaIds: SchemaDefinitionId[]): boolean => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
@@ -1145,14 +1142,14 @@ export function useMediaLibrary(
         targetDraftEditsStoreRef.current.applyExactMutationBatch([mutation]);
         return true;
       } catch (error) {
-        pushApplicationError("metadata-v5-remove", error, [relativePath]);
+        pushApplicationError("metadata-target-remove", error, [relativePath]);
         return false;
       }
     },
     [pushApplicationError, removalMutation, requireTargetDraftPersistenceReady],
   );
 
-  const removeMetadataFieldFromFilesV5 = useCallback(
+  const removeMetadataFieldFromFiles = useCallback(
     (schemaId: SchemaDefinitionId, relativePaths: string[]): boolean => {
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
@@ -1173,7 +1170,7 @@ export function useMediaLibrary(
         targetDraftEditsStoreRef.current.applyExactMutationBatch(mutations);
         return true;
       } catch (error) {
-        pushApplicationError("metadata-v5-remove-files", error, paths);
+        pushApplicationError("metadata-target-remove-files", error, paths);
         return false;
       }
     },
@@ -1183,7 +1180,7 @@ export function useMediaLibrary(
   const setExistingOccurrenceDraft = useCallback(
     (
       fileRelativePath: string,
-      occurrenceId: MetadataOccurrenceId,
+      target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }>,
       edit: MetadataDraftEdit,
     ) => {
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
@@ -1192,7 +1189,7 @@ export function useMediaLibrary(
         imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
       if (occurrenceState === "loading") {
         pushApplicationError(
-          "metadata-v5-occurrence-unavailable",
+          "metadata-target-occurrence-unavailable",
           "Authoritative metadata occurrences are still loading. Wait for the file to be scanned before editing this row.",
           [fileRelativePath],
         );
@@ -1201,11 +1198,11 @@ export function useMediaLibrary(
 
       const exact = resolveExactMetadataOccurrence(
         occurrenceState,
-        occurrenceId,
+        target.occurrence_id,
       );
       if (exact.kind !== "unique") {
         pushApplicationError(
-          "metadata-v5-occurrence-unavailable",
+          "metadata-target-occurrence-unavailable",
           exact.kind === "duplicate"
             ? "The exact metadata occurrence ID is duplicated, so no occurrence was selected."
             : "The exact metadata occurrence no longer exists, so no draft was created.",
@@ -1214,21 +1211,28 @@ export function useMediaLibrary(
         return;
       }
 
-      const targetResolution = existingOccurrenceTargetFromOccurrence(
+      const currentTarget = existingOccurrenceTargetFromOccurrence(
         exact.occurrence,
       );
-      if (targetResolution.kind === "read-only") {
+      if (currentTarget.kind === "read-only") {
         pushApplicationError(
-          "metadata-v5-occurrence-read-only",
-          targetResolution.reason,
+          "metadata-target-occurrence-read-only",
+          currentTarget.reason,
           [fileRelativePath],
         );
         return;
       }
-      const target = targetResolution.target;
+      if (!metadataDraftTargetEquals(currentTarget.target, target)) {
+        pushApplicationError(
+          "metadata-target-occurrence-unavailable",
+          "The complete occurrence target changed after the editor opened, so no draft was created.",
+          [fileRelativePath],
+        );
+        return;
+      }
       targetDraftEditsStoreRef.current.setMetadataTarget(
         fileRelativePath,
-        target,
+        structuredClone(target),
         edit,
       );
     },
@@ -1257,7 +1261,7 @@ export function useMediaLibrary(
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
       if (targetOutcomeExists(fileRelativePath, target)) {
         pushApplicationError(
-          "metadata-v5-new-property-edit-verification-pending",
+          "metadata-target-new-property-edit-verification-pending",
           "Resolve the verification outcome for this destination before editing it. Nothing was saved.",
           [fileRelativePath],
         );
@@ -1272,10 +1276,10 @@ export function useMediaLibrary(
             )?.[targetSlot];
           if (
             currentEntry === undefined ||
-            !metadataDraftEntryV5EqualsExact(currentEntry, openedEntry)
+            !metadataTargetDraftEntryEqualsExact(currentEntry, openedEntry)
           ) {
             pushApplicationError(
-              "metadata-v5-new-property-edit-stale-target",
+              "metadata-target-new-property-edit-stale-target",
               "This New Property draft changed or disappeared while the editor was open. Nothing was saved.",
               [fileRelativePath],
             );
@@ -1286,7 +1290,7 @@ export function useMediaLibrary(
           imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
         if (occurrenceState === "loading") {
           pushApplicationError(
-            "metadata-v5-new-property-occurrences-loading",
+            "metadata-target-new-property-occurrences-loading",
             "Authoritative metadata occurrences are still loading. No new-property draft was staged.",
             [fileRelativePath],
           );
@@ -1301,7 +1305,7 @@ export function useMediaLibrary(
         });
         if (occupied) {
           pushApplicationError(
-            "metadata-v5-new-property-destination-occupied",
+            "metadata-target-new-property-destination-occupied",
             "The complete ExifTool destination is already present in the file. No new-property draft was staged.",
             [fileRelativePath],
           );
@@ -1314,7 +1318,7 @@ export function useMediaLibrary(
         );
         if (unknownSameSchema) {
           pushApplicationError(
-            "metadata-v5-new-property-destination-unknown",
+            "metadata-target-new-property-destination-unknown",
             "A same-schema occurrence has no safely identifiable destination, so another destination cannot be created safely.",
             [fileRelativePath],
           );
@@ -1331,7 +1335,7 @@ export function useMediaLibrary(
         });
         if (pendingCollision) {
           pushApplicationError(
-            "metadata-v5-new-property-selector-collision",
+            "metadata-target-new-property-selector-collision",
             "Another pending draft already uses the intended complete selector. No new-property draft was staged.",
             [fileRelativePath],
           );
@@ -1352,7 +1356,7 @@ export function useMediaLibrary(
         if (!lifecycleIsCurrent()) return false;
         const detail = error instanceof Error ? error.message : String(error);
         pushApplicationError(
-          "metadata-v5-new-property-schema-lookup",
+          "metadata-target-new-property-schema-lookup",
           `The exact schema definition could not be resolved: ${detail}. No new-property draft was staged.`,
           [fileRelativePath],
         );
@@ -1366,7 +1370,7 @@ export function useMediaLibrary(
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
       if (targetOutcomeExists(fileRelativePath, target)) {
         pushApplicationError(
-          "metadata-v5-new-property-edit-verification-pending",
+          "metadata-target-new-property-edit-verification-pending",
           "Resolve the verification outcome for this destination before editing it. Nothing was saved.",
           [fileRelativePath],
         );
@@ -1376,7 +1380,7 @@ export function useMediaLibrary(
 
       if (!info || !schemaDefinitionIdEquals(info.id, id)) {
         pushApplicationError(
-          "metadata-v5-new-property-schema-missing",
+          "metadata-target-new-property-schema-missing",
           "The exact schema definition could not be resolved. No new-property draft was staged.",
           [fileRelativePath],
         );
@@ -1384,7 +1388,7 @@ export function useMediaLibrary(
       }
       if (!info.writable) {
         pushApplicationError(
-          "metadata-v5-new-property-read-only",
+          "metadata-target-new-property-read-only",
           "This exact schema is read-only. No new-property draft was staged.",
           [fileRelativePath],
         );
@@ -1392,7 +1396,7 @@ export function useMediaLibrary(
       }
       if (!tagInfoSupportsMetadataWrite(info)) {
         pushApplicationError(
-          "metadata-v5-new-property-unsupported-kind",
+          "metadata-target-new-property-unsupported-kind",
           "Binary and Unknown schema kinds are not supported by the metadata write pipeline. No new-property draft was staged.",
           [fileRelativePath],
         );
@@ -1402,7 +1406,7 @@ export function useMediaLibrary(
       const targetResolution = newPropertyDraftTarget(info);
       if (targetResolution.kind !== "available") {
         pushApplicationError(
-          "metadata-v5-new-property-ineligible",
+          "metadata-target-new-property-ineligible",
           "This exact schema is not eligible for a NewProperty target. No draft was staged.",
           [fileRelativePath],
         );
@@ -1415,7 +1419,7 @@ export function useMediaLibrary(
           targetResolution.target.write_target.tag_name
       ) {
         pushApplicationError(
-          "metadata-v5-new-property-target-tampered",
+          "metadata-target-new-property-target-tampered",
           "The schema-controlled family-7 group or tag name changed. No draft was staged.",
           [fileRelativePath],
         );
@@ -1424,7 +1428,7 @@ export function useMediaLibrary(
       const family1Error = validateFamily1Group(target.write_target.group1);
       if (family1Error) {
         pushApplicationError(
-          "metadata-v5-new-property-invalid-destination",
+          "metadata-target-new-property-invalid-destination",
           `${family1Error} No draft was staged.`,
           [fileRelativePath],
         );
@@ -1467,7 +1471,7 @@ export function useMediaLibrary(
           )
         ) {
           pushApplicationError(
-            "metadata-v5-new-property-move-schema-changed",
+            "metadata-target-new-property-move-schema-changed",
             "Destination editing cannot change the draft's exact schema. Nothing was moved.",
             [fileRelativePath],
           );
@@ -1480,13 +1484,13 @@ export function useMediaLibrary(
           ];
         if (
           persisted === undefined ||
-          !metadataDraftEntryV5EqualsExact(persisted, {
+          !metadataTargetDraftEntryEqualsExact(persisted, {
             target: originalTarget,
             edit: originalEdit,
           })
         ) {
           pushApplicationError(
-            "metadata-v5-new-property-move-stale-original",
+            "metadata-target-new-property-move-stale-original",
             "The original destination draft changed or disappeared while it was being edited. Nothing was moved.",
             [fileRelativePath],
           );
@@ -1494,7 +1498,7 @@ export function useMediaLibrary(
         }
         if (targetOutcomeExists(fileRelativePath, originalTarget)) {
           pushApplicationError(
-            "metadata-v5-new-property-move-verification-pending",
+            "metadata-target-new-property-move-verification-pending",
             "Resolve the verification outcome for this destination before editing it. Nothing was moved.",
             [fileRelativePath],
           );
@@ -1505,7 +1509,7 @@ export function useMediaLibrary(
           imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
         if (occurrenceState === "loading") {
           pushApplicationError(
-            "metadata-v5-new-property-move-occurrences-loading",
+            "metadata-target-new-property-move-occurrences-loading",
             "Authoritative metadata occurrences are still loading. Nothing was moved.",
             [fileRelativePath],
           );
@@ -1521,7 +1525,7 @@ export function useMediaLibrary(
         );
         if (exactOccupied) {
           pushApplicationError(
-            "metadata-v5-new-property-move-destination-occupied",
+            "metadata-target-new-property-move-destination-occupied",
             "The replacement ExifTool destination is already present in the file. Nothing was moved.",
             [fileRelativePath],
           );
@@ -1537,7 +1541,7 @@ export function useMediaLibrary(
         );
         if (unknownSameSchema) {
           pushApplicationError(
-            "metadata-v5-new-property-move-destination-unknown",
+            "metadata-target-new-property-move-destination-unknown",
             "A same-schema occurrence has no safely identifiable destination, so the draft cannot be moved safely.",
             [fileRelativePath],
           );
@@ -1556,7 +1560,7 @@ export function useMediaLibrary(
         );
         if (pendingCollision) {
           pushApplicationError(
-            "metadata-v5-new-property-move-selector-collision",
+            "metadata-target-new-property-move-selector-collision",
             "Another pending draft already uses the replacement selector. Nothing was moved.",
             [fileRelativePath],
           );
@@ -1578,7 +1582,7 @@ export function useMediaLibrary(
       } catch (error) {
         if (lifecycleIsCurrent()) {
           pushApplicationError(
-            "metadata-v5-new-property-move-schema-lookup",
+            "metadata-target-new-property-move-schema-lookup",
             error,
             [fileRelativePath],
           );
@@ -1592,7 +1596,7 @@ export function useMediaLibrary(
         !tagInfoSupportsMetadataWrite(info)
       ) {
         pushApplicationError(
-          "metadata-v5-new-property-move-schema-invalid",
+          "metadata-target-new-property-move-schema-invalid",
           "The replacement schema is unavailable or not writable. Nothing was moved.",
           [fileRelativePath],
         );
@@ -1607,7 +1611,7 @@ export function useMediaLibrary(
           expected.target.write_target.tag_name
       ) {
         pushApplicationError(
-          "metadata-v5-new-property-move-target-tampered",
+          "metadata-target-new-property-move-target-tampered",
           "The schema-controlled family-7 group or tag name changed. Nothing was moved.",
           [fileRelativePath],
         );
@@ -1618,7 +1622,7 @@ export function useMediaLibrary(
       );
       if (groupError) {
         pushApplicationError(
-          "metadata-v5-new-property-move-invalid-destination",
+          "metadata-target-new-property-move-invalid-destination",
           `${groupError} Nothing was moved.`,
           [fileRelativePath],
         );
@@ -1640,9 +1644,11 @@ export function useMediaLibrary(
         ]);
         return true;
       } catch (error) {
-        pushApplicationError("metadata-v5-new-property-move-failed", error, [
-          fileRelativePath,
-        ]);
+        pushApplicationError(
+          "metadata-target-new-property-move-failed",
+          error,
+          [fileRelativePath],
+        );
         return false;
       }
     },
@@ -1686,7 +1692,7 @@ export function useMediaLibrary(
         ]);
         return true;
       } catch (error) {
-        pushApplicationError("metadata-v5-discard-targets", error, [
+        pushApplicationError("metadata-target-discard-targets", error, [
           fileRelativePath,
         ]);
         return false;
@@ -1717,10 +1723,8 @@ export function useMediaLibrary(
   );
 
   const applyDraftEdits = useCallback(
-    (
-      fileRelativePath?: string | string[],
-    ): Promise<MetadataApplyEditsResultV5> => {
-      const run = async (): Promise<MetadataApplyEditsResultV5> => {
+    (fileRelativePath?: string | string[]): Promise<MetadataApplyResult> => {
+      const run = async (): Promise<MetadataApplyResult> => {
         const current = stateRef.current;
         if (current.kind !== "loaded") {
           return {
@@ -1799,7 +1803,7 @@ export function useMediaLibrary(
   const cancelApplyEdits = useCallback(() => {
     void targetApplyControllerRef.current
       ?.cancel()
-      .catch((error) => pushApplicationError("metadata-v5-cancel", error));
+      .catch((error) => pushApplicationError("metadata-target-cancel", error));
     setAppState((prev) => {
       if (prev.kind !== "loaded" || !prev.applying) return prev;
       return { ...prev, applying: { ...prev.applying, cancelling: true } };
@@ -1822,10 +1826,10 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      canStageGeneratedMetadataV5,
-      applyGeneratedMetadataDraftBatchV5,
-      removeMetadataFieldsV5,
-      removeMetadataFieldFromFilesV5,
+      canStageGeneratedMetadata,
+      applyGeneratedMetadataDraftBatch,
+      removeMetadataFields,
+      removeMetadataFieldFromFiles,
       setGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
@@ -1855,10 +1859,10 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
-      canStageGeneratedMetadataV5,
-      applyGeneratedMetadataDraftBatchV5,
-      removeMetadataFieldsV5,
-      removeMetadataFieldFromFilesV5,
+      canStageGeneratedMetadata,
+      applyGeneratedMetadataDraftBatch,
+      removeMetadataFields,
+      removeMetadataFieldFromFiles,
       setGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,

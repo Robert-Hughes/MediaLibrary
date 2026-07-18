@@ -1,8 +1,8 @@
 import type {
   ImageMetadataEntry,
   MetadataDraftEdit,
-  MetadataDraftEntry,
-  MetadataDraftEntryV5,
+  SchemaMetadataEdit,
+  MetadataTargetDraftEntry,
   MetadataOccurrence,
   MetadataValue,
   EditIntent,
@@ -90,18 +90,18 @@ export function mockSchemaDraftDisplayProjection(
 
 export function mockGeneratedDraftEntries(
   raw: Record<string, MetadataDraftEdit | unknown>,
-): MetadataDraftEntry[] {
+): SchemaMetadataEdit[] {
   return Object.entries(raw).map(([name, value]) => {
     const id = fixtureId(name);
     const edit = isMetadataDraftEdit(value)
       ? value
       : fixtureValueToDraftEdit(value);
-    return { id, edit };
+    return { schema_id: id, edit };
   });
 }
 
 export function mockTargetDraftsByFile(
-  raw: Record<string, readonly MetadataDraftEntryV5[]>,
+  raw: Record<string, readonly MetadataTargetDraftEntry[]>,
 ): TargetDraftEditsByFile {
   return Object.fromEntries(
     Object.entries(raw).flatMap(([path, entries]) => {
@@ -124,7 +124,7 @@ export function mockTargetDraftsByFile(
 export function newPropertyTargetDraft(
   name: string,
   value: MetadataDraftEdit | unknown,
-): MetadataDraftEntryV5 {
+): MetadataTargetDraftEntry {
   const schema_id = fixtureId(name);
   return {
     target: {

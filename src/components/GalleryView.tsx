@@ -7,9 +7,8 @@ import type {
   PhotoInfo,
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
-  MetadataOccurrenceId,
   MetadataDraftTarget,
-  TargetDraftPersistenceStateV5,
+  TargetDraftPersistenceState,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import { ModalDialog } from "./ModalDialog";
@@ -43,13 +42,13 @@ interface Props {
   /** Observable authoritative occurrence store. */
   imageMetadataOccurrences: ImageMetadataOccurrencesStore;
   targetDraftEdits?: TargetDraftCollection;
-  targetDraftPersistence?: TargetDraftPersistenceStateV5;
+  targetDraftPersistence?: TargetDraftPersistenceState;
   onSetExistingOccurrenceDraft?: (
     fileRelativePath: string,
-    occurrenceId: MetadataOccurrenceId,
+    target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }>,
     edit: MetadataDraftEdit,
   ) => void;
-  onRemoveMetadataFieldsV5?: (
+  onRemoveMetadataFields?: (
     fileRelativePath: string,
     ids: SchemaDefinitionId[],
   ) => boolean;
@@ -99,7 +98,7 @@ export function GalleryView({
   targetDraftEdits,
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
-  onRemoveMetadataFieldsV5,
+  onRemoveMetadataFields,
   onSetGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onReplaceNewPropertyDraftTarget,
@@ -348,15 +347,11 @@ export function GalleryView({
             occurrences={occurrencesState}
             targetDraftEdits={targetDraftEdits}
             targetDraftPersistence={targetDraftPersistence}
-            onSetExistingOccurrenceDraft={(occurrenceId, edit) =>
-              onSetExistingOccurrenceDraft?.(
-                photo.relative_path,
-                occurrenceId,
-                edit,
-              )
+            onSetExistingOccurrenceDraft={(target, edit) =>
+              onSetExistingOccurrenceDraft?.(photo.relative_path, target, edit)
             }
-            onRemoveMetadataFieldsV5={(ids) =>
-              onRemoveMetadataFieldsV5?.(photo.relative_path, ids) ?? false
+            onRemoveMetadataFields={(ids) =>
+              onRemoveMetadataFields?.(photo.relative_path, ids) ?? false
             }
             onSetGpsTargetDraftBatch={(edits) =>
               onSetGpsTargetDraftBatch?.(photo.relative_path, edits) ?? false

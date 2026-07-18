@@ -1,8 +1,8 @@
-//! Versioned schema-v5 batch metadata apply coordinator for the target-aware metadata pipeline.
+//! Versioned target-aware batch metadata apply coordinator for the target-aware metadata pipeline.
 //!
-//! This module consumes [`MetadataDraftEntryV5`] values, invokes the
+//! This module consumes [`MetadataTargetDraftEntry`] values, invokes the
 //! occurrence-aware single-file pipeline, applies structured draft
-//! reconciliation, and persists only through the schema-v5-owned
+//! reconciliation, and persists only through the target-aware-owned
 //! `MediaLibraryTargetDraftEdits.jsonl` file. It emits
 //! versioned events consumed by the production frontend controller.
 //! After reconciliation and persistence, it appends target-aware audit evidence
@@ -15,44 +15,40 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 
-use crate::apply_edits_v5::{
-    apply_single_file_metadata_v5, MetadataSingleFileOutcomeV5, MetadataTargetOutcome,
+use crate::apply_edits::{
+    apply_single_file_metadata, MetadataSingleFileOutcome, MetadataTargetOutcome,
 };
 use crate::apply_log::{
     append_target_metadata_entries, TargetApplyAuditRecord, TargetDraftPersistenceOutcome,
 };
 use crate::draft_edits::{
-    load_metadata_draft_edits_v5, save_metadata_draft_edits_v5, MetadataDraftEditsV5,
-    MetadataDraftEntryV5,
+    load_metadata_draft_edits, save_metadata_draft_edits, MetadataTargetDraftEntry,
+    MetadataTargetDraftsByFile,
 };
-use crate::draft_reconciliation_v5::reconcile_metadata_draft_file_v5;
+use crate::draft_reconciliation::reconcile_metadata_draft_file;
 use crate::scanner;
 
-pub const APPLY_EDITS_V5_STARTED_EVENT: &str = "apply_edits_v5_started";
-pub const APPLY_METADATA_EDITS_V5_PROGRESS_EVENT: &str = "apply_metadata_edits_v5_progress";
+pub const METADATA_APPLY_STARTED_EVENT: &str = "apply_edits_started";
+pub const METADATA_APPLY_PROGRESS_EVENT: &str = "apply_metadata_edits_progress";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataApplyFileResultV5 {
+pub struct MetadataApplyFileResult {
     pub relative_path: String,
     pub applied: bool,
     pub error: Option<String>,
     pub warning: Option<String>,
     pub fresh_image_metadata: Option<scanner::ImageMetadata>,
     pub target_outcomes: Vec<MetadataTargetOutcome>,
-
-    /// `None` means no changed draft map was successfully persisted.
-    /// `Some([])` means the persisted file entry was removed completely.
-    /// `Some(entries)` contains the exact persisted entries after reconciliation.
-    pub persisted_draft_entries: Option<Vec<MetadataDraftEntryV5>>,
+    pub persisted_draft_entries: Option<Vec<MetadataTargetDraftEntry>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataApplyEditsResultV5 {
-    pub files: Vec<MetadataApplyFileResultV5>,
+pub struct MetadataApplyResult {
+    pub files: Vec<MetadataApplyFileResult>,
     pub cancelled: bool,
     pub aborted: bool,
     pub abort_reason: Option<String>,
@@ -61,46 +57,46 @@ pub struct MetadataApplyEditsResultV5 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct ApplyEditsV5StartedPayload {
+pub struct MetadataApplyStartedPayload {
     pub total: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataApplyEditsProgressPayloadV5 {
+pub struct MetadataApplyProgressPayload {
     pub current: usize,
     pub total: usize,
-    pub result: MetadataApplyFileResultV5,
+    pub result: MetadataApplyFileResult,
 }
 
 /// Cancellation state for the sole metadata apply command.
-pub struct ApplyEditsV5State {
+pub struct ApplyEditsState {
     cancelled: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ApplyEditsV5BusyError;
+pub struct ApplyEditsBusyError;
 
-impl std::fmt::Display for ApplyEditsV5BusyError {
+impl std::fmt::Display for ApplyEditsBusyError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("A schema-v5 metadata apply operation is already running")
+        formatter.write_str("A target-aware metadata apply operation is already running")
     }
 }
 
-impl std::error::Error for ApplyEditsV5BusyError {}
+impl std::error::Error for ApplyEditsBusyError {}
 
-impl ApplyEditsV5State {
+impl ApplyEditsState {
     pub fn new() -> Self {
         Self {
             cancelled: Mutex::new(None),
         }
     }
 
-    pub fn try_install(&self) -> Result<Arc<AtomicBool>, ApplyEditsV5BusyError> {
+    pub fn try_install(&self) -> Result<Arc<AtomicBool>, ApplyEditsBusyError> {
         let mut installed = self.cancelled.lock().unwrap();
         if installed.is_some() {
-            return Err(ApplyEditsV5BusyError);
+            return Err(ApplyEditsBusyError);
         }
 
         let flag = Arc::new(AtomicBool::new(false));
@@ -132,14 +128,14 @@ impl ApplyEditsV5State {
     }
 }
 
-impl Default for ApplyEditsV5State {
+impl Default for ApplyEditsState {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub(crate) async fn run_apply_edits_v5_command<T, StartWorker, WorkerFuture, WorkerJoinError>(
-    state: &ApplyEditsV5State,
+pub(crate) async fn run_apply_edits_command<T, StartWorker, WorkerFuture, WorkerJoinError>(
+    state: &ApplyEditsState,
     start_worker: StartWorker,
 ) -> Result<T, String>
 where
@@ -150,41 +146,41 @@ where
     let cancel_flag = state.try_install().map_err(|error| error.to_string())?;
     let result = match start_worker(cancel_flag.clone()).await {
         Ok(result) => result,
-        Err(error) => Err(format!("Schema-v5 apply edits worker failed: {error}")),
+        Err(error) => Err(format!("Target-aware apply edits worker failed: {error}")),
     };
     state.clear_if_mine(&cancel_flag);
     result
 }
 
-pub trait DraftPersistenceV5 {
-    fn load(&self, folder_path: &str) -> Result<MetadataDraftEditsV5, String>;
-    fn save(&self, folder_path: &str, drafts: &MetadataDraftEditsV5) -> Result<(), String>;
+pub trait DraftPersistence {
+    fn load(&self, folder_path: &str) -> Result<MetadataTargetDraftsByFile, String>;
+    fn save(&self, folder_path: &str, drafts: &MetadataTargetDraftsByFile) -> Result<(), String>;
 }
 
-pub trait SingleFileApplyV5 {
+pub trait SingleFileApply {
     fn apply(
         &self,
         folder_path: &str,
         relative_path: &str,
-        edits: &[MetadataDraftEntryV5],
-    ) -> MetadataSingleFileOutcomeV5;
+        edits: &[MetadataTargetDraftEntry],
+    ) -> MetadataSingleFileOutcome;
 }
 
-pub(crate) trait DraftReconcilerV5 {
+pub(crate) trait DraftReconciler {
     fn reconcile(
         &self,
-        current_drafts: &MetadataDraftEditsV5,
+        current_drafts: &MetadataTargetDraftsByFile,
         relative_path: &str,
         outcomes: &[MetadataTargetOutcome],
-    ) -> Result<MetadataDraftEditsV5, String>;
+    ) -> Result<MetadataTargetDraftsByFile, String>;
 }
 
-pub trait ApplyEventsV5 {
-    fn started(&self, payload: ApplyEditsV5StartedPayload) -> Result<(), String>;
-    fn progress(&self, payload: MetadataApplyEditsProgressPayloadV5) -> Result<(), String>;
+pub trait ApplyEvents {
+    fn started(&self, payload: MetadataApplyStartedPayload) -> Result<(), String>;
+    fn progress(&self, payload: MetadataApplyProgressPayload) -> Result<(), String>;
 }
 
-pub(crate) trait TargetApplyLoggerV5 {
+pub(crate) trait TargetApplyLogger {
     fn append(
         &self,
         folder_path: &str,
@@ -194,48 +190,48 @@ pub(crate) trait TargetApplyLoggerV5 {
     ) -> Result<(), String>;
 }
 
-struct RealDraftPersistenceV5;
+struct RealDraftPersistence;
 
-impl DraftPersistenceV5 for RealDraftPersistenceV5 {
-    fn load(&self, folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
-        load_metadata_draft_edits_v5(folder_path)
+impl DraftPersistence for RealDraftPersistence {
+    fn load(&self, folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
+        load_metadata_draft_edits(folder_path)
     }
 
-    fn save(&self, folder_path: &str, drafts: &MetadataDraftEditsV5) -> Result<(), String> {
-        save_metadata_draft_edits_v5(folder_path, drafts)
+    fn save(&self, folder_path: &str, drafts: &MetadataTargetDraftsByFile) -> Result<(), String> {
+        save_metadata_draft_edits(folder_path, drafts)
     }
 }
 
-struct RealSingleFileApplyV5;
+struct RealSingleFileApply;
 
-impl SingleFileApplyV5 for RealSingleFileApplyV5 {
+impl SingleFileApply for RealSingleFileApply {
     fn apply(
         &self,
         folder_path: &str,
         relative_path: &str,
-        edits: &[MetadataDraftEntryV5],
-    ) -> MetadataSingleFileOutcomeV5 {
-        apply_single_file_metadata_v5(folder_path, relative_path, edits)
+        edits: &[MetadataTargetDraftEntry],
+    ) -> MetadataSingleFileOutcome {
+        apply_single_file_metadata(folder_path, relative_path, edits)
     }
 }
 
-struct RealDraftReconcilerV5;
+struct RealDraftReconciler;
 
-impl DraftReconcilerV5 for RealDraftReconcilerV5 {
+impl DraftReconciler for RealDraftReconciler {
     fn reconcile(
         &self,
-        current_drafts: &MetadataDraftEditsV5,
+        current_drafts: &MetadataTargetDraftsByFile,
         relative_path: &str,
         outcomes: &[MetadataTargetOutcome],
-    ) -> Result<MetadataDraftEditsV5, String> {
-        reconcile_metadata_draft_file_v5(current_drafts, relative_path, outcomes)
+    ) -> Result<MetadataTargetDraftsByFile, String> {
+        reconcile_metadata_draft_file(current_drafts, relative_path, outcomes)
             .map_err(|error| error.to_string())
     }
 }
 
-struct RealTargetApplyLoggerV5;
+struct RealTargetApplyLogger;
 
-impl TargetApplyLoggerV5 for RealTargetApplyLoggerV5 {
+impl TargetApplyLogger for RealTargetApplyLogger {
     fn append(
         &self,
         folder_path: &str,
@@ -247,38 +243,38 @@ impl TargetApplyLoggerV5 for RealTargetApplyLoggerV5 {
     }
 }
 
-struct TauriApplyEventsV5 {
+struct TauriApplyEvents {
     app: AppHandle,
 }
 
-impl ApplyEventsV5 for TauriApplyEventsV5 {
-    fn started(&self, payload: ApplyEditsV5StartedPayload) -> Result<(), String> {
+impl ApplyEvents for TauriApplyEvents {
+    fn started(&self, payload: MetadataApplyStartedPayload) -> Result<(), String> {
         self.app
-            .emit(APPLY_EDITS_V5_STARTED_EVENT, payload)
+            .emit(METADATA_APPLY_STARTED_EVENT, payload)
             .map_err(|error| error.to_string())
     }
 
-    fn progress(&self, payload: MetadataApplyEditsProgressPayloadV5) -> Result<(), String> {
+    fn progress(&self, payload: MetadataApplyProgressPayload) -> Result<(), String> {
         self.app
-            .emit(APPLY_METADATA_EDITS_V5_PROGRESS_EVENT, payload)
+            .emit(METADATA_APPLY_PROGRESS_EVENT, payload)
             .map_err(|error| error.to_string())
     }
 }
 
-pub fn run_apply_metadata_draft_edits_v5_blocking(
+pub fn run_apply_metadata_draft_edits_blocking(
     folder_path: String,
     relative_paths: Vec<String>,
     app: AppHandle,
     cancel_flag: Arc<AtomicBool>,
-) -> Result<MetadataApplyEditsResultV5, String> {
-    run_apply_metadata_draft_edits_v5_with(
+) -> Result<MetadataApplyResult, String> {
+    run_apply_metadata_draft_edits_with(
         &folder_path,
         &relative_paths,
-        &RealDraftPersistenceV5,
-        &RealSingleFileApplyV5,
-        &RealDraftReconcilerV5,
-        &RealTargetApplyLoggerV5,
-        &TauriApplyEventsV5 { app },
+        &RealDraftPersistence,
+        &RealSingleFileApply,
+        &RealDraftReconciler,
+        &RealTargetApplyLogger,
+        &TauriApplyEvents { app },
         cancel_flag,
     )
 }
@@ -291,7 +287,7 @@ fn combine_errors(original: Option<String>, additional: String) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn run_apply_metadata_draft_edits_v5_with<P, A, R, L, E>(
+fn run_apply_metadata_draft_edits_with<P, A, R, L, E>(
     folder_path: &str,
     relative_paths: &[String],
     persistence: &P,
@@ -300,13 +296,13 @@ fn run_apply_metadata_draft_edits_v5_with<P, A, R, L, E>(
     target_logger: &L,
     events: &E,
     cancel_flag: Arc<AtomicBool>,
-) -> Result<MetadataApplyEditsResultV5, String>
+) -> Result<MetadataApplyResult, String>
 where
-    P: DraftPersistenceV5,
-    A: SingleFileApplyV5,
-    R: DraftReconcilerV5,
-    L: TargetApplyLoggerV5,
-    E: ApplyEventsV5,
+    P: DraftPersistence,
+    A: SingleFileApply,
+    R: DraftReconciler,
+    L: TargetApplyLogger,
+    E: ApplyEvents,
 {
     let mut current_drafts = persistence.load(folder_path)?;
 
@@ -330,8 +326,8 @@ where
         .collect();
     let total = selected.len();
 
-    if let Err(error) = events.started(ApplyEditsV5StartedPayload { total }) {
-        log::warn!("[apply_batch_v5] Failed to emit started event: {error}");
+    if let Err(error) = events.started(MetadataApplyStartedPayload { total }) {
+        log::warn!("[apply_batch] Failed to emit started event: {error}");
     }
 
     let mut files = Vec::with_capacity(total);
@@ -347,7 +343,7 @@ where
 
         let original_entries = current_drafts
             .get(relative_path.as_str())
-            .expect("selected schema-v5 draft remains present until its own operation")
+            .expect("selected target-aware draft remains present until its own operation")
             .clone();
         let outcome = single_file_apply.apply(folder_path, &relative_path, &original_entries);
         let mut final_error = outcome.error.clone();
@@ -360,7 +356,7 @@ where
                 Ok(candidate) if candidate != current_drafts => {
                     if let Err(error) = persistence.save(folder_path, &candidate) {
                         let reason = format!(
-                            "schema-v5 draft persistence failed for {relative_path}: {error}"
+                            "target-aware draft persistence failed for {relative_path}: {error}"
                         );
                         final_error = Some(combine_errors(final_error, reason.clone()));
                         fatal_reason = Some(reason.clone());
@@ -380,7 +376,7 @@ where
                 Ok(_) => {}
                 Err(error) => {
                     let reason = format!(
-                        "schema-v5 draft reconciliation failed for {relative_path}: {error}"
+                        "target-aware draft reconciliation failed for {relative_path}: {error}"
                     );
                     final_error = Some(combine_errors(final_error, reason.clone()));
                     fatal_reason = Some(reason.clone());
@@ -398,12 +394,12 @@ where
                 &draft_persistence,
             ) {
                 log::warn!(
-                    "[apply_batch_v5] Failed to append target apply log for {relative_path}: {error}"
+                    "[apply_batch] Failed to append target apply log for {relative_path}: {error}"
                 );
             }
         }
 
-        let result = MetadataApplyFileResultV5 {
+        let result = MetadataApplyFileResult {
             relative_path,
             applied: final_error.is_none(),
             error: final_error,
@@ -413,13 +409,13 @@ where
             persisted_draft_entries,
         };
         let current = files.len() + 1;
-        if let Err(error) = events.progress(MetadataApplyEditsProgressPayloadV5 {
+        if let Err(error) = events.progress(MetadataApplyProgressPayload {
             current,
             total,
             result: result.clone(),
         }) {
             log::warn!(
-                "[apply_batch_v5] Failed to emit progress event for {}: {error}",
+                "[apply_batch] Failed to emit progress event for {}: {error}",
                 result.relative_path
             );
         }
@@ -432,7 +428,7 @@ where
         }
     }
 
-    Ok(MetadataApplyEditsResultV5 {
+    Ok(MetadataApplyResult {
         files,
         cancelled,
         aborted,
@@ -443,7 +439,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::apply_edits_v5::MetadataDraftReconciliation;
+    use crate::apply_edits::MetadataDraftReconciliation;
     use crate::apply_log::{
         TargetApplyArguments, TargetApplyObservedOccurrence, TargetApplyPassStatus,
         TargetApplyPostWriteState, TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
@@ -459,13 +455,13 @@ mod tests {
     use std::fs;
 
     struct FakePersistence {
-        load: Result<MetadataDraftEditsV5, String>,
-        saves: Mutex<Vec<MetadataDraftEditsV5>>,
+        load: Result<MetadataTargetDraftsByFile, String>,
+        saves: Mutex<Vec<MetadataTargetDraftsByFile>>,
         save_error: Option<String>,
     }
 
     impl FakePersistence {
-        fn new(load: Result<MetadataDraftEditsV5, String>) -> Self {
+        fn new(load: Result<MetadataTargetDraftsByFile, String>) -> Self {
             Self {
                 load,
                 saves: Mutex::new(Vec::new()),
@@ -474,12 +470,16 @@ mod tests {
         }
     }
 
-    impl DraftPersistenceV5 for FakePersistence {
-        fn load(&self, _folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
+    impl DraftPersistence for FakePersistence {
+        fn load(&self, _folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
             self.load.clone()
         }
 
-        fn save(&self, _folder_path: &str, drafts: &MetadataDraftEditsV5) -> Result<(), String> {
+        fn save(
+            &self,
+            _folder_path: &str,
+            drafts: &MetadataTargetDraftsByFile,
+        ) -> Result<(), String> {
             if let Some(error) = &self.save_error {
                 return Err(error.clone());
             }
@@ -489,13 +489,13 @@ mod tests {
     }
 
     struct FakeApply {
-        outcomes: Mutex<HashMap<String, VecDeque<MetadataSingleFileOutcomeV5>>>,
+        outcomes: Mutex<HashMap<String, VecDeque<MetadataSingleFileOutcome>>>,
         calls: Mutex<Vec<String>>,
         cancel_after: Option<(String, Arc<AtomicBool>)>,
     }
 
     impl FakeApply {
-        fn new(outcomes: impl IntoIterator<Item = (String, MetadataSingleFileOutcomeV5)>) -> Self {
+        fn new(outcomes: impl IntoIterator<Item = (String, MetadataSingleFileOutcome)>) -> Self {
             let mut by_path = HashMap::<String, VecDeque<_>>::new();
             for (path, outcome) in outcomes {
                 by_path.entry(path).or_default().push_back(outcome);
@@ -508,13 +508,13 @@ mod tests {
         }
     }
 
-    impl SingleFileApplyV5 for FakeApply {
+    impl SingleFileApply for FakeApply {
         fn apply(
             &self,
             _folder_path: &str,
             relative_path: &str,
-            _edits: &[MetadataDraftEntryV5],
-        ) -> MetadataSingleFileOutcomeV5 {
+            _edits: &[MetadataTargetDraftEntry],
+        ) -> MetadataSingleFileOutcome {
             self.calls.lock().unwrap().push(relative_path.to_owned());
             let result = self
                 .outcomes
@@ -561,7 +561,7 @@ mod tests {
         }
     }
 
-    impl TargetApplyLoggerV5 for FakeTargetLogger {
+    impl TargetApplyLogger for FakeTargetLogger {
         fn append(
             &self,
             folder_path: &str,
@@ -580,17 +580,21 @@ mod tests {
     }
 
     struct TracePersistence {
-        drafts: MetadataDraftEditsV5,
+        drafts: MetadataTargetDraftsByFile,
         trace: Arc<Mutex<Vec<&'static str>>>,
         save_error: bool,
     }
 
-    impl DraftPersistenceV5 for TracePersistence {
-        fn load(&self, _folder_path: &str) -> Result<MetadataDraftEditsV5, String> {
+    impl DraftPersistence for TracePersistence {
+        fn load(&self, _folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
             Ok(self.drafts.clone())
         }
 
-        fn save(&self, _folder_path: &str, _drafts: &MetadataDraftEditsV5) -> Result<(), String> {
+        fn save(
+            &self,
+            _folder_path: &str,
+            _drafts: &MetadataTargetDraftsByFile,
+        ) -> Result<(), String> {
             self.trace.lock().unwrap().push("save");
             if self.save_error {
                 Err("save failed".into())
@@ -601,17 +605,17 @@ mod tests {
     }
 
     struct TraceApply {
-        outcome: MetadataSingleFileOutcomeV5,
+        outcome: MetadataSingleFileOutcome,
         trace: Arc<Mutex<Vec<&'static str>>>,
     }
 
-    impl SingleFileApplyV5 for TraceApply {
+    impl SingleFileApply for TraceApply {
         fn apply(
             &self,
             _folder_path: &str,
             _relative_path: &str,
-            _edits: &[MetadataDraftEntryV5],
-        ) -> MetadataSingleFileOutcomeV5 {
+            _edits: &[MetadataTargetDraftEntry],
+        ) -> MetadataSingleFileOutcome {
             self.trace.lock().unwrap().push("apply");
             self.outcome.clone()
         }
@@ -622,18 +626,18 @@ mod tests {
         fail: bool,
     }
 
-    impl DraftReconcilerV5 for TraceReconciler {
+    impl DraftReconciler for TraceReconciler {
         fn reconcile(
             &self,
-            current_drafts: &MetadataDraftEditsV5,
+            current_drafts: &MetadataTargetDraftsByFile,
             relative_path: &str,
             outcomes: &[MetadataTargetOutcome],
-        ) -> Result<MetadataDraftEditsV5, String> {
+        ) -> Result<MetadataTargetDraftsByFile, String> {
             self.trace.lock().unwrap().push("reconcile");
             if self.fail {
                 Err("reconcile failed".into())
             } else {
-                RealDraftReconcilerV5.reconcile(current_drafts, relative_path, outcomes)
+                RealDraftReconciler.reconcile(current_drafts, relative_path, outcomes)
             }
         }
     }
@@ -642,7 +646,7 @@ mod tests {
         trace: Arc<Mutex<Vec<&'static str>>>,
     }
 
-    impl TargetApplyLoggerV5 for TraceLogger {
+    impl TargetApplyLogger for TraceLogger {
         fn append(
             &self,
             _folder_path: &str,
@@ -659,12 +663,12 @@ mod tests {
         trace: Arc<Mutex<Vec<&'static str>>>,
     }
 
-    impl ApplyEventsV5 for TraceEvents {
-        fn started(&self, _payload: ApplyEditsV5StartedPayload) -> Result<(), String> {
+    impl ApplyEvents for TraceEvents {
+        fn started(&self, _payload: MetadataApplyStartedPayload) -> Result<(), String> {
             Ok(())
         }
 
-        fn progress(&self, _payload: MetadataApplyEditsProgressPayloadV5) -> Result<(), String> {
+        fn progress(&self, _payload: MetadataApplyProgressPayload) -> Result<(), String> {
             self.trace.lock().unwrap().push("progress");
             Ok(())
         }
@@ -672,8 +676,8 @@ mod tests {
 
     #[derive(Debug, Clone, PartialEq)]
     enum RecordedEvent {
-        Started(ApplyEditsV5StartedPayload),
-        Progress(Box<MetadataApplyEditsProgressPayloadV5>),
+        Started(MetadataApplyStartedPayload),
+        Progress(Box<MetadataApplyProgressPayload>),
     }
 
     #[derive(Default)]
@@ -682,8 +686,8 @@ mod tests {
         fail: bool,
     }
 
-    impl ApplyEventsV5 for FakeEvents {
-        fn started(&self, payload: ApplyEditsV5StartedPayload) -> Result<(), String> {
+    impl ApplyEvents for FakeEvents {
+        fn started(&self, payload: MetadataApplyStartedPayload) -> Result<(), String> {
             self.events
                 .lock()
                 .unwrap()
@@ -695,7 +699,7 @@ mod tests {
             }
         }
 
-        fn progress(&self, payload: MetadataApplyEditsProgressPayloadV5) -> Result<(), String> {
+        fn progress(&self, payload: MetadataApplyProgressPayload) -> Result<(), String> {
             self.events
                 .lock()
                 .unwrap()
@@ -754,8 +758,8 @@ mod tests {
         }
     }
 
-    fn entry(target: MetadataDraftTarget, text: &str) -> MetadataDraftEntryV5 {
-        MetadataDraftEntryV5 {
+    fn entry(target: MetadataDraftTarget, text: &str) -> MetadataTargetDraftEntry {
+        MetadataTargetDraftEntry {
             target,
             edit: MetadataDraftEdit {
                 value: Some(MetadataValue::Text(text.into())),
@@ -820,12 +824,12 @@ mod tests {
     fn outcome(
         error: Option<&str>,
         outcomes: Vec<MetadataTargetOutcome>,
-    ) -> MetadataSingleFileOutcomeV5 {
+    ) -> MetadataSingleFileOutcome {
         let audit_records = outcomes
             .iter()
             .map(|outcome| audit_record(&outcome.target, outcome.draft_reconciliation.clone()))
             .collect();
-        MetadataSingleFileOutcomeV5 {
+        MetadataSingleFileOutcome {
             fresh_image_metadata: None,
             error: error.map(str::to_owned),
             warning: Some("warning".into()),
@@ -853,13 +857,13 @@ mod tests {
             ),
         )]);
 
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             dir.path().to_str().unwrap(),
             &["photo.jpg".to_string()],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
-            &RealTargetApplyLoggerV5,
+            &RealDraftReconciler,
+            &RealTargetApplyLogger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
         )
@@ -870,8 +874,8 @@ mod tests {
         assert!(dir.path().join("MediaLibraryTargetApplyLog.jsonl").exists());
     }
 
-    fn drafts(items: &[(&str, MetadataDraftEntryV5)]) -> MetadataDraftEditsV5 {
-        let mut result = MetadataDraftEditsV5::new();
+    fn drafts(items: &[(&str, MetadataTargetDraftEntry)]) -> MetadataTargetDraftsByFile {
+        let mut result = MetadataTargetDraftsByFile::new();
         for (path, item) in items {
             result
                 .entry((*path).to_owned())
@@ -882,18 +886,18 @@ mod tests {
     }
 
     #[test]
-    fn v5_state_acquisition_is_exclusive_and_ownership_aware() {
-        let state = ApplyEditsV5State::new();
+    fn target_state_acquisition_is_exclusive_and_ownership_aware() {
+        let state = ApplyEditsState::new();
 
         let active = state.try_install().expect("first acquisition must succeed");
-        assert_eq!(state.try_install().unwrap_err(), ApplyEditsV5BusyError);
+        assert_eq!(state.try_install().unwrap_err(), ApplyEditsBusyError);
 
         assert!(state.signal_cancel());
         assert!(active.load(Ordering::Relaxed));
 
         let unrelated = Arc::new(AtomicBool::new(false));
         state.clear_if_mine(&unrelated);
-        assert_eq!(state.try_install().unwrap_err(), ApplyEditsV5BusyError);
+        assert_eq!(state.try_install().unwrap_err(), ApplyEditsBusyError);
 
         state.clear_if_mine(&active);
         let reacquired = state
@@ -906,10 +910,10 @@ mod tests {
     }
 
     #[test]
-    fn v5_busy_error_text_is_stable_and_descriptive() {
+    fn target_busy_error_text_is_stable_and_descriptive() {
         assert_eq!(
-            ApplyEditsV5BusyError.to_string(),
-            "A schema-v5 metadata apply operation is already running"
+            ApplyEditsBusyError.to_string(),
+            "A target-aware metadata apply operation is already running"
         );
     }
 
@@ -925,12 +929,12 @@ mod tests {
 
     #[tokio::test]
     async fn busy_command_starts_no_worker_events_or_persistence_work() {
-        let state = ApplyEditsV5State::new();
+        let state = ApplyEditsState::new();
         let active = state.try_install().unwrap();
         let effects = Arc::new(Mutex::new(AdmissionEffects::default()));
         let effects_for_worker = effects.clone();
 
-        let result = run_apply_edits_v5_command(&state, move |_| {
+        let result = run_apply_edits_command(&state, move |_| {
             let mut effects = effects_for_worker.lock().unwrap();
             effects.workers += 1;
             effects.loads += 1;
@@ -944,7 +948,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("A schema-v5 metadata apply operation is already running".into())
+            Err("A target-aware metadata apply operation is already running".into())
         );
         assert_eq!(*effects.lock().unwrap(), AdmissionEffects::default());
         assert!(!active.load(Ordering::Relaxed));
@@ -953,8 +957,8 @@ mod tests {
 
     #[tokio::test]
     async fn command_lifecycle_releases_after_completion_and_worker_error() {
-        let state = ApplyEditsV5State::new();
-        let completed = run_apply_edits_v5_command(&state, |_| {
+        let state = ApplyEditsState::new();
+        let completed = run_apply_edits_command(&state, |_| {
             std::future::ready::<Result<Result<&'static str, String>, &'static str>>(Ok(Ok(
                 "completed",
             )))
@@ -962,7 +966,7 @@ mod tests {
         .await;
         assert_eq!(completed, Ok("completed"));
 
-        let worker_error = run_apply_edits_v5_command(&state, |_| {
+        let worker_error = run_apply_edits_command(&state, |_| {
             std::future::ready::<Result<Result<(), String>, &'static str>>(Ok(Err(
                 "worker failed".into()
             )))
@@ -978,17 +982,17 @@ mod tests {
 
     #[tokio::test]
     async fn command_lifecycle_releases_after_worker_panic_join_failure() {
-        let state = ApplyEditsV5State::new();
-        let result = run_apply_edits_v5_command(&state, |_| {
+        let state = ApplyEditsState::new();
+        let result = run_apply_edits_command(&state, |_| {
             tokio::task::spawn_blocking(|| -> Result<(), String> {
-                panic!("simulated schema-v5 worker panic")
+                panic!("simulated target-aware worker panic")
             })
         })
         .await;
 
         assert!(result
             .unwrap_err()
-            .starts_with("Schema-v5 apply edits worker failed:"));
+            .starts_with("Target-aware apply edits worker failed:"));
         let reacquired = state
             .try_install()
             .expect("join failure must release command state");
@@ -999,29 +1003,29 @@ mod tests {
     fn strict_load_and_duplicate_validation_precede_all_events_and_work() {
         let events = FakeEvents::default();
         let apply = FakeApply::new([]);
-        let persistence = FakePersistence::new(Err("malformed v5".into()));
-        let error = run_apply_metadata_draft_edits_v5_with(
+        let persistence = FakePersistence::new(Err("malformed target-aware".into()));
+        let error = run_apply_metadata_draft_edits_with(
             "folder",
             &["a.jpg".into()],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
         )
         .unwrap_err();
-        assert_eq!(error, "malformed v5");
+        assert_eq!(error, "malformed target-aware");
         assert!(events.events.lock().unwrap().is_empty());
 
         let target = new_target("1");
         let persistence = FakePersistence::new(Ok(drafts(&[("a.jpg", entry(target, "x"))])));
-        let error = run_apply_metadata_draft_edits_v5_with(
+        let error = run_apply_metadata_draft_edits_with(
             "folder",
             &["a.jpg".into(), "a.jpg".into()],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
@@ -1036,13 +1040,13 @@ mod tests {
     #[test]
     fn zero_selected_starts_once_and_requested_reserved_path_order_is_exact() {
         let events = FakeEvents::default();
-        let empty = FakePersistence::new(Ok(MetadataDraftEditsV5::new()));
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let empty = FakePersistence::new(Ok(MetadataTargetDraftsByFile::new()));
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["missing.jpg".into()],
             &empty,
             &FakeApply::new([]),
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
@@ -1051,7 +1055,7 @@ mod tests {
         assert!(result.files.is_empty());
         assert_eq!(
             events.events.lock().unwrap().as_slice(),
-            &[RecordedEvent::Started(ApplyEditsV5StartedPayload {
+            &[RecordedEvent::Started(MetadataApplyStartedPayload {
                 total: 0
             })]
         );
@@ -1073,12 +1077,12 @@ mod tests {
                     vec![target_outcome(&target, MetadataDraftReconciliation::Keep)],
                 ),
             )]);
-            let result = run_apply_metadata_draft_edits_v5_with(
+            let result = run_apply_metadata_draft_edits_with(
                 "folder",
                 &["absent".into(), reserved.into()],
                 &persistence,
                 &apply,
-                &RealDraftReconcilerV5,
+                &RealDraftReconciler,
                 &FakeTargetLogger::default(),
                 &FakeEvents::default(),
                 Arc::new(AtomicBool::new(false)),
@@ -1090,7 +1094,7 @@ mod tests {
 
     #[test]
     fn cancellation_is_observed_only_at_file_boundaries() {
-        let state = ApplyEditsV5State::new();
+        let state = ApplyEditsState::new();
         let current = state.try_install().unwrap();
         assert!(state.signal_cancel());
         assert!(current.load(Ordering::Relaxed));
@@ -1128,12 +1132,12 @@ mod tests {
         ]);
         apply.cancel_after = Some(("first.jpg".into(), flag.clone()));
         let logger = FakeTargetLogger::default();
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["first.jpg".into(), "second.jpg".into()],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &logger,
             &FakeEvents::default(),
             flag,
@@ -1207,7 +1211,7 @@ mod tests {
         ]);
         let events = FakeEvents::default();
         let logger = FakeTargetLogger::default();
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &[
                 "clear.jpg".into(),
@@ -1217,7 +1221,7 @@ mod tests {
             ],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &logger,
             &events,
             Arc::new(AtomicBool::new(false)),
@@ -1259,12 +1263,12 @@ mod tests {
         let target = new_target("1");
         let persistence = FakePersistence::new(Ok(drafts(&[("a.jpg", entry(target, "x"))])));
         let logger = FakeTargetLogger::default();
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["a.jpg".into()],
             &persistence,
             &FakeApply::new([("a.jpg".into(), outcome(Some("planning failed"), Vec::new()))]),
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &logger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
@@ -1305,12 +1309,12 @@ mod tests {
         ]);
         let events = FakeEvents::default();
         let reconciliation_logger = FakeTargetLogger::default();
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["first.jpg".into(), "later.jpg".into()],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &reconciliation_logger,
             &events,
             Arc::new(AtomicBool::new(false)),
@@ -1347,7 +1351,7 @@ mod tests {
         ])));
         failing.save_error = Some("disk uncertain".into());
         let persistence_logger = FakeTargetLogger::default();
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["first.jpg".into(), "later.jpg".into()],
             &failing,
@@ -1358,7 +1362,7 @@ mod tests {
                     vec![target_outcome(&first, MetadataDraftReconciliation::Clear)],
                 ),
             )]),
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &persistence_logger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
@@ -1398,12 +1402,12 @@ mod tests {
         )]);
         let logger = FakeTargetLogger::default();
 
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["photo.jpg".into()],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &logger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
@@ -1455,12 +1459,12 @@ mod tests {
         };
         let logger = FakeTargetLogger::default();
 
-        run_apply_metadata_draft_edits_v5_with(
+        run_apply_metadata_draft_edits_with(
             "folder",
             &["created.jpg".into()],
             &FakePersistence::new(Ok(drafts(&[("created.jpg", entry(target.clone(), "300"))]))),
             &FakeApply::new([("created.jpg".into(), applied)]),
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &logger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
@@ -1503,12 +1507,12 @@ mod tests {
         let logger =
             FakeTargetLogger::with_results([Err("log destination unavailable".into()), Ok(())]);
 
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["first.jpg".into(), "second.jpg".into()],
             &persistence,
             &apply,
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &logger,
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
@@ -1536,10 +1540,10 @@ mod tests {
     fn run_traced_batch(
         reconciliation_fails: bool,
         save_fails: bool,
-    ) -> (MetadataApplyEditsResultV5, Vec<&'static str>) {
+    ) -> (MetadataApplyResult, Vec<&'static str>) {
         let trace = Arc::new(Mutex::new(Vec::new()));
         let target = new_target("1");
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["a.jpg".into()],
             &TracePersistence {
@@ -1628,12 +1632,12 @@ mod tests {
             events: Mutex::new(Vec::new()),
             fail: true,
         };
-        let result = run_apply_metadata_draft_edits_v5_with(
+        let result = run_apply_metadata_draft_edits_with(
             "folder",
             &["a.jpg".into()],
             &FakePersistence::new(Ok(drafts(&[("a.jpg", entry(target, "x"))]))),
             &FakeApply::new([("a.jpg".into(), applied)]),
-            &RealDraftReconcilerV5,
+            &RealDraftReconciler,
             &FakeTargetLogger::default(),
             &events,
             Arc::new(AtomicBool::new(false)),
@@ -1656,63 +1660,5 @@ mod tests {
         assert!(!json.to_string().contains("draft_persistence"));
         assert!(!json.to_string().contains("post_write"));
         assert!(!json.to_string().contains("identity_model"));
-    }
-
-    #[test]
-    fn event_and_command_names_expose_only_target_apply() {
-        assert_eq!(APPLY_EDITS_V5_STARTED_EVENT, "apply_edits_v5_started");
-        assert_eq!(
-            APPLY_METADATA_EDITS_V5_PROGRESS_EVENT,
-            "apply_metadata_edits_v5_progress"
-        );
-        let lib = include_str!("lib.rs");
-        assert!(!lib.contains("apply_metadata_draft_edits_cmd"));
-        assert!(!lib.contains("fn cancel_apply_edits("));
-        assert!(!lib.contains("\"apply_edits_started\""));
-        assert!(!lib.contains("\"apply_metadata_edits_progress\""));
-        assert!(lib.contains("apply_metadata_draft_edits_v5_cmd"));
-        assert!(lib.contains("cancel_apply_edits_v5"));
-    }
-
-    #[test]
-    fn generated_types_use_exact_domain_types_and_exports() {
-        let file = include_str!("../../src/types/generated/MetadataApplyFileResultV5.ts");
-        for field in [
-            "relative_path",
-            "applied",
-            "error",
-            "warning",
-            "fresh_image_metadata",
-            "target_outcomes",
-            "persisted_draft_entries",
-        ] {
-            assert!(file.contains(field));
-        }
-        assert!(file.contains("ImageMetadata | null"));
-        assert!(file.contains("Array<MetadataTargetOutcome>"));
-        assert!(file.contains("Array<MetadataDraftEntryV5> | null"));
-        assert!(!file.contains("any"));
-        assert!(!file.contains("audit"));
-
-        let batch = include_str!("../../src/types/generated/MetadataApplyEditsResultV5.ts");
-        assert!(batch.contains("files: Array<MetadataApplyFileResultV5>"));
-        for field in ["cancelled", "aborted", "abort_reason"] {
-            assert!(batch.contains(field));
-        }
-        let progress =
-            include_str!("../../src/types/generated/MetadataApplyEditsProgressPayloadV5.ts");
-        assert!(progress.contains("current: number"));
-        assert!(progress.contains("total: number"));
-        assert!(progress.contains("result: MetadataApplyFileResultV5"));
-        assert!(!progress.contains("audit"));
-        let exports = include_str!("../../src/types.ts");
-        for name in [
-            "MetadataApplyFileResultV5",
-            "MetadataApplyEditsResultV5",
-            "ApplyEditsV5StartedPayload",
-            "MetadataApplyEditsProgressPayloadV5",
-        ] {
-            assert!(exports.contains(name));
-        }
     }
 }

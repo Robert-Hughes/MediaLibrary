@@ -20,7 +20,7 @@ import {
   metadataDraftTargetEquals,
 } from "./utils/metadataDraftTarget";
 
-export interface PlannedGpsTargetDraftV5 {
+export interface PlannedGpsTargetDraft {
   id: SchemaDefinitionId;
   target: MetadataDraftTarget;
   edit: MetadataDraftEdit;
@@ -66,14 +66,14 @@ function gpsGroupToken(group: GpsTagGroup): string {
  * Plans one exact, target-aware GPS batch without mutating inputs or stores.
  * Every rejection happens before a result is returned to the caller.
  */
-export function planGpsTargetDraftBatchV5(
+export function planGpsTargetDraftBatch(
   edits: readonly {
     id: SchemaDefinitionId;
     edit: MetadataDraftEdit;
   }[],
   occurrences: ImageMetadataOccurrencesState,
   targetDrafts: TargetDraftCollection | undefined,
-): PlannedGpsTargetDraftV5[] {
+): PlannedGpsTargetDraft[] {
   if (occurrences === "loading") {
     throw new GpsTargetDraftPlanError(
       "occurrences-loading",
@@ -126,7 +126,7 @@ export function planGpsTargetDraftBatchV5(
   }
 
   const occurrenceIndex = buildSchemaOccurrenceResolutionIndex(occurrences);
-  const planned: PlannedGpsTargetDraftV5[] = [];
+  const planned: PlannedGpsTargetDraft[] = [];
   for (const { id, edit } of cloned) {
     const occurrenceResolution = resolutionForSchema(occurrenceIndex, id);
     let target: MetadataDraftTarget;

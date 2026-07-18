@@ -2,7 +2,7 @@ import type {
   ImageMetadata,
   MetadataDraftReconciliation,
   MetadataDraftEdit,
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataDraftTarget,
   MetadataOccurrence,
   MetadataOccurrenceId,
@@ -338,9 +338,9 @@ export function isMetadataDraftEdit(
   );
 }
 
-export function isMetadataDraftEntryV5(
+export function isMetadataTargetDraftEntry(
   value: unknown,
-): value is MetadataDraftEntryV5 {
+): value is MetadataTargetDraftEntry {
   return (
     isRecord(value) &&
     hasOwnStringKeys(value, ["target", "edit"]) &&

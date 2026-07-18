@@ -1,4 +1,4 @@
-import type { MetadataDraftEntryV5 } from "./types";
+import type { MetadataTargetDraftEntry } from "./types";
 import {
   targetDraftsFromUnknownWire,
   targetDraftsToWire,
@@ -9,20 +9,20 @@ export interface TargetDraftTauriApi {
   invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
 }
 
-export async function loadTargetDraftEditsV5(
+export async function loadTargetDraftEdits(
   api: TargetDraftTauriApi,
   folderPath: string,
 ): Promise<TargetDraftEditsByFile> {
-  const raw = await api.invoke("load_metadata_draft_edits_v5", { folderPath });
+  const raw = await api.invoke("load_metadata_draft_edits", { folderPath });
   return targetDraftsFromUnknownWire(raw);
 }
 
-export async function saveTargetDraftEditsV5(
+export async function saveTargetDraftEdits(
   api: TargetDraftTauriApi,
   folderPath: string,
   drafts: TargetDraftEditsByFile,
 ): Promise<void> {
-  const data: Record<string, MetadataDraftEntryV5[]> =
+  const data: Record<string, MetadataTargetDraftEntry[]> =
     targetDraftsToWire(drafts);
-  await api.invoke("save_metadata_draft_edits_v5", { folderPath, data });
+  await api.invoke("save_metadata_draft_edits", { folderPath, data });
 }

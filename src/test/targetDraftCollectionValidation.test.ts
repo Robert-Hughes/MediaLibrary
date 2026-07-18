@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  MetadataDraftEntryV5,
+  MetadataTargetDraftEntry,
   MetadataDraftTarget,
   SchemaDefinitionId,
 } from "../types";
@@ -31,13 +31,13 @@ const target = (path = "JPEG-APP1-IFD0"): MetadataDraftTarget => ({
   write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 });
 
-const entry = (valueTarget = target()): MetadataDraftEntryV5 => ({
+const entry = (valueTarget = target()): MetadataTargetDraftEntry => ({
   target: valueTarget,
   edit: { intent: "Set", value: { kind: "Integer", value: 300 } },
 });
 
 const collection = (
-  ...entries: MetadataDraftEntryV5[]
+  ...entries: MetadataTargetDraftEntry[]
 ): TargetDraftCollection =>
   Object.fromEntries(
     entries.map((value) => [metadataDraftTargetSlotToken(value.target), value]),

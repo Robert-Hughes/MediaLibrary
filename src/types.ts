@@ -15,9 +15,9 @@ import type {
   TargetDraftEditsByFile,
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
-import type { TargetApplyControllerStateV5 } from "./targetApplyController";
-import type { TargetVerifyOutcomesByFileV5 } from "./targetVerifyOutcomes";
-import type { TargetVerifyOutcomesStoreV5 } from "./targetVerifyOutcomesStore";
+import type { TargetApplyControllerState } from "./targetApplyController";
+import type { TargetVerifyOutcomesByFile } from "./targetVerifyOutcomes";
+import type { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 
 export type { PhotoInfo };
 export type { MetadataValue } from "./types/generated/MetadataValue";
@@ -31,8 +31,8 @@ export type { MetadataOccurrences } from "./types/generated/MetadataOccurrences"
 export type { MetadataDraftTarget } from "./types/generated/MetadataDraftTarget";
 export type { MetadataDraftReconciliation } from "./types/generated/MetadataDraftReconciliation";
 export type { MetadataTargetOutcome } from "./types/generated/MetadataTargetOutcome";
-export type { MetadataDraftEntry } from "./types/generated/MetadataDraftEntry";
-export type { MetadataDraftEntryV5 } from "./types/generated/MetadataDraftEntryV5";
+export type { SchemaMetadataEdit } from "./types/generated/SchemaMetadataEdit";
+export type { MetadataTargetDraftEntry } from "./types/generated/MetadataTargetDraftEntry";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 export type { DateValue } from "./types/generated/DateValue";
 export type { TimeValue } from "./types/generated/TimeValue";
@@ -47,10 +47,10 @@ export type { EnumOption } from "./types/generated/EnumOption";
 export type { EnumRepr } from "./types/generated/EnumRepr";
 export type { EditIntent } from "./types/generated/EditIntent";
 export type { ImageMetadata } from "./types/generated/ImageMetadata";
-export type { MetadataApplyFileResultV5 } from "./types/generated/MetadataApplyFileResultV5";
-export type { MetadataApplyEditsResultV5 } from "./types/generated/MetadataApplyEditsResultV5";
-export type { ApplyEditsV5StartedPayload } from "./types/generated/ApplyEditsV5StartedPayload";
-export type { MetadataApplyEditsProgressPayloadV5 } from "./types/generated/MetadataApplyEditsProgressPayloadV5";
+export type { MetadataApplyFileResult } from "./types/generated/MetadataApplyFileResult";
+export type { MetadataApplyResult } from "./types/generated/MetadataApplyResult";
+export type { MetadataApplyStartedPayload } from "./types/generated/MetadataApplyStartedPayload";
+export type { MetadataApplyProgressPayload } from "./types/generated/MetadataApplyProgressPayload";
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 export type BatchJobFailureKind = BatchFailureKind | "draft_stage_failed";
@@ -377,7 +377,7 @@ function stableComparableToken(value: unknown): string {
 
 // ── App state ─────────────────────────────────────────────────────────────────
 
-export type TargetDraftPersistenceStateV5 =
+export type TargetDraftPersistenceState =
   { status: "ready" } | { status: "load-failed"; error: string };
 
 export type AppState =
@@ -416,15 +416,15 @@ export type AppState =
       // Exact target-aware metadata drafts.
       targetDraftEdits: TargetDraftEditsByFile;
       targetDraftEditsStore: TargetDraftEditsStore;
-      targetDraftPersistence: TargetDraftPersistenceStateV5;
-      targetApplying: TargetApplyControllerStateV5;
+      targetDraftPersistence: TargetDraftPersistenceState;
+      targetApplying: TargetApplyControllerState;
 
       // Apply-edits in-flight state (non-null while metadata apply is running)
       applying: ApplyEditsInFlight | null;
 
       /** Exact-target verification outcomes that still need user attention. */
-      targetVerifyOutcomes: TargetVerifyOutcomesByFileV5;
-      targetVerifyOutcomesStore: TargetVerifyOutcomesStoreV5;
+      targetVerifyOutcomes: TargetVerifyOutcomesByFile;
+      targetVerifyOutcomesStore: TargetVerifyOutcomesStore;
     };
 
 export interface ApplyEditsInFlight {

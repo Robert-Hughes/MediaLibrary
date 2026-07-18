@@ -116,7 +116,7 @@ function renderExisting(options: {
       }
       targetDraftPersistence={{ status: "ready" }}
       onSetExistingOccurrenceDraft={vi.fn()}
-      onRemoveMetadataFieldsV5={vi.fn()}
+      onRemoveMetadataFields={vi.fn()}
       onSetNewPropertyDraft={vi.fn()}
       onDiscardTargetPropertyDraft={vi.fn()}
       onDiscardTargetDraftBatch={vi.fn()}
@@ -140,7 +140,7 @@ function renderNewProperty(options: {
       targetDraftEdits={newPropertyDraft(options.id, options.edit)}
       targetDraftPersistence={{ status: "ready" }}
       onSetExistingOccurrenceDraft={vi.fn()}
-      onRemoveMetadataFieldsV5={vi.fn()}
+      onRemoveMetadataFields={vi.fn()}
       onSetNewPropertyDraft={vi.fn()}
       onDiscardTargetPropertyDraft={vi.fn()}
       onDiscardTargetDraftBatch={vi.fn()}

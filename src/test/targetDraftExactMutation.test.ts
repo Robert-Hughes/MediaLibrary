@@ -4,7 +4,7 @@ import {
   targetDraftsToWire,
   validateTargetDraftCollection,
 } from "../targetDraftEdits";
-import type { MetadataDraftEntryV5, MetadataDraftTarget } from "../types";
+import type { MetadataTargetDraftEntry, MetadataDraftTarget } from "../types";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 
 function target(
@@ -32,7 +32,7 @@ function target(
 function entry(
   currentTarget: MetadataDraftTarget,
   value = 1,
-): MetadataDraftEntryV5 {
+): MetadataTargetDraftEntry {
   return {
     target: currentTarget,
     edit: { intent: "Set", value: { kind: "Integer", value } },

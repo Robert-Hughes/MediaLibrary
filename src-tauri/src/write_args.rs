@@ -94,7 +94,7 @@ impl std::error::Error for MetadataTargetWriteError {
 /// Plans a write to one exact existing occurrence after revalidating its
 /// persisted target snapshot against a freshly read authoritative occurrence.
 ///
-/// The schema-v5 single-file writer uses this planner for existing targets.
+/// The target-aware single-file writer uses this planner for existing targets.
 pub fn build_existing_occurrence_args(
     target: &MetadataDraftTarget,
     fresh_occurrence: &MetadataOccurrence,
@@ -127,7 +127,7 @@ pub fn build_existing_occurrence_args(
 
 /// Plans schema-driven creation of a property that has no runtime occurrence.
 ///
-/// The schema-v5 single-file writer uses this planner for new-property targets.
+/// The target-aware single-file writer uses this planner for new-property targets.
 pub fn build_new_property_args(
     target: &MetadataDraftTarget,
     info: &TagInfo,

@@ -1,52 +1,52 @@
 import type {
-  ApplyEditsV5StartedPayload,
-  MetadataApplyEditsProgressPayloadV5,
-  MetadataApplyEditsResultV5,
-  MetadataApplyFileResultV5,
+  MetadataApplyStartedPayload,
+  MetadataApplyProgressPayload,
+  MetadataApplyResult,
+  MetadataApplyFileResult,
 } from "./types";
 import {
-  applyTargetApplyFileResultV5,
-  applyTargetApplyResultV5,
-  type TargetApplyFileApplicationV5,
-  type TargetApplyResultApplicationV5,
+  applyTargetApplyFileResult,
+  applyTargetApplyResult,
+  type TargetApplyFileApplication,
+  type TargetApplyResultApplication,
   type TargetApplyResultStores,
 } from "./targetApplyResults";
 import {
-  applyTargetDraftEditsV5,
-  cancelTargetApplyV5,
-  subscribeTargetApplyV5Events,
+  applyTargetDraftEdits,
+  cancelTargetApply,
+  subscribeTargetApplyEvents,
   type TargetApplyTauriApi,
 } from "./targetApplyTauri";
-import type { TargetDraftAutosaveGateV5 } from "./targetDraftAutosaveGate";
+import type { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 
-const PROGRESS_EVENT = "apply_metadata_edits_v5_progress";
+const PROGRESS_EVENT = "apply_metadata_edits_progress";
 
-export interface TargetApplyControllerDependenciesV5 {
+export interface TargetApplyControllerDependencies {
   api: TargetApplyTauriApi;
   stores: TargetApplyResultStores;
-  autosaveGate: TargetDraftAutosaveGateV5;
+  autosaveGate: TargetDraftAutosaveGate;
 }
 
-export interface TargetApplyControllerProtocolErrorV5 {
+export interface TargetApplyControllerProtocolError {
   eventName: string;
   error: Error;
   rawPayload: unknown;
 }
 
-export interface TargetApplyControllerApplicationErrorV5 {
+export interface TargetApplyControllerApplicationError {
   eventName: string;
   error: Error;
   rawPayload: unknown;
 }
 
-export interface TargetApplyControllerRunResultV5 {
-  commandResult: MetadataApplyEditsResultV5;
-  application: TargetApplyResultApplicationV5;
-  protocolErrors: TargetApplyControllerProtocolErrorV5[];
-  progressApplicationErrors: TargetApplyControllerApplicationErrorV5[];
+export interface TargetApplyControllerRunResult {
+  commandResult: MetadataApplyResult;
+  application: TargetApplyResultApplication;
+  protocolErrors: TargetApplyControllerProtocolError[];
+  progressApplicationErrors: TargetApplyControllerApplicationError[];
 }
 
-export type TargetApplyControllerStateV5 =
+export type TargetApplyControllerState =
   | { status: "idle" }
   | {
       status: "running";
@@ -59,27 +59,27 @@ export type TargetApplyControllerStateV5 =
       fileFailureCount: number;
     };
 
-export interface TargetApplyControllerCallbacksV5 {
-  onStarted?: (payload: ApplyEditsV5StartedPayload) => void;
+export interface TargetApplyControllerCallbacks {
+  onStarted?: (payload: MetadataApplyStartedPayload) => void;
   onProgress?: (
-    payload: MetadataApplyEditsProgressPayloadV5,
-    application: TargetApplyFileApplicationV5,
+    payload: MetadataApplyProgressPayload,
+    application: TargetApplyFileApplication,
   ) => void;
-  onProtocolError?: (error: TargetApplyControllerProtocolErrorV5) => void;
+  onProtocolError?: (error: TargetApplyControllerProtocolError) => void;
   onProgressApplicationError?: (
-    error: TargetApplyControllerApplicationErrorV5,
+    error: TargetApplyControllerApplicationError,
   ) => void;
   onFileError?: (relativePath: string, error: string) => void;
   onFileWarning?: (relativePath: string, warning: string) => void;
   onFinalApplied?: (
-    result: MetadataApplyEditsResultV5,
-    application: TargetApplyResultApplicationV5,
+    result: MetadataApplyResult,
+    application: TargetApplyResultApplication,
   ) => void;
 }
 
 export class TargetApplyControllerBusyError extends Error {
   constructor() {
-    super("A schema-v5 target apply is already owned by this controller");
+    super("A target-aware target apply is already owned by this controller");
     this.name = "TargetApplyControllerBusyError";
   }
 }
@@ -89,8 +89,8 @@ function asError(error: unknown): Error {
 }
 
 function statesEqual(
-  left: TargetApplyControllerStateV5,
-  right: TargetApplyControllerStateV5,
+  left: TargetApplyControllerState,
+  right: TargetApplyControllerState,
 ): boolean {
   if (left.status !== right.status) return false;
   if (left.status === "idle" || right.status === "idle") return true;
@@ -107,36 +107,34 @@ function statesEqual(
 }
 
 function cloneState(
-  state: TargetApplyControllerStateV5,
-): TargetApplyControllerStateV5 {
+  state: TargetApplyControllerState,
+): TargetApplyControllerState {
   return { ...state };
 }
 
 /**
- * Sole production coordinator for the complete frontend schema-v5 apply
+ * Sole production coordinator for the complete frontend target-aware apply
  * protocol. Versioned backend events carry no operation ID, so callers must
  * share one controller instance.
  */
-export class TargetApplyControllerV5 {
-  private state: TargetApplyControllerStateV5 = { status: "idle" };
+export class TargetApplyController {
+  private state: TargetApplyControllerState = { status: "idle" };
   private readonly listeners = new Set<
-    (state: TargetApplyControllerStateV5) => void
+    (state: TargetApplyControllerState) => void
   >();
   private activeRunToken: symbol | null = null;
   private cancellationRequest: Promise<void> | null = null;
 
   constructor(
-    private readonly dependencies: TargetApplyControllerDependenciesV5,
-    private readonly callbacks: TargetApplyControllerCallbacksV5 = {},
+    private readonly dependencies: TargetApplyControllerDependencies,
+    private readonly callbacks: TargetApplyControllerCallbacks = {},
   ) {}
 
-  getState(): TargetApplyControllerStateV5 {
+  getState(): TargetApplyControllerState {
     return cloneState(this.state);
   }
 
-  subscribe(
-    listener: (state: TargetApplyControllerStateV5) => void,
-  ): () => void {
+  subscribe(listener: (state: TargetApplyControllerState) => void): () => void {
     this.listeners.add(listener);
     let subscribed = true;
     return () => {
@@ -149,29 +147,29 @@ export class TargetApplyControllerV5 {
   async run(
     folderPath: string,
     relativePaths: string[],
-  ): Promise<TargetApplyControllerRunResultV5> {
+  ): Promise<TargetApplyControllerRunResult> {
     if (this.activeRunToken !== null) {
       throw new TargetApplyControllerBusyError();
     }
 
-    const runToken = Symbol("target-apply-controller-run-v5");
+    const runToken = Symbol("target-apply-controller-run");
     this.activeRunToken = runToken;
-    const protocolErrors: TargetApplyControllerProtocolErrorV5[] = [];
-    const progressApplicationErrors: TargetApplyControllerApplicationErrorV5[] =
+    const protocolErrors: TargetApplyControllerProtocolError[] = [];
+    const progressApplicationErrors: TargetApplyControllerApplicationError[] =
       [];
     const progressFailedFiles = new Set<string>();
     const presentedFileErrors = new Set<string>();
     const presentedFileWarnings = new Set<string>();
     let acceptEvents = true;
     let acceptProgress = true;
-    let suspension: ReturnType<TargetDraftAutosaveGateV5["trySuspend"]> | null =
+    let suspension: ReturnType<TargetDraftAutosaveGate["trySuspend"]> | null =
       null;
     let cleanup: (() => void) | null = null;
     let primaryError: unknown;
     let cleanupError: unknown;
     let hasPrimaryError = false;
     let hasCleanupError = false;
-    let completed: TargetApplyControllerRunResultV5 | undefined;
+    let completed: TargetApplyControllerRunResult | undefined;
 
     try {
       suspension = this.dependencies.autosaveGate.trySuspend();
@@ -186,7 +184,7 @@ export class TargetApplyControllerV5 {
         fileFailureCount: 0,
       });
 
-      cleanup = await subscribeTargetApplyV5Events(this.dependencies.api, {
+      cleanup = await subscribeTargetApplyEvents(this.dependencies.api, {
         onStarted: (payload) => {
           if (!this.isAccepting(runToken, acceptEvents)) return;
           this.updateRunningState({
@@ -217,14 +215,14 @@ export class TargetApplyControllerV5 {
             presentedFileWarnings,
           );
 
-          let application: TargetApplyFileApplicationV5;
+          let application: TargetApplyFileApplication;
           try {
-            application = applyTargetApplyFileResultV5(
+            application = applyTargetApplyFileResult(
               payload.result,
               this.dependencies.stores,
             );
           } catch (error) {
-            const record: TargetApplyControllerApplicationErrorV5 = {
+            const record: TargetApplyControllerApplicationError = {
               eventName: PROGRESS_EVENT,
               error: asError(error),
               rawPayload: payload,
@@ -245,7 +243,7 @@ export class TargetApplyControllerV5 {
         },
         onProtocolError: (error, eventName, rawPayload) => {
           if (!this.isAccepting(runToken, acceptEvents)) return;
-          const record: TargetApplyControllerProtocolErrorV5 = {
+          const record: TargetApplyControllerProtocolError = {
             eventName,
             error,
             rawPayload,
@@ -260,7 +258,7 @@ export class TargetApplyControllerV5 {
         },
       });
 
-      const commandResult = await applyTargetDraftEditsV5(
+      const commandResult = await applyTargetDraftEdits(
         this.dependencies.api,
         folderPath,
         relativePaths,
@@ -276,7 +274,7 @@ export class TargetApplyControllerV5 {
         );
       }
       this.updateRunningState({ fileFailureCount: progressFailedFiles.size });
-      const application = applyTargetApplyResultV5(
+      const application = applyTargetApplyResult(
         commandResult,
         this.dependencies.stores,
       );
@@ -312,7 +310,7 @@ export class TargetApplyControllerV5 {
     if (hasPrimaryError) {
       if (hasCleanupError) {
         console.error(
-          "[metadata] Failed to clean up schema-v5 apply listeners after an earlier failure",
+          "[metadata] Failed to clean up target-aware apply listeners after an earlier failure",
           cleanupError,
         );
       }
@@ -328,7 +326,7 @@ export class TargetApplyControllerV5 {
 
     const runToken = this.activeRunToken;
     this.updateRunningState({ cancelling: true });
-    const request = cancelTargetApplyV5(this.dependencies.api).catch(
+    const request = cancelTargetApply(this.dependencies.api).catch(
       (error: unknown) => {
         if (this.activeRunToken === runToken) {
           this.updateRunningState({ cancelling: false });
@@ -349,17 +347,14 @@ export class TargetApplyControllerV5 {
 
   private updateRunningState(
     updates: Partial<
-      Omit<
-        Extract<TargetApplyControllerStateV5, { status: "running" }>,
-        "status"
-      >
+      Omit<Extract<TargetApplyControllerState, { status: "running" }>, "status">
     >,
   ): void {
     if (this.state.status !== "running") return;
     this.setState({ ...this.state, ...updates });
   }
 
-  private setState(next: TargetApplyControllerStateV5): void {
+  private setState(next: TargetApplyControllerState): void {
     if (statesEqual(this.state, next)) return;
     this.state = cloneState(next);
     for (const listener of this.listeners) {
@@ -367,7 +362,7 @@ export class TargetApplyControllerV5 {
         listener(cloneState(this.state));
       } catch (error) {
         console.error(
-          "[metadata] Schema-v5 apply state listener failed",
+          "[metadata] Target-aware apply state listener failed",
           error,
         );
       }
@@ -379,7 +374,7 @@ export class TargetApplyControllerV5 {
       callback();
     } catch (error) {
       console.error(
-        `[metadata] Schema-v5 apply callback ${name} failed`,
+        `[metadata] Target-aware apply callback ${name} failed`,
         error,
       );
     }
@@ -387,7 +382,7 @@ export class TargetApplyControllerV5 {
 
   private presentFileDiagnostics(
     result: Pick<
-      MetadataApplyFileResultV5,
+      MetadataApplyFileResult,
       "relative_path" | "error" | "warning"
     >,
     presentedErrors: Set<string>,

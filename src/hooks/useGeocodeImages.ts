@@ -8,12 +8,12 @@
  * `geocode_*` events drive the rest of the state machine.
  */
 import { useMemo } from "react";
-import type { GeneratedDraftStageResultV5 } from "../generatedTargetDrafts";
+import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 import type {
   GeocodeProgressState,
   GeocodeRequestItem,
   GeocodeSummary,
-  MetadataDraftEntry,
+  SchemaMetadataEdit,
 } from "../types";
 import {
   useBatchImageJob,
@@ -39,8 +39,8 @@ export interface GeocodeActions {
 export interface UseGeocodeImagesOptions {
   onApplyEdits?: (
     relativePath: string,
-    edits: MetadataDraftEntry[],
-  ) => GeneratedDraftStageResultV5;
+    edits: SchemaMetadataEdit[],
+  ) => GeneratedDraftStageResult;
 }
 
 /**

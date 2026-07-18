@@ -3,8 +3,7 @@ import {
   knownMetadataWriteTarget,
 } from "./metadata/knownIds";
 import type { TargetDraftCollection } from "./targetDraftEdits";
-import { metadataDraftEntryV5EqualsExact } from "./targetDraftEdits";
-import { resolveTargetDraftByExactSchema } from "./targetDraftView";
+import { metadataTargetDraftEntryEqualsExact } from "./targetDraftEdits";
 import {
   GEOCODE_TARGET_TAGS,
   metadataValueEqual,
@@ -12,8 +11,8 @@ import {
 } from "./types";
 import type {
   ImageMetadataOccurrencesState,
-  MetadataDraftEntry,
-  MetadataDraftEntryV5,
+  SchemaMetadataEdit,
+  MetadataTargetDraftEntry,
   MetadataDraftTarget,
   NormaliseGroup,
   SchemaDefinitionId,
@@ -21,6 +20,7 @@ import type {
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
+  metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
 import { resolveOccurrencesForSchema } from "./utils/metadataOccurrences";
 import {
@@ -29,7 +29,7 @@ import {
   isSchemaDefinitionId,
 } from "./utils/metadataWireGuards";
 import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
-export type GeneratedMetadataProducerV5 =
+export type GeneratedMetadataProducer =
   | { kind: "describe" }
   | { kind: "geocode" }
   | {
@@ -37,13 +37,13 @@ export type GeneratedMetadataProducerV5 =
       enabledGroups: readonly NormaliseGroup[];
     };
 
-export interface GeneratedTargetDraftPlanV5 {
-  upserts: MetadataDraftEntryV5[];
+export interface GeneratedTargetDraftPlan {
+  upserts: MetadataTargetDraftEntry[];
   deletes: MetadataDraftTarget[];
   noops: SchemaDefinitionId[];
 }
 
-export type GeneratedDraftStageResultV5 =
+export type GeneratedDraftStageResult =
   { kind: "success"; changed: boolean } | { kind: "failure"; reason: string };
 export type GeneratedTargetDraftPlanErrorCode =
   | "occurrences_loading"
@@ -92,7 +92,7 @@ function fail(
   );
 }
 
-function producerName(producer: GeneratedMetadataProducerV5): string {
+function producerName(producer: GeneratedMetadataProducer): string {
   switch (producer.kind) {
     case "describe":
       return "AI description";
@@ -104,7 +104,7 @@ function producerName(producer: GeneratedMetadataProducerV5): string {
 }
 
 function allowedSchemaTokens(
-  producer: GeneratedMetadataProducerV5,
+  producer: GeneratedMetadataProducer,
 ): ReadonlySet<string> {
   if (producer.kind === "describe") {
     return new Set(DESCRIBE_TARGET_TAGS.map(schemaDefinitionIdToken));
@@ -120,17 +120,15 @@ function allowedSchemaTokens(
 }
 
 function intentAllowed(
-  producer: GeneratedMetadataProducerV5,
-  intent: MetadataDraftEntry["edit"]["intent"],
+  producer: GeneratedMetadataProducer,
+  intent: SchemaMetadataEdit["edit"]["intent"],
 ): boolean {
   if (producer.kind === "describe") return intent === "Set";
   // Reverse geocoding deliberately emits Delete for absent members of its
   // coherent ten-field replacement set; normalisation also emits Set/Delete.
   return intent === "Set" || intent === "Delete";
 }
-function clonePlan(
-  plan: GeneratedTargetDraftPlanV5,
-): GeneratedTargetDraftPlanV5 {
+function clonePlan(plan: GeneratedTargetDraftPlan): GeneratedTargetDraftPlan {
   return {
     upserts: plan.upserts.map((entry) => structuredClone(entry)),
     deletes: plan.deletes.map((target) => structuredClone(target)),
@@ -139,16 +137,16 @@ function clonePlan(
 }
 
 /**
- * Convert one complete backend-generated semantic edit batch into exact v5
+ * Convert one complete backend-generated semantic edit batch into exact
  * target mutations. The function is pure and never chooses an occurrence
  * heuristically.
  */
-export function planGeneratedTargetDraftBatchV5(input: {
-  producer: GeneratedMetadataProducerV5;
-  edits: readonly MetadataDraftEntry[];
+export function planGeneratedTargetDraftBatch(input: {
+  producer: GeneratedMetadataProducer;
+  edits: readonly SchemaMetadataEdit[];
   occurrences: ImageMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
-}): GeneratedTargetDraftPlanV5 {
+}): GeneratedTargetDraftPlan {
   if (input.edits.length === 0) {
     return {
       upserts: [],
@@ -169,7 +167,7 @@ export function planGeneratedTargetDraftBatchV5(input: {
   for (const [index, candidate] of input.edits.entries()) {
     if (
       !isRecord(candidate) ||
-      !isSchemaDefinitionId(candidate.id) ||
+      !isSchemaDefinitionId(candidate.schema_id) ||
       !isMetadataDraftEdit(candidate.edit)
     ) {
       fail(
@@ -177,12 +175,12 @@ export function planGeneratedTargetDraftBatchV5(input: {
         `Generated metadata entry ${index + 1} is not a valid semantic edit entry.`,
       );
     }
-    const token = schemaDefinitionIdToken(candidate.id);
+    const token = schemaDefinitionIdToken(candidate.schema_id);
     if (seen.has(token)) {
       fail(
         "duplicate_schema",
         `The generated batch contains the same exact schema more than once: ${token}.`,
-        candidate.id,
+        candidate.schema_id,
       );
     }
     seen.add(token);
@@ -190,7 +188,7 @@ export function planGeneratedTargetDraftBatchV5(input: {
       fail(
         "schema_not_allowed",
         `${producerName(input.producer)} is not allowed to generate exact schema ${token}.`,
-        candidate.id,
+        candidate.schema_id,
       );
     }
     if (
@@ -200,14 +198,14 @@ export function planGeneratedTargetDraftBatchV5(input: {
       fail(
         "invalid_entry",
         `Generated ${candidate.edit.intent} edit for ${token} has an invalid semantic value payload.`,
-        candidate.id,
+        candidate.schema_id,
       );
     }
     if (!intentAllowed(input.producer, candidate.edit.intent)) {
       fail(
         "intent_not_allowed",
         `${producerName(input.producer)} does not support generated ${candidate.edit.intent} edits for ${token}.`,
-        candidate.id,
+        candidate.schema_id,
       );
     }
   }
@@ -221,46 +219,21 @@ export function planGeneratedTargetDraftBatchV5(input: {
       ? undefined
       : structuredClone(input.targetDrafts);
 
-  const plan: GeneratedTargetDraftPlanV5 = {
+  const plan: GeneratedTargetDraftPlan = {
     upserts: [],
     deletes: [],
     noops: [],
   };
 
   for (const entry of edits) {
-    const schemaId = entry.id;
+    const schemaId = entry.schema_id;
     const token = schemaDefinitionIdToken(schemaId);
-
-    const owner = resolveTargetDraftByExactSchema(targetDrafts, schemaId);
-    if (owner.kind === "ambiguous") {
-      fail(
-        "multiple_target_owners",
-        `Multiple target-aware drafts own ${token}; no generated target was selected.`,
-        schemaId,
-      );
-    }
 
     const occurrence = resolveOccurrencesForSchema(occurrences, schemaId);
     if (occurrence.kind === "multiple") {
       fail(
         "multiple_occurrences",
         `Exact schema ${token} resolves to multiple authoritative occurrences; no occurrence was selected.`,
-        schemaId,
-      );
-    }
-
-    if (occurrence.kind === "missing" && entry.edit.intent === "Delete") {
-      if (owner.kind === "missing") {
-        plan.noops.push(structuredClone(schemaId));
-        continue;
-      }
-      if (owner.entry.target.kind === "NewProperty") {
-        plan.deletes.push(structuredClone(owner.entry.target));
-        continue;
-      }
-      fail(
-        "stale_target_owner",
-        `An ExistingOccurrence draft owns missing schema ${token}; apply or discard the stale target-aware draft first.`,
         schemaId,
       );
     }
@@ -294,18 +267,27 @@ export function planGeneratedTargetDraftBatchV5(input: {
       plannedTarget = target.target;
     }
 
+    const plannedSlot = metadataDraftTargetSlotToken(plannedTarget);
+    const slotOwner = targetDrafts?.[plannedSlot];
     if (
-      owner.kind === "unique" &&
-      !metadataDraftTargetEquals(owner.entry.target, plannedTarget)
+      slotOwner !== undefined &&
+      !metadataDraftTargetEquals(slotOwner.target, plannedTarget)
     ) {
-      const variantMismatch = owner.entry.target.kind !== plannedTarget.kind;
       fail(
         "target_owner_mismatch",
-        variantMismatch
-          ? `The existing target-aware owner for ${token} uses a different target variant.`
-          : `The existing target-aware owner for ${token} points at a different occurrence or stale runtime selector snapshot.`,
+        `The stored owner of the planned target slot for ${token} has a stale target snapshot.`,
         schemaId,
       );
+    }
+    const owner = slotOwner;
+
+    if (occurrence.kind === "missing" && entry.edit.intent === "Delete") {
+      if (owner === undefined) {
+        plan.noops.push(structuredClone(schemaId));
+      } else {
+        plan.deletes.push(structuredClone(plannedTarget));
+      }
+      continue;
     }
 
     if (
@@ -316,21 +298,21 @@ export function planGeneratedTargetDraftBatchV5(input: {
         entry.edit.value ?? undefined,
       )
     ) {
-      if (owner.kind === "unique") {
-        plan.deletes.push(structuredClone(owner.entry.target));
+      if (owner !== undefined) {
+        plan.deletes.push(structuredClone(plannedTarget));
       } else {
         plan.noops.push(structuredClone(schemaId));
       }
       continue;
     }
 
-    const plannedEntry: MetadataDraftEntryV5 = {
+    const plannedEntry: MetadataTargetDraftEntry = {
       target: structuredClone(plannedTarget),
       edit: structuredClone(entry.edit),
     };
     if (
-      owner.kind === "unique" &&
-      metadataDraftEntryV5EqualsExact(owner.entry, plannedEntry)
+      owner !== undefined &&
+      metadataTargetDraftEntryEqualsExact(owner, plannedEntry)
     ) {
       plan.noops.push(structuredClone(schemaId));
       continue;

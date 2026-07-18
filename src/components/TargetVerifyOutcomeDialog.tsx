@@ -1,7 +1,7 @@
 import type { MetadataDraftTarget, MetadataValue } from "../types";
 import {
   targetVerifyPrimaryAction,
-  type TargetVerifyOutcomesByFileV5,
+  type TargetVerifyOutcomesByFile,
 } from "../targetVerifyOutcomes";
 import {
   metadataEntryToDisplayString,
@@ -14,7 +14,7 @@ import { metadataWriteSelector } from "../utils/metadataWriteTarget";
 import { ModalDialog } from "./ModalDialog";
 
 interface Props {
-  outcomes: TargetVerifyOutcomesByFileV5;
+  outcomes: TargetVerifyOutcomesByFile;
   onAccept: (file: string, target: MetadataDraftTarget) => void;
   onKeep: (file: string, target: MetadataDraftTarget) => void;
   onDiscard: (file: string, target: MetadataDraftTarget) => void;

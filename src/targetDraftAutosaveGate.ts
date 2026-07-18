@@ -1,25 +1,25 @@
-export interface TargetDraftAutosaveSuspensionV5 {
+export interface TargetDraftAutosaveSuspension {
   readonly token: symbol;
   release(): void;
 }
 
 export class TargetDraftAutosaveAlreadySuspendedError extends Error {
   constructor() {
-    super("Schema-v5 target draft autosave is already suspended");
+    super("Target-aware target draft autosave is already suspended");
     this.name = "TargetDraftAutosaveAlreadySuspendedError";
   }
 }
 
 /** Production ownership gate between controller snapshots and UI autosave. */
-export class TargetDraftAutosaveGateV5 {
+export class TargetDraftAutosaveGate {
   private activeToken: symbol | null = null;
 
-  trySuspend(): TargetDraftAutosaveSuspensionV5 {
+  trySuspend(): TargetDraftAutosaveSuspension {
     if (this.activeToken !== null) {
       throw new TargetDraftAutosaveAlreadySuspendedError();
     }
 
-    const token = Symbol("target-draft-autosave-suspension-v5");
+    const token = Symbol("target-draft-autosave-suspension");
     this.activeToken = token;
     let released = false;
 

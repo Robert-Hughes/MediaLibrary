@@ -216,7 +216,7 @@ describe("Reverse-geocoding flow", () => {
     );
   });
 
-  it("sends resolved lat/lon and stages returned edits as exact v5 targets", async () => {
+  it("sends resolved lat/lon and stages returned edits as exact target-aware targets", async () => {
     mockApiInstance.geocodeSchedule = [
       {
         relativePath: "test.jpg",
@@ -268,7 +268,7 @@ describe("Reverse-geocoding flow", () => {
       /Nominatim/,
     );
 
-    // The coherent replacement is staged only in the exact v5 store.
+    // The coherent replacement is staged only in the exact target-aware store.
     const targetDrafts =
       mockApiInstance.targetDraftEditsByFolder["/photos"]?.["test.jpg"] ?? {};
     expect(
@@ -328,8 +328,8 @@ describe("Reverse-geocoding flow", () => {
     });
   });
 
-  it("sends v5 staged coordinates from the PhotoList selection action", async () => {
-    const rel = "list-v5.jpg";
+  it("sends target-aware staged coordinates from the PhotoList selection action", async () => {
+    const rel = "list-target.jpg";
     const occurrences = rawGpsOccurrences();
     seedExistingGpsTargets(rel, occurrences, [
       {
@@ -368,7 +368,7 @@ describe("Reverse-geocoding flow", () => {
     });
   });
 
-  it("keeps the Gallery map and geocode payload equivalent for a v5 Delete", async () => {
+  it("keeps the Gallery map and geocode payload equivalent for a target-aware Delete", async () => {
     const rel = "gallery-delete.jpg";
     const occurrences = rawGpsOccurrences();
     seedExistingGpsTargets(rel, occurrences, [
@@ -395,7 +395,7 @@ describe("Reverse-geocoding flow", () => {
     });
   });
 
-  it("keeps the Gallery map and geocode payload equivalent for v5 reference changes", async () => {
+  it("keeps the Gallery map and geocode payload equivalent for target-aware reference changes", async () => {
     const rel = "gallery-ref.jpg";
     const occurrences = rawGpsOccurrences();
     occurrences[2] = gpsOccurrence(GPS_IDS.longitude, {

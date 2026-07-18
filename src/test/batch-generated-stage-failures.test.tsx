@@ -5,7 +5,7 @@ import {
   useBatchImageJob,
   type BatchJobConfig,
 } from "../hooks/useBatchImageJob";
-import type { MetadataDraftEntry } from "../types";
+import type { SchemaMetadataEdit } from "../types";
 
 let invokeMock: Mock<(...args: unknown[]) => Promise<unknown>>;
 let listenMock: Mock<(...args: unknown[]) => Promise<() => void>>;
@@ -34,7 +34,7 @@ const config: BatchJobConfig<string[], never, Summary> = {
   parseSummaryPayload: (raw) => raw as Summary,
 };
 
-const edits: MetadataDraftEntry[] = [];
+const edits: SchemaMetadataEdit[] = [];
 
 function emit(event: string, payload: unknown): void {
   for (const handler of handlers[event] ?? []) handler({ payload });
@@ -43,7 +43,7 @@ function emit(event: string, payload: unknown): void {
 async function startRun(
   onApplyEdits: (
     relativePath: string,
-    generated: MetadataDraftEntry[],
+    generated: SchemaMetadataEdit[],
   ) =>
     { kind: "success"; changed: boolean } | { kind: "failure"; reason: string },
   paths = ["a.jpg", "b.jpg"],

@@ -5,7 +5,7 @@ import { ask, message } from "@tauri-apps/plugin-dialog";
 import { PhotoList } from "../components/PhotoList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { PhotoInfo, SchemaDefinitionId } from "../types";
-import type { MetadataRemovalFilesPreviewV5 } from "../metadataRemovalTargets";
+import type { MetadataRemovalFilesPreview } from "../metadataRemovalTargets";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -213,10 +213,7 @@ describe("PhotoList column header context menu", () => {
     >;
     let onPreviewFieldMock: ReturnType<
       typeof vi.fn<
-        (
-          id: SchemaDefinitionId,
-          paths: string[],
-        ) => MetadataRemovalFilesPreviewV5
+        (id: SchemaDefinitionId, paths: string[]) => MetadataRemovalFilesPreview
       >
     >;
 

@@ -1,9 +1,9 @@
 import type {
-  ApplyEditsV5StartedPayload,
-  MetadataApplyEditsProgressPayloadV5,
-  MetadataApplyEditsResultV5,
-  MetadataApplyFileResultV5,
-  MetadataDraftEntryV5,
+  MetadataApplyStartedPayload,
+  MetadataApplyProgressPayload,
+  MetadataApplyResult,
+  MetadataApplyFileResult,
+  MetadataTargetDraftEntry,
   MetadataTargetOutcome,
 } from "../types";
 import { targetDraftsFromWire } from "../targetDraftEdits";
@@ -11,7 +11,7 @@ import { metadataDraftTargetSlotToken } from "./metadataDraftTarget";
 import {
   findImageMetadataDuplicateIdentity,
   isImageMetadata,
-  isMetadataDraftEntryV5,
+  isMetadataTargetDraftEntry,
   isMetadataTargetOutcome,
   isRecord,
 } from "./metadataWireGuards";
@@ -26,8 +26,8 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 
 export function targetApplyFileResultFromUnknown(
   raw: unknown,
-  context = "Invalid schema-v5 apply file result",
-): MetadataApplyFileResultV5 {
+  context = "Invalid target-aware apply file result",
+): MetadataApplyFileResult {
   if (!isRecord(raw)) invalid(context, "expected an object");
 
   const relativePath = raw.relative_path;
@@ -112,7 +112,7 @@ export function targetApplyFileResultFromUnknown(
   }
 
   const persisted = raw.persisted_draft_entries;
-  let typedPersisted: MetadataDraftEntryV5[] | null;
+  let typedPersisted: MetadataTargetDraftEntry[] | null;
   if (persisted === null) {
     typedPersisted = null;
   } else {
@@ -124,7 +124,7 @@ export function targetApplyFileResultFromUnknown(
     }
     typedPersisted = [];
     for (const [index, entry] of persisted.entries()) {
-      if (!isMetadataDraftEntryV5(entry)) {
+      if (!isMetadataTargetDraftEntry(entry)) {
         invalid(
           `${context} for '${relativePath}'`,
           `persisted_draft_entries[${index}] is invalid`,
@@ -150,8 +150,8 @@ export function targetApplyFileResultFromUnknown(
 
 export function targetApplyResultFromUnknown(
   raw: unknown,
-): MetadataApplyEditsResultV5 {
-  const context = "Invalid schema-v5 apply result";
+): MetadataApplyResult {
+  const context = "Invalid target-aware apply result";
   if (!isRecord(raw)) invalid(context, "expected an object");
   if (!Array.isArray(raw.files)) invalid(context, "files must be an array");
   if (typeof raw.cancelled !== "boolean") {
@@ -173,7 +173,7 @@ export function targetApplyResultFromUnknown(
     );
   }
 
-  const files: MetadataApplyFileResultV5[] = [];
+  const files: MetadataApplyFileResult[] = [];
   const paths = new Set<string>();
   for (const [index, file] of raw.files.entries()) {
     const parsed = targetApplyFileResultFromUnknown(
@@ -200,8 +200,8 @@ export function targetApplyResultFromUnknown(
 
 export function targetApplyStartedFromUnknown(
   raw: unknown,
-): ApplyEditsV5StartedPayload {
-  const context = "Invalid apply_edits_v5_started payload";
+): MetadataApplyStartedPayload {
+  const context = "Invalid apply_edits_started payload";
   if (!isRecord(raw)) invalid(context, "expected an object");
   if (!isNonNegativeSafeInteger(raw.total)) {
     invalid(context, "total must be a non-negative safe integer");
@@ -211,8 +211,8 @@ export function targetApplyStartedFromUnknown(
 
 export function targetApplyProgressFromUnknown(
   raw: unknown,
-): MetadataApplyEditsProgressPayloadV5 {
-  const context = "Invalid apply_metadata_edits_v5_progress payload";
+): MetadataApplyProgressPayload {
+  const context = "Invalid apply_metadata_edits_progress payload";
   if (!isRecord(raw)) invalid(context, "expected an object");
   if (!isNonNegativeSafeInteger(raw.total) || raw.total < 1) {
     invalid(context, "total must be a positive safe integer");

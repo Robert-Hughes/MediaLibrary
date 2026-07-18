@@ -3,7 +3,7 @@ import type {
   ImageMetadataOccurrencesState,
   MetadataDraftTarget,
   SchemaDefinitionId,
-  TargetDraftPersistenceStateV5,
+  TargetDraftPersistenceState,
 } from "./types";
 import {
   existingOccurrenceTargetFromOccurrence,
@@ -25,7 +25,7 @@ type ExistingOccurrenceTarget = Extract<
   { kind: "ExistingOccurrence" }
 >;
 
-export interface MetadataRemovalTargetPlanV5 {
+export interface MetadataRemovalTargetPlan {
   upserts: Array<{
     target: ExistingOccurrenceTarget;
     edit: {
@@ -37,14 +37,14 @@ export interface MetadataRemovalTargetPlanV5 {
   noops: SchemaDefinitionId[];
 }
 
-export interface MetadataRemovalPreviewV5 {
+export interface MetadataRemovalPreview {
   existingFieldsToDelete: number;
   stagedCreationsToCancel: number;
   noOpFields: number;
   affectedCount: number;
 }
 
-export type MetadataRemovalFilesPreviewV5 =
+export type MetadataRemovalFilesPreview =
   | {
       kind: "ready";
       photoCount: number;
@@ -94,14 +94,14 @@ function sameSchemaOwners(
 }
 
 /**
- * Plans exact schema-v5 removals without mutating any input. A request is
+ * Plans exact target-aware removals without mutating any input. A request is
  * validated completely before any plan is returned.
  */
-export function planMetadataRemovalTargetsV5(input: {
+export function planMetadataRemovalTargets(input: {
   schemaIds: readonly SchemaDefinitionId[];
   occurrences: ImageMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
-}): MetadataRemovalTargetPlanV5 {
+}): MetadataRemovalTargetPlan {
   const { schemaIds, occurrences, targetDrafts } = input;
   if (!Array.isArray(occurrences)) {
     throw new MetadataRemovalTargetPlanError(
@@ -131,7 +131,7 @@ export function planMetadataRemovalTargetsV5(input: {
   }
 
   const index = buildSchemaOccurrenceResolutionIndex(occurrences);
-  const plan: MetadataRemovalTargetPlanV5 = {
+  const plan: MetadataRemovalTargetPlan = {
     upserts: [],
     deletes: [],
     noops: [],
@@ -218,10 +218,10 @@ export function planMetadataRemovalTargetsV5(input: {
 }
 
 /** Derives target-aware removal counts from the exact mutation planner. */
-export function previewMetadataRemovalTargetsV5(
-  input: Parameters<typeof planMetadataRemovalTargetsV5>[0],
-): MetadataRemovalPreviewV5 {
-  const plan = planMetadataRemovalTargetsV5(input);
+export function previewMetadataRemovalTargets(
+  input: Parameters<typeof planMetadataRemovalTargets>[0],
+): MetadataRemovalPreview {
+  const plan = planMetadataRemovalTargets(input);
   const existingFieldsToDelete = plan.upserts.length;
   const stagedCreationsToCancel = plan.deletes.length;
   return {
@@ -236,21 +236,22 @@ export function previewMetadataRemovalTargetsV5(
  * Previews one exact field across files without mutating any store. Each file
  * is planned independently so the first unsafe path can be reported.
  */
-export function previewMetadataRemovalFilesV5(input: {
+export function previewMetadataRemovalFiles(input: {
   schemaId: SchemaDefinitionId;
   relativePaths: readonly string[];
-  targetDraftPersistence: TargetDraftPersistenceStateV5;
+  targetDraftPersistence: TargetDraftPersistenceState;
   occurrencesForPath: (relativePath: string) => ImageMetadataOccurrencesState;
   targetDraftsForPath: (
     relativePath: string,
   ) => TargetDraftCollection | undefined;
-}): MetadataRemovalFilesPreviewV5 {
+}): MetadataRemovalFilesPreview {
   const paths = [...new Set(input.relativePaths)];
   if (input.targetDraftPersistence.status !== "ready") {
     return {
       kind: "blocked",
       relativePath: paths[0] ?? "",
-      reason: "Schema-v5 draft persistence is not ready. Nothing was removed.",
+      reason:
+        "Target-aware draft persistence is not ready. Nothing was removed.",
     };
   }
 
@@ -261,7 +262,7 @@ export function previewMetadataRemovalFilesV5(input: {
 
   for (const relativePath of paths) {
     try {
-      const preview = previewMetadataRemovalTargetsV5({
+      const preview = previewMetadataRemovalTargets({
         schemaIds: [input.schemaId],
         occurrences: input.occurrencesForPath(relativePath),
         targetDrafts: input.targetDraftsForPath(relativePath),
