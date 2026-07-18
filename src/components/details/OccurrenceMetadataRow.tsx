@@ -17,7 +17,7 @@ function rowDatatypeInfo(row: OccurrenceDetailsRow) {
       const schemaInfo = schemaDatatype(row.occurrence.tag_info?.kind);
       const valueInfo = metadataValueDatatype(row.occurrence.value);
       const draftInfo =
-        row.effectiveDraftValue !== null
+        row.effectiveDraftApplied === true && row.effectiveDraftValue !== null
           ? metadataValueDatatype(row.effectiveDraftValue)
           : null;
       return { schemaInfo, valueInfo, draftInfo };
@@ -75,6 +75,8 @@ export function OccurrenceMetadataRow({
     row.kind === "ExistingOccurrenceRow"
       ? row.draft !== null
       : hasPendingOperation;
+  const previewUnsupported =
+    row.kind === "ExistingOccurrenceRow" && row.effectiveDraftApplied === false;
   const schemaId =
     row.kind === "ExistingOccurrenceRow"
       ? row.occurrence.schema_id
@@ -158,7 +160,24 @@ ${forceReadOnlyReason}`
         }
         data-readonly={readOnly ? "true" : undefined}
       >
-        {row.stagedValue !== null ? (
+        {previewUnsupported ? (
+          <>
+            {showValueBadge && valueInfo ? (
+              <DatatypeBadge
+                code={valueInfo.code}
+                label={valueInfo.label}
+                variant="value"
+              />
+            ) : null}
+            <HighlightedText
+              text={row.currentValue}
+              searchQuery={searchQuery}
+            />{" "}
+            <strong className="draft-new draft-new--unavailable">
+              Preview unavailable
+            </strong>
+          </>
+        ) : row.stagedValue !== null ? (
           <>
             {row.currentValue ? (
               <>
