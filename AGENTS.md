@@ -62,6 +62,7 @@ Generated Tauri icon rasters under `src-tauri/icons/` come from SVG sources in `
 ## Reference Docs
 
 - `docs/GENERATED_TYPES.md` - Rust-to-TypeScript binding workflow and pitfalls.
+- `docs/METADATA_IDENTITY_MODEL.md` - canonical guide to friendly labels, schema definitions, runtime occurrences, selectors and draft targets.
 - `docs/METADATA_PIPELINE.md` - tag-schema overrides, draft semantics, and metadata read patterns.
 - `docs/METADATA_FORMATS_DESIGN.md` - metadata type-flow design.
 - `docs/DATATYPE_MISMATCHES.md` - schema-vs-runtime datatype mismatch analysis.
