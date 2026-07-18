@@ -3,6 +3,7 @@ import {
   screen,
   cleanup,
   fireEvent,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -26,8 +27,14 @@ import {
 } from "./tagInfoTestHelpers";
 
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+const askMock = vi.hoisted(() => vi.fn(async () => true));
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  ask: askMock,
 }));
 
 vi.mock("../components/GpsMap", () => ({
@@ -64,6 +71,7 @@ describe("DetailsPane GPS Map integration", () => {
 
   beforeEach(() => {
     cleanup();
+    askMock.mockClear();
     _clearTagInfoCache();
     const commonTags = [
       "GPS:GPSLatitude",
@@ -124,6 +132,240 @@ describe("DetailsPane GPS Map integration", () => {
       };
     });
   }
+
+  function validGpsMetadata() {
+    return mockMetadata({
+      "GPS:GPSLatitude": 51.5001,
+      "GPS:GPSLongitude": 0.1262,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitudeRef": "W",
+    });
+  }
+
+  function gpsHeading() {
+    return within(screen.getByTestId("details-section-GPS")).getByRole(
+      "heading",
+      { name: "GPS", level: 3 },
+    );
+  }
+
+  it("opens the composite GPS editor from the shared GPS heading menu", async () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(validGpsMetadata())}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(gpsHeading());
+    const menu = screen.getByTestId("context-menu");
+    expect(
+      within(menu).getByRole("button", { name: "Edit GPS…" }),
+    ).toBeEnabled();
+    expect(within(menu).queryByRole("button", { name: "Edit…" })).toBeNull();
+    expect(
+      within(menu).queryByRole("button", { name: "Edit destination…" }),
+    ).toBeNull();
+
+    fireEvent.click(within(menu).getByRole("button", { name: "Edit GPS…" }));
+    expect(await screen.findByText("Edit GPS location")).toBeInTheDocument();
+  });
+
+  it("opens identical ordered GPS group options from the overview grid and heading", () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(validGpsMetadata())}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    const optionLabels = () =>
+      within(screen.getByTestId("context-menu"))
+        .getAllByRole("button")
+        .map((button) => button.textContent);
+
+    fireEvent.contextMenu(screen.getByTestId("gps-map-overview-grid"));
+    const overviewLabels = optionLabels();
+    expect(overviewLabels[0]).toBe("Edit GPS…");
+    expect(overviewLabels.some((label) => label?.startsWith("Discard"))).toBe(
+      false,
+    );
+
+    fireEvent.mouseDown(document.body);
+    fireEvent.contextMenu(gpsHeading());
+    expect(optionLabels()).toEqual(overviewLabels);
+  });
+
+  it("keeps non-GPS group menus unchanged", () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 51.5001,
+      "GPS:GPSLongitude": 0.1262,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitudeRef": "W",
+      "IFD0:Make": "Canon",
+    });
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(metadata)}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    const section = screen.getByTestId("details-section-IFD0");
+    fireEvent.contextMenu(
+      within(section).getByRole("heading", { name: "IFD0", level: 3 }),
+    );
+    const menu = screen.getByTestId("context-menu");
+    expect(within(menu).queryByText("Edit GPS…")).toBeNull();
+    expect(within(menu).getByRole("button", { name: /Remove/ })).toBeEnabled();
+  });
+
+  it("omits Edit GPS when the composite callback is unavailable", () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(validGpsMetadata())}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(gpsHeading());
+    const menu = screen.getByTestId("context-menu");
+    expect(within(menu).queryByText("Edit GPS…")).toBeNull();
+    expect(within(menu).getByRole("button", { name: /Remove/ })).toBeEnabled();
+  });
+
+  it("shows planner-blocked GPS editing without allowing the editor to open", () => {
+    const occurrences = occurrencesFor(validGpsMetadata());
+    const latitude = occurrences.find(
+      (occurrence) => occurrence.tag_info?.name === "GPSLatitude",
+    )!;
+    occurrences.push({
+      ...structuredClone(latitude),
+      id: { ...latitude.id, copy: 1 },
+    });
+
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrences}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(gpsHeading());
+    const edit = within(screen.getByTestId("context-menu")).getByRole(
+      "button",
+      { name: "Edit GPS…" },
+    );
+    expect(edit).toBeDisabled();
+    expect(edit).toHaveAttribute(
+      "title",
+      expect.stringMatching(/Several authoritative occurrences/),
+    );
+    fireEvent.click(edit);
+    expect(screen.queryByText("Edit GPS location")).toBeNull();
+  });
+
+  it("blocks GPS editing when target-draft persistence is unsafe", () => {
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(validGpsMetadata())}
+        targetDraftPersistence={{ status: "load-failed", error: "invalid" }}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(gpsHeading());
+    const edit = within(screen.getByTestId("context-menu")).getByRole(
+      "button",
+      { name: "Edit GPS…" },
+    );
+    expect(edit).toBeDisabled();
+    expect(edit).toHaveAttribute(
+      "title",
+      expect.stringMatching(/persistence did not load safely/),
+    );
+  });
+
+  it("counts and discards only complete exact GPS draft targets", async () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 51.5001,
+      "GPS:GPSLongitude": 0.1262,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitudeRef": "W",
+      "IFD0:Make": "Canon",
+    });
+    const occurrences = occurrencesFor(metadata);
+    const latitude = occurrences.find(
+      (occurrence) => occurrence.tag_info?.name === "GPSLatitude",
+    )!;
+    const make = occurrences.find(
+      (occurrence) => occurrence.tag_info?.name === "Make",
+    )!;
+    const latitudeTarget = existingOccurrenceTargetFromOccurrence(latitude);
+    const makeTarget = existingOccurrenceTargetFromOccurrence(make);
+    if (
+      latitudeTarget.kind !== "targetable" ||
+      makeTarget.kind !== "targetable"
+    ) {
+      throw new Error("test occurrences must be targetable");
+    }
+    const store = new TargetDraftEditsStore();
+    store.setMetadataBatch(photo.relative_path, [
+      {
+        target: latitudeTarget.target,
+        edit: { intent: "Set", value: { kind: "Real", value: 52 } },
+      },
+      {
+        target: makeTarget.target,
+        edit: { intent: "Set", value: { kind: "Text", value: "Nikon" } },
+      },
+    ]);
+    const onDiscardTargetDraftBatch = vi.fn(() => true);
+
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrences}
+        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+        onSetGpsTargetDraftBatch={vi.fn(() => true)}
+        onRemoveMetadataFieldsV5={vi.fn()}
+        onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
+      />,
+    );
+
+    fireEvent.contextMenu(gpsHeading());
+    fireEvent.click(
+      within(screen.getByTestId("context-menu")).getByRole("button", {
+        name: "Discard 1 GPS edit…",
+      }),
+    );
+
+    await waitFor(() => expect(onDiscardTargetDraftBatch).toHaveBeenCalled());
+    expect(askMock).toHaveBeenCalledWith(
+      expect.stringContaining("Discard 1 pending GPS field edit"),
+      expect.objectContaining({ title: "Discard GPS Edits" }),
+    );
+    expect(onDiscardTargetDraftBatch).toHaveBeenCalledWith([
+      latitudeTarget.target,
+    ]);
+  });
 
   it("renders the map overview when a GPS section exists and coordinates resolve to valid values", () => {
     const metadata = mockMetadata({
@@ -604,5 +846,55 @@ describe("GpsMapOverview component", () => {
 
     // Verify separate attribution row
     expect(screen.getByText(/OpenStreetMap/)).toBeInTheDocument();
+  });
+
+  it("does not suppress native grid context menus without a callback", () => {
+    render(<GpsMapOverview lat={34.0522} lon={-118.2437} />);
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
+
+    screen.getByTestId("gps-map-overview-grid").dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("leaves attribution links outside the custom grid context-menu surface", () => {
+    const onContextMenu = vi.fn((event: React.MouseEvent) =>
+      event.preventDefault(),
+    );
+    render(
+      <GpsMapOverview
+        lat={34.0522}
+        lon={-118.2437}
+        onContextMenu={onContextMenu}
+      />,
+    );
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+    });
+
+    screen.getByRole("link", { name: "OpenStreetMap" }).dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(onContextMenu).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on an ordinary left-click of the grid", () => {
+    const onContextMenu = vi.fn();
+    render(
+      <GpsMapOverview
+        lat={34.0522}
+        lon={-118.2437}
+        onContextMenu={onContextMenu}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("gps-map-overview-grid"));
+
+    expect(onContextMenu).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("context-menu")).toBeNull();
   });
 });
