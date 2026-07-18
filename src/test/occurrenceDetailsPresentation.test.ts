@@ -17,6 +17,7 @@ import {
   metadataDraftTargetSlotToken,
 } from "../utils/metadataDraftTarget";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
 
 const schema: SchemaDefinitionId = {
   table: "Exif::Main",
@@ -513,6 +514,70 @@ describe("buildOccurrenceDetailsPresentation", () => {
     expect(occupiedRow?.status.code).toBe("destination-occupied");
     expect(distinctRow?.status.code).toBe("new");
   });
+
+  it.each([
+    ["missing", [], "xmp-custom", "ID-Title", "title", true],
+    [
+      "stale",
+      [
+        occurrence("missing-owner", undefined, {
+          observed_selector: selector("IFD0"),
+          write_target: selector("IFD0"),
+        }),
+      ],
+      "XMP-Custom",
+      "ID-Title",
+      "Title",
+      true,
+    ],
+    ["family-7 case difference", [], "XMP-Custom", "id-title", "Title", false],
+  ] as const)(
+    "classifies a %s ExistingOccurrence pending selector without changing the New Property owner",
+    (_case, occurrences, group1, group7, tagName, collides) => {
+      const target = newTarget(otherSchema, "XMP-Custom", "Title");
+      const conflictingOwner = occurrence("missing-owner");
+      const conflictingTarget = {
+        ...exactTarget(conflictingOwner),
+        write_target: { group1, group7, tag_name: tagName },
+      };
+      const targetDrafts = collection([
+        { target, edit: edit({ kind: "Text", value: "New" }) },
+        { target: conflictingTarget, edit: edit() },
+      ]);
+
+      const row = buildOccurrenceDetailsPresentation({
+        occurrences,
+        targetDrafts,
+      })
+        .groups.flatMap((group) => group.rows)
+        .find((candidate) => candidate.kind === "NewPropertyRow");
+      const production = classifyNewPropertyDestination({
+        schemaId: target.schema_id,
+        writeTarget: target.write_target,
+        occurrences,
+        pendingTargets: Object.values(targetDrafts).map(
+          (entry) => entry.target,
+        ),
+        ignoredPendingTarget: target,
+      });
+
+      expect(row?.kind).toBe("NewPropertyRow");
+      expect(row?.target).toEqual(target);
+      expect(row?.removalTarget).toEqual(target);
+      expect(row?.destinationSafety).toEqual(production);
+      if (collides) {
+        expect(row?.status.code).toBe("pending-target-conflict");
+        expect(row?.status.label).toBe("Destination used by pending edit");
+        expect(row?.searchText).toContain("Destination used by pending edit");
+        expect(row?.diagnosticTitle).toContain(
+          JSON.stringify(conflictingTarget),
+        );
+        expect(row?.searchText).toContain(JSON.stringify(conflictingTarget));
+      } else {
+        expect(row?.status.code).toBe("new");
+      }
+    },
+  );
 
   it("keeps an unknown same-schema New Property exact and visibly unsafe", () => {
     const target = newTarget(otherSchema, "XMP-custom", "Title");
