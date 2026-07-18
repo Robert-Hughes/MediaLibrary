@@ -733,25 +733,33 @@ describe("App occurrence wiring regression", () => {
     await waitFor(() => {
       expect(screen.getByText("301")).toBeInTheDocument();
     });
-    expect(screen.queryByTestId("details-occurrence-row")).toBeNull();
-    const uniqueRow = screen.getByText("XResolution").closest("tr")!;
-    fireEvent.contextMenu(uniqueRow);
+    const uniqueRows = screen
+      .getAllByTestId("details-row")
+      .filter((row) => row.dataset.rowKind === "ExistingOccurrenceRow");
+    expect(uniqueRows).toHaveLength(1);
+    fireEvent.contextMenu(uniqueRows[0]);
     expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
     fireEvent.mouseDown(document.body);
 
     fireEvent.click(screen.getByTestId("gallery-next-btn"));
-    const ambiguity = await screen.findByText("2 occurrences");
-    expect(ambiguity.closest("tr")).toHaveAttribute(
-      "data-occurrence-resolution",
-      "multiple",
-    );
-    expect(screen.getAllByTestId("details-occurrence-row")).toHaveLength(2);
+    await screen.findByTestId("details-section-IFD1");
+    expect(
+      screen.queryByText("Additional Metadata Occurrences"),
+    ).not.toBeInTheDocument();
+    const duplicateRows = screen
+      .getAllByTestId("details-row")
+      .filter((row) => row.dataset.rowKind === "ExistingOccurrenceRow");
+    expect(duplicateRows).toHaveLength(2);
+    expect(screen.getByTestId("details-section-IFD0")).toHaveTextContent("300");
+    expect(screen.getByTestId("details-section-IFD1")).toHaveTextContent("300");
     expect(screen.queryByTestId("error-banner")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("status-bar-metadata-spinner"),
     ).not.toBeInTheDocument();
-    fireEvent.contextMenu(ambiguity.closest("tr")!);
-    expect(screen.queryByText(/^Edit…$/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/^Remove$/)).not.toBeInTheDocument();
+    for (const row of duplicateRows) {
+      fireEvent.contextMenu(row);
+      expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+      fireEvent.mouseDown(document.body);
+    }
   });
 });

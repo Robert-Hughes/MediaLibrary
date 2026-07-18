@@ -528,11 +528,16 @@ export function buildOccurrenceDetailsPresentation(
     const stagedValue = displayStringOfMetadataDraft(entry.edit) ?? null;
     const occupied = occurrences.some(
       (occurrence) =>
-        occurrence.observed_selector !== null &&
-        metadataWriteTargetEquals(
-          occurrence.observed_selector,
-          entry.target.write_target,
-        ),
+        (occurrence.write_target !== null &&
+          metadataWriteTargetEquals(
+            occurrence.write_target,
+            entry.target.write_target,
+          )) ||
+        (occurrence.observed_selector !== null &&
+          metadataWriteTargetEquals(
+            occurrence.observed_selector,
+            entry.target.write_target,
+          )),
     );
     const rowStatus = occupied ? status("destination-occupied") : status("new");
     const searchParts = targetSearchParts({
@@ -581,7 +586,9 @@ export function buildOccurrenceDetailsPresentation(
           ? status("duplicate-occurrence-id")
           : status("conflicting-targets");
     const group = targetGroup(entry.target);
-    const label = targetLabel(entry.target, null);
+    const tagInfo =
+      input.tagInfos?.[schemaDefinitionIdToken(entry.target.schema_id)] ?? null;
+    const label = targetLabel(entry.target, tagInfo);
     const stagedValue = displayStringOfMetadataDraft(entry.edit) ?? null;
     const searchParts = targetSearchParts({
       target: entry.target,
@@ -590,7 +597,7 @@ export function buildOccurrenceDetailsPresentation(
       group,
       stagedValue,
       rowStatus,
-      tagInfo: null,
+      tagInfo,
     });
     rows.push({
       fallback: false,

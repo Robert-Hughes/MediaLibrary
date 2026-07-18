@@ -171,7 +171,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Find "Canon" in details pane
     const ifd0Section = screen.getByTestId("details-section-IFD0");
-    const canonCell = within(ifd0Section).getByTitle("Canon");
+    const canonCell = within(ifd0Section).getByText("Canon").closest("tr")!;
 
     // Right click Canon to edit
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
@@ -228,7 +228,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Details pane should show Canon again, no draft
     expect(
-      within(screen.getByTestId("details-section-IFD0")).getByTitle("Canon"),
+      within(screen.getByTestId("details-section-IFD0")).getByText("Canon"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Sony")).toBeNull();
 
@@ -307,7 +307,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Right-click the new row → Remove
     await user.pointer({ keys: "[MouseRight]", target: newRow });
-    await user.click(screen.getByText("Remove"));
+    await user.click(screen.getByText("Discard edit"));
 
     // No draft should remain — badge gone, Apply gone, Discard All gone,
     // and the row itself should no longer be rendered.
@@ -366,9 +366,9 @@ describe("Draft Metadata Editing Integration", () => {
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
-    const canonCell = within(
-      screen.getByTestId("details-section-IFD0"),
-    ).getByTitle("Canon");
+    const canonCell = within(screen.getByTestId("details-section-IFD0"))
+      .getByText("Canon")
+      .closest("tr")!;
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
 
@@ -452,9 +452,9 @@ describe("Draft Metadata Editing Integration", () => {
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
-    const canonCell = within(
-      screen.getByTestId("details-section-IFD0"),
-    ).getByTitle("Canon");
+    const canonCell = within(screen.getByTestId("details-section-IFD0"))
+      .getByText("Canon")
+      .closest("tr")!;
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
 
@@ -537,9 +537,9 @@ describe("Draft Metadata Editing Integration", () => {
     // Edit first photo
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
-    let canonCell = within(
-      screen.getByTestId("details-section-IFD0"),
-    ).getByTitle("Canon");
+    let canonCell = within(screen.getByTestId("details-section-IFD0"))
+      .getByText("Canon")
+      .closest("tr")!;
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
     let input = screen.getByRole("textbox");
@@ -552,9 +552,9 @@ describe("Draft Metadata Editing Integration", () => {
     // detailsVisible across opens, so no second toggle click needed.
     rows = screen.getAllByTestId("photo-row");
     await user.dblClick(rows[1]);
-    canonCell = within(screen.getByTestId("details-section-IFD0")).getByTitle(
-      "Canon",
-    );
+    canonCell = within(screen.getByTestId("details-section-IFD0"))
+      .getByText("Canon")
+      .closest("tr")!;
     await user.pointer({ keys: "[MouseRight]", target: canonCell });
     await user.click(screen.getByText("Edit…"));
     input = screen.getByRole("textbox");
