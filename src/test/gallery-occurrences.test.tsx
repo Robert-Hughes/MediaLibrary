@@ -49,7 +49,7 @@ function props(imageMetadataOccurrences: ImageMetadataOccurrencesStore) {
     onNavigate: vi.fn(),
     loadImage: async () => "data:image/jpeg;base64,FAKE",
     imageMetadataOccurrences,
-    onRemoveMetadataFields: vi.fn(),
+    onRemoveMetadataTargets: vi.fn(),
     onDiscardTargetDraftBatch: vi.fn(),
   };
 }
@@ -103,7 +103,7 @@ describe("Gallery occurrence-store subscription", () => {
     expect(screen.getByText("No image metadata available")).toBeInTheDocument();
   });
 
-  it("reacts when the current schema changes from unique to multiple", async () => {
+  it("reacts when one schema gains a second authoritative occurrence", async () => {
     const occurrences = new ImageMetadataOccurrencesStore();
     occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 301, "IFD0")]);
 
@@ -130,19 +130,29 @@ describe("Gallery occurrence-store subscription", () => {
       ]);
     });
 
-    const multipleRow = await screen.findByText("2 occurrences");
-    expect(multipleRow.closest("tr")).toHaveAttribute(
-      "data-occurrence-resolution",
-      "multiple",
-    );
-    const supplemental = screen.getByTestId(
-      "details-section-additional-occurrences",
-    );
     expect(
-      within(supplemental).getAllByTestId("details-occurrence-row"),
-    ).toHaveLength(2);
-    fireEvent.contextMenu(multipleRow.closest("tr")!);
-    expect(screen.queryByRole("button", { name: "Edit…" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+      await screen.findByTestId("details-section-IFD1"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Additional Metadata Occurrences"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("2 occurrences")).not.toBeInTheDocument();
+
+    const occurrenceRows = screen
+      .getAllByTestId("details-row")
+      .filter((row) => row.dataset.rowKind === "ExistingOccurrenceRow");
+    expect(occurrenceRows).toHaveLength(2);
+    expect(
+      within(screen.getByTestId("details-section-IFD0")).getByText("301"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("details-section-IFD1")).getByText("301"),
+    ).toBeInTheDocument();
+
+    for (const row of occurrenceRows) {
+      fireEvent.contextMenu(row);
+      expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
+    }
   });
 });

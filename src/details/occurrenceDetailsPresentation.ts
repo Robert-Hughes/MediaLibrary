@@ -200,24 +200,28 @@ function existingLabel(occurrence: MetadataOccurrence): string {
 function draftDisplay(
   occurrence: MetadataOccurrence,
   draft: MetadataTargetDraftEntry | null,
+  displayTagInfo: TagInfo | null,
 ): string | null {
   if (draft === null || draft.edit.intent === "Delete") return null;
   const value = effectiveExistingDraftValue(occurrence.value, draft.edit);
-  return occurrence.tag_info
+  return displayTagInfo
     ? metadataValueToDisplayStringForTag(
         occurrence.schema_id,
         value,
-        occurrence.tag_info,
+        displayTagInfo,
       )
     : (displayStringOfMetadataDraft(draft.edit) ?? null);
 }
 
-function currentDisplay(occurrence: MetadataOccurrence): string {
-  return occurrence.tag_info
+function currentDisplay(
+  occurrence: MetadataOccurrence,
+  displayTagInfo: TagInfo | null,
+): string {
+  return displayTagInfo
     ? metadataValueToDisplayStringForTag(
         occurrence.schema_id,
         occurrence.value,
-        occurrence.tag_info,
+        displayTagInfo,
       )
     : metadataValueToDisplayString(occurrence.value);
 }
@@ -458,8 +462,11 @@ export function buildOccurrenceDetailsPresentation(
 
     const group = existingGroup(occurrence);
     const label = existingLabel(occurrence);
-    const currentValue = currentDisplay(occurrence);
-    const stagedValue = draftDisplay(occurrence, draft);
+    const displayTagInfo =
+      input.tagInfos?.[schemaDefinitionIdToken(occurrence.schema_id)] ??
+      occurrence.tag_info;
+    const currentValue = currentDisplay(occurrence, displayTagInfo);
+    const stagedValue = draftDisplay(occurrence, draft, displayTagInfo);
     const rowStatus = duplicateOccurrenceId
       ? status("duplicate-occurrence-id")
       : staleDraft

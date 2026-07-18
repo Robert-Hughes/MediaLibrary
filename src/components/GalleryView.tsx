@@ -3,7 +3,6 @@ import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { DetailsPane } from "./DetailsPane";
 import type {
   MetadataDraftEdit,
-  SchemaDefinitionId,
   PhotoInfo,
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
@@ -49,9 +48,9 @@ interface Props {
     target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }>,
     edit: MetadataDraftEdit,
   ) => void;
-  onRemoveMetadataFields?: (
+  onRemoveMetadataTargets?: (
     fileRelativePath: string,
-    ids: SchemaDefinitionId[],
+    targets: MetadataDraftTarget[],
   ) => boolean;
   onApplyGpsTargetDraftBatch?: (
     fileRelativePath: string,
@@ -99,7 +98,7 @@ export function GalleryView({
   targetDraftEdits,
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
-  onRemoveMetadataFields,
+  onRemoveMetadataTargets,
   onApplyGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onReplaceNewPropertyDraftTarget,
@@ -351,8 +350,8 @@ export function GalleryView({
             onSetExistingOccurrenceDraft={(target, edit) =>
               onSetExistingOccurrenceDraft?.(photo.relative_path, target, edit)
             }
-            onRemoveMetadataFields={(ids) =>
-              onRemoveMetadataFields?.(photo.relative_path, ids) ?? false
+            onRemoveMetadataTargets={(targets) =>
+              onRemoveMetadataTargets?.(photo.relative_path, targets) ?? false
             }
             onApplyGpsTargetDraftBatch={(entries) =>
               onApplyGpsTargetDraftBatch?.(photo.relative_path, entries) ??
