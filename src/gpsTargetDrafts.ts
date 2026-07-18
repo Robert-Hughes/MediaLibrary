@@ -41,6 +41,7 @@ export type GpsTargetDraftPlanErrorCode =
   | "duplicate-target-slot"
   | "duplicate-occurrence-id"
   | "ambiguous-staged-target"
+  | "stale-staged-target"
   | "non-gps-schema"
   | "mixed-gps-groups"
   | "multiple-occurrences"
@@ -50,7 +51,6 @@ export type GpsTargetDraftPlanErrorCode =
   | "destination-unknown"
   | "selector-collision"
   | "invalid-destination";
-
 /** A user-facing, machine-distinguishable rejection from GPS target handling. */
 export class GpsTargetDraftPlanError extends Error {
   constructor(
@@ -168,16 +168,20 @@ export function planGpsTargetDraftBatch(
       const stagedTargets = Object.values(targetDrafts ?? {})
         .map((entry) => entry.target)
         .filter(
-          (
-            candidate,
-          ): candidate is Extract<
-            MetadataDraftTarget,
-            { kind: "NewProperty" }
-          > =>
-            candidate.kind === "NewProperty" &&
+          (candidate) =>
             schemaDefinitionIdToken(candidate.schema_id) ===
-              schemaDefinitionIdToken(id),
+            schemaDefinitionIdToken(id),
         );
+      const staleExistingTargets = stagedTargets.filter(
+        (candidate) => candidate.kind === "ExistingOccurrence",
+      );
+      if (staleExistingTargets.length > 0) {
+        const message =
+          stagedTargets.length > 1
+            ? "Several staged targets exist for this missing GPS field, including an ExistingOccurrence draft whose authoritative occurrence no longer exists. The GPS editor was not opened and nothing was saved."
+            : "A staged ExistingOccurrence draft no longer has its authoritative occurrence. The GPS editor was not opened and nothing was saved.";
+        throw new GpsTargetDraftPlanError("stale-staged-target", message, id);
+      }
       if (stagedTargets.length > 1) {
         throw new GpsTargetDraftPlanError(
           "ambiguous-staged-target",

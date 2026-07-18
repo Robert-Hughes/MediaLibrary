@@ -818,6 +818,7 @@ function DetailsGroupContextMenu({
           edit: { intent: "Delete" as const, value: null },
         })),
         occurrences ?? "loading",
+        targetDraftEdits,
       );
       return {};
     } catch (error) {
@@ -825,8 +826,13 @@ function DetailsGroupContextMenu({
         blocked: error instanceof Error ? error.message : String(error),
       };
     }
-  }, [gpsGroup, occurrences, onEditGps, targetDraftPersistence.status]);
-
+  }, [
+    gpsGroup,
+    occurrences,
+    onEditGps,
+    targetDraftEdits,
+    targetDraftPersistence.status,
+  ]);
   const removeCount = removalPreview.preview?.affectedCount ?? 0;
   const draftCount = targetDraftTargets.length;
   const showEditGps = gpsEditPreview !== null;
@@ -1911,6 +1917,7 @@ export function DetailsPane({
         occurrences ?? "loading",
         targetDraftEdits,
       );
+      setEditDialogUnavailableMessage(null);
       setEditDialog({
         kind: "gps-composite",
         group: structuredClone(group),

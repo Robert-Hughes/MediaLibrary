@@ -324,3 +324,80 @@ describe("target-first GPS regressions", () => {
     ).toHaveLength(2);
   });
 });
+
+describe("missing GPS schema staged-target hierarchy", () => {
+  const staleTarget = (): MetadataDraftTarget => {
+    const source = occurrence();
+    return {
+      kind: "ExistingOccurrence",
+      occurrence_id: structuredClone(source.id),
+      schema_id: structuredClone(source.schema_id),
+      write_target: structuredClone(source.write_target!),
+    };
+  };
+
+  it("rejects one stale ExistingOccurrence target", () => {
+    expectCode(
+      () =>
+        planGpsTargetDraftBatch(
+          [{ id: GPS_IDS.latitude, edit }],
+          [],
+          drafts([{ target: staleTarget(), edit }]),
+        ),
+      "stale-staged-target",
+    );
+  });
+
+  it("rejects a New Property target combined with a stale ExistingOccurrence", () => {
+    expectCode(
+      () =>
+        planGpsTargetDraftBatch(
+          [{ id: GPS_IDS.latitude, edit }],
+          [],
+          drafts([
+            { target: newTarget("CustomGPS"), edit },
+            { target: staleTarget(), edit },
+          ]),
+        ),
+      "stale-staged-target",
+    );
+  });
+
+  it("rejects several stale ExistingOccurrence targets independent of insertion order", () => {
+    const first = staleTarget();
+    const second = staleTarget();
+    if (second.kind === "ExistingOccurrence") second.occurrence_id.copy = 1;
+    for (const targets of [
+      [first, second],
+      [second, first],
+    ]) {
+      expectCode(
+        () =>
+          planGpsTargetDraftBatch(
+            [{ id: GPS_IDS.latitude, edit }],
+            [],
+            drafts(targets.map((target) => ({ target, edit }))),
+          ),
+        "stale-staged-target",
+      );
+    }
+  });
+
+  it("preserves one staged New Property target and otherwise uses the registered default", () => {
+    const custom = newTarget("CustomGPS");
+    expect(
+      planGpsTargetDraftBatch(
+        [{ id: GPS_IDS.latitude, edit }],
+        [],
+        drafts([{ target: custom, edit }]),
+      )[0].target,
+    ).toEqual(custom);
+    expect(
+      planGpsTargetDraftBatch([{ id: GPS_IDS.latitude, edit }], [])[0].target,
+    ).toEqual({
+      kind: "NewProperty",
+      schema_id: GPS_IDS.latitude,
+      write_target: knownMetadataWriteTarget(GPS_IDS.latitude),
+    });
+  });
+});
