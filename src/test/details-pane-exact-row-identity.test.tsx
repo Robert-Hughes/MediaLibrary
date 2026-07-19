@@ -476,11 +476,13 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(row.querySelector(".draft-original")).toBeNull();
     expect(row).toHaveAttribute("data-has-pending-operation", "true");
     expect(row).not.toHaveAttribute("title");
-    expect(tooltipCells(row).value).toHaveAttribute(
+    const { name, value } = tooltipCells(row);
+    expect(name.title).toContain("Editable: false");
+    expect(name.title).not.toContain(reason);
+    expect(value).toHaveAttribute(
       "title",
       expect.stringContaining(`Reason: ${reason}`),
     );
-
     fireEvent.contextMenu(row);
     fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
     expect(screen.queryByTestId("typed-value-editor")).toBeNull();
