@@ -3,6 +3,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GpsMap } from "../components/GpsMap";
 import L from "leaflet";
 
+type MockLeafletMouseEvent = {
+  latlng: { lat: number; lng: number };
+  originalEvent: {
+    shiftKey: boolean;
+    preventDefault: () => void;
+  };
+};
+type MockMapCallback = (...args: unknown[]) => unknown;
+
 // Mock Leaflet classes and methods
 const mockMapInstance = {
   setView: vi.fn().mockReturnThis(),
@@ -177,9 +186,9 @@ describe("GpsMap component", () => {
 
   it("does not select on ordinary left-click", () => {
     const onPositionSelect = vi.fn();
-    let clickCallback: (e: any) => void = () => {};
+    let clickCallback: (e: MockLeafletMouseEvent) => void = () => {};
     mockMapInstance.on.mockImplementation(
-      (event: string, cb: (e: any) => void) => {
+      (event: string, cb: (e: MockLeafletMouseEvent) => void) => {
         if (event === "click") {
           clickCallback = cb;
         }
@@ -210,9 +219,9 @@ describe("GpsMap component", () => {
 
   it("selects on Shift+left-click and normalises/clamps coordinates", () => {
     const onPositionSelect = vi.fn();
-    let clickCallback: (e: any) => void = () => {};
+    let clickCallback: (e: MockLeafletMouseEvent) => void = () => {};
     mockMapInstance.on.mockImplementation(
-      (event: string, cb: (e: any) => void) => {
+      (event: string, cb: (e: MockLeafletMouseEvent) => void) => {
         if (event === "click") {
           clickCallback = cb;
         }
@@ -252,9 +261,9 @@ describe("GpsMap component", () => {
 
   it("selects on right-click immediately available on mount and calls preventDefault", () => {
     const onPositionSelect = vi.fn();
-    let contextmenuCallback: (e: any) => void = () => {};
+    let contextmenuCallback: (e: MockLeafletMouseEvent) => void = () => {};
     mockMapInstance.on.mockImplementation(
-      (event: string, cb: (e: any) => void) => {
+      (event: string, cb: (e: MockLeafletMouseEvent) => void) => {
         if (event === "contextmenu") {
           contextmenuCallback = cb;
         }
@@ -285,9 +294,9 @@ describe("GpsMap component", () => {
 
   it("right-click prevents default even for invalid coordinates", () => {
     const onPositionSelect = vi.fn();
-    let contextmenuCallback: (e: any) => void = () => {};
+    let contextmenuCallback: (e: MockLeafletMouseEvent) => void = () => {};
     mockMapInstance.on.mockImplementation(
-      (event: string, cb: (e: any) => void) => {
+      (event: string, cb: (e: MockLeafletMouseEvent) => void) => {
         if (event === "contextmenu") {
           contextmenuCallback = cb;
         }
@@ -318,9 +327,9 @@ describe("GpsMap component", () => {
 
   it("does not select on Shift+left-click when read-only", () => {
     const onPositionSelect = vi.fn();
-    let clickCallback: (e: any) => void = () => {};
+    let clickCallback: (e: MockLeafletMouseEvent) => void = () => {};
     mockMapInstance.on.mockImplementation(
-      (event: string, cb: (e: any) => void) => {
+      (event: string, cb: (e: MockLeafletMouseEvent) => void) => {
         if (event === "click") {
           clickCallback = cb;
         }
@@ -351,9 +360,9 @@ describe("GpsMap component", () => {
 
   it("two consecutive ordinary clicks (double click candidate) do not invoke selection", () => {
     const onPositionSelect = vi.fn();
-    let clickCallback: (e: any) => void = () => {};
+    let clickCallback: (e: MockLeafletMouseEvent) => void = () => {};
     mockMapInstance.on.mockImplementation(
-      (event: string, cb: (e: any) => void) => {
+      (event: string, cb: (e: MockLeafletMouseEvent) => void) => {
         if (event === "click") {
           clickCallback = cb;
         }
@@ -389,9 +398,9 @@ describe("GpsMap component", () => {
   it("uses the latest callback and readOnly values on click without reconstructing the map", () => {
     const callback1 = vi.fn();
     const callback2 = vi.fn();
-    let clickCallback: (e: any) => void = () => {};
+    let clickCallback: (e: MockLeafletMouseEvent) => void = () => {};
     mockMapInstance.on.mockImplementation(
-      (event: string, cb: (e: any) => void) => {
+      (event: string, cb: (e: MockLeafletMouseEvent) => void) => {
         if (event === "click") {
           clickCallback = cb;
         }
@@ -458,17 +467,21 @@ describe("GpsMap component", () => {
 
   it("manages event listener registration and cleanup lifecycle based on mode and read-only status", () => {
     const onPositionSelect = vi.fn();
-    const registered: Array<{ event: string; cb: any }> = [];
-    const unregistered: Array<{ event: string; cb: any }> = [];
+    const registered: Array<{ event: string; cb: MockMapCallback }> = [];
+    const unregistered: Array<{ event: string; cb: MockMapCallback }> = [];
 
-    mockMapInstance.on.mockImplementation((event: string, cb: any) => {
-      registered.push({ event, cb });
-      return mockMapInstance;
-    });
-    mockMapInstance.off.mockImplementation((event: string, cb: any) => {
-      unregistered.push({ event, cb });
-      return mockMapInstance;
-    });
+    mockMapInstance.on.mockImplementation(
+      (event: string, cb: MockMapCallback) => {
+        registered.push({ event, cb });
+        return mockMapInstance;
+      },
+    );
+    mockMapInstance.off.mockImplementation(
+      (event: string, cb: MockMapCallback) => {
+        unregistered.push({ event, cb });
+        return mockMapInstance;
+      },
+    );
 
     // 1. Initial mount in editable picker mode
     const { rerender, unmount } = render(
@@ -543,11 +556,13 @@ describe("GpsMap component", () => {
   });
 
   it("registers click and moveend but not contextmenu on initial read-only mount", () => {
-    const registered: Array<{ event: string; cb: any }> = [];
-    mockMapInstance.on.mockImplementation((event: string, cb: any) => {
-      registered.push({ event, cb });
-      return mockMapInstance;
-    });
+    const registered: Array<{ event: string; cb: MockMapCallback }> = [];
+    mockMapInstance.on.mockImplementation(
+      (event: string, cb: MockMapCallback) => {
+        registered.push({ event, cb });
+        return mockMapInstance;
+      },
+    );
 
     render(
       <GpsMap

@@ -23,12 +23,15 @@ import type {
   MetadataDraftEdit,
   MetadataValue,
   SchemaDefinitionId,
+  TagInfo,
   TagKind,
 } from "../types";
 import { mockMetadata, testId } from "./factories";
+type TagInfoFixture = Omit<TagInfo, "id"> | null;
 
-function _setTagInfoCacheEntry(key: string, value: any) {
-  setExactTagInfo(testId(key), value);
+function _setTagInfoCacheEntry(key: string, value: TagInfoFixture) {
+  const id = testId(key);
+  setExactTagInfo(id, value === null ? null : { ...value, id });
 }
 
 type TestEditorProps = Omit<

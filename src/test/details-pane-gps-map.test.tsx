@@ -26,7 +26,10 @@ import {
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 
-import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+import {
+  kindForValue,
+  occurrencesFromMetadataCollection,
+} from "./occurrenceFixtures";
 const askMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -120,7 +123,7 @@ describe("DetailsPane GPS Map integration", () => {
           group,
           name,
           writable: true,
-          kind: { kind: value.kind } as any,
+          kind: kindForValue(value),
           description: null,
         },
         observed_selector: {

@@ -1,4 +1,4 @@
-import type { ImageMetadataEntry, MetadataValue, TagKind } from "../types";
+import type { MetadataValue, TagKind } from "../types";
 
 export interface DatatypeInfo {
   code: string;
@@ -63,9 +63,7 @@ export function schemaDatatype(
  * array / object) for the fallback path where the backend has emitted a
  * value that was not wrapped in a typed {@link MetadataValue} envelope.
  */
-export function metadataEntryDatatype(
-  v: ImageMetadataEntry | undefined,
-): DatatypeInfo | null {
+export function metadataEntryDatatype(v: unknown): DatatypeInfo | null {
   if (v === undefined) return null;
   if (isMetadataValue(v)) return metadataValueDatatype(v);
   if (v === null) return { code: "∅", label: "Null" };
