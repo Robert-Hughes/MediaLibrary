@@ -19,3 +19,6 @@ Thumbs.db
 # ── Historical scripts (reference only, not part of the app) ─────────────────
 Update Metadata Scripts/
 test_images/MediaLibraryDraftEdits.jsonl
+
+# Local manual-validation fixtures
+manual-fixtures/
