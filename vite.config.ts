@@ -40,6 +40,11 @@ export default defineConfig(async () => ({
       "@tauri-apps/api/event",
     ],
   },
+  build: {
+    // Temporary explicit performance budget. Strict validation fails on any
+    // Vite warning, including chunks that grow beyond 1 MB.
+    chunkSizeWarningLimit: 1024,
+  },
 
   // Vitest configuration
   test: {
