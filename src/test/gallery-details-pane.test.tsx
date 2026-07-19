@@ -193,6 +193,55 @@ describe("Gallery details pane toggle", () => {
     await renderGallery();
     expect(screen.queryByTestId("details-pane")).not.toBeInTheDocument();
   });
+
+  it("starts at 360px and persists a pointer-resized width", async () => {
+    const { unmount } = await renderGallery();
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+
+    const region = screen.getByTestId("gallery-details-region");
+    const handle = screen.getByRole("separator", {
+      name: "Resize details pane",
+    });
+    expect(region).toHaveStyle({ width: "360px" });
+    expect(handle).toHaveAttribute("aria-valuenow", "360");
+
+    fireEvent.pointerDown(handle, { clientX: 500, pointerId: 1 });
+    fireEvent.pointerMove(handle, { clientX: 420, pointerId: 1 });
+    fireEvent.pointerUp(handle, { clientX: 420, pointerId: 1 });
+
+    expect(region).toHaveStyle({ width: "440px" });
+    expect(localStorage.getItem("media_library_gallery_details_width")).toBe(
+      "440",
+    );
+
+    unmount();
+    await renderGallery();
+    expect(screen.getByTestId("gallery-details-region")).toHaveStyle({
+      width: "440px",
+    });
+  });
+
+  it("supports keyboard resizing without navigating the gallery", async () => {
+    const onNavigate = vi.fn();
+    await renderGallery({ onNavigate });
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+
+    const handle = screen.getByRole("separator", {
+      name: "Resize details pane",
+    });
+    handle.focus();
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+
+    expect(screen.getByTestId("gallery-details-region")).toHaveStyle({
+      width: "370px",
+    });
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    fireEvent.doubleClick(handle);
+    expect(screen.getByTestId("gallery-details-region")).toHaveStyle({
+      width: "360px",
+    });
+  });
 });
 
 describe("Gallery details pane content", () => {
@@ -202,10 +251,13 @@ describe("Gallery details pane content", () => {
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
     const osSection = screen.getByTestId("details-section-os");
+    const osScroll = screen.getByTestId("details-section-scroll-os");
     expect(within(osSection).getByText("Filename")).toBeInTheDocument();
     expect(within(osSection).getByText("a.jpg")).toBeInTheDocument();
     expect(within(osSection).getByText("Relative Path")).toBeInTheDocument();
     expect(within(osSection).getByText("2024/a.jpg")).toBeInTheDocument();
+    expect(osSection).toContainElement(osScroll);
+    expect(within(osScroll).getByRole("table")).toBeInTheDocument();
   });
 
   it("shows loading state when metadata has not been received", async () => {

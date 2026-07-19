@@ -944,19 +944,24 @@ describe("DetailsPane GPS Map integration", () => {
     const overview = gpsSection.querySelector(
       '[data-testid="gps-map-overview"]',
     );
+    const scrollport = gpsSection.querySelector(".details-section-scroll");
     const table = gpsSection.querySelector(".details-table");
 
     expect(heading).toBeInTheDocument();
+    expect(scrollport).toBeInTheDocument();
     expect(overview).toBeInTheDocument();
     expect(table).toBeInTheDocument();
 
-    // Verify DOM order: heading is followed by overview, followed by table
-    const children = Array.from(gpsSection.childNodes);
-    const headingIndex = children.indexOf(heading!);
-    const overviewIndex = children.indexOf(overview!);
-    const tableIndex = children.indexOf(table!);
+    // The heading remains fixed while the map and table share the section's
+    // horizontal scrollport, with the overview before the first GPS row.
+    const sectionChildren = Array.from(gpsSection.childNodes);
+    const scrollChildren = Array.from(scrollport!.childNodes);
+    const headingIndex = sectionChildren.indexOf(heading!);
+    const scrollportIndex = sectionChildren.indexOf(scrollport!);
+    const overviewIndex = scrollChildren.indexOf(overview!);
+    const tableIndex = scrollChildren.indexOf(table!);
 
-    expect(headingIndex).toBeLessThan(overviewIndex);
+    expect(headingIndex).toBeLessThan(scrollportIndex);
     expect(overviewIndex).toBeLessThan(tableIndex);
   });
 });

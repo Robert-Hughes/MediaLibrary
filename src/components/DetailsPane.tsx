@@ -1195,30 +1195,35 @@ export function DetailsPane({
         {showOsSection && (
           <section className="details-section" data-testid="details-section-os">
             <h3 className="details-section-header">OS Metadata</h3>
-            <table className="details-table">
-              <tbody>
-                {filteredOsEntries.map(([label, value]) => (
-                  <tr
-                    key={label}
-                    className="details-row"
-                    data-testid="details-row"
-                  >
-                    <td className="details-key">
-                      <HighlightedText
-                        text={label}
+            <div
+              className="details-section-scroll"
+              data-testid="details-section-scroll-os"
+            >
+              <table className="details-table">
+                <tbody>
+                  {filteredOsEntries.map(([label, value]) => (
+                    <tr
+                      key={label}
+                      className="details-row"
+                      data-testid="details-row"
+                    >
+                      <td className="details-key">
+                        <HighlightedText
+                          text={label}
+                          searchQuery={detailsSearch}
+                        />
+                      </td>
+                      <DetailsValueCell
+                        originalValue={value}
+                        draftValue={undefined}
                         searchQuery={detailsSearch}
+                        readOnly
                       />
-                    </td>
-                    <DetailsValueCell
-                      originalValue={value}
-                      draftValue={undefined}
-                      searchQuery={detailsSearch}
-                      readOnly
-                    />
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
         )}
 
@@ -1254,41 +1259,48 @@ export function DetailsPane({
               >
                 {group.name}
               </h3>
-              {group.name === "GPS" &&
-              resolvedGps.lat !== null &&
-              resolvedGps.lon !== null ? (
-                <GpsMapOverview
-                  lat={resolvedGps.lat}
-                  lon={resolvedGps.lon}
-                  onContextMenu={(event) => openGroupContextMenu(event, "GPS")}
-                />
-              ) : null}
-              <table className="details-table">
-                <tbody>
-                  {group.rows.map((row) => (
-                    <OccurrenceMetadataRow
-                      key={row.key}
-                      row={row}
-                      searchQuery={detailsSearch}
-                      forceReadOnly={!targetDraftsWritable}
-                      forceReadOnlyReason={
-                        !targetDraftsWritable
-                          ? "Target-aware draft persistence did not load safely."
-                          : undefined
-                      }
-                      onContextMenu={(event) => {
-                        setRowContextMenu(null);
-                        if (!rowCanOpenContextMenu(row)) return;
-                        setRowContextMenu({
-                          x: event.clientX,
-                          y: event.clientY,
-                          rowKey: row.key,
-                        });
-                      }}
-                    />
-                  ))}
-                </tbody>
-              </table>
+              <div
+                className="details-section-scroll"
+                data-testid={`details-section-scroll-${group.name}`}
+              >
+                {group.name === "GPS" &&
+                resolvedGps.lat !== null &&
+                resolvedGps.lon !== null ? (
+                  <GpsMapOverview
+                    lat={resolvedGps.lat}
+                    lon={resolvedGps.lon}
+                    onContextMenu={(event) =>
+                      openGroupContextMenu(event, "GPS")
+                    }
+                  />
+                ) : null}
+                <table className="details-table">
+                  <tbody>
+                    {group.rows.map((row) => (
+                      <OccurrenceMetadataRow
+                        key={row.key}
+                        row={row}
+                        searchQuery={detailsSearch}
+                        forceReadOnly={!targetDraftsWritable}
+                        forceReadOnlyReason={
+                          !targetDraftsWritable
+                            ? "Target-aware draft persistence did not load safely."
+                            : undefined
+                        }
+                        onContextMenu={(event) => {
+                          setRowContextMenu(null);
+                          if (!rowCanOpenContextMenu(row)) return;
+                          setRowContextMenu({
+                            x: event.clientX,
+                            y: event.clientY,
+                            rowKey: row.key,
+                          });
+                        }}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
           ))
         )}

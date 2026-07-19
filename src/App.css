@@ -1061,6 +1061,46 @@ body {
 
 /* ── Details Pane (gallery sidebar) ──────────────────────────────────────── */
 
+.gallery-details-region {
+  position: relative;
+  height: 100%;
+  min-width: 280px;
+  max-width: min(720px, calc(100vw - 320px));
+  flex: 0 0 auto;
+}
+
+.gallery-details-region .details-pane {
+  width: 100%;
+}
+
+.gallery-details-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+  z-index: 4;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.gallery-details-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 1px;
+  background: transparent;
+  transition: background 0.1s;
+}
+
+.gallery-details-resize-handle:hover::after,
+.gallery-details-resize-handle:focus-visible::after {
+  background: var(--accent);
+}
+
 .details-pane {
   width: 360px;
   height: 100%;
@@ -1135,6 +1175,8 @@ body {
 .details-pane-body {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
   padding: 0;
 }
 
@@ -1361,8 +1403,34 @@ body {
 }
 
 .details-section {
+  width: 100%;
+  min-width: 0;
   padding: 0 16px;
   margin-bottom: 4px;
+}
+
+.details-section-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.details-section-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.details-section-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.details-section-scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.details-section-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
 }
 
 .details-section-header {
@@ -1416,7 +1484,8 @@ body {
   font-size: 12px;
   color: var(--text-primary);
   padding: 5px 0;
-  word-break: break-word;
+  min-width: 160px;
+  overflow-wrap: anywhere;
   vertical-align: top;
 }
 
