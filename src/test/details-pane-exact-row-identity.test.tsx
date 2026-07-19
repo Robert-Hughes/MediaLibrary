@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
@@ -195,15 +201,15 @@ function renderPane(options: {
   };
 }
 
-function openExistingOccurrenceEditor() {
+async function openExistingOccurrenceEditor() {
   const row = screen
     .getByText("XResolution")
     .closest('[data-testid="details-row"]')!;
-  fireEvent.contextMenu(row);
-  fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
+  const user = userEvent.setup();
+  await user.pointer({ target: row, keys: "[MouseRight]" });
+  await user.click(screen.getByRole("button", { name: "Edit…" }));
   return row;
 }
-
 function existingOccurrenceRows() {
   return screen
     .queryAllByTestId("details-row")
@@ -437,18 +443,16 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(rowA.querySelector(".draft-new")).toHaveTextContent("—");
     expect(missingOccurrenceDraftRows()).toHaveLength(0);
 
-    await userEvent.type(
-      screen.getByTestId("details-search-input"),
-      "has:edits",
-    );
+    const user = userEvent.setup();
+    await user.type(screen.getByTestId("details-search-input"), "has:edits");
     const filtered = existingOccurrenceRows();
     expect(filtered).toHaveLength(1);
     expect(filtered[0]).toHaveAttribute(
       "data-occurrence-token",
       metadataOccurrenceIdToken(occurrenceA.id),
     );
-    fireEvent.contextMenu(filtered[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Discard edit" }));
+    await user.pointer({ target: filtered[0], keys: "[MouseRight]" });
+    await user.click(screen.getByRole("button", { name: "Discard edit" }));
     expect(view.onDiscardTargetPropertyDraft).toHaveBeenCalledWith(target);
   });
 
@@ -814,21 +818,23 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const view = renderPane({
       occurrences: [occurrenceA],
     });
-    openExistingOccurrenceEditor();
+    await openExistingOccurrenceEditor();
     expect(screen.getByTestId("numeric-editor-input")).toHaveValue(300);
 
     const changedA: MetadataOccurrence = {
       ...occurrenceA,
       value: { kind: "Integer", value: 302 },
     };
-    view.rerenderPane({
-      occurrences: [changedA],
+    await act(async () => {
+      view.rerenderPane({
+        occurrences: [changedA],
+      });
     });
     expect(screen.getByTestId("numeric-editor-input")).toHaveValue(302);
-    fireEvent.change(screen.getByTestId("numeric-editor-input"), {
-      target: { value: "303" },
-    });
-    fireEvent.click(screen.getByTestId("numeric-editor-save"));
+    const user = userEvent.setup();
+    await user.clear(screen.getByTestId("numeric-editor-input"));
+    await user.type(screen.getByTestId("numeric-editor-input"), "303");
+    await user.click(screen.getByTestId("numeric-editor-save"));
     expect(view.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
       exactTarget(occurrenceA),
       expect.objectContaining({
@@ -837,7 +843,6 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       }),
     );
   });
-
   it.each([
     ["loading", "loading" as const],
     ["missing", []],
@@ -871,12 +876,13 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       occurrences: [occurrenceA],
       targetDraftEdits: pending.drafts,
     });
-    openExistingOccurrenceEditor();
+    await openExistingOccurrenceEditor();
     expect(screen.getByTestId("numeric-editor-save")).toBeInTheDocument();
-
-    view.rerenderPane({
-      occurrences: nextOccurrences,
-      targetDraftEdits: pending.drafts,
+    await act(async () => {
+      view.rerenderPane({
+        occurrences: nextOccurrences,
+        targetDraftEdits: pending.drafts,
+      });
     });
 
     await waitFor(() =>
@@ -890,7 +896,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     expect(pending.drafts).toEqual(originalDrafts);
   });
 
-  it("keeps a staged Set as the seed and a staged Delete seeded from exact current value", () => {
+  it("keeps a staged Set as the seed and a staged Delete seeded from exact current value", async () => {
     for (const [edit, expected] of [
       [{ intent: "Set", value: { kind: "Integer", value: 301 } }, 301],
       [{ intent: "Delete", value: null }, 300],
@@ -906,7 +912,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
           onDiscardTargetDraftBatch={vi.fn()}
         />,
       );
-      openExistingOccurrenceEditor();
+      await openExistingOccurrenceEditor();
       expect(screen.getByTestId("numeric-editor-input")).toHaveValue(expected);
       rendered.unmount();
     }

@@ -132,6 +132,7 @@ describe("App CLI folder argument", () => {
       if (cmd === "start_scan") {
         return Promise.resolve();
       }
+      if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
       return Promise.resolve(null);
     });
 
@@ -235,6 +236,7 @@ describe("App CLI folder argument", () => {
       if (cmd === "start_scan") {
         return Promise.resolve();
       }
+      if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
       return Promise.resolve(null);
     });
 
@@ -249,11 +251,11 @@ describe("App CLI folder argument", () => {
       (call) => call[0] === "get_cli_folder",
     ).length;
 
-    // Force a re-render
-    rerender(<App />);
-
-    // Wait a bit to ensure no additional calls
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // Force a re-render and allow all resulting updates to settle.
+    await act(async () => {
+      rerender(<App />);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
 
     // Should not call get_cli_folder again
     const finalCallCount = mockInvoke.mock.calls.filter(
@@ -440,6 +442,31 @@ describe("App Select Columns metadata counts", () => {
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/photos");
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
+      if (cmd === "get_tag_info") {
+        const id = (args as { id: { table: string; tag_id: string } }).id;
+        return Promise.resolve({
+          id,
+          group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
+          name: id.tag_id === "title" ? "Title" : id.tag_id,
+          writable: true,
+          kind: { kind: "Text" },
+          description: null,
+        });
+      }
+      if (cmd === "get_tag_infos") {
+        const ids = (args as { ids: Array<{ table: string; tag_id: string }> })
+          .ids;
+        return Promise.resolve(
+          ids.map((id) => ({
+            id,
+            group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
+            name: id.tag_id === "title" ? "Title" : id.tag_id,
+            writable: true,
+            kind: { kind: "Text" },
+            description: null,
+          })),
+        );
+      }
       if (cmd === "stop_scan") return Promise.resolve();
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
@@ -579,6 +606,8 @@ describe("App occurrence wiring regression", () => {
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/photos");
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
+      if (cmd === "get_tag_infos") return Promise.resolve([]);
+      if (cmd === "get_tag_info") return Promise.resolve(null);
       if (
         [
           "stop_scan",

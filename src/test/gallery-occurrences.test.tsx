@@ -4,6 +4,7 @@ import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataOccurrencesStore } from "../types";
 import type { MetadataOccurrence, TagInfo } from "../types";
 import { makePhotos } from "./factories";
+import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 const photos = makePhotos(["a.jpg", "b.jpg"]);
 const tagInfo: TagInfo = {
@@ -57,6 +58,7 @@ function props(imageMetadataOccurrences: ImageMetadataOccurrencesStore) {
 describe("Gallery occurrence-store subscription", () => {
   beforeEach(() => {
     localStorage.setItem("media_library_gallery_details_visible", "1");
+    _setTagInfoCacheEntry(tagInfo.id, tagInfo);
   });
 
   it("rerenders from the current path and follows navigation subscriptions", async () => {

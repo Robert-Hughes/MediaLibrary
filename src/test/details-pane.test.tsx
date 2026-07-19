@@ -2639,7 +2639,8 @@ describe("DetailsPane: Group context menu", () => {
 
     // Filter to only match GPSLatitude
     const searchInput = screen.getByTestId("details-search-input");
-    await userEvent.type(searchInput, "Latitude");
+    const user = userEvent.setup();
+    await user.type(searchInput, "Latitude");
 
     // Verify GPSLongitude is no longer visible
     expect(screen.queryByText("Longitude")).toBeNull();
@@ -2650,15 +2651,14 @@ describe("DetailsPane: Group context menu", () => {
       name: "GPS",
       level: 3,
     });
-    fireEvent.contextMenu(heading);
+    await user.pointer({ target: heading, keys: "[MouseRight]" });
 
     // Expecting: "Remove all 2 writable GPS fields…" because search filter
     // does not reduce the group action scope.
     const removeBtn = await screen.findByRole("button", {
       name: "Remove all 2 writable GPS fields…",
     });
-    fireEvent.click(removeBtn);
-
+    await user.click(removeBtn);
     await waitFor(() => {
       expect(askMock).toHaveBeenCalledTimes(1);
     });

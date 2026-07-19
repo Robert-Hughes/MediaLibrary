@@ -260,17 +260,19 @@ describe("Gallery details pane content", () => {
       onSetExistingOccurrenceDraft: vi.fn(),
       onClose,
     });
-    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("gallery-info-toggle"));
 
     fireEvent.contextMenu(screen.getByText("Canon"));
-    await userEvent.click(await screen.findByRole("button", { name: /^Edit/ }));
+    await user.click(await screen.findByRole("button", { name: /^Edit/ }));
 
     const gallery = screen.getByRole("dialog", { name: "Photo gallery" });
     const editor = screen.getByRole("dialog", { name: "Edit IFD0:Make" });
-    editor.dispatchEvent(
-      new Event("cancel", { bubbles: true, cancelable: true }),
-    );
-    await act(async () => {});
+    act(() => {
+      editor.dispatchEvent(
+        new Event("cancel", { bubbles: true, cancelable: true }),
+      );
+    });
 
     expect(
       screen.queryByRole("dialog", { name: "Edit IFD0:Make" }),

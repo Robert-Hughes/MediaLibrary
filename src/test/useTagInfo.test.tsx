@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   useTagInfo,
@@ -398,7 +398,9 @@ describe("useTagInfo exact lookup hook", () => {
       expect(invoke).toHaveBeenCalledTimes(1);
       expect(invoke).toHaveBeenCalledWith("get_tag_infos", { ids: [id] });
 
-      finish([info(id)]);
+      await act(async () => {
+        finish([info(id)]);
+      });
       await expect(Promise.all([first, second])).resolves.toEqual([
         { [schemaDefinitionIdToken(id)]: info(id) },
         { [schemaDefinitionIdToken(id)]: info(id) },
@@ -419,7 +421,9 @@ describe("useTagInfo exact lookup hook", () => {
 
       const batch = resolveTagInfosExact([id]);
       expect(invoke).toHaveBeenCalledTimes(1);
-      finish(info(id));
+      await act(async () => {
+        finish(info(id));
+      });
       await expect(batch).resolves.toEqual({
         [schemaDefinitionIdToken(id)]: info(id),
       });
@@ -469,6 +473,9 @@ describe("useTagInfo exact lookup hook", () => {
     it("allows retry after failure without erasing resolved values", async () => {
       const resolvedId = { table: "A", tag_id: "1" };
       const retryId = { table: "A", tag_id: "2" };
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
       _setTagInfoCacheEntry(resolvedId, info(resolvedId));
       vi.mocked(invoke)
         .mockRejectedValueOnce(new Error("offline"))
@@ -484,6 +491,11 @@ describe("useTagInfo exact lookup hook", () => {
         info(resolvedId),
       );
       expect(retried[schemaDefinitionIdToken(retryId)]).toEqual(info(retryId));
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("get_tag_infos"),
+        expect.any(Error),
+      );
+      consoleError.mockRestore();
     });
   });
 });

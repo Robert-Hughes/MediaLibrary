@@ -18,6 +18,23 @@ import {
   family7GroupFromSchemaId,
 } from "../utils/metadataWriteTarget";
 import { sortPhotos } from "../utils/sorting";
+
+async function expectConsoleErrorMessages(
+  expected: readonly string[],
+  action: () => void | Promise<void>,
+): Promise<void> {
+  const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    await action();
+    const renderedMessages = consoleError.mock.calls.map((args) =>
+      args.map((value) => String(value)).join(" "),
+    );
+    expect(renderedMessages).toEqual(expected);
+  } finally {
+    consoleError.mockRestore();
+  }
+}
+
 function targetDraftResult(
   path: string,
   id: SchemaDefinitionId,
@@ -491,8 +508,10 @@ describe("useMediaLibrary", () => {
     });
     expect(result.current[0].kind).toBe("loading");
 
-    act(() => {
-      mock.emitScanError("not a directory");
+    await expectConsoleErrorMessages(["Scan error: not a directory"], () => {
+      act(() => {
+        mock.emitScanError("not a directory");
+      });
     });
     expect(result.current[0].kind).toBe("idle");
   });
@@ -512,8 +531,10 @@ describe("useMediaLibrary", () => {
     });
     expect(result.current[0].kind).toBe("loaded");
 
-    act(() => {
-      mock.emitScanError("disk read failed");
+    await expectConsoleErrorMessages(["Scan error: disk read failed"], () => {
+      act(() => {
+        mock.emitScanError("disk read failed");
+      });
     });
     expect(result.current[0].kind).toBe("idle");
   });
@@ -582,12 +603,20 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    act(() => {
-      mock.emitWorkerError("metadata", "ExifTool failed", ["a.jpg"]);
-    });
-    act(() => {
-      mock.emitWorkerError("thumbnail", "decode failed", ["b.jpg"]);
-    });
+    await expectConsoleErrorMessages(
+      [
+        "Worker error (metadata): ExifTool failed",
+        "Worker error (thumbnail): decode failed",
+      ],
+      () => {
+        act(() => {
+          mock.emitWorkerError("metadata", "ExifTool failed", ["a.jpg"]);
+        });
+        act(() => {
+          mock.emitWorkerError("thumbnail", "decode failed", ["b.jpg"]);
+        });
+      },
+    );
 
     const state = result.current[0];
     if (state.kind === "loaded") {
@@ -613,12 +642,20 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    act(() => {
-      mock.emitWorkerError("metadata", "first error");
-    });
-    act(() => {
-      mock.emitWorkerError("metadata", "second error");
-    });
+    await expectConsoleErrorMessages(
+      [
+        "Worker error (metadata): first error",
+        "Worker error (metadata): second error",
+      ],
+      () => {
+        act(() => {
+          mock.emitWorkerError("metadata", "first error");
+        });
+        act(() => {
+          mock.emitWorkerError("metadata", "second error");
+        });
+      },
+    );
 
     act(() => {
       result.current[1].dismissError(0);
@@ -648,11 +685,19 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    for (let i = 0; i < 30; i++) {
-      act(() => {
-        mock.emitWorkerError("metadata", `error ${i}`);
-      });
-    }
+    await expectConsoleErrorMessages(
+      Array.from(
+        { length: 30 },
+        (_, index) => `Worker error (metadata): error ${index}`,
+      ),
+      () => {
+        for (let i = 0; i < 30; i++) {
+          act(() => {
+            mock.emitWorkerError("metadata", `error ${i}`);
+          });
+        }
+      },
+    );
 
     const state = result.current[0];
     if (state.kind === "loaded") {
@@ -774,13 +819,15 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    act(() => {
-      mock.emitWorkerError(
-        "metadata",
-        "stale",
-        ["x.jpg"],
-        mock.currentScanId - 1,
-      );
+    await expectConsoleErrorMessages(["Worker error (metadata): stale"], () => {
+      act(() => {
+        mock.emitWorkerError(
+          "metadata",
+          "stale",
+          ["x.jpg"],
+          mock.currentScanId - 1,
+        );
+      });
     });
     const state = result.current[0];
     if (state.kind === "loaded") {
@@ -2702,8 +2749,15 @@ describe("useMediaLibrary", () => {
           : mock.api.invoke(cmd, args),
     };
     const { result } = renderHook(() => useMediaLibrary(api));
-    await act(async () => result.current[1].openFolder());
-    act(() => mock.emitScanComplete());
+    await expectConsoleErrorMessages(
+      [
+        "Failed to load target-aware target drafts Error: malformed target-aware file",
+      ],
+      async () => {
+        await act(async () => result.current[1].openFolder());
+      },
+    );
+    await act(async () => mock.emitScanComplete());
 
     let state = result.current[0];
     if (state.kind !== "loaded") return;
@@ -2877,8 +2931,15 @@ describe("useMediaLibrary", () => {
           : mock.api.invoke(cmd, args),
     };
     const { result } = renderHook(() => useMediaLibrary(api));
-    await act(async () => result.current[1].openFolder());
-    act(() => mock.emitScanComplete());
+    await expectConsoleErrorMessages(
+      [
+        "Failed to load target-aware target drafts Error: invalid schema version",
+      ],
+      async () => {
+        await act(async () => result.current[1].openFolder());
+      },
+    );
+    await act(async () => mock.emitScanComplete());
     const state = result.current[0];
     if (state.kind !== "loaded") return;
     expect(state.targetDraftEdits).toEqual({});
@@ -2892,7 +2953,7 @@ describe("useMediaLibrary", () => {
     ).toBe(false);
 
     await act(async () => result.current[1].openRecent("/second"));
-    act(() => mock.emitScanComplete());
+    await act(async () => mock.emitScanComplete());
     const secondState = result.current[0];
     if (secondState.kind !== "loaded") return;
     expect(secondState.folder).toBe("/second");
