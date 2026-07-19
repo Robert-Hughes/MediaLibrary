@@ -21,7 +21,7 @@ export function formatDetailsTooltip(lines: readonly TooltipLine[]): string {
       const value = line[1];
       return value !== null && value !== undefined;
     })
-    .map(([label, value]) => `${label}: ${value}`)
+    .map(([label, value]) => `${label}: ${value.replace(/\r\n?|\n/g, " ⏎ ")}`)
     .join("\n");
 }
 
@@ -106,7 +106,6 @@ function existingReason(
   if (!editable && row.targetability.kind === "read-only") {
     return row.targetability.reason;
   }
-  if (row.effectiveDraftApplied === false) return row.effectiveDraftReason;
   return null;
 }
 

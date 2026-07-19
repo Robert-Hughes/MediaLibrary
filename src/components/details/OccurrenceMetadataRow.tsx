@@ -50,6 +50,7 @@ export function OccurrenceMetadataRow({
       : hasPendingOperation;
   const previewUnsupported =
     row.kind === "ExistingOccurrenceRow" && row.effectiveDraftApplied === false;
+  const editable = !readOnly && !previewUnsupported;
   const schemaId =
     row.kind === "ExistingOccurrenceRow"
       ? row.occurrence.schema_id
@@ -57,7 +58,7 @@ export function OccurrenceMetadataRow({
   const nameTooltip = buildOccurrenceNameTooltip({
     row,
     datatypeInfo,
-    editable: !readOnly,
+    editable,
     forceReadOnlyReason,
   });
   const valueTooltip = buildOccurrenceValueTooltip({ row, datatypeInfo });

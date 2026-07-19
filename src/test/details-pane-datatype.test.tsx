@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 import { DatatypeBadge } from "../components/DatatypeBadge";
+import { formatDetailsTooltip } from "../details/occurrenceDetailsTooltips";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
@@ -199,6 +200,19 @@ afterEach(() => {
 });
 
 describe("DetailsPane target-aware datatype badges", () => {
+  it("keeps every tooltip line labelled when values contain line breaks", () => {
+    expect(
+      formatDetailsTooltip([
+        ["Description", "First paragraph\r\nSecond paragraph"],
+        ["Current value", "Before\nAfter"],
+        ["Staged value", "Draft\rReplacement"],
+      ]).split("\n"),
+    ).toEqual([
+      "Description: First paragraph ⏎ Second paragraph",
+      "Current value: Before ⏎ After",
+      "Staged value: Draft ⏎ Replacement",
+    ]);
+  });
   it("renders matching schema and runtime types without a divergence badge", () => {
     const row = renderExisting({
       id: schemaId("matching"),
