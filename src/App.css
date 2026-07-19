@@ -1458,8 +1458,18 @@ body {
 }
 
 .details-table {
+  display: grid;
+  /* Names use only the width their content needs, capped at half. Values use
+     at least half and receive any space the name track does not need. */
+  grid-template-columns: fit-content(50%) minmax(50%, 1fr);
   width: 100%;
-  border-collapse: collapse;
+}
+
+.details-table > tbody,
+.details-row {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
 }
 
 .details-row {
@@ -1474,9 +1484,10 @@ body {
   font-size: 12px;
   color: var(--text-secondary);
   padding: 5px 8px 5px 0;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
   vertical-align: top;
-  width: 1%;
+  min-width: 0;
   font-weight: 500;
 }
 
@@ -1484,7 +1495,7 @@ body {
   font-size: 12px;
   color: var(--text-primary);
   padding: 5px 0;
-  min-width: 160px;
+  min-width: 0;
   overflow-wrap: anywhere;
   vertical-align: top;
 }
