@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import type {
@@ -63,6 +63,9 @@ async function loadedFile(
 ) {
   const mock = createMockTauriApi();
   mock.pickFolderResolves("/photos");
+  const consoleError = options.targetLoadFails
+    ? vi.spyOn(console, "error").mockImplementation(() => {})
+    : null;
   const api = options.targetLoadFails
     ? {
         ...mock.api,
@@ -74,7 +77,14 @@ async function loadedFile(
     : mock.api;
   const hook = renderHook(() => useMediaLibrary(api));
   await act(async () => hook.result.current[1].openFolder());
-  act(() => {
+  if (consoleError) {
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to load target-aware target drafts",
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  }
+  await act(async () => {
     mock.emitPhotoFound(makePhoto({ relative_path: "photo.jpg" }));
     mock.emitScanComplete();
     if (options.emitMetadata !== false) {
@@ -180,9 +190,11 @@ describe("generated target-aware production action", () => {
   it("blocks apply after a strict target-draft load failure", async () => {
     const { mock, result } = await loadedFile({ targetLoadFails: true });
 
-    await expect(
-      result.current[1].applyDraftEdits("photo.jpg"),
-    ).rejects.toThrow("Target-aware drafts could not be loaded safely");
+    await act(async () => {
+      await expect(
+        result.current[1].applyDraftEdits("photo.jpg"),
+      ).rejects.toThrow("Target-aware drafts could not be loaded safely");
+    });
     expect(
       mock.invocations.some(
         ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
@@ -204,9 +216,17 @@ describe("generated target-aware production action", () => {
       },
     };
     const { result } = renderHook(() => useMediaLibrary(api));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
     await act(async () => result.current[1].openFolder());
-    act(() => {
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to load target-aware target drafts",
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+    await act(async () => {
       mock.emitPhotoFound(makePhoto({ relative_path: "broken.jpg" }));
       mock.emitScanComplete();
     });
@@ -215,7 +235,7 @@ describe("generated target-aware production action", () => {
     expect(result.current[0].targetDraftPersistence.status).toBe("load-failed");
 
     await act(async () => result.current[1].openRecent("/valid"));
-    act(() => {
+    await act(async () => {
       mock.emitPhotoFound(makePhoto({ relative_path: "valid.jpg" }));
       mock.emitScanComplete();
       mock.emitImageMetadataReady("valid.jpg", {}, undefined, []);

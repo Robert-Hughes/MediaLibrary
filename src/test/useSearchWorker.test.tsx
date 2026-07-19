@@ -220,6 +220,9 @@ describe("useSearchWorker target-draft projection", () => {
       },
       { intent: "Set", value: { kind: "Text", value: "retry value" } },
     );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     vi.mocked(invoke)
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValueOnce([cityInfo]);
@@ -238,6 +241,11 @@ describe("useSearchWorker target-draft projection", () => {
           message.entries[0]?.path === "a.jpg",
       ),
     ).toBe(true);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("get_tag_infos"),
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
   });
 
   it("drops stale draft enrichment and emits only the newest revision", async () => {

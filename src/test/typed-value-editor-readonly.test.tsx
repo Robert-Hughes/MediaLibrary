@@ -14,6 +14,7 @@ import {
   cleanup,
   waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { TypedValueEditor as ExactTypedValueEditor } from "../components/editors/TypedValueEditor";
 import {
   _clearTagInfoCache,
@@ -64,12 +65,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 beforeEach(() => {
   cleanup();
   _clearTagInfoCache();
-  // Seed GPS tags and other tags that expect fallback/missing schema to null
+  // Seed GPS tags and other tags that expect fallback/missing schema to null.
   const fallbackTags = [
     "GPS:GPSLatitude",
     "GPS:GPSLongitude",
     "GPS:GPSLatitudeRef",
     "GPS:GPSLongitudeRef",
+    "GPS:GPSAltitudeRef",
     "XMP-custom:MissingDate",
   ];
   for (const tag of fallbackTags) {
@@ -634,7 +636,8 @@ describe("TypedValueEditor GPS routing", () => {
       await waitFor(() => {
         expect(screen.getByTestId("gps-editor-save")).not.toBeDisabled();
       });
-      fireEvent.click(screen.getByTestId("gps-editor-save"));
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("gps-editor-save"));
 
       expect(onSaveMetadata).not.toHaveBeenCalled();
       expect(onSaveMetadataBatch).toHaveBeenCalledOnce();
@@ -695,7 +698,8 @@ describe("TypedValueEditor GPS routing", () => {
     await waitFor(() => {
       expect(screen.getByTestId("gps-editor-save")).not.toBeDisabled();
     });
-    fireEvent.click(screen.getByTestId("gps-editor-save"));
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("gps-editor-save"));
 
     expect(onSaveMetadata).not.toHaveBeenCalled();
     expect(onSaveMetadataBatch).toHaveBeenCalledOnce();
@@ -780,8 +784,10 @@ describe("TypedValueEditor semantic save callbacks", () => {
     );
 
     const input = await screen.findByTestId("value-edit-input");
-    fireEvent.change(input, { target: { value: "new title" } });
-    fireEvent.click(screen.getByRole("button", { name: /save/i }));
+    const user = userEvent.setup();
+    await user.clear(input);
+    await user.type(input, "new title");
+    await user.click(screen.getByRole("button", { name: /save/i }));
 
     expect(onSaveMetadata).toHaveBeenCalledWith({
       value: { kind: "Text", value: "new title" },

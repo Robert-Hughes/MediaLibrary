@@ -47,6 +47,11 @@ export default defineConfig(async () => ({
     environment: "jsdom",
     pool: "vmThreads",
     setupFiles: ["./src/test/setup.ts"],
+    onConsoleLog(log, type) {
+      if (type === "stderr") {
+        throw new Error(`Unexpected test console output:\n${log}`);
+      }
+    },
     include: ["src/test/**/*.{test,spec}.{ts,tsx}"],
     exclude: [
       ...configDefaults.exclude,

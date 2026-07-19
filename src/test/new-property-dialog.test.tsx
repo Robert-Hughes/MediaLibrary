@@ -11,7 +11,7 @@ import type { TagInfo } from "../types";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(() => Promise.resolve(null)),
+  invoke: vi.fn(() => new Promise(() => {})),
 }));
 
 const testDefinitions: TagInfo[] = [

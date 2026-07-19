@@ -1,9 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 import type { VisibleColumn } from "../types";
 import { imgCol, osCol, testId } from "./factories";
+import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 describe("ColumnSelectionDialog OS Metadata", () => {
   const allKeys = [
@@ -12,6 +13,19 @@ describe("ColumnSelectionDialog OS Metadata", () => {
   ];
 
   const cols = (...arr: VisibleColumn[]): VisibleColumn[] => arr;
+
+  beforeEach(() => {
+    for (const key of ["IFD0:Model", "IFD0:Make"]) {
+      const id = testId(key);
+      _setTagInfoCacheEntry(id, {
+        group: "IFD0",
+        name: key.split(":")[1],
+        writable: true,
+        kind: { kind: "Text" },
+        description: null,
+      });
+    }
+  });
 
   it("renders OS metadata section with checkboxes", () => {
     render(

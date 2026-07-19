@@ -201,9 +201,13 @@ describe("normalizeMetadataOccurrencesFromTauri", () => {
       { ...occurrence(), write_target: { group1: "IFD0" } },
     ],
   ])("discards %s", (_label, value) => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(normalizeMetadataOccurrencesFromTauri([value])).toEqual([]);
+    expect(warn).toHaveBeenCalledWith(
+      "[metadata] Dropped 1 invalid occurrence value(s)",
+    );
+    warn.mockRestore();
   });
-
   it("isolates invalid siblings and emits one warning with the drop count", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const valid = occurrence();
