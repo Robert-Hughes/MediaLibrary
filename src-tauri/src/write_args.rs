@@ -213,7 +213,11 @@ fn build_metadata_set(
                 .unwrap_or_default()
         )),
         (Some(TagKind::LangAlt), Some(MetadataValue::LangAlt(langs))) => {
-            let mut text = Vec::with_capacity(langs.len());
+            // A LangAlt Set replaces the complete rdf:Alt map. Clear the
+            // parent first so languages omitted from the draft are removed,
+            // then reconstruct every intended language explicitly.
+            let mut text = Vec::with_capacity(langs.len() + 2);
+            text.push(format!("-{}=", tag));
             for (lang, value) in langs {
                 text.push(format!("-{}-{}={}", tag, lang, value));
             }
@@ -857,7 +861,8 @@ mod tests {
             .text
             .iter()
             .any(|a| a == "-1XMP-dc:7ID-Y:Description-fr=Salut"));
-        assert_eq!(args.text.len(), 3);
+        assert_eq!(args.text[0], "-1XMP-dc:7ID-Y:Description=");
+        assert_eq!(args.text.len(), 4);
     }
 
     #[test]
@@ -880,6 +885,23 @@ mod tests {
             .text
             .iter()
             .any(|a| a == "-1XMP-dc:7ID-Y:Description-x-default=Hello"));
+        assert_eq!(args.text[0], "-1XMP-dc:7ID-Y:Description=");
+        assert_eq!(args.text.len(), 3);
+    }
+
+    #[test]
+    fn set_empty_langalt_clears_the_complete_property() {
+        let i = info(TagKind::LangAlt);
+        let args = build_new_property_fixture_args(
+            "XMP-dc",
+            "Description",
+            &i,
+            &metadata_set(MetadataValue::LangAlt(BTreeMap::new())),
+        )
+        .unwrap();
+
+        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Description="]);
+        assert!(args.numeric.is_empty());
     }
 
     #[test]
@@ -2048,6 +2070,7 @@ mod tests {
                 ok(
                     &[],
                     &[
+                        "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=",
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-en=Hello",
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-x-default=Hello",
                     ],
@@ -2055,6 +2078,7 @@ mod tests {
                 ok(
                     &[],
                     &[
+                        "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=",
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-en=Hello",
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-x-default=Hello",
                     ],

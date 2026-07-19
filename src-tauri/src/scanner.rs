@@ -1034,6 +1034,166 @@ struct CanonicalRuntimeOccurrence {
     is_lang_alt: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct LangAltOccurrenceGroupKey {
+    schema_id: SchemaDefinitionId,
+    document: Option<String>,
+    path: String,
+    copy: u32,
+    parent_runtime_tag_id: String,
+}
+
+fn lang_alt_group_key(canonical: &CanonicalRuntimeOccurrence) -> Option<LangAltOccurrenceGroupKey> {
+    let info = canonical.occurrence.tag_info.as_ref()?;
+    if !matches!(info.kind, TagKind::LangAlt) {
+        return None;
+    }
+
+    let parent_runtime_tag_id = match canonical.language.as_deref() {
+        Some(language) => canonical
+            .occurrence
+            .id
+            .runtime_tag_id
+            .strip_suffix(&format!("-{language}"))?
+            .to_string(),
+        None => canonical.occurrence.id.runtime_tag_id.clone(),
+    };
+
+    Some(LangAltOccurrenceGroupKey {
+        schema_id: canonical.occurrence.schema_id.clone(),
+        document: canonical.occurrence.id.document.clone(),
+        path: canonical.occurrence.id.path.clone(),
+        copy: canonical.occurrence.id.copy,
+        parent_runtime_tag_id,
+    })
+}
+
+/// Reassemble ExifTool's flattened `Description-fr`-style accessors into the
+/// single LangAlt property stored in XMP. Runtime document/path/copy scope is
+/// retained so distinct XMP containers never collapse into one occurrence.
+fn consolidate_lang_alt_occurrences(
+    occurrences: Vec<CanonicalRuntimeOccurrence>,
+) -> Vec<CanonicalRuntimeOccurrence> {
+    let mut ordinary = Vec::new();
+    let mut groups = BTreeMap::<LangAltOccurrenceGroupKey, Vec<CanonicalRuntimeOccurrence>>::new();
+
+    for canonical in occurrences {
+        if let Some(key) = lang_alt_group_key(&canonical) {
+            groups.entry(key).or_default().push(canonical);
+        } else {
+            ordinary.push(canonical);
+        }
+    }
+
+    for (key, mut fragments) in groups {
+        fragments.sort_by(|left, right| left.occurrence.id.cmp(&right.occurrence.id));
+        let parent_index = fragments
+            .iter()
+            .position(|fragment| {
+                fragment.language.is_none()
+                    && fragment.occurrence.id.runtime_tag_id == key.parent_runtime_tag_id
+            })
+            .unwrap_or(0);
+        let mut parent = fragments.remove(parent_index);
+        let mut observed = BTreeMap::<String, Vec<String>>::new();
+        let mut malformed_fragments = Vec::new();
+
+        for fragment in std::iter::once(&parent).chain(fragments.iter()) {
+            match &fragment.occurrence.value {
+                MetadataValue::LangAlt(languages) => {
+                    for (language, text) in languages {
+                        let values = observed.entry(language.clone()).or_default();
+                        if !values.contains(text) {
+                            values.push(text.clone());
+                        }
+                    }
+                }
+                value => malformed_fragments.push(serde_json::json!({
+                    "occurrence_id": &fragment.occurrence.id,
+                    "value": value,
+                })),
+            }
+        }
+
+        let conflicting_languages = observed
+            .iter()
+            .filter(|(_, values)| values.len() > 1)
+            .map(|(language, _)| language.clone())
+            .collect::<Vec<_>>();
+        let has_malformed_fragments = !malformed_fragments.is_empty();
+        let invalid = !conflicting_languages.is_empty() || has_malformed_fragments;
+        parent.occurrence.value = if !invalid {
+            MetadataValue::LangAlt(
+                observed
+                    .into_iter()
+                    .filter_map(|(language, values)| {
+                        values.into_iter().next().map(|text| (language, text))
+                    })
+                    .collect(),
+            )
+        } else {
+            let languages = serde_json::Value::Object(
+                observed
+                    .into_iter()
+                    .map(|(language, values)| {
+                        let value = if values.len() == 1 {
+                            serde_json::Value::String(values.into_iter().next().unwrap())
+                        } else {
+                            serde_json::Value::Array(
+                                values.into_iter().map(serde_json::Value::String).collect(),
+                            )
+                        };
+                        (language, value)
+                    })
+                    .collect(),
+            );
+            let raw = serde_json::json!({
+                "languages": languages,
+                "malformed_fragments": malformed_fragments,
+            });
+            let mut problems = Vec::new();
+            if !conflicting_languages.is_empty() {
+                problems.push(format!(
+                    "conflicting values for language(s): {}",
+                    conflicting_languages.join(", ")
+                ));
+            }
+            if has_malformed_fragments {
+                problems.push("one or more fragments could not be parsed".to_string());
+            }
+            MetadataValue::Unknown {
+                expected: Some(TagKind::LangAlt),
+                raw,
+                reason: Some(format!("invalid LangAlt property: {}", problems.join("; "))),
+            }
+        };
+
+        let info_name = parent
+            .occurrence
+            .tag_info
+            .as_ref()
+            .expect("LangAlt grouping requires TagInfo")
+            .name
+            .clone();
+        parent.occurrence.id.runtime_tag_id = key.parent_runtime_tag_id;
+        parent.occurrence.id.tag_id_scope = RuntimeTagIdScope {
+            table: key.schema_id.table.clone(),
+            tag_id: key.schema_id.tag_id.clone(),
+            index: key.schema_id.index,
+        };
+        parent.friendly_name = format!("{}:{info_name}", parent.runtime_group1);
+        parent.runtime_tag_name = info_name;
+        parent.language = None;
+        // A conflicting property remains visible but must not receive a write
+        // target. Valid consolidated LangAlt values use the canonical parent.
+        parent.is_lang_alt = invalid;
+        ordinary.push(parent);
+    }
+
+    ordinary.sort_by(|left, right| left.occurrence.id.cmp(&right.occurrence.id));
+    ordinary
+}
+
 fn selector_component_is_safe(component: &str, reject_colon: bool) -> bool {
     !component.is_empty()
         && !component.chars().any(|character| {
@@ -1221,8 +1381,11 @@ fn canonical_occurrences_from_exiftool_pair(
         });
     }
 
+    let mut values = consolidate_lang_alt_occurrences(values);
+
     // Write targets are assigned after the complete per-file occurrence set is
-    // materialised so selector ambiguity can be evaluated globally.
+    // materialised and LangAlt fragments are consolidated, so selector
+    // ambiguity can be evaluated globally against canonical properties.
     assign_exact_write_targets(&mut values);
     Ok(values)
 }
@@ -3730,21 +3893,80 @@ mod tests {
     }
 
     #[test]
-    fn lang_alt_children_embed_parent_tag_info_and_remain_distinct() {
+    fn lang_alt_fragments_merge_into_one_writable_parent_occurrence() {
         let registry = lang_alt_registry();
         let parent_id = test_schema_id("XMP::dc", "description", None);
         let parent_info = registry.lookup(&parent_id).unwrap();
         let child = |language: &str, text: &str| {
             test_runtime_property(
-                test_occurrence_id(&format!("XMP-{language}"), "description"),
+                test_occurrence_id("JPEG-APP1-XMP", &format!("description-{language}")),
                 test_schema_id("XMP::dc", &format!("description-{language}"), None),
                 "XMP-dc",
-                "Description",
+                &format!("Description-{language}"),
                 Some(language),
                 serde_json::json!(text),
             )
         };
-        let properties = runtime_map(vec![child("en", "Hello"), child("fr", "Bonjour")]);
+        let parent = test_runtime_property(
+            test_occurrence_id("JPEG-APP1-XMP", "description"),
+            parent_id.clone(),
+            "XMP-dc",
+            "Description",
+            None,
+            serde_json::json!("Default"),
+        );
+        let properties = runtime_map(vec![parent, child("en", "Hello"), child("fr", "Bonjour")]);
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            &properties,
+            &properties,
+            Some(&registry),
+            "lang-alt.jpg",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(canonical.len(), 1);
+        let item = &canonical[0];
+        assert_eq!(item.occurrence.schema_id, parent_id);
+        assert_eq!(item.occurrence.id.runtime_tag_id, "description");
+        assert_eq!(
+            item.occurrence.id.tag_id_scope.as_schema_definition_id(),
+            item.occurrence.schema_id
+        );
+        assert_eq!(item.occurrence.tag_info.as_ref(), Some(parent_info));
+        assert_eq!(
+            item.occurrence.value,
+            MetadataValue::LangAlt(BTreeMap::from([
+                ("en".into(), "Hello".into()),
+                ("fr".into(), "Bonjour".into()),
+                ("x-default".into(), "Default".into()),
+            ]))
+        );
+        assert_eq!(
+            item.occurrence.write_target.as_ref().unwrap().selector(),
+            "1XMP-dc:7ID-description:Description"
+        );
+    }
+
+    #[test]
+    fn child_only_lang_alt_does_not_consolidate_across_runtime_scope() {
+        let registry = lang_alt_registry();
+        let child = |path: &str, language: &str, text: &str| {
+            test_runtime_property(
+                test_occurrence_id(path, &format!("description-{language}")),
+                test_schema_id("XMP::dc", &format!("description-{language}"), None),
+                "XMP-dc",
+                &format!("Description-{language}"),
+                Some(language),
+                serde_json::json!(text),
+            )
+        };
+        let properties = runtime_map(vec![
+            child("XMP-A", "en", "First"),
+            child("XMP-A", "fr", "Premier"),
+            child("XMP-B", "en", "Second"),
+        ]);
+
         let canonical = canonical_occurrences_from_exiftool_pair(
             &properties,
             &properties,
@@ -3755,20 +3977,100 @@ mod tests {
         .unwrap();
 
         assert_eq!(canonical.len(), 2);
-        assert_ne!(canonical[0].occurrence.id, canonical[1].occurrence.id);
-        for item in &canonical {
-            assert_eq!(item.occurrence.schema_id, parent_id);
-            assert_ne!(
-                item.occurrence.id.tag_id_scope.as_schema_definition_id(),
-                item.occurrence.schema_id
-            );
-            assert_eq!(item.occurrence.tag_info.as_ref(), Some(parent_info));
-            assert!(item.occurrence.write_target.is_none());
-            assert!(matches!(
-                &item.occurrence.value,
-                MetadataValue::LangAlt(values) if values.len() == 1
-            ));
-        }
+        assert_eq!(canonical[0].occurrence.id.runtime_tag_id, "description");
+        assert_eq!(canonical[1].occurrence.id.runtime_tag_id, "description");
+        assert!(matches!(
+            &canonical[0].occurrence.value,
+            MetadataValue::LangAlt(values)
+                if values == &BTreeMap::from([
+                    ("en".into(), "First".into()),
+                    ("fr".into(), "Premier".into()),
+                ])
+        ));
+        assert!(matches!(
+            &canonical[1].occurrence.value,
+            MetadataValue::LangAlt(values)
+                if values == &BTreeMap::from([("en".into(), "Second".into())])
+        ));
+        assert!(canonical
+            .iter()
+            .all(|item| item.occurrence.write_target.is_none()));
+    }
+
+    #[test]
+    fn unique_child_only_lang_alt_receives_the_parent_write_target() {
+        let registry = lang_alt_registry();
+        let child = |language: &str, text: &str| {
+            test_runtime_property(
+                test_occurrence_id("JPEG-APP1-XMP", &format!("description-{language}")),
+                test_schema_id("XMP::dc", &format!("description-{language}"), None),
+                "XMP-dc",
+                &format!("Description-{language}"),
+                Some(language),
+                serde_json::json!(text),
+            )
+        };
+        let properties = runtime_map(vec![child("en", "Hello"), child("fr", "Bonjour")]);
+
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            &properties,
+            &properties,
+            Some(&registry),
+            "lang-alt.jpg",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(canonical.len(), 1);
+        assert_eq!(canonical[0].occurrence.id.runtime_tag_id, "description");
+        assert_eq!(
+            canonical[0]
+                .occurrence
+                .write_target
+                .as_ref()
+                .unwrap()
+                .selector(),
+            "1XMP-dc:7ID-description:Description"
+        );
+    }
+
+    #[test]
+    fn conflicting_lang_alt_fragments_become_one_read_only_unknown() {
+        let registry = lang_alt_registry();
+        let parent = test_runtime_property(
+            test_occurrence_id("JPEG-APP1-XMP", "description"),
+            test_schema_id("XMP::dc", "description", None),
+            "XMP-dc",
+            "Description",
+            None,
+            serde_json::json!({"en": "Hello"}),
+        );
+        let child = test_runtime_property(
+            test_occurrence_id("JPEG-APP1-XMP", "description-en"),
+            test_schema_id("XMP::dc", "description-en", None),
+            "XMP-dc",
+            "Description-en",
+            Some("en"),
+            serde_json::json!("Different"),
+        );
+        let properties = runtime_map(vec![parent, child]);
+
+        let canonical = canonical_occurrences_from_exiftool_pair(
+            &properties,
+            &properties,
+            Some(&registry),
+            "lang-alt.jpg",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(canonical.len(), 1);
+        assert!(matches!(
+            &canonical[0].occurrence.value,
+            MetadataValue::Unknown { expected: Some(TagKind::LangAlt), reason: Some(reason), .. }
+                if reason.contains("en")
+        ));
+        assert!(canonical[0].occurrence.write_target.is_none());
     }
 
     #[test]

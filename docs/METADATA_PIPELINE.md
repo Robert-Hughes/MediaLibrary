@@ -12,6 +12,12 @@ information, optional observed selector and optional proven write target.
 Malformed relationships are rejected rather than repaired. Unknown schemas
 remain visible and diagnosable but read-only.
 
+ExifTool's flattened LangAlt language accessors are scanner input fragments,
+not independent occurrences. Fragments are consolidated within exact
+document/path/copy and parent-runtime scope into one writable parent occurrence
+whose value is the complete language map. Conflicting values for one language
+produce one read-only `Unknown` parent occurrence.
+
 `ImageMetadata` contains only authoritative occurrences. Columns, sorting,
 normalisation, overwrite, generated workflows and composite semantic editors
 may derive deliberate schema-oriented read-only projections. Those projections
@@ -90,6 +96,11 @@ For each requested file, the backend:
 7. reconciles exact targets as Clear, Keep, Replace or Blocked;
 8. persists the reconciled target map; and
 9. appends a target-aware audit record.
+
+A LangAlt `Set` replaces the complete map: the writer clears the parent first,
+then emits one language-qualified assignment for every intended member. This
+removes omitted languages. Ordinary strict readback verification applies
+because the scanner returns the same complete parent value after writing.
 
 Successful files update authoritative frontend metadata incrementally. Failed
 files retain drafts. Verification rows retain their complete target and allow

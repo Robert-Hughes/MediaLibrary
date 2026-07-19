@@ -7,8 +7,8 @@ use crate::tag_schema::{SchemaDefinitionId, TagInfo};
 /// definition discriminator carried by the wrapped extraction value.
 ///
 /// This is runtime occurrence scope, not authoritative interpreted schema
-/// identity. In particular, LangAlt child extraction may retain this raw scope
-/// while [`MetadataOccurrence::schema_id`] resolves to the canonical parent.
+/// identity. The scanner uses the narrow confirmed LangAlt rule to consolidate
+/// ExifTool language accessors into the canonical parent runtime scope.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -28,8 +28,8 @@ impl RuntimeTagIdScope {
     /// Returns the structurally equivalent raw schema discriminator.
     ///
     /// Callers must not assume that this is the occurrence's final interpreted
-    /// schema identity; LangAlt canonicalisation may deliberately resolve a
-    /// different [`MetadataOccurrence::schema_id`].
+    /// schema identity. Raw extraction fragments may resolve differently while
+    /// the scanner is constructing a canonical occurrence.
     pub fn as_schema_definition_id(&self) -> SchemaDefinitionId {
         SchemaDefinitionId {
             table: self.table.clone(),

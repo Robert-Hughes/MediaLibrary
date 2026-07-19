@@ -77,8 +77,9 @@ readback comparisons.
   readback.
 
 - [ ] **8. Edit LangAlt.** Where available, set `x-default` and another
-  language. Expected: both values reread beneath the single exact LangAlt
-  parent.
+  language, then remove the additional language. Expected: the complete map
+  rereads beneath one writable exact LangAlt parent, and the removed language
+  is absent from the file.
 
 - [ ] **9. Restart with drafts.** Leave unapplied drafts, close and reopen the
   same folder. Expected: version-5 target drafts reappear against the same exact
@@ -109,8 +110,8 @@ readback comparisons.
   use diagnostics or logs to record the friendly label, raw
   `RuntimeTagIdScope`, resolved `SchemaDefinitionId`, complete
   `MetadataOccurrenceId`, and `MetadataWriteTarget`. Expected: each appears in
-  its own role; a LangAlt child may retain a child runtime scope while resolving
-  to the parent schema.
+  its own role; flattened LangAlt extraction members consolidate into one
+  canonical parent runtime scope and complete semantic map.
 
 ## Shared-schema occurrence and target checks
 

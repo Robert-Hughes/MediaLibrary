@@ -191,6 +191,60 @@ describe("buildOccurrenceDetailsPresentation", () => {
     expect(new Set(rows.map((row) => row.originQualifier)).size).toBe(2);
   });
 
+  it("presents one complete writable LangAlt occurrence as one row", () => {
+    const langAltSchema: SchemaDefinitionId = {
+      table: "XMP::dc",
+      tag_id: "description",
+    };
+    const writeTarget: MetadataWriteTarget = {
+      group1: "XMP-dc",
+      group7: "ID-description",
+      tag_name: "Description",
+    };
+    const complete = occurrence(
+      "JPEG-APP1-XMP",
+      {
+        kind: "LangAlt",
+        value: {
+          "x-default": "Default",
+          en: "English",
+          fr: "Francais",
+        },
+      },
+      {
+        id: {
+          ...occurrenceId("JPEG-APP1-XMP"),
+          runtime_tag_id: "description",
+          tag_id_scope: {
+            table: langAltSchema.table,
+            tag_id: langAltSchema.tag_id,
+            index: null,
+          },
+        },
+        schema_id: langAltSchema,
+        tag_info: tagInfo(langAltSchema, {
+          group: "XMP-dc",
+          name: "Description",
+          kind: { kind: "LangAlt" },
+        }),
+        observed_selector: writeTarget,
+        write_target: structuredClone(writeTarget),
+      },
+    );
+
+    const rows = buildOccurrenceDetailsPresentation({
+      occurrences: [complete],
+    }).groups.flatMap((group) => group.rows);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      kind: "ExistingOccurrenceRow",
+      label: "Description",
+      currentValue: "x-default: Default; en: English; fr: Francais",
+      targetability: { kind: "targetable" },
+    });
+  });
+
   it("extends colliding human-readable qualifiers with runtime identity", () => {
     const first = occurrence("JPEG-APP1-IFD1", undefined, {
       id: {
