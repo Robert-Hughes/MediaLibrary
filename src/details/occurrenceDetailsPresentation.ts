@@ -27,7 +27,10 @@ import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdToken,
 } from "../utils/schemaDefinitionId";
-import { metadataWriteSelector } from "../utils/metadataWriteTarget";
+import {
+  family7GroupFromRuntimeTagId,
+  metadataWriteSelector,
+} from "../utils/metadataWriteTarget";
 import { applyMetadataDraftEditExactly } from "../utils/effectiveMetadata";
 import {
   classifyNewPropertyDestination,
@@ -75,7 +78,6 @@ interface OccurrenceDetailsRowCommon {
   stagedValue: string | null;
   status: OccurrenceDetailsRowStatus;
   originQualifier: string | null;
-  diagnosticTitle: string;
   searchText: string;
   removalTarget: MetadataDraftTarget | null;
   draftTargets: MetadataDraftTarget[];
@@ -84,6 +86,7 @@ interface OccurrenceDetailsRowCommon {
 export interface ExistingOccurrenceRow extends OccurrenceDetailsRowCommon {
   kind: "ExistingOccurrenceRow";
   occurrence: MetadataOccurrence;
+  tagInfo: TagInfo | null;
   targetability: ExistingTargetability;
   draft: MetadataTargetDraftEntry | null;
   staleDraft: MetadataTargetDraftEntry | null;
@@ -107,6 +110,7 @@ export interface MissingOccurrenceDraftRow extends OccurrenceDetailsRowCommon {
   target: ExistingOccurrenceTarget;
   edit: MetadataDraftEdit;
   storedDestination: MetadataWriteTarget;
+  tagInfo: TagInfo | null;
 }
 
 export type OccurrenceDetailsRow =
@@ -313,10 +317,6 @@ function targetSearchParts(input: {
   ];
 }
 
-function diagnosticTitle(parts: readonly string[]): string {
-  return parts.filter((part) => part.length > 0).join("\n");
-}
-
 function rowSortToken(row: OccurrenceDetailsRow): string {
   switch (row.kind) {
     case "ExistingOccurrenceRow":
@@ -347,27 +347,107 @@ function withOriginQualifiers(
     counts.set(row.label, (counts.get(row.label) ?? 0) + 1);
   }
 
-  return rows.map((row) => {
-    const duplicatedLabel = (counts.get(row.label) ?? 0) > 1;
-    if (row.kind === "ExistingOccurrenceRow") {
-      const unusual =
-        row.occurrence.id.copy !== 0 || row.occurrence.id.document !== null;
-      if (!duplicatedLabel && !unusual) return row;
-      const parts = [
-        row.occurrence.id.path,
-        row.occurrence.id.copy === 0 ? null : `Copy${row.occurrence.id.copy}`,
-        row.occurrence.id.document,
-      ].filter((part): part is string => part !== null && part.length > 0);
-      return { ...row, originQualifier: parts.join(" · ") };
+  const result = rows.slice();
+  for (const [label, count] of counts) {
+    if (count < 2) continue;
+    const indexes = rows.flatMap((row, index) =>
+      row.label === label ? [index] : [],
+    );
+    const levels = indexes.map((index, duplicateIndex) =>
+      qualifierLevels(rows[index], duplicateIndex),
+    );
+    const maxLevel = Math.max(...levels.map((candidates) => candidates.length));
+    let qualifiers: string[] = [];
+    for (let level = 0; level < maxLevel; level += 1) {
+      qualifiers = levels.map(
+        (candidates) => candidates[Math.min(level, candidates.length - 1)],
+      );
+      if (new Set(qualifiers).size === qualifiers.length) break;
     }
-    if (!duplicatedLabel) return row;
-    return {
-      ...row,
-      originQualifier: formatSchemaDefinitionIdForDiagnostics(
-        row.target.schema_id,
-      ),
-    };
-  });
+    indexes.forEach((rowIndex, index) => {
+      result[rowIndex] = {
+        ...rows[rowIndex],
+        originQualifier: qualifiers[index],
+      };
+    });
+  }
+  return result;
+}
+
+function qualifierLevels(
+  row: OccurrenceDetailsRow,
+  duplicateIndex: number,
+): string[] {
+  const append = (base: string, value: string) => `${base} · ${value}`;
+  if (row.kind === "ExistingOccurrenceRow") {
+    const id = row.occurrence.id;
+    const base = [id.path, id.copy === 0 ? null : `Copy${id.copy}`, id.document]
+      .filter((part): part is string => part !== null && part.length > 0)
+      .join(" · ");
+    const family7 = append(
+      base,
+      family7GroupFromRuntimeTagId(id.runtime_tag_id),
+    );
+    const scope = append(
+      family7,
+      `${id.tag_id_scope.table} / ${id.tag_id_scope.tag_id}${
+        id.tag_id_scope.index == null ? "" : ` / index ${id.tag_id_scope.index}`
+      }`,
+    );
+    const schema = append(
+      scope,
+      formatSchemaDefinitionIdForDiagnostics(row.occurrence.schema_id),
+    );
+    return [
+      base,
+      family7,
+      scope,
+      schema,
+      append(schema, `Row ${duplicateIndex + 1}`),
+    ];
+  }
+
+  if (row.kind === "NewPropertyRow") {
+    const target = row.target;
+    const base = `Destination ${target.write_target.group1} · ${target.write_target.group7}`;
+    const named = append(base, target.write_target.tag_name);
+    const schema = append(
+      named,
+      formatSchemaDefinitionIdForDiagnostics(target.schema_id),
+    );
+    return [
+      base,
+      named,
+      schema,
+      append(schema, `New property ${duplicateIndex + 1}`),
+    ];
+  }
+
+  const target = row.target;
+  const id = target.occurrence_id;
+  const base = [
+    `Stored ${id.path}`,
+    id.copy === 0 ? null : `Copy${id.copy}`,
+    id.document,
+  ]
+    .filter((part): part is string => part !== null && part.length > 0)
+    .join(" · ");
+  const family7 = append(base, family7GroupFromRuntimeTagId(id.runtime_tag_id));
+  const destination = append(
+    family7,
+    `Destination ${target.write_target.group1} · ${target.write_target.group7} · ${target.write_target.tag_name}`,
+  );
+  const schema = append(
+    destination,
+    formatSchemaDefinitionIdForDiagnostics(target.schema_id),
+  );
+  return [
+    base,
+    family7,
+    destination,
+    schema,
+    append(schema, `Missing draft ${duplicateIndex + 1}`),
+  ];
 }
 
 export function buildOccurrenceDetailsPresentation(
@@ -498,7 +578,6 @@ export function buildOccurrenceDetailsPresentation(
         stagedValue,
         status: rowStatus,
         originQualifier: null,
-        diagnosticTitle: diagnosticTitle(searchParts),
         searchText: searchParts.join("\n"),
         removalTarget:
           !duplicateOccurrenceId && targetability.kind === "targetable"
@@ -510,6 +589,7 @@ export function buildOccurrenceDetailsPresentation(
             ? [structuredClone(staleDraft.target)]
             : [],
         occurrence,
+        tagInfo: displayTagInfo ? structuredClone(displayTagInfo) : null,
         targetability,
         draft,
         staleDraft,
@@ -570,7 +650,6 @@ export function buildOccurrenceDetailsPresentation(
         stagedValue,
         status: rowStatus,
         originQualifier: null,
-        diagnosticTitle: diagnosticTitle(searchParts),
         searchText: searchParts.join("\n"),
         removalTarget: structuredClone(entry.target),
         draftTargets: [structuredClone(entry.target)],
@@ -621,13 +700,13 @@ export function buildOccurrenceDetailsPresentation(
         stagedValue,
         status: rowStatus,
         originQualifier: null,
-        diagnosticTitle: diagnosticTitle(searchParts),
         searchText: searchParts.join("\n"),
         removalTarget: null,
         draftTargets: [structuredClone(entry.target)],
         target: entry.target,
         edit: entry.edit,
         storedDestination: structuredClone(entry.target.write_target),
+        tagInfo: tagInfo ? structuredClone(tagInfo) : null,
       },
     });
   }

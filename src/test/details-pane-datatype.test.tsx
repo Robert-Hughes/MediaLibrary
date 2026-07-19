@@ -1,6 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
+import { DatatypeBadge } from "../components/DatatypeBadge";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
@@ -182,6 +183,15 @@ function expectBadges(
   expect(badgeCode(row, "draft")).toBe(expected.draft);
 }
 
+function cellTitle(
+  row: HTMLElement,
+  selector: ".details-key" | ".details-value",
+) {
+  const cell = row.querySelector<HTMLElement>(selector);
+  if (!cell) throw new Error(`Missing ${selector} cell`);
+  return cell.title;
+}
+
 beforeEach(() => _clearTagInfoCache());
 afterEach(() => {
   cleanup();
@@ -216,6 +226,15 @@ describe("DetailsPane target-aware datatype badges", () => {
     });
     expectBadges(row, { schema: "S", value: null, draft: null });
     expect(row.querySelector(".draft-new")).toHaveTextContent("after");
+    expect(cellTitle(row, ".details-value")).toContain("Current value: before");
+    expect(cellTitle(row, ".details-value")).toContain("Draft action: Set");
+    expect(cellTitle(row, ".details-value")).toContain("Staged value: after");
+    expect(cellTitle(row, ".details-value")).toContain(
+      "Staged datatype: String (S)",
+    );
+    expect(cellTitle(row, ".details-value")).toContain(
+      "Staged matches schema: true",
+    );
   });
 
   it("derives the draft badge from the exact target's semantic edit", () => {
@@ -293,6 +312,21 @@ describe("DetailsPane target-aware datatype badges", () => {
       });
       expectBadges(row, { schema: code, value: null, draft: null });
       expect(row.querySelector(".draft-new")).toHaveTextContent("one, two");
+      expect(cellTitle(row, ".details-value")).toContain(
+        "Draft action: ListAdd",
+      );
+      expect(cellTitle(row, ".details-value")).toContain(
+        "Staged value: one, two",
+      );
+      expect(cellTitle(row, ".details-value")).toContain(
+        `Staged datatype: ${
+          {
+            Bag: "Bag (unordered list)",
+            Seq: "Seq (ordered list)",
+            Alt: "Alt (alternatives)",
+          }[listKind]
+        } (${code})`,
+      );
     });
   }
 
@@ -317,6 +351,13 @@ describe("DetailsPane target-aware datatype badges", () => {
     });
     expectBadges(row, { schema: "[B]", value: null, draft: null });
     expect(row.querySelector(".draft-new")).toHaveTextContent("two");
+    expect(cellTitle(row, ".details-value")).toContain(
+      "Draft action: ListRemove",
+    );
+    expect(cellTitle(row, ".details-value")).toContain("Staged value: two");
+    expect(cellTitle(row, ".details-value")).toContain(
+      "Staged datatype: Bag (unordered list) ([B])",
+    );
   });
 
   it("derives the scalar ListAdd draft badge from the replacement value", () => {
@@ -348,6 +389,12 @@ describe("DetailsPane target-aware datatype badges", () => {
     });
     expectBadges(row, { schema: "S", value: null, draft: null });
     expect(row).toHaveTextContent("Preview unavailable");
+    expect(cellTitle(row, ".details-value")).toContain(
+      "Draft preview: unavailable",
+    );
+    expect(cellTitle(row, ".details-value")).toContain(
+      "Reason: A list payload cannot be rendered for a non-list schema.",
+    );
   });
 
   it("shows a scalar runtime badge under a list schema", () => {
@@ -453,6 +500,12 @@ describe("DetailsPane target-aware datatype badges", () => {
     });
     expectBadges(deleteRow, { schema: "S", value: null, draft: null });
     expect(deleteRow.querySelector(".draft-new")).toHaveTextContent("—");
+    expect(cellTitle(deleteRow, ".details-value")).toContain(
+      "Draft action: Delete",
+    );
+    expect(cellTitle(deleteRow, ".details-value")).toContain(
+      "Staged value: deleted",
+    );
   });
 
   it("renders a NewProperty target draft and its semantic datatype", () => {
@@ -474,5 +527,13 @@ describe("DetailsPane target-aware datatype badges", () => {
     });
     expectBadges(row, { schema: "R", value: null, draft: "S" });
     expect(row.querySelector(".draft-new")).toHaveTextContent("different");
+  });
+
+  it("retains the default native title outside occurrence rows", () => {
+    render(<DatatypeBadge code="S" label="String" variant="schema" />);
+    expect(screen.getByTestId("datatype-badge-schema")).toHaveAttribute(
+      "title",
+      "Schema datatype: String",
+    );
   });
 });

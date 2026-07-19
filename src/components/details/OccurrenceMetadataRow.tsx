@@ -1,44 +1,16 @@
 import type { MouseEvent } from "react";
 import type { OccurrenceDetailsRow } from "../../details/occurrenceDetailsPresentation";
+import { datatypesMatch } from "../../utils/datatype";
 import {
-  datatypesMatch,
-  metadataValueDatatype,
-  schemaDatatype,
-} from "../../utils/datatype";
+  buildOccurrenceNameTooltip,
+  buildOccurrenceValueTooltip,
+  rowDatatypeInfo,
+} from "../../details/occurrenceDetailsTooltips";
 import { DatatypeBadge } from "../DatatypeBadge";
 import { HighlightedText } from "../HighlightedText";
 import { schemaDefinitionIdToken } from "../../utils/schemaDefinitionId";
 import { metadataOccurrenceIdToken } from "../../utils/metadataOccurrenceId";
 import { metadataDraftTargetToken } from "../../utils/metadataDraftTarget";
-
-function rowDatatypeInfo(row: OccurrenceDetailsRow) {
-  switch (row.kind) {
-    case "ExistingOccurrenceRow": {
-      const schemaInfo = schemaDatatype(row.occurrence.tag_info?.kind);
-      const valueInfo = metadataValueDatatype(row.occurrence.value);
-      const draftInfo =
-        row.effectiveDraftApplied === true && row.effectiveDraftValue !== null
-          ? metadataValueDatatype(row.effectiveDraftValue)
-          : null;
-      return { schemaInfo, valueInfo, draftInfo };
-    }
-    case "NewPropertyRow": {
-      const schemaInfo = schemaDatatype(row.tagInfo?.kind);
-      const draftInfo =
-        row.edit.intent !== "Delete" && row.edit.value != null
-          ? metadataValueDatatype(row.edit.value)
-          : null;
-      return { schemaInfo, valueInfo: null, draftInfo };
-    }
-    case "MissingOccurrenceDraftRow": {
-      const draftInfo =
-        row.edit.intent !== "Delete" && row.edit.value != null
-          ? metadataValueDatatype(row.edit.value)
-          : null;
-      return { schemaInfo: null, valueInfo: null, draftInfo };
-    }
-  }
-}
 
 export function OccurrenceMetadataRow({
   row,
@@ -53,7 +25,8 @@ export function OccurrenceMetadataRow({
   forceReadOnly?: boolean;
   forceReadOnlyReason?: string;
 }) {
-  const { schemaInfo, valueInfo, draftInfo } = rowDatatypeInfo(row);
+  const datatypeInfo = rowDatatypeInfo(row);
+  const { schemaInfo, valueInfo, draftInfo } = datatypeInfo;
   const showValueBadge =
     valueInfo != null &&
     (schemaInfo == null || !datatypesMatch(valueInfo.code, schemaInfo.code));
@@ -81,6 +54,13 @@ export function OccurrenceMetadataRow({
     row.kind === "ExistingOccurrenceRow"
       ? row.occurrence.schema_id
       : row.target.schema_id;
+  const nameTooltip = buildOccurrenceNameTooltip({
+    row,
+    datatypeInfo,
+    editable: !readOnly,
+    forceReadOnlyReason,
+  });
+  const valueTooltip = buildOccurrenceValueTooltip({ row, datatypeInfo });
 
   return (
     <tr
@@ -105,12 +85,6 @@ export function OccurrenceMetadataRow({
       data-readonly={readOnly ? "true" : undefined}
       data-has-exact-draft={hasDisplayedDraft ? "true" : undefined}
       data-has-pending-operation={hasPendingOperation ? "true" : undefined}
-      title={
-        forceReadOnlyReason
-          ? `${row.diagnosticTitle}
-${forceReadOnlyReason}`
-          : row.diagnosticTitle
-      }
       onContextMenu={(event) => {
         if (!onContextMenu) return;
         event.preventDefault();
@@ -120,6 +94,7 @@ ${forceReadOnlyReason}`
     >
       <td
         className="details-key"
+        title={nameTooltip}
         style={
           hasPendingOperation ? { color: "var(--accent-draft)" } : undefined
         }
@@ -134,14 +109,12 @@ ${forceReadOnlyReason}`
             code={schemaInfo.code}
             label={schemaInfo.label}
             variant="schema"
+            showTitle={false}
           />
         ) : null}
         <HighlightedText text={row.label} searchQuery={searchQuery} />
         {row.originQualifier ? (
-          <span
-            className="details-occurrence-origin"
-            title={row.diagnosticTitle}
-          >
+          <span className="details-occurrence-origin">
             [{row.originQualifier}]
           </span>
         ) : null}
@@ -159,6 +132,7 @@ ${forceReadOnlyReason}`
           readOnly ? "details-value details-value--readonly" : "details-value"
         }
         data-readonly={readOnly ? "true" : undefined}
+        title={valueTooltip}
       >
         {previewUnsupported ? (
           <>
@@ -167,6 +141,7 @@ ${forceReadOnlyReason}`
                 code={valueInfo.code}
                 label={valueInfo.label}
                 variant="value"
+                showTitle={false}
               />
             ) : null}
             <HighlightedText
@@ -186,6 +161,7 @@ ${forceReadOnlyReason}`
                     code={valueInfo.code}
                     label={valueInfo.label}
                     variant="value"
+                    showTitle={false}
                   />
                 ) : null}
                 <s className="draft-original" style={{ opacity: 0.6 }}>
@@ -201,6 +177,7 @@ ${forceReadOnlyReason}`
                 code={draftInfo.code}
                 label={draftInfo.label}
                 variant="draft"
+                showTitle={false}
               />
             ) : null}
             <strong className="draft-new">
@@ -229,6 +206,7 @@ ${forceReadOnlyReason}`
                 code={valueInfo.code}
                 label={valueInfo.label}
                 variant="value"
+                showTitle={false}
               />
             ) : null}
             <HighlightedText
