@@ -18,6 +18,11 @@ Unknown local schemas retain their exact identity with null interpretation and
 write target. `ImageMetadata` contains only authoritative occurrences;
 schema-oriented consumers derive safe read-only values on demand.
 
+One XMP LangAlt property is one occurrence with one complete
+`MetadataValue::LangAlt` map. ExifTool's language-suffixed read results are
+consolidated under the canonical parent runtime ID within exact
+document/path/copy scope. They are never exposed as separate occurrences.
+
 The occurrence relationship is validated structurally. A write target is legal
 only when a non-null observed selector has exactly equal `group1`, `group7` and
 `tag_name`. This differs from occupancy comparison, where family 1 and tag name
@@ -99,6 +104,10 @@ The active operation is:
    country-code padding rule.
 6. Reconcile the exact target as Clear, Keep, Replace or Blocked.
 7. Persist the reconciled drafts atomically and append the audit record.
+
+LangAlt `Set` has whole-value semantics. Rendering first clears the parent
+property and then recreates every language in the map, so removing a language
+from the semantic value removes it from the file.
 
 Clear results require no attention row. Keep, Replace, Blocked, unavailable
 readback, missing values, mismatches, coercions, lingering deletes and observed

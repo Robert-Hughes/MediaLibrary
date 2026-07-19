@@ -5,8 +5,8 @@
  * definition discriminator carried by the wrapped extraction value.
  *
  * This is runtime occurrence scope, not authoritative interpreted schema
- * identity. In particular, LangAlt child extraction may retain this raw scope
- * while [`MetadataOccurrence::schema_id`] resolves to the canonical parent.
+ * identity. The scanner uses the narrow confirmed LangAlt rule to consolidate
+ * ExifTool language accessors into the canonical parent runtime scope.
  */
 export type RuntimeTagIdScope = { 
 /**

@@ -187,6 +187,7 @@ fn metadata_unparsed(value: &MetadataValue) -> bool {
 fn metadata_empty_value(value: &MetadataValue) -> bool {
     matches!(value, MetadataValue::Null)
         || matches!(value, MetadataValue::Text(text) if text.is_empty())
+        || matches!(value, MetadataValue::LangAlt(languages) if languages.values().all(String::is_empty))
         || matches!(value, MetadataValue::List { items, .. } if items.is_empty())
 }
 

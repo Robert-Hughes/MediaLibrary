@@ -105,28 +105,6 @@ fn schema_value(image: &scanner::ImageMetadata, id: &SchemaDefinitionId) -> Opti
         .collect::<Vec<_>>();
     let first = values.first().copied()?;
 
-    if values
-        .iter()
-        .all(|value| matches!(value, MetadataValue::LangAlt(_)))
-    {
-        let mut merged = BTreeMap::new();
-        for value in values {
-            let MetadataValue::LangAlt(languages) = value else {
-                unreachable!("all values were checked as LangAlt")
-            };
-            for (language, text) in languages {
-                match merged.get(language) {
-                    Some(existing) if existing != text => return None,
-                    Some(_) => {}
-                    None => {
-                        merged.insert(language.clone(), text.clone());
-                    }
-                }
-            }
-        }
-        return Some(MetadataValue::LangAlt(merged));
-    }
-
     values
         .iter()
         .all(|value| *value == first)
@@ -490,7 +468,17 @@ fn fixture_langalt_description_pretty_and_raw_match_design() {
     };
     let (_dir, dst) = copy_to_temp(&src);
     let m = read_one(_dir.path(), &dst);
-    let desc = schema_value(&m, &medialibrary_tauri_lib::known_ids::xmp_description()).unwrap();
+    let id = medialibrary_tauri_lib::known_ids::xmp_description();
+    let occurrences = m.occurrences.for_schema(&id).collect::<Vec<_>>();
+    let [occurrence] = occurrences.as_slice() else {
+        panic!(
+            "expected one canonical LangAlt occurrence, got {}",
+            occurrences.len()
+        )
+    };
+    assert_eq!(occurrence.id.runtime_tag_id, "description");
+    assert!(occurrence.write_target.is_some());
+    let desc = occurrence.value.clone();
     let map = match desc {
         MetadataValue::LangAlt(m) => m,
         other => panic!("expected LangAlt, got {:?}", other),
@@ -1150,10 +1138,44 @@ fn roundtrip_langalt_preserves_exact_parent_id_and_languages() {
         .iter()
         .any(|target| target.schema_id() == &id));
     let reread = read_one(dir.path(), &dst);
+    assert_eq!(reread.occurrences.for_schema(&id).count(), 1);
     assert_eq!(
         schema_value(&reread, &id),
         Some(MetadataValue::LangAlt(languages))
     );
+}
+
+#[test]
+fn roundtrip_langalt_set_removes_omitted_language() {
+    let Some(src) = fixture_path("langalt_description.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let id = medialibrary_tauri_lib::known_ids::xmp_description();
+    let languages = BTreeMap::from([
+        ("en".to_string(), "replacement english".to_string()),
+        ("x-default".to_string(), "replacement default".to_string()),
+    ]);
+    let edits = vec![SchemaMetadataEdit {
+        schema_id: id.clone(),
+        edit: metadata_set(MetadataValue::LangAlt(languages.clone())),
+    }];
+
+    let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    assert_eq!(outcome.outcomes[0].kind, "Match");
+
+    let reread = read_one(dir.path(), &dst);
+    let occurrences = reread.occurrences.for_schema(&id).collect::<Vec<_>>();
+    let [occurrence] = occurrences.as_slice() else {
+        panic!(
+            "expected one canonical LangAlt occurrence, got {}",
+            occurrences.len()
+        )
+    };
+    assert_eq!(occurrence.value, MetadataValue::LangAlt(languages));
+    assert!(occurrence.write_target.is_some());
 }
 
 #[test]

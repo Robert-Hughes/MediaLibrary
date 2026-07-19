@@ -60,12 +60,18 @@ even when the values are equal. The same ID in the raw and display passes is
 expected because it is their join key.
 
 The wrapped `RuntimeTagIdScope` and `MetadataOccurrence.schema_id` are both
-required. The former namespaces the extracted family-7 runtime ID; the latter
-is the authoritative static definition used to interpret the semantic value.
-They usually agree, but agreement is not an invariant. A LangAlt language child
-retains its child runtime scope while `schema_id` resolves, through the narrow
-confirmed LangAlt rule, to the parent definition. This is not a general suffix
-heuristic.
+required. The former namespaces the family-7 runtime ID; the latter is the
+authoritative static definition used to interpret the semantic value. They
+usually agree, but agreement is not a general invariant.
+
+ExifTool exposes XMP LangAlt members through flattened accessors such as
+`Description-fr`. The scanner applies one narrow schema-confirmed rule: members
+with the same parent schema, document, path, copy and parent runtime ID are
+consolidated into one canonical parent occurrence containing the complete
+language-to-text map. Child-only output still produces the real parent
+occurrence and parent selector. This is not a general suffix heuristic and it
+never crosses occurrence scope. Conflicting text for one language becomes one
+read-only `Unknown` parent value rather than selecting a winner.
 
 The distinction also protects real IPTC collisions. Within one IPTC block,
 `EnvelopeRecordVersion` and `ApplicationRecordVersion` may share family-7 ID
@@ -243,11 +249,13 @@ untouched. They are not parsed, migrated, rewritten, truncated or deleted.
 `ImageMetadata` stores authoritative occurrences only. Deliberate
 schema-oriented views are derived on demand for consumers such as columns,
 sorting, generated workflows and composite semantic editors: identical values
-may collapse, compatible LangAlt values may merge, and conflicts remain
-unavailable without selecting an arbitrary occurrence. Those projections do
-not own Details-row identity. Search indexes structured schema and occurrence
-fields, statuses, stored targets, semantic values and friendly labels, but
-never owns or mutates identity.
+may collapse and compatible complete LangAlt occurrences from distinct runtime
+scopes may merge. Per-property LangAlt language fragments have already been
+consolidated by the scanner. Conflicts remain unavailable without selecting an
+arbitrary occurrence. Those projections do not own Details-row identity.
+Search indexes structured schema and occurrence fields, statuses, stored
+targets, semantic values and friendly labels, but never owns or mutates
+identity.
 
 ## Rejected heuristics and fallbacks
 

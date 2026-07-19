@@ -893,37 +893,6 @@ fn build_strict_post_write_occurrence_index(
     Ok(occurrences)
 }
 
-fn merged_lang_alt_readback(
-    schema_id: &SchemaDefinitionId,
-    primary: &MetadataOccurrence,
-    candidates: &[&MetadataOccurrence],
-) -> Option<MetadataValue> {
-    let mut languages = BTreeMap::new();
-    let child_prefix = format!("{}-", primary.id.runtime_tag_id);
-    for occurrence in candidates.iter().copied().filter(|occurrence| {
-        &occurrence.schema_id == schema_id
-            && occurrence.id.document == primary.id.document
-            && occurrence.id.path == primary.id.path
-            && occurrence.id.copy == primary.id.copy
-            && (occurrence.id.runtime_tag_id == primary.id.runtime_tag_id
-                || occurrence.id.runtime_tag_id.starts_with(&child_prefix))
-    }) {
-        let MetadataValue::LangAlt(observed) = &occurrence.value else {
-            return None;
-        };
-        for (language, value) in observed {
-            match languages.get(language) {
-                Some(existing) if existing != value => return None,
-                Some(_) => {}
-                None => {
-                    languages.insert(language.clone(), value.clone());
-                }
-            }
-        }
-    }
-    (!languages.is_empty()).then_some(MetadataValue::LangAlt(languages))
-}
-
 fn verify_plan(
     plan: &TargetPlan,
     post_by_id: &BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>,
@@ -1010,14 +979,10 @@ fn verify_plan(
                     draft_reconciliation: MetadataDraftReconciliation::Keep,
                 },
                 [occurrence] => {
-                    let merged_lang_alt = matches!(plan.kind, TagKind::LangAlt)
-                        .then(|| merged_lang_alt_readback(schema_id, occurrence, &candidates))
-                        .flatten();
-                    let observed = merged_lang_alt.as_ref().unwrap_or(&occurrence.value);
                     let (kind, message) = verify_semantic(
                         schema_id,
                         &plan.edit,
-                        Some(observed),
+                        Some(&occurrence.value),
                         Some(&plan.kind),
                     );
                     let draft_reconciliation = if kind == "Match" {
@@ -1033,7 +998,7 @@ fn verify_plan(
                     TargetVerification {
                         kind,
                         message,
-                        observed: Some(observed.clone()),
+                        observed: Some(occurrence.value.clone()),
                         draft_reconciliation,
                     }
                 }
@@ -1853,21 +1818,6 @@ mod tests {
             &[binary],
             &argument_failure_client,
             &[binary_info],
-        ));
-
-        let lang_alt_info = schema("4", "XMP-test", "Title", true, TagKind::LangAlt);
-        let no_arguments = new_entry(
-            &lang_alt_info,
-            edit(
-                EditIntent::Set,
-                Some(MetadataValue::LangAlt(BTreeMap::new())),
-            ),
-        );
-        let no_arguments_client = FakeClient::new(vec![Ok(image(vec![]))]);
-        assert_no_audit(apply_fake(
-            &[no_arguments],
-            &no_arguments_client,
-            &[lang_alt_info],
         ));
 
         let nul_info = schema("5", "XMP-test", "Comment", true, TagKind::Text);
@@ -3029,7 +2979,7 @@ mod tests {
     }
 
     #[test]
-    fn new_lang_alt_property_merges_child_extraction_occurrences_under_one_exact_parent() {
+    fn new_lang_alt_property_verifies_one_complete_parent_occurrence() {
         let info = schema(
             "description",
             "XMP-test",
@@ -3042,27 +2992,14 @@ mod tests {
             ("x-default".to_string(), "Exact default".to_string()),
         ]));
         let entry = new_entry(&info, edit(EditIntent::Set, Some(expected.clone())));
-        let default = occurrence(
+        let complete = occurrence(
             occurrence_id("XMP", "description", 0),
-            MetadataValue::LangAlt(BTreeMap::from([(
-                "x-default".to_string(),
-                "Exact default".to_string(),
-            )])),
+            expected.clone(),
             Some(info.clone()),
             Some("XMP-test"),
             "Description",
         );
-        let french = occurrence(
-            occurrence_id("XMP", "description-fr", 0),
-            MetadataValue::LangAlt(BTreeMap::from([(
-                "fr".to_string(),
-                "Texte exact".to_string(),
-            )])),
-            Some(info.clone()),
-            None,
-            "Description-fr",
-        );
-        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![default, french]))]);
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![complete]))]);
 
         let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[info]);
 
@@ -3077,6 +3014,52 @@ mod tests {
             outcome.audit_records[0].post_write,
             TargetApplyPostWriteState::Unique { .. }
         ));
+    }
+
+    #[test]
+    fn existing_lang_alt_property_verifies_the_complete_replacement() {
+        let info = schema(
+            "description",
+            "XMP-test",
+            "Description",
+            true,
+            TagKind::LangAlt,
+        );
+        let before_value = MetadataValue::LangAlt(BTreeMap::from([
+            ("en".to_string(), "Old English".to_string()),
+            ("fr".to_string(), "Ancien francais".to_string()),
+            ("x-default".to_string(), "Old default".to_string()),
+        ]));
+        let expected = MetadataValue::LangAlt(BTreeMap::from([
+            ("en".to_string(), "New English".to_string()),
+            ("x-default".to_string(), "New default".to_string()),
+        ]));
+        let before = occurrence(
+            occurrence_id("XMP", "description", 0),
+            before_value,
+            Some(info.clone()),
+            Some("XMP-test"),
+            "Description",
+        );
+        let entry = existing_entry(&before, edit(EditIntent::Set, Some(expected.clone())));
+        let after = occurrence(
+            before.id.clone(),
+            expected.clone(),
+            Some(info),
+            Some("XMP-test"),
+            "Description",
+        );
+        let client = FakeClient::new(vec![Ok(image(vec![before])), Ok(image(vec![after]))]);
+
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+
+        assert_eq!(outcome.outcomes[0].kind, "Match");
+        assert_eq!(outcome.outcomes[0].observed, Some(expected));
+        assert_eq!(outcome.targets_to_clear, vec![entry.target]);
+        let writes = client.writes.borrow();
+        assert_eq!(writes.len(), 1);
+        assert!(writes[0].1.contains(":Description="));
+        assert!(!writes[0].1.contains("Description-fr="));
     }
 
     #[test]
