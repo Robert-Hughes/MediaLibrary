@@ -18,16 +18,21 @@ Frontend quick check:
 npm run check
 ```
 
-Frontend full local checks:
+`npm run check` runs formatting, warning-free ESLint, TypeScript checking,
+the full Vitest suite, and a warning-free Vite production build. Unexpected
+test stderr fails the suite; tests that intentionally exercise diagnostics
+must capture and assert them. The current Vite chunk warning budget is 1024 kB
+(1 MB) and should be lowered once the main bundle is split.
+
+Frontend full local checks from a clean dependency install:
 
 ```sh
 npm ci
-npm run format:check
-npm run lint
-npm run typecheck
-npm test
-npm run build
+npm run check
 ```
+
+Use `npm run build` when only a standalone type-checked production build is
+needed.
 
 Rust checks:
 
