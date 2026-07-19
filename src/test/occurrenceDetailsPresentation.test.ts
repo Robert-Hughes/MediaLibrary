@@ -147,6 +147,26 @@ describe("buildOccurrenceDetailsPresentation", () => {
       result.groups.flatMap((group) => group.rows).map((row) => row.kind),
     ).toEqual(["ExistingOccurrenceRow", "ExistingOccurrenceRow"]);
     expect(result.groups.map((group) => group.name)).toEqual(["IFD0", "IFD1"]);
+    expect(
+      result.groups
+        .flatMap((group) => group.rows)
+        .map((row) => row.originQualifier),
+    ).toEqual([null, null]);
+  });
+
+  it("does not qualify a sole occurrence merely because it has a nonzero copy", () => {
+    const row = buildOccurrenceDetailsPresentation({
+      occurrences: [
+        occurrence("JPEG-APP1-IFD1", undefined, {
+          id: occurrenceId("JPEG-APP1-IFD1", 1),
+          observed_selector: selector("IFD1", "ResolutionUnit"),
+          write_target: selector("IFD1", "ResolutionUnit"),
+          tag_info: tagInfo(schema, { name: "ResolutionUnit" }),
+        }),
+      ],
+    }).groups[0].rows[0];
+
+    expect(row.originQualifier).toBeNull();
   });
 
   it("keeps equal same-schema occurrences distinct inside one group", () => {
@@ -168,6 +188,72 @@ describe("buildOccurrenceDetailsPresentation", () => {
       "JPEG-APP1-IFD0",
       "JPEG-APP1-IFD1 · Copy1",
     ]);
+    expect(new Set(rows.map((row) => row.originQualifier)).size).toBe(2);
+  });
+
+  it("extends colliding human-readable qualifiers with runtime identity", () => {
+    const first = occurrence("JPEG-APP1-IFD1", undefined, {
+      id: {
+        ...occurrenceId("JPEG-APP1-IFD1", 1),
+        runtime_tag_id: "282-a",
+      },
+    });
+    const second = occurrence("JPEG-APP1-IFD1", undefined, {
+      id: {
+        ...occurrenceId("JPEG-APP1-IFD1", 1),
+        runtime_tag_id: "282-b",
+      },
+    });
+
+    const qualifiers = buildOccurrenceDetailsPresentation({
+      occurrences: [first, second],
+    }).groups[0].rows.map((row) => row.originQualifier);
+
+    expect(qualifiers.every((qualifier) => qualifier !== null)).toBe(true);
+    expect(new Set(qualifiers).size).toBe(2);
+    expect(qualifiers).toEqual([
+      expect.stringContaining("ID-282-a"),
+      expect.stringContaining("ID-282-b"),
+    ]);
+  });
+
+  it("applies duplicate-only qualifiers to New Property and missing rows", () => {
+    const missingSource = occurrence("missing", undefined, {
+      observed_selector: selector("IFD0"),
+      write_target: selector("IFD0"),
+    });
+    const missing = exactTarget(missingSource);
+    const fresh = newTarget(schema, "IFD0", "XResolution");
+
+    const duplicatedRows = buildOccurrenceDetailsPresentation({
+      occurrences: [],
+      targetDrafts: collection([
+        { target: missing, edit: edit() },
+        { target: fresh, edit: edit() },
+      ]),
+      tagInfos: { [schemaDefinitionIdToken(schema)]: tagInfo() },
+    }).groups[0].rows;
+
+    expect(duplicatedRows.map((row) => row.kind).sort()).toEqual([
+      "MissingOccurrenceDraftRow",
+      "NewPropertyRow",
+    ]);
+    expect(duplicatedRows.every((row) => row.originQualifier !== null)).toBe(
+      true,
+    );
+    expect(new Set(duplicatedRows.map((row) => row.originQualifier)).size).toBe(
+      2,
+    );
+
+    const soleRows = buildOccurrenceDetailsPresentation({
+      occurrences: [],
+      targetDrafts: collection([
+        { target: missing, edit: edit() },
+        { target: newTarget(schema, "IFD1", "XResolution"), edit: edit() },
+      ]),
+      tagInfos: { [schemaDefinitionIdToken(schema)]: tagInfo() },
+    }).groups.flatMap((group) => group.rows);
+    expect(soleRows.map((row) => row.originQualifier)).toEqual([null, null]);
   });
 
   it("uses the observed family-1 group before the schema group", () => {
@@ -471,9 +557,6 @@ describe("buildOccurrenceDetailsPresentation", () => {
       "A list payload cannot be rendered for a non-list schema.",
     );
     expect(unsupported.searchText).toContain(unsupported.effectiveDraftReason);
-    expect(unsupported.diagnosticTitle).toContain(
-      unsupported.effectiveDraftReason,
-    );
     expect(deleted.effectiveDraftApplied).toBe(true);
     expect(deleted.effectiveDraftReason).toBeNull();
   });
@@ -697,9 +780,6 @@ describe("buildOccurrenceDetailsPresentation", () => {
         expect(row?.status.code).toBe("pending-target-conflict");
         expect(row?.status.label).toBe("Destination used by pending edit");
         expect(row?.searchText).toContain("Destination used by pending edit");
-        expect(row?.diagnosticTitle).toContain(
-          JSON.stringify(conflictingTarget),
-        );
         expect(row?.searchText).toContain(JSON.stringify(conflictingTarget));
       } else {
         expect(row?.status.code).toBe("new");
@@ -728,7 +808,6 @@ describe("buildOccurrenceDetailsPresentation", () => {
     expect(row?.status.code).toBe("destination-unknown");
     expect(row?.status.label).toBe("Destination cannot be verified");
     expect(row?.searchText).toContain("Destination cannot be verified");
-    expect(row?.diagnosticTitle).toContain("Destination cannot be verified");
     expect(row?.removalTarget).toEqual(target);
     expect(row?.target).toEqual(target);
     expect(row?.intendedDestination).toEqual(target.write_target);

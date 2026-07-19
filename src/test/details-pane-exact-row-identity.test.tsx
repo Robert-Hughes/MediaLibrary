@@ -244,6 +244,13 @@ function rowForOccurrence(source: MetadataOccurrence) {
   return row;
 }
 
+function tooltipCells(row: HTMLElement) {
+  const name = row.querySelector<HTMLElement>(".details-key");
+  const value = row.querySelector<HTMLElement>(".details-value");
+  if (!name || !value) throw new Error("Details tooltip cells not found");
+  return { name, value };
+}
+
 beforeEach(() => {
   _clearTagInfoCache();
   _setTagInfoCacheEntry(schemaId, tagInfo);
@@ -251,6 +258,72 @@ beforeEach(() => {
 });
 
 describe("DetailsPane exact target-owned row presentation", () => {
+  it("renders separate curated name and value tooltips for an occurrence", () => {
+    renderPane({ occurrences: [occurrenceA] });
+    const row = rowForOccurrence(occurrenceA);
+    const { name, value } = tooltipCells(row);
+
+    expect(row).not.toHaveAttribute("title");
+    expect(name.title).not.toBe(value.title);
+    expect(name.title).toContain("Property: XResolution");
+    expect(name.title).toContain("Family 1: IFD0");
+    expect(name.title).toContain("Family 3: Main");
+    expect(name.title).toContain("Family 4: Copy0");
+    expect(name.title).toContain("Family 5: JPEG-APP1-IFD0");
+    expect(name.title).toContain("Family 7: ID-Test");
+    expect(name.title).toContain("Schema table: Exif::Main");
+    expect(name.title).toContain("Schema tag ID: 282");
+    expect(name.title).toContain("Schema datatype: Integer (I)");
+    expect(name.title).toContain("Schema writable: true");
+    expect(name.title).toContain("Editable: true");
+    expect(value.title).toContain("Current value: 300");
+    expect(value.title).toContain("Current datatype: Integer (I)");
+    expect(value.title).toContain("Current matches schema: true");
+    expect(value.title).toContain("Draft action: none");
+    expect(name.title).not.toMatch(/^\s*[{[]/m);
+    expect(value.title).not.toContain(row.dataset.occurrenceToken ?? "[]");
+    expect(
+      row.querySelector('[data-testid^="datatype-badge-"]'),
+    ).not.toHaveAttribute("title");
+  });
+
+  it("uses destination semantics for New Property tooltips", () => {
+    const { target, store } = stagedNewProperty();
+    renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+    const { name, value } = tooltipCells(rowForNewPropertyTarget(target));
+
+    expect(name.title).toContain("Field state: New property");
+    expect(name.title).toContain("Destination family 1: XMP-custom");
+    expect(name.title).toContain("Destination family 7: ID-title");
+    expect(name.title).not.toContain("Family 3:");
+    expect(name.title).toContain("Schema datatype: String (S)");
+    expect(value.title).toContain("Current value: not present");
+    expect(value.title).toContain("Draft action: Set");
+    expect(value.title).toContain("Staged value: draft title");
+    expect(value.title).toContain("Staged datatype: String (S)");
+  });
+
+  it("labels missing-occurrence identity and value tooltip state", () => {
+    const { drafts } = targetDrafts(occurrenceA, {
+      intent: "Delete",
+      value: null,
+    });
+    renderPane({ occurrences: [], targetDraftEdits: drafts });
+    const row = missingOccurrenceDraftRows()[0];
+    const { name, value } = tooltipCells(row);
+
+    expect(name.title).toContain("Field state: Missing occurrence");
+    expect(name.title).toContain("Family 5: JPEG-APP1-IFD0");
+    expect(name.title).toContain("Editable: false");
+    expect(name.title).toContain("Status: Missing occurrence");
+    expect(value.title).toContain("Current value: occurrence missing");
+    expect(value.title).toContain("Draft action: Delete");
+    expect(value.title).toContain("Staged value: deleted");
+  });
+
   it("keeps a pending-conflicted New Property exactly discardable and destination-editable", () => {
     const staged = stagedNewProperty();
     const conflictingTarget = {
@@ -272,9 +345,12 @@ describe("DetailsPane exact target-owned row presentation", () => {
 
     const row = rowForNewPropertyTarget(staged.target);
     expect(row).toHaveTextContent("Destination used by pending edit");
-    expect(row).toHaveAttribute(
+    expect(tooltipCells(row).name).toHaveAttribute(
       "title",
-      expect.stringContaining(JSON.stringify(conflictingTarget)),
+      expect.stringContaining("Status: Destination used by pending edit"),
+    );
+    expect(tooltipCells(row).name.title).not.toContain(
+      JSON.stringify(conflictingTarget),
     );
     fireEvent.contextMenu(row);
     expect(
@@ -399,7 +475,11 @@ describe("DetailsPane exact target-owned row presentation", () => {
     expect(row).not.toHaveTextContent("—");
     expect(row.querySelector(".draft-original")).toBeNull();
     expect(row).toHaveAttribute("data-has-pending-operation", "true");
-    expect(row).toHaveAttribute("title", expect.stringContaining(reason));
+    expect(row).not.toHaveAttribute("title");
+    expect(tooltipCells(row).value).toHaveAttribute(
+      "title",
+      expect.stringContaining(`Reason: ${reason}`),
+    );
 
     fireEvent.contextMenu(row);
     fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
@@ -618,7 +698,11 @@ describe("DetailsPane exact target-owned row presentation", () => {
     renderPane({ occurrences: [item] });
     const row = existingOccurrenceRows()[0];
     expect(row).toHaveAttribute("data-readonly", "true");
-    expect(row).toHaveAttribute("title", expect.stringMatching(reason));
+    expect(row).not.toHaveAttribute("title");
+    expect(tooltipCells(row).name).toHaveAttribute(
+      "title",
+      expect.stringMatching(reason),
+    );
     fireEvent.contextMenu(row);
     expect(screen.queryByRole("menu")).toBeNull();
   });
@@ -633,9 +717,12 @@ describe("DetailsPane exact target-owned row presentation", () => {
     });
     const row = existingOccurrenceRows()[0];
     expect(row).toHaveAttribute("data-readonly", "true");
-    expect(row).toHaveAttribute(
+    expect(row).not.toHaveAttribute("title");
+    expect(tooltipCells(row).name).toHaveAttribute(
       "title",
-      expect.stringContaining("persistence did not load safely"),
+      expect.stringContaining(
+        "Reason: Target-aware draft persistence did not load safely.",
+      ),
     );
   });
 
@@ -670,9 +757,10 @@ describe("DetailsPane exact target-owned row presentation", () => {
     });
     for (const row of existingOccurrenceRows()) {
       expect(row).toHaveAttribute("data-readonly", "true");
-      expect(row).toHaveAttribute(
+      expect(row).not.toHaveAttribute("title");
+      expect(tooltipCells(row).name).toHaveAttribute(
         "title",
-        expect.stringContaining("Duplicate occurrence ID"),
+        expect.stringContaining("Status: Duplicate occurrence ID"),
       );
     }
 

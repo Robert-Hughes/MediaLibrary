@@ -2,19 +2,10 @@ Current
 =======
 
 - SchemaDefinitionId and MetadataOccurence work. 
-  - @GitHub MediaLibrary repo
-  
-    Look at the commits between 0b4cef3f9458b59a8dadc59a8a4b974346375dd6 and the latest. There have been some big changes in how we identify property keys.
-    
-    Do a full review of these changes to see if everything has been migrated over sensibly. In particular I would like confidence that:
-    * The docs are super-clear about why there are separate definitions of "Property name/ID" - user-facing nice string, schema definition and occurrences in the file.
-    * The test coverage has not regressed as part of the migrations
-    * There is not any legacy code. adapters, irrelevant tests or anything half-done. For example files or identifiers that are suspicious might be "v4", "v5", legacy
-    * All the code is now using the appropriate property identifiers (schema definition is used where appropriate and occurrence ID is used where appropriate)
-      * Are there any places where things are schema-oriented but would be better as occurence-oriented? (For example, the details pane used to be schema oriented which was led to more complexity and was changed to be occurence-based)
   - Then work through manual checklist (which will prob first need updating from the occurence work). 
-    - Right click on the property list maps should show edit (opens group editor) and "remove all GPS", "discard all GPS"? Should be done - check
-    - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
+  - Tooltips very long and confusing
+  - Property name too wide, what's the extra bit
+  - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
   
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
 
