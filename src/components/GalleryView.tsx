@@ -14,6 +14,11 @@ import type { TargetDraftCollection } from "../targetDraftEdits";
 import { ModalDialog } from "./ModalDialog";
 
 const GALLERY_DETAILS_VISIBLE_KEY = "media_library_gallery_details_visible";
+const GALLERY_DETAILS_WIDTH_KEY = "media_library_gallery_details_width";
+const DEFAULT_DETAILS_WIDTH = 360;
+const MIN_DETAILS_WIDTH = 280;
+const MAX_DETAILS_WIDTH = 720;
+const MIN_GALLERY_WIDTH = 320;
 
 function loadDetailsVisible(): boolean {
   try {
@@ -29,6 +34,45 @@ function saveDetailsVisible(visible: boolean): void {
   } catch {
     // localStorage may be unavailable (e.g. in tests) — silently ignore
   }
+}
+
+function clampStoredDetailsWidth(width: number): number {
+  return Math.min(MAX_DETAILS_WIDTH, Math.max(MIN_DETAILS_WIDTH, width));
+}
+
+function loadDetailsWidth(): number {
+  try {
+    const stored = Number(localStorage.getItem(GALLERY_DETAILS_WIDTH_KEY));
+    return Number.isFinite(stored) && stored > 0
+      ? clampStoredDetailsWidth(stored)
+      : DEFAULT_DETAILS_WIDTH;
+  } catch {
+    return DEFAULT_DETAILS_WIDTH;
+  }
+}
+
+function saveDetailsWidth(width: number): void {
+  try {
+    localStorage.setItem(GALLERY_DETAILS_WIDTH_KEY, String(Math.round(width)));
+  } catch {
+    // localStorage may be unavailable (e.g. in tests) — silently ignore
+  }
+}
+
+function availableDetailsWidth(): number {
+  const viewportWidth =
+    typeof window === "undefined" ? 1024 : window.innerWidth;
+  return Math.max(
+    MIN_DETAILS_WIDTH,
+    Math.min(MAX_DETAILS_WIDTH, viewportWidth - MIN_GALLERY_WIDTH),
+  );
+}
+
+interface DetailsResizeDrag {
+  pointerId: number;
+  startX: number;
+  startWidth: number;
+  currentWidth: number;
 }
 
 interface Props {
@@ -116,6 +160,8 @@ export function GalleryView({
   const [loading, setLoading] = useState(true);
   const [detailsVisible, setDetailsVisibleState] =
     useState<boolean>(loadDetailsVisible);
+  const [detailsWidth, setDetailsWidth] = useState(loadDetailsWidth);
+  const detailsResizeDragRef = useRef<DetailsResizeDrag | null>(null);
   const setDetailsVisible = (
     update: boolean | ((prev: boolean) => boolean),
   ) => {
@@ -126,6 +172,61 @@ export function GalleryView({
     });
   };
   const spinStyle = useSpinnerSync();
+
+  const setClampedDetailsWidth = (width: number, persist: boolean) => {
+    const next = Math.min(
+      availableDetailsWidth(),
+      Math.max(MIN_DETAILS_WIDTH, width),
+    );
+    setDetailsWidth(next);
+    if (persist) saveDetailsWidth(next);
+    return next;
+  };
+
+  const handleDetailsResizeStart = (e: React.PointerEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startWidth = Math.min(detailsWidth, availableDetailsWidth());
+    detailsResizeDragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startWidth,
+      currentWidth: startWidth,
+    };
+    e.currentTarget.focus();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  };
+
+  const handleDetailsResizeMove = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = detailsResizeDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    const next = setClampedDetailsWidth(
+      drag.startWidth + (drag.startX - e.clientX),
+      false,
+    );
+    drag.currentWidth = next;
+  };
+
+  const handleDetailsResizeEnd = (e: React.PointerEvent<HTMLElement>) => {
+    const drag = detailsResizeDragRef.current;
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    detailsResizeDragRef.current = null;
+    saveDetailsWidth(drag.currentWidth);
+  };
+
+  const handleDetailsResizeKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    let next: number | null = null;
+    const step = e.shiftKey ? 50 : 10;
+    const currentWidth = Math.min(detailsWidth, availableDetailsWidth());
+    if (e.key === "ArrowLeft") next = currentWidth + step;
+    if (e.key === "ArrowRight") next = currentWidth - step;
+    if (e.key === "Home") next = MIN_DETAILS_WIDTH;
+    if (e.key === "End") next = availableDetailsWidth();
+    if (next === null) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setClampedDetailsWidth(next, true);
+  };
 
   const areaRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -250,6 +351,7 @@ export function GalleryView({
 
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < photos.length - 1;
+  const effectiveDetailsWidth = Math.min(detailsWidth, availableDetailsWidth());
 
   return (
     <ModalDialog
@@ -342,62 +444,93 @@ export function GalleryView({
         </button>
 
         {detailsVisible && (
-          <DetailsPane
-            photo={photo}
-            occurrences={occurrencesState}
-            targetDraftEdits={targetDraftEdits}
-            targetDraftPersistence={targetDraftPersistence}
-            onSetExistingOccurrenceDraft={(target, edit) =>
-              onSetExistingOccurrenceDraft?.(photo.relative_path, target, edit)
-            }
-            onRemoveMetadataTargets={(targets) =>
-              onRemoveMetadataTargets?.(photo.relative_path, targets) ?? false
-            }
-            onApplyGpsTargetDraftBatch={(entries) =>
-              onApplyGpsTargetDraftBatch?.(photo.relative_path, entries) ??
-              false
-            }
-            onSetNewPropertyDraft={(target, edit) =>
-              onSetNewPropertyDraft?.(photo.relative_path, target, edit) ??
-              Promise.resolve(false)
-            }
-            onReplaceNewPropertyDraftTarget={(
-              originalTarget,
-              replacementTarget,
-              originalEdit,
-            ) =>
-              onReplaceNewPropertyDraftTarget?.(
-                photo.relative_path,
+          <div
+            className="gallery-details-region"
+            data-testid="gallery-details-region"
+            style={{ width: `${effectiveDetailsWidth}px` }}
+          >
+            <div
+              className="gallery-details-resize-handle"
+              data-testid="gallery-details-resize-handle"
+              role="separator"
+              aria-label="Resize details pane"
+              aria-orientation="vertical"
+              aria-valuemin={MIN_DETAILS_WIDTH}
+              aria-valuemax={availableDetailsWidth()}
+              aria-valuenow={Math.round(effectiveDetailsWidth)}
+              tabIndex={0}
+              title="Drag to resize; double-click to reset"
+              onPointerDown={handleDetailsResizeStart}
+              onPointerMove={handleDetailsResizeMove}
+              onPointerUp={handleDetailsResizeEnd}
+              onPointerCancel={handleDetailsResizeEnd}
+              onKeyDown={handleDetailsResizeKeyDown}
+              onDoubleClick={() =>
+                setClampedDetailsWidth(DEFAULT_DETAILS_WIDTH, true)
+              }
+            />
+            <DetailsPane
+              photo={photo}
+              occurrences={occurrencesState}
+              targetDraftEdits={targetDraftEdits}
+              targetDraftPersistence={targetDraftPersistence}
+              onSetExistingOccurrenceDraft={(target, edit) =>
+                onSetExistingOccurrenceDraft?.(
+                  photo.relative_path,
+                  target,
+                  edit,
+                )
+              }
+              onRemoveMetadataTargets={(targets) =>
+                onRemoveMetadataTargets?.(photo.relative_path, targets) ?? false
+              }
+              onApplyGpsTargetDraftBatch={(entries) =>
+                onApplyGpsTargetDraftBatch?.(photo.relative_path, entries) ??
+                false
+              }
+              onSetNewPropertyDraft={(target, edit) =>
+                onSetNewPropertyDraft?.(photo.relative_path, target, edit) ??
+                Promise.resolve(false)
+              }
+              onReplaceNewPropertyDraftTarget={(
                 originalTarget,
                 replacementTarget,
                 originalEdit,
-              ) ?? Promise.resolve(false)
-            }
-            onDiscardTargetPropertyDraft={(target) =>
-              onDiscardTargetPropertyDraft?.(photo.relative_path, target)
-            }
-            onDiscardTargetDraftBatch={(targets) =>
-              onDiscardTargetDraftBatch?.(photo.relative_path, targets) ?? false
-            }
-            onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
-            onApplyEdits={() => onApplyEdits?.(photo.relative_path)}
-            onGenerateAiDescription={
-              onGenerateAiDescription
-                ? () => onGenerateAiDescription(photo.relative_path)
-                : undefined
-            }
-            onGeocode={
-              onGeocode ? () => onGeocode(photo.relative_path) : undefined
-            }
-            onNormalise={
-              onNormalise ? () => onNormalise(photo.relative_path) : undefined
-            }
-            onShowInFileExplorer={
-              onShowInFileExplorer
-                ? () => onShowInFileExplorer(photo.relative_path)
-                : undefined
-            }
-          />
+              ) =>
+                onReplaceNewPropertyDraftTarget?.(
+                  photo.relative_path,
+                  originalTarget,
+                  replacementTarget,
+                  originalEdit,
+                ) ?? Promise.resolve(false)
+              }
+              onDiscardTargetPropertyDraft={(target) =>
+                onDiscardTargetPropertyDraft?.(photo.relative_path, target)
+              }
+              onDiscardTargetDraftBatch={(targets) =>
+                onDiscardTargetDraftBatch?.(photo.relative_path, targets) ??
+                false
+              }
+              onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
+              onApplyEdits={() => onApplyEdits?.(photo.relative_path)}
+              onGenerateAiDescription={
+                onGenerateAiDescription
+                  ? () => onGenerateAiDescription(photo.relative_path)
+                  : undefined
+              }
+              onGeocode={
+                onGeocode ? () => onGeocode(photo.relative_path) : undefined
+              }
+              onNormalise={
+                onNormalise ? () => onNormalise(photo.relative_path) : undefined
+              }
+              onShowInFileExplorer={
+                onShowInFileExplorer
+                  ? () => onShowInFileExplorer(photo.relative_path)
+                  : undefined
+              }
+            />
+          </div>
         )}
 
         <div className="gallery-caption" data-testid="gallery-caption">
