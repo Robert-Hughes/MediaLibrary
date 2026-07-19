@@ -128,7 +128,9 @@ describe("target-aware apply wire", () => {
   });
 
   it("rejects the removed metadata field inside fresh_image_metadata", () => {
-    const raw = structuredClone(fileResult()) as unknown as Record<string, any>;
+    const raw = structuredClone(fileResult()) as unknown as {
+      fresh_image_metadata: Record<string, unknown>;
+    };
     raw.fresh_image_metadata.metadata = [];
     expect(() => targetApplyFileResultFromUnknown(raw)).toThrow(
       /fresh_image_metadata must be null or complete valid ImageMetadata/,

@@ -22,6 +22,10 @@ import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
 
 const gpsMemberGroup = (key: string) => exactGpsMemberGroup(testId(key));
 
+type MockGpsMapElement = HTMLDivElement & {
+  triggerPositionSelect: (lat: number, lon: number) => void;
+};
+
 vi.mock("../components/GpsMap", () => ({
   GpsMap: ({
     position,
@@ -42,7 +46,10 @@ vi.mock("../components/GpsMap", () => ({
       data-readonly={String(readOnly)}
       ref={(el) => {
         if (el) {
-          (el as any).triggerPositionSelect = (lat: number, lon: number) => {
+          (el as MockGpsMapElement).triggerPositionSelect = (
+            lat: number,
+            lon: number,
+          ) => {
             if (onPositionSelect) {
               onPositionSelect({ lat, lon });
             }
@@ -338,7 +345,7 @@ describe("GpsEditor", () => {
     );
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(51.5074, -0.1278);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(51.5074, -0.1278);
     });
 
     const latInput = screen.getByTestId(
@@ -374,7 +381,7 @@ describe("GpsEditor", () => {
     );
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(-12.34, 45.67);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(-12.34, 45.67);
     });
 
     const latRef = screen.getByTestId(
@@ -402,7 +409,7 @@ describe("GpsEditor", () => {
     );
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(-0.0, -0.0);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(-0.0, -0.0);
     });
 
     const latInput = screen.getByTestId(
@@ -449,7 +456,7 @@ describe("GpsEditor", () => {
     // select a map position
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(10, 10);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(10, 10);
     });
     expect(screen.queryByTestId("gps-editor-error")).not.toBeInTheDocument();
   });
@@ -475,7 +482,7 @@ describe("GpsEditor", () => {
 
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(10, 10);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(10, 10);
     });
     expect(altInput.value).toBe("150");
   });
@@ -496,7 +503,7 @@ describe("GpsEditor", () => {
     );
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(51.5, -0.13);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(51.5, -0.13);
     });
 
     fireEvent.click(screen.getByTestId("gps-editor-save"));
@@ -540,7 +547,7 @@ describe("GpsEditor", () => {
     );
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(51.5, -0.13);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(51.5, -0.13);
     });
 
     const alt = screen.getByTestId("gps-editor-alt-input") as HTMLInputElement;
@@ -567,7 +574,7 @@ describe("GpsEditor", () => {
     );
     const mockMap = screen.getByTestId("mock-gps-map");
     act(() => {
-      (mockMap as any).triggerPositionSelect(10, 10);
+      (mockMap as MockGpsMapElement).triggerPositionSelect(10, 10);
     });
 
     const latInput = screen.getByTestId(

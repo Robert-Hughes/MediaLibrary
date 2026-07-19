@@ -13,7 +13,10 @@ import { resolveGps as exactResolveGps } from "../utils/resolveGps";
 import type { MetadataDraftEdit, MetadataValue } from "../types";
 import { mockMetadata, mockSchemaDraftDisplayProjection } from "./factories";
 
-const resolveGps = (drafts: any, metadata: any) =>
+type DraftInput = Parameters<typeof mockSchemaDraftDisplayProjection>[0];
+type MetadataInput = Parameters<typeof exactResolveGps>[1];
+
+const resolveGps = (drafts: DraftInput | undefined, metadata: MetadataInput) =>
   exactResolveGps(
     drafts ? mockSchemaDraftDisplayProjection(drafts) : undefined,
     metadata,

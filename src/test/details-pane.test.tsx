@@ -1,4 +1,7 @@
-import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+import {
+  kindForValue,
+  occurrencesFromMetadataCollection,
+} from "./occurrenceFixtures";
 /**
  * DetailsPane component tests.
  *
@@ -48,9 +51,9 @@ import type {
   MetadataTargetDraftEntry,
   PhotoInfo,
   SchemaDefinitionId,
+  TagKind,
 } from "../types";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
-
 function mockOccurrences(
   values: Parameters<typeof mockMetadata>[0],
   readOnly: string[] = [],
@@ -1441,20 +1444,23 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     _clearTagInfoCache();
 
     // Register all six GPS fields as writable
-    const gpsFields = [
+    const gpsFields: Array<{ key: string; kind: TagKind }> = [
       { key: "GPS:GPSLatitude", kind: { kind: "Real" } },
       { key: "GPS:GPSLatitudeRef", kind: { kind: "Text" } },
       { key: "GPS:GPSLongitude", kind: { kind: "Real" } },
       { key: "GPS:GPSLongitudeRef", kind: { kind: "Text" } },
       { key: "GPS:GPSAltitude", kind: { kind: "Real" } },
-      { key: "GPS:GPSAltitudeRef", kind: { kind: "Integer" } },
+      {
+        key: "GPS:GPSAltitudeRef",
+        kind: { kind: "Integer", data: { min: null, max: null } },
+      },
     ];
     for (const f of gpsFields) {
       _setTagInfoCacheEntry(f.key, {
         group: f.key.split(":")[0],
         name: f.key.split(":")[1],
         writable: true,
-        kind: f.kind as any,
+        kind: f.kind,
         description: null,
       });
     }
@@ -1505,7 +1511,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           group,
           name,
           writable: true,
-          kind: { kind: value.kind } as any,
+          kind: kindForValue(value),
           description: null,
         },
         observed_selector: {
@@ -2117,13 +2123,13 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     // Inspect the emitted drafts and confirm
     const draftsJson = JSON.parse(
       screen.getByTestId("drafts-debug").textContent || "{}",
-    );
+    ) as Record<string, MetadataTargetDraftEntry>;
     const draftFor = (id: SchemaDefinitionId) =>
       Object.values(draftsJson).find(
-        (entry: any) =>
+        (entry) =>
           schemaDefinitionIdToken(entry.target.schema_id) ===
           schemaDefinitionIdToken(id),
-      ) as any;
+      );
     expect(draftFor(testId("GPS:GPSLatitudeRef"))).toMatchObject({
       target: { schema_id: testId("GPS:GPSLatitudeRef") },
       edit: {
@@ -2216,9 +2222,9 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     // Confirm resulting draft is semantic Text("S") and display "South"
     const draftsJson = JSON.parse(
       screen.getByTestId("drafts-debug").textContent || "{}",
-    );
+    ) as Record<string, MetadataTargetDraftEntry>;
     const latitudeRefDraft = Object.values(draftsJson).find(
-      (entry: any) =>
+      (entry) =>
         schemaDefinitionIdToken(entry.target.schema_id) ===
         schemaDefinitionIdToken(testId("GPS:GPSLatitudeRef")),
     );

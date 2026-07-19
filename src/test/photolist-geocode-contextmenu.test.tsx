@@ -38,7 +38,7 @@ async function getAskMock() {
 
 interface SetupOptions {
   photoCount?: number;
-  metadataByPath?: Record<string, Record<string, any>>;
+  metadataByPath?: Record<string, Parameters<typeof mockMetadata>[0]>;
   targetDraftEntriesByPath?: Record<string, MetadataTargetDraftEntry[]>;
   onGeocode?: (paths: string[]) => void;
 }

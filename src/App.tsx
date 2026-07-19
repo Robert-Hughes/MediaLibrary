@@ -258,6 +258,10 @@ function LoadedView({
 
   const columnDialogAllKeys = useMemo(() => {
     if (!showColumnDialog) return [];
+    // These revisions invalidate reads from stores that mutate in place while
+    // metadata is streaming, even though the store objects remain stable.
+    void state.metadataVersion;
+    void metadataRemaining;
     return computeEffectiveMetadataKeyFrequency(
       state.photos,
       state.imageMetadataOccurrences,

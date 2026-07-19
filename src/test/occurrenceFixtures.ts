@@ -11,7 +11,7 @@ import type { MetadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { testFriendlyName } from "./testIds";
 
-function kindForValue(value: MetadataValue): TagKind {
+export function kindForValue(value: MetadataValue): TagKind {
   switch (value.kind) {
     case "Text":
       return { kind: "Text" };

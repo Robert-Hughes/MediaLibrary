@@ -43,16 +43,16 @@ describe("schemaDatatype", () => {
 
 describe("metadataEntryDatatype", () => {
   it("classifies primitive JSON shapes (fallback path)", () => {
-    expect(metadataEntryDatatype("hello" as any)?.code).toBe("S");
-    expect(metadataEntryDatatype(42 as any)?.code).toBe("N");
-    expect(metadataEntryDatatype(3.14 as any)?.code).toBe("N");
-    expect(metadataEntryDatatype(true as any)?.code).toBe("B");
-    expect(metadataEntryDatatype(null as any)?.code).toBe("\u2205");
+    expect(metadataEntryDatatype("hello")?.code).toBe("S");
+    expect(metadataEntryDatatype(42)?.code).toBe("N");
+    expect(metadataEntryDatatype(3.14)?.code).toBe("N");
+    expect(metadataEntryDatatype(true)?.code).toBe("B");
+    expect(metadataEntryDatatype(null)?.code).toBe("\u2205");
   });
 
   it("classifies containers", () => {
-    expect(metadataEntryDatatype(["a"] as any)?.code).toBe("L");
-    expect(metadataEntryDatatype({ x: "y" } as any)?.code).toBe("{}");
+    expect(metadataEntryDatatype(["a"])?.code).toBe("L");
+    expect(metadataEntryDatatype({ x: "y" })?.code).toBe("{}");
   });
 
   it("returns null for undefined", () => {

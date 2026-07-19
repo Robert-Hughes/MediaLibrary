@@ -293,7 +293,7 @@ export function metadataValueEqual(
   return deepEqual(av, bv);
 }
 
-function deepEqual(a: any, b: any): boolean {
+function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === undefined || b === undefined) return false;
   if (a === null || b === null) return false;
@@ -306,20 +306,24 @@ function deepEqual(a: any, b: any): boolean {
     }
     return true;
   }
-  if (typeof a === "object") {
-    const ka = Object.keys(a);
-    const kb = Object.keys(b);
+  if (typeof a === "object" && typeof b === "object") {
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const ka = Object.keys(left);
+    const kb = Object.keys(right);
     if (ka.length !== kb.length) return false;
     for (const k of ka) {
-      if (!(k in b)) return false;
-      if (!deepEqual(a[k], b[k])) return false;
+      if (!(k in right)) return false;
+      if (!deepEqual(left[k], right[k])) return false;
     }
     return true;
   }
   return false;
 }
 
-function metadataEntryToComparableValue(value: MetadataValue | undefined): any {
+function metadataEntryToComparableValue(
+  value: MetadataValue | undefined,
+): unknown {
   if (!value) return undefined;
   switch (value.kind) {
     case "Null":
