@@ -234,6 +234,10 @@ describe("target-aware progress and results", () => {
   });
 
   it("keeps failed drafts and reports warnings without counting them as failures", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const paths = ["warning.jpg", "failed.jpg", "clean.jpg"];
     const entries = seedTargetDrafts(paths);
     mockApiInstance.targetApplyProgressResultsByPath["warning.jpg"] =
@@ -279,6 +283,16 @@ describe("target-aware progress and results", () => {
     expect(screen.getByText(/File write error/)).toBeVisible();
     expect(screen.getByText(/ExifTool warning message/)).toBeVisible();
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeVisible();
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("[application-error:metadata-target-file]"),
+      expect.objectContaining({ affectedFiles: ["failed.jpg"] }),
+    );
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining("[application-warning:metadata-target-warning]"),
+      expect.objectContaining({ affectedFiles: ["warning.jpg"] }),
+    );
+    consoleError.mockRestore();
+    consoleWarn.mockRestore();
   });
 
   it("opens target verification when an exact target needs attention", async () => {

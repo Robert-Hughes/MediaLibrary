@@ -65,6 +65,20 @@ import {
   type GeneratedMetadataProducer,
 } from "./generatedTargetDrafts";
 
+function logApplicationIssue(
+  severity: ApplicationErrorPayload["severity"],
+  errorType: string,
+  error: unknown,
+  affectedFiles: string[],
+): string {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const context = { affectedFiles, error };
+  const message = `[application-${severity}:${errorType}] ${errorMessage}`;
+  if (severity === "warning") console.warn(message, context);
+  else console.error(message, context);
+  return errorMessage;
+}
+
 const TARGET_DRAFT_LOAD_BLOCKED_MESSAGE =
   "Target-aware drafts could not be loaded safely. Fix the folder's target-aware draft persistence file, then reopen the folder.";
 
@@ -203,16 +217,22 @@ export function useMediaLibrary(
     null,
   );
 
-  const pushApplicationError = useCallback(
-    (errorType: string, error: unknown, affectedFiles: string[] = []) => {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[application-error:${errorType}] ${errorMessage}`, {
-        affectedFiles,
+  const pushApplicationIssue = useCallback(
+    (
+      severity: ApplicationErrorPayload["severity"],
+      errorType: string,
+      error: unknown,
+      affectedFiles: string[] = [],
+    ) => {
+      const errorMessage = logApplicationIssue(
+        severity,
+        errorType,
         error,
-      });
+        affectedFiles,
+      );
       const payload: ApplicationErrorPayload = {
         scan_id: activeScanIdRef.current,
-        severity: "error",
+        severity,
         error_type: errorType,
         error_message: errorMessage,
         affected_files: affectedFiles,
@@ -226,6 +246,18 @@ export function useMediaLibrary(
       });
     },
     [],
+  );
+
+  const pushApplicationError = useCallback(
+    (errorType: string, error: unknown, affectedFiles: string[] = []) =>
+      pushApplicationIssue("error", errorType, error, affectedFiles),
+    [pushApplicationIssue],
+  );
+
+  const pushApplicationWarning = useCallback(
+    (errorType: string, warning: unknown, affectedFiles: string[] = []) =>
+      pushApplicationIssue("warning", errorType, warning, affectedFiles),
+    [pushApplicationIssue],
   );
 
   useEffect(() => {
@@ -308,7 +340,7 @@ export function useMediaLibrary(
           onFileError: (relativePath, error) =>
             pushApplicationError("metadata-target-file", error, [relativePath]),
           onFileWarning: (relativePath, warning) =>
-            pushApplicationError("metadata-target-warning", warning, [
+            pushApplicationWarning("metadata-target-warning", warning, [
               relativePath,
             ]),
         },
@@ -343,7 +375,7 @@ export function useMediaLibrary(
     return () => {
       unsubscribe();
     };
-  }, [pushApplicationError]);
+  }, [pushApplicationError, pushApplicationWarning]);
 
   const cancelActiveApplyAndWait = useCallback(async () => {
     if (!applyActiveRef.current) return;
@@ -1081,13 +1113,13 @@ export function useMediaLibrary(
         return { kind: "success", changed };
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        pushApplicationError("metadata-target-generated-stage", reason, [
+        logApplicationIssue("error", "metadata-target-generated-stage", error, [
           relativePath,
         ]);
         return { kind: "failure", reason };
       }
     },
-    [pushApplicationError, requireTargetDraftPersistenceReady],
+    [requireTargetDraftPersistenceReady],
   );
 
   const applyGpsTargetDraftBatch = useCallback(
