@@ -17,6 +17,8 @@ import { occurrenceFromSchemaValue } from "./occurrenceFixtures";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import { family7GroupFromSchemaId } from "../utils/metadataWriteTarget";
+import { GPS_IDS, knownMetadataWriteTarget } from "../metadata/knownIds";
+import type { GpsTagGroup } from "../metadata/tag_overrides";
 
 const id: SchemaDefinitionId = {
   table: "XMP::dc",
@@ -86,6 +88,40 @@ function drafts(
   return Object.fromEntries(
     entries.map((entry) => [metadataDraftTargetSlotToken(entry.target), entry]),
   );
+}
+
+const gpsGroup: GpsTagGroup = {
+  latitudeId: GPS_IDS.latitude,
+  latitudeRefId: GPS_IDS.latitudeRef,
+  longitudeId: GPS_IDS.longitude,
+  longitudeRefId: GPS_IDS.longitudeRef,
+  altitudeId: GPS_IDS.altitude,
+  altitudeRefId: GPS_IDS.altitudeRef,
+};
+
+function gpsOccurrence(
+  schemaId: SchemaDefinitionId,
+  value: MetadataValue,
+  ordinal: number,
+): MetadataOccurrence {
+  const writeTarget = knownMetadataWriteTarget(schemaId)!;
+  const item = occurrenceFromSchemaValue(schemaId, value, ordinal);
+  item.tag_info = {
+    id: structuredClone(schemaId),
+    group: writeTarget.group1,
+    name: writeTarget.tag_name,
+    writable: true,
+    kind:
+      value.kind === "Real"
+        ? { kind: "Real" }
+        : value.kind === "Integer"
+          ? { kind: "Integer", data: { min: null, max: null } }
+          : { kind: "Text" },
+    description: null,
+  };
+  item.observed_selector = structuredClone(writeTarget);
+  item.write_target = structuredClone(writeTarget);
+  return item;
 }
 
 describe("metadataEditCapabilities", () => {
@@ -267,5 +303,78 @@ describe("planBulkMetadataDraftBatch", () => {
         },
       }),
     ).toThrow(BulkMetadataDraftPlanError);
+  });
+  it("routes grouped GPS Set through exact existing and missing targets", () => {
+    const latitude = gpsOccurrence(
+      GPS_IDS.latitude,
+      { kind: "Real", value: 51.5 },
+      0,
+    );
+    const plan = planBulkMetadataDraftBatch({
+      files: [
+        {
+          relativePath: "gps.jpg",
+          occurrences: [latitude],
+          targetDrafts: undefined,
+        },
+      ],
+      request: {
+        operation: "SetGps",
+        group: gpsGroup,
+        edits: [
+          {
+            id: GPS_IDS.latitude,
+            edit: { intent: "Set", value: { kind: "Real", value: 52 } },
+          },
+          {
+            id: GPS_IDS.latitudeRef,
+            edit: { intent: "Set", value: { kind: "Text", value: "N" } },
+          },
+          {
+            id: GPS_IDS.longitude,
+            edit: { intent: "Set", value: { kind: "Real", value: 0.1 } },
+          },
+          {
+            id: GPS_IDS.longitudeRef,
+            edit: { intent: "Set", value: { kind: "Text", value: "E" } },
+          },
+        ],
+      },
+    });
+
+    expect(plan.mutations).toHaveLength(1);
+    expect(plan.mutations[0].upserts).toHaveLength(4);
+    expect(plan.mutations[0].upserts[0].target.kind).toBe("ExistingOccurrence");
+    expect(
+      plan.mutations[0].upserts
+        .slice(1)
+        .every((entry) => entry.target.kind === "NewProperty"),
+    ).toBe(true);
+  });
+
+  it("deletes every member of a grouped GPS property", () => {
+    const latitude = gpsOccurrence(
+      GPS_IDS.latitude,
+      { kind: "Real", value: 51.5 },
+      0,
+    );
+    const longitude = gpsOccurrence(
+      GPS_IDS.longitude,
+      { kind: "Real", value: 0.1 },
+      1,
+    );
+    const plan = planBulkMetadataDraftBatch({
+      files: [
+        {
+          relativePath: "gps-delete.jpg",
+          occurrences: [latitude, longitude],
+          targetDrafts: undefined,
+        },
+      ],
+      request: { operation: "DeleteGps", group: gpsGroup },
+    });
+
+    expect(plan.mutations[0].upserts).toHaveLength(2);
+    expect(plan.preview.existingOccurrencesDeleted).toBe(2);
   });
 });
