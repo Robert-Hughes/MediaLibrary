@@ -153,22 +153,47 @@ function setEffectiveValue(
  * Build a schema-keyed read-only view from authoritative occurrences and exact
  * target drafts. Ambiguous values and stale targets are never first-selected.
  */
-export function buildEffectiveMetadataForFile(input: {
-  occurrences: ImageMetadataOccurrencesState | undefined;
-  targetDrafts: TargetDraftCollection | undefined;
-}): MetadataCollection {
-  const effective = Array.isArray(input.occurrences)
-    ? schemaMetadataCollectionFromOccurrences(input.occurrences)
+export function buildEffectiveMetadataForFile(
+  input: {
+    occurrences: ImageMetadataOccurrencesState | undefined;
+    targetDrafts: TargetDraftCollection | undefined;
+  },
+  options: {
+    ids?: readonly SchemaDefinitionId[];
+  } = {},
+): MetadataCollection {
+  const requestedTokens = options.ids
+    ? new Set(options.ids.map(schemaDefinitionIdToken))
+    : null;
+  const occurrences =
+    Array.isArray(input.occurrences) && requestedTokens !== null
+      ? input.occurrences.filter((occurrence) =>
+          requestedTokens.has(schemaDefinitionIdToken(occurrence.schema_id)),
+        )
+      : input.occurrences;
+  const targetDrafts =
+    input.targetDrafts !== undefined && requestedTokens !== null
+      ? Object.fromEntries(
+          Object.entries(input.targetDrafts).filter(([, entry]) =>
+            requestedTokens.has(
+              schemaDefinitionIdToken(entry.target.schema_id),
+            ),
+          ),
+        )
+      : input.targetDrafts;
+
+  const effective = Array.isArray(occurrences)
+    ? schemaMetadataCollectionFromOccurrences(occurrences)
     : {};
 
   const displayDrafts = buildSchemaDraftDisplayProjection({
-    occurrences: input.occurrences,
-    targetDrafts: input.targetDrafts,
+    occurrences,
+    targetDrafts,
   });
   for (const { id, edit } of Object.values(displayDrafts)) {
     const current = valueFromEntry(metadataGet(effective, id));
-    const matchingOccurrences = Array.isArray(input.occurrences)
-      ? input.occurrences.filter((occurrence) =>
+    const matchingOccurrences = Array.isArray(occurrences)
+      ? occurrences.filter((occurrence) =>
           schemaDefinitionIdEquals(occurrence.schema_id, id),
         )
       : [];
