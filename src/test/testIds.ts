@@ -25,8 +25,6 @@ const known: Record<string, SchemaDefinitionId> = {
   "GPS:GPSLongitudeRef": GPS_IDS.longitudeRef,
   "GPS:GPSAltitude": GPS_IDS.altitude,
   "GPS:GPSAltitudeRef": GPS_IDS.altitudeRef,
-  "Composite:GPSLatitude": ID.compositeGpsLatitude,
-  "Composite:GPSLongitude": ID.compositeGpsLongitude,
   "XMP-dc:Description": ID.xmpDescription,
   "XMP-dc:Title": ID.xmpTitle,
   "XMP-dc:Subject": ID.xmpSubject,

@@ -44,14 +44,6 @@ describe("resolveGps", () => {
     expect(resolveGps({}, {})).toEqual({ lat: null, lon: null });
   });
 
-  it("reads decimal Composite GPS from metadata", () => {
-    const meta = mockMetadata({
-      "Composite:GPSLatitude": 51.5001,
-      "Composite:GPSLongitude": -0.1262,
-    });
-    expect(resolveGps({}, meta)).toEqual({ lat: 51.5001, lon: -0.1262 });
-  });
-
   it("parses DMS strings with refs", () => {
     // Standard EXIF DMS shape that ExifTool emits without -n.
     const meta = mockMetadata({
@@ -124,16 +116,6 @@ describe("resolveGps", () => {
     expect(lon).toBeCloseTo(1.100918, 6);
   });
 
-  it("does not flip signed Composite longitude using GPSLongitudeRef", () => {
-    const meta = mockMetadata({
-      "Composite:GPSLatitude": { kind: "Real", value: 53.983856 },
-      "Composite:GPSLongitude": { kind: "Real", value: -1.100918 },
-      "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
-    });
-    const { lon } = resolveGps({}, meta);
-    expect(lon).toBeCloseTo(-1.100918, 6);
-  });
-
   it("applies ref drafts to draft raw GPS Real values", () => {
     const drafts: Record<string, MetadataDraftEdit> = {
       "GPS:GPSLatitude": setEdit(real(53.983856)),
@@ -142,8 +124,10 @@ describe("resolveGps", () => {
       "GPS:GPSLongitudeRef": setEdit(text("W")),
     };
     const meta = mockMetadata({
-      "Composite:GPSLatitude": 10,
-      "Composite:GPSLongitude": 20,
+      "GPS:GPSLatitude": 10,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 20,
+      "GPS:GPSLongitudeRef": "E",
     });
     const { lat, lon } = resolveGps(drafts, meta);
     expect(lat).toBeCloseTo(53.983856, 6);
@@ -166,12 +150,15 @@ describe("resolveGps", () => {
     // A user corrected the lat in drafts but the metadata still has the
     // wrong value. The geocoder must see the corrected value.
     const drafts: Record<string, MetadataDraftEdit> = {
-      "Composite:GPSLatitude": setEdit(real(48.8584)),
-      "Composite:GPSLongitude": setEdit(real(2.2945)),
+      "GPS:GPSLatitude": setEdit(real(48.8584)),
+      "GPS:GPSLongitude": setEdit(real(2.2945)),
+      "GPS:GPSLongitudeRef": setEdit(text("E")),
     };
     const meta = mockMetadata({
-      "Composite:GPSLatitude": 51.5,
-      "Composite:GPSLongitude": -0.12,
+      "GPS:GPSLatitude": 51.5,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0.12,
+      "GPS:GPSLongitudeRef": "W",
     });
     expect(resolveGps(drafts, meta)).toEqual({ lat: 48.8584, lon: 2.2945 });
   });
@@ -181,12 +168,14 @@ describe("resolveGps", () => {
     // value, the draft-aware view shows it as gone, so the geocoder
     // sees null/null (and the loop will emit no_gps).
     const drafts: Record<string, MetadataDraftEdit> = {
-      "Composite:GPSLatitude": deleteEdit(),
-      "Composite:GPSLongitude": deleteEdit(),
+      "GPS:GPSLatitude": deleteEdit(),
+      "GPS:GPSLongitude": deleteEdit(),
     };
     const meta = mockMetadata({
-      "Composite:GPSLatitude": 51.5,
-      "Composite:GPSLongitude": -0.12,
+      "GPS:GPSLatitude": 51.5,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0.12,
+      "GPS:GPSLongitudeRef": "W",
     });
     expect(resolveGps(drafts, meta)).toEqual({ lat: null, lon: null });
   });

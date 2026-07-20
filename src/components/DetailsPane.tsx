@@ -79,7 +79,7 @@ type EditDialogState =
       openedTarget: ExistingOccurrenceTarget;
     }
   | {
-      kind: "gps-composite";
+      kind: "gps-group";
       group: GpsTagGroup;
       openedTargets: Record<string, MetadataDraftTarget>;
       openedDraftTargets: MetadataDraftTarget[];
@@ -263,7 +263,7 @@ function DetailsValueCell({
   );
 }
 
-function compositeGpsEditingAvailability({
+function groupedGpsEditingAvailability({
   group,
   occurrences,
   targetDraftEdits,
@@ -305,7 +305,7 @@ function compositeGpsEditingAvailability({
     ) {
       return {
         blocked:
-          "The selected GPS draft destination is not the destination the composite editor would edit. Nothing was saved.",
+          "The selected GPS draft destination is not the destination the grouped editor would edit. Nothing was saved.",
       };
     }
     validateGpsTargetDraftEntries(
@@ -433,7 +433,7 @@ function DetailsGroupContextMenu({
 
   const gpsEditPreview = useMemo<null | { blocked?: string }>(() => {
     if (gpsGroup === null) return null;
-    return compositeGpsEditingAvailability({
+    return groupedGpsEditingAvailability({
       group: gpsGroup,
       occurrences,
       targetDraftEdits,
@@ -823,13 +823,13 @@ export function DetailsPane({
   }, [editDialog, occurrences, targetDraftEdits, targetDraftsWritable]);
 
   const editDialogPropertyId = editDialog
-    ? editDialog.kind === "gps-composite"
+    ? editDialog.kind === "gps-group"
       ? editDialog.group.latitudeId
       : editDialog.schemaId
     : undefined;
   const editDialogInitialValue = (() => {
     if (!editDialog) return undefined;
-    if (editDialog.kind === "gps-composite") {
+    if (editDialog.kind === "gps-group") {
       return effectiveMetadata
         ? metadataGet(effectiveMetadata, editDialog.group.latitudeId)
         : undefined;
@@ -1019,7 +1019,7 @@ export function DetailsPane({
     });
   };
 
-  const openGpsCompositeEditor = (group: GpsTagGroup) => {
+  const openGroupedGpsEditor = (group: GpsTagGroup) => {
     if (!targetDraftsWritable) {
       setEditDialogUnavailableMessage(
         "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
@@ -1048,7 +1048,7 @@ export function DetailsPane({
       );
       setEditDialogUnavailableMessage(null);
       setEditDialog({
-        kind: "gps-composite",
+        kind: "gps-group",
         group: structuredClone(group),
         openedTargets: Object.fromEntries(
           planned.map(({ id, target }) => [
@@ -1443,14 +1443,14 @@ export function DetailsPane({
           onEditGps={
             activeRowGpsGroup !== null
               ? () => {
-                  openGpsCompositeEditor(activeRowGpsGroup);
+                  openGroupedGpsEditor(activeRowGpsGroup);
                   setRowContextMenu(null);
                 }
               : undefined
           }
           gpsEditingUnavailableReason={(() => {
             if (activeRowGpsGroup === null) return undefined;
-            return compositeGpsEditingAvailability({
+            return groupedGpsEditingAvailability({
               group: activeRowGpsGroup,
               occurrences,
               targetDraftEdits,
@@ -1514,7 +1514,7 @@ export function DetailsPane({
           targetDraftEdits={targetDraftEdits}
           targetDraftPersistence={targetDraftPersistence}
           onEditGps={
-            onApplyGpsTargetDraftBatch ? openGpsCompositeEditor : undefined
+            onApplyGpsTargetDraftBatch ? openGroupedGpsEditor : undefined
           }
           onRemoveMetadataTargets={onRemoveMetadataTargets}
           onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
@@ -1529,16 +1529,16 @@ export function DetailsPane({
           <TypedValueEditor
             key={editDialogRenderKey}
             propertyId={editDialogPropertyId!}
-            editorMode={editDialog.kind === "gps-composite" ? "gps" : "single"}
+            editorMode={editDialog.kind === "gps-group" ? "gps" : "single"}
             initialMetadataValue={editDialogInitialValue}
             metadataForFile={effectiveMetadata}
             effectiveGps={
-              editDialog.kind === "gps-composite" ? resolvedGps : undefined
+              editDialog.kind === "gps-group" ? resolvedGps : undefined
             }
             onSaveMetadataBatch={(edits) => {
               // Staged New Property editors use single mode and cannot emit a
-              // batch. Composite GPS edits retain their exact-target planner.
-              if (editDialog.kind !== "gps-composite") return;
+              // batch. Grouped GPS edits retain their exact-target planner.
+              if (editDialog.kind !== "gps-group") return;
               const entries = edits.flatMap(({ id, edit }) => {
                 const target =
                   editDialog.openedTargets[schemaDefinitionIdToken(id)];

@@ -283,7 +283,7 @@ readback comparisons.
       _Recommended fixture:_ `01_comprehensive_metadata.jpg` for its complete GPS group.
 
 - [ ] **35. Check exact individual GPS editing under ambiguity.** Use a fixture
-      with two GPS occurrences sharing one schema. Expected: composite
+      with two GPS occurrences sharing one schema. Expected: grouped
       **Edit GPS…** is disabled when the six-member set is ambiguous, while an
       individually targetable occurrence can still be edited by its captured exact
       target and the sibling remains unchanged.
@@ -461,7 +461,7 @@ readback comparisons.
 ## Exploratory GPS creation check
 
 - [ ] **E1. Explore adding GPS to a file with no GPS group.** Determine whether
-      the composite GPS editor has a discoverable entry point when none of its six
+      the grouped GPS editor has a discoverable entry point when none of its six
       fields exists. Record the actual behaviour rather than assigning a pass/fail
       expectation. If creation is supported, confirm all created fields use
       deliberate complete New Property targets and that reopening the editor

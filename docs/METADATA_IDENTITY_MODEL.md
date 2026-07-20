@@ -203,7 +203,7 @@ Schema-based resolution is allowed only before a target exists, including:
 
 It is prohibited after target construction. Code must not extract
 `target.schema_id`, find a schema owner, reconstruct a target from whichever
-occurrence currently matches, redirect a GPS member through a composite
+occurrence currently matches, redirect a GPS member through a grouped
 planner, or first-select one same-schema sibling. If an opened target changes
 or disappears, saving fails safely rather than redirecting to another target.
 
@@ -248,7 +248,7 @@ untouched. They are not parsed, migrated, rewritten, truncated or deleted.
 
 `ImageMetadata` stores authoritative occurrences only. Deliberate
 schema-oriented views are derived on demand for consumers such as columns,
-sorting, generated workflows and composite semantic editors: identical values
+sorting, generated workflows and multi-field semantic editors: identical values
 may collapse and compatible complete LangAlt occurrences from distinct runtime
 scopes may merge. Per-property LangAlt language fragments have already been
 consolidated by the scanner. Conflicts remain unavailable without selecting an

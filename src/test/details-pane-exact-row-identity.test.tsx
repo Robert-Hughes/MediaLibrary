@@ -1224,7 +1224,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     );
   });
 
-  it("opens the composite GPS editor from an exact GPS New Property row", async () => {
+  it("opens the grouped GPS editor from an exact GPS New Property row", async () => {
     const { target, store } = stagedGpsNewProperty();
     registerGpsTagInfos();
     renderPane({

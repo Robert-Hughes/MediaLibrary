@@ -71,16 +71,14 @@ disagreement:
 | ----------------------------------- | ---------- | ------ | --------------------------------------- |
 | `ExifIFD:ComponentsConfiguration`   | undef      | 4      | one PrintConv string `"Y, Cb, Cr, -"`   |
 | `ExifIFD:LensSerialNumber`          | undef      | 5      | one string                              |
-| `Composite:VideoCodec`              | undef      | 4      | one string                              |
 | `IPTC:RasterizedCaption`            | undef      | 7360   | one base64-ish string                   |
 | `IPTC:ObjectPreviewData`            | undef      | 256000 | one base64-ish string                   |
 | `GPS:GPSVersionID`                  | int8u      | 4      | `"2.3.0.0"` (single dotted-quad string) |
 | `GPS:GPSLatitude` / `GPSLongitude`* | rational   | 3      | one decimal/DMS string after PrintConv  |
 
-(*) GPS coordinates are an extra wrinkle: the `Composite:GPS*` aliases are
-typed `Real` and come back as plain numbers, but the underlying
+(*) GPS coordinates are an extra wrinkle: the underlying
 `GPS:GPSLatitude` tag is a rational array that ExifTool collapses to one
-PrintConv string. Both views currently exist for any image with GPS.
+PrintConv string.
 
 It is not a one-off. Roughly every EXIF tag with `count > 1` that goes
 through a PrintConv (which is the default JSON behaviour) will show this
@@ -161,8 +159,7 @@ Defer **B** until we actually want to let the user edit these as arrays.
 
 ## Related questions to revisit
 
-- How should `GPSVersionID` and `Composite:GPS*` render? The composite
-  view is canonical for users, the raw view is what writes go to.
+- How should `GPSVersionID` render?
 - Should `XMP-mwg-rs:Regions` (a `Struct` per override) ever expose a
   list/struct badge to make its nesting visible at a glance?
 - The 244 `count > 1` tags break down across many groups — IPTC has lots

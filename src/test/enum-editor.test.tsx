@@ -17,7 +17,7 @@ const orientationOptions = [
 ];
 
 describe("EnumEditor", () => {
-  it("uses the same schema-aware edit shape as composite enum callers", () => {
+  it("uses the same schema-aware edit shape as grouped enum callers", () => {
     const kind: Parameters<typeof enumDraftEdit>[0] = {
       kind: "Enum",
       data: {

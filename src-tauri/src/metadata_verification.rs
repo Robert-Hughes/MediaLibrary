@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn rationals_compare_by_mathematical_value_and_reals_use_tolerance() {
-        let key = id("Composite", "GPSLatitude");
+        let key = id("GPS", "GPSLatitude");
         let half = MetadataValue::Rational(RationalValue {
             numerator: 1,
             denominator: 2,

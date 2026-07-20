@@ -79,11 +79,9 @@ overwrite warning (§5) is the user's chance to bail out before that happens.
 For each selected image, derive the (lat, lon) used for the Nominatim query
 from, in priority order:
 
-1. Draft edits for `GPS:GPSLatitude` / `GPS:GPSLongitude` (or any group
-   variant — `XMP-exif:GPSLatitude`, `Composite:GPSLatitude`, …) if present
-   in the typed draft store.
-2. Otherwise, the loaded image metadata (`Composite:GPSLatitude` /
-   `Composite:GPSLongitude`).
+1. Effective values for `GPS:GPSLatitude`, `GPS:GPSLatitudeRef`,
+   `GPS:GPSLongitude`, and `GPS:GPSLongitudeRef`, with exact-target drafts
+   taking precedence over loaded occurrences.
 
 If still missing → emit `geocode_progress` with `status: "no_gps"` for that
 image and continue. No noisy failure; counted in the final summary.

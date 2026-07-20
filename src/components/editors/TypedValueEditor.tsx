@@ -225,11 +225,11 @@ export function TypedValueEditor({
     );
   }
 
-  // ── Override 2: GPS composite editor (writable only with paired-batch save). ─
+  // ── Override 2: grouped GPS editor (writable only with paired-batch save). ─
   const saveMetadataBatch = onSaveMetadataBatch;
   const gpsGroup =
     editorMode === "gps" && saveMetadataBatch ? gpsSchemaGroup : null;
-  const canUseCompositeGpsEditor =
+  const canUseGroupedGpsEditor =
     gpsGroup &&
     metadataForFile &&
     saveMetadataBatch &&
@@ -241,7 +241,7 @@ export function TypedValueEditor({
       gpsGroup.altitudeId,
       gpsGroup.altitudeRefId,
     ].some((id) => metadataGet(metadataForFile, id)?.kind === "Unknown");
-  if (canUseCompositeGpsEditor) {
+  if (canUseGroupedGpsEditor) {
     const latVal = metadataGet(metadataForFile, gpsGroup.latitudeId);
     const lonVal = metadataGet(metadataForFile, gpsGroup.longitudeId);
     const altVal = metadataGet(metadataForFile, gpsGroup.altitudeId);

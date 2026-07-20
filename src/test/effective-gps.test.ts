@@ -339,14 +339,9 @@ describe("resolveEffectiveGpsForFile", () => {
     ).toEqual({ lat: null, lon: null });
   });
 
-  it("does not suppress valid Composite coordinates for altitude-only targets", () => {
-    const occurrences = occurrencesFromMetadataCollection(
-      mockMetadata({
-        "Composite:GPSLatitude": 51,
-        "Composite:GPSLongitude": -1,
-        "GPS:GPSAltitude": 10,
-      }),
-    );
+  it("ignores altitude-only targets when resolving coordinates", () => {
+    const occurrences = baseOccurrences();
+    occurrences.push(occurrence(GPS_IDS.altitude, valueFor(10)));
     const altitude = occurrences.find(
       (entry) => entry.schema_id.tag_id === GPS_IDS.altitude.tag_id,
     )!;
@@ -355,7 +350,7 @@ describe("resolveEffectiveGpsForFile", () => {
         occurrences,
         targetDrafts: targets(existingEntry(altitude, set(valueFor(20)))),
       }),
-    ).toEqual({ lat: 51, lon: -1 });
+    ).toEqual({ lat: 51, lon: 1 });
   });
 
   it("ignores a stale ExistingOccurrence target", () => {

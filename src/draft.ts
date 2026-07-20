@@ -171,12 +171,7 @@ function formatKnownPhotoTag(
         : null;
   }
   if (
-    [
-      GPS_IDS.latitude,
-      GPS_IDS.longitude,
-      KNOWN_METADATA_IDS.compositeGpsLatitude,
-      KNOWN_METADATA_IDS.compositeGpsLongitude,
-    ].some((known) => isKnownId(id, known))
+    [GPS_IDS.latitude, GPS_IDS.longitude].some((known) => isKnownId(id, known))
   ) {
     return formatGpsCoordinate(v);
   }
@@ -184,25 +179,10 @@ function formatKnownPhotoTag(
     return formatGpsAltitude(v);
   }
 
-  if (
-    [
-      KNOWN_METADATA_IDS.exposureTime,
-      KNOWN_METADATA_IDS.compositeShutterSpeed,
-    ].some((known) => isKnownId(id, known))
-  )
+  if (isKnownId(id, KNOWN_METADATA_IDS.exposureTime))
     return formatExposureTime(v);
-  if (
-    [KNOWN_METADATA_IDS.fNumber, KNOWN_METADATA_IDS.compositeAperture].some(
-      (known) => isKnownId(id, known),
-    )
-  )
-    return formatAperture(v);
-  if (
-    [
-      KNOWN_METADATA_IDS.focalLength,
-      KNOWN_METADATA_IDS.compositeFocalLength35efl,
-    ].some((known) => isKnownId(id, known))
-  )
+  if (isKnownId(id, KNOWN_METADATA_IDS.fNumber)) return formatAperture(v);
+  if (isKnownId(id, KNOWN_METADATA_IDS.focalLength))
     return formatFocalLength(v);
   return null;
 }

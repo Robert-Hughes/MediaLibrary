@@ -105,8 +105,6 @@ function rawGpsMetadata(): Record<string, MetadataValue> {
     "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
     "GPS:GPSLongitude": { kind: "Real", value: 0 },
     "GPS:GPSLongitudeRef": { kind: "Text", value: "E" },
-    "Composite:GPSLatitude": { kind: "Real", value: 51 },
-    "Composite:GPSLongitude": { kind: "Real", value: 0 },
   };
 }
 
@@ -198,8 +196,10 @@ describe("Reverse-geocoding flow", () => {
     // cleared. Pin that copy here so a refactor doesn't quietly drop
     // it.
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": { kind: "Real", value: 51.5001 },
-      "Composite:GPSLongitude": { kind: "Real", value: -0.1262 },
+      "GPS:GPSLatitude": { kind: "Real", value: 51.5001 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 0.1262 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
@@ -243,8 +243,10 @@ describe("Reverse-geocoding flow", () => {
     };
 
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": { kind: "Real", value: 51.5001 },
-      "Composite:GPSLongitude": { kind: "Real", value: -0.1262 },
+      "GPS:GPSLatitude": { kind: "Real", value: 51.5001 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 0.1262 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
@@ -414,7 +416,6 @@ describe("Reverse-geocoding flow", () => {
     ]);
     const metadata = rawGpsMetadata();
     metadata["GPS:GPSLongitude"] = { kind: "Real", value: 1 };
-    metadata["Composite:GPSLongitude"] = { kind: "Real", value: 1 };
     const { user } = await openFolderAndSelectPhoto(rel, metadata, occurrences);
     expectMapCoordinates(-51, -1);
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
@@ -471,8 +472,10 @@ describe("Reverse-geocoding flow", () => {
 
   it("Cancel before confirm closes the dialog and signals backend", async () => {
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": { kind: "Real", value: 51.5 },
-      "Composite:GPSLongitude": { kind: "Real", value: -0.1 },
+      "GPS:GPSLatitude": { kind: "Real", value: 51.5 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
@@ -496,8 +499,10 @@ describe("Reverse-geocoding flow", () => {
     ).ask;
     askMock.mockClear();
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": { kind: "Real", value: 51.5 },
-      "Composite:GPSLongitude": { kind: "Real", value: -0.1 },
+      "GPS:GPSLatitude": { kind: "Real", value: 51.5 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
       "XMP-iptcCore:Location": { kind: "Text", value: "Existing Place" },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
@@ -510,8 +515,10 @@ describe("Reverse-geocoding flow", () => {
 
   it("DetailsPane button shows no overwrite notice when there is no existing location data", async () => {
     const { user } = await openFolderAndSelectPhoto("test.jpg", {
-      "Composite:GPSLatitude": { kind: "Real", value: 51.5 },
-      "Composite:GPSLongitude": { kind: "Real", value: -0.1 },
+      "GPS:GPSLatitude": { kind: "Real", value: 51.5 },
+      "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+      "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
+      "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await screen.findByTestId("geocode-confirm-btn");

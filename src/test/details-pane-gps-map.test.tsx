@@ -152,7 +152,7 @@ describe("DetailsPane GPS Map integration", () => {
     );
   }
 
-  it("opens the composite GPS editor from the shared GPS heading menu", async () => {
+  it("opens the grouped GPS editor from the shared GPS heading menu", async () => {
     render(
       <DetailsPane
         photo={photo}
@@ -672,8 +672,6 @@ describe("DetailsPane GPS Map integration", () => {
         "GPS:GPSLatitudeRef": "N",
         "GPS:GPSLongitude": 1,
         "GPS:GPSLongitudeRef": "E",
-        "Composite:GPSLatitude": 51,
-        "Composite:GPSLongitude": 1,
       });
     const exactEntry = (
       occurrence: MetadataOccurrence,
@@ -846,7 +844,7 @@ describe("DetailsPane GPS Map integration", () => {
         metadata: multipleMetadata,
         occurrences: multipleOccurrences,
         targetDrafts: multipleTargets,
-        expected: { lat: 51, lon: 1 },
+        expected: { lat: null, lon: null },
       },
     ];
 
