@@ -69,15 +69,19 @@ if (typeof HTMLDialogElement !== "undefined") {
 
 // jsdom does not implement the Popover API. Model only the controlled state
 // used by the application error presenter.
-HTMLElement.prototype.showPopover = function () {
-  if (this.dataset.popoverOpen === "true") {
-    throw new DOMException("Popover is already open");
-  }
-  this.dataset.popoverOpen = "true";
-};
-HTMLElement.prototype.hidePopover = function () {
-  delete this.dataset.popoverOpen;
-};
+if (typeof HTMLElement !== "undefined") {
+  HTMLElement.prototype.showPopover = function () {
+    if (this.dataset.popoverOpen === "true") {
+      throw new DOMException("Popover is already open");
+    }
+    this.dataset.popoverOpen = "true";
+    this.style.display = "block";
+  };
+  HTMLElement.prototype.hidePopover = function () {
+    delete this.dataset.popoverOpen;
+    this.style.display = "none";
+  };
+}
 
 // user-event cannot ask jsdom's platform layer to issue a dialog close
 // request, so translate Escape into the native event for legacy interaction

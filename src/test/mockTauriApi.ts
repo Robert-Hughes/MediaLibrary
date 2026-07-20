@@ -267,12 +267,7 @@ export function createMockTauriApi(): MockTauriApi {
         scan_id: scanId ?? mock.currentScanId,
         message,
       } satisfies ScanErrorPayload),
-    emitWorkerError: (
-      error_type,
-      error_message,
-      affected_files = [],
-      scanId,
-    ) =>
+    emitWorkerError: (error_type, error_message, affected_files = [], scanId) =>
       emit("worker_error", {
         scan_id: scanId ?? mock.currentScanId,
         severity: "error",

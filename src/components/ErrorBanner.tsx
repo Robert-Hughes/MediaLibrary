@@ -48,7 +48,7 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
       return;
     }
     bringToFront();
-  }, [bringToFront, newestError]);
+  }, [bringToFront, errors.length, newestError]);
 
   useEffect(
     () => listenForApplicationErrorBringToFront(bringToFront),

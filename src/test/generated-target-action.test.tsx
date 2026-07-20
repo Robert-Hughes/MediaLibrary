@@ -408,9 +408,7 @@ describe("generated target-aware production action", () => {
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
     expect(
       state.applicationErrors[state.applicationErrors.length - 1]?.error_type,
-    ).toBe(
-      "metadata-target-generated-readiness",
-    );
+    ).toBe("metadata-target-generated-readiness");
   });
 
   it("does not mutate caller-owned generated entries", async () => {

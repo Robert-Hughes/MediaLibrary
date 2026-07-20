@@ -2675,6 +2675,10 @@ describe("useMediaLibrary", () => {
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await act(async () => result.current[1].applyDraftEdits(path));
 
     const state = result.current[0];
@@ -2687,18 +2691,30 @@ describe("useMediaLibrary", () => {
     );
     expect(
       state.applicationErrors.filter(
-        ({ error_type }) => error_type === "metadata-target-file",
+        ({ error_type, severity }) =>
+          error_type === "metadata-target-file" && severity === "error",
       ),
     ).toHaveLength(1);
     expect(
       state.applicationErrors.filter(
-        ({ error_type }) => error_type === "metadata-target-warning",
+        ({ error_type, severity }) =>
+          error_type === "metadata-target-warning" && severity === "warning",
       ),
     ).toHaveLength(1);
     expect(
       state.applicationErrors[state.applicationErrors.length - 1]
         ?.affected_files,
     ).toEqual([path]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("[application-error:metadata-target-file]"),
+      expect.objectContaining({ affectedFiles: [path] }),
+    );
+    expect(consoleWarn).toHaveBeenCalledWith(
+      expect.stringContaining("[application-warning:metadata-target-warning]"),
+      expect.objectContaining({ affectedFiles: [path] }),
+    );
+    consoleError.mockRestore();
+    consoleWarn.mockRestore();
   });
 
   it("removes selected complete metadata targets without widening to their schema", async () => {
@@ -2962,9 +2978,7 @@ describe("useMediaLibrary", () => {
       status: "load-failed",
       error: "invalid schema version",
     });
-    expect(state.applicationErrors[0].error_type).toBe(
-      "metadata-target-load",
-    );
+    expect(state.applicationErrors[0].error_type).toBe("metadata-target-load");
     expect(
       mock.invocations.some(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toBe(false);
