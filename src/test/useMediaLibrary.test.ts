@@ -2021,6 +2021,70 @@ describe("useMediaLibrary", () => {
     ).toEqual([{ target: replacement, edit }]);
   });
 
+  it("logs and rejects an attempted New Property schema change without showing an application error", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/photos");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "schema-change.jpg");
+
+    const original = newPropertyTargetFor(testId("XMP-test:Original"));
+    const replacement = newPropertyTargetFor(testId("XMP-test:Replacement"));
+    const edit = {
+      intent: "Set" as const,
+      value: { kind: "Text" as const, value: "preserved" },
+    };
+    mock.tagInfos = [tagInfoFor(original.schema_id)];
+    await act(async () => {
+      await result.current[1].setNewPropertyDraft(
+        "schema-change.jpg",
+        original,
+        edit,
+      );
+    });
+    const saveCount = () =>
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+        .length;
+    const beforeMoveSaves = saveCount();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    let moved = true;
+    await act(async () => {
+      moved = await result.current[1].replaceNewPropertyDraftTarget(
+        "schema-change.jpg",
+        original,
+        replacement,
+        edit,
+      );
+    });
+
+    expect(moved).toBe(false);
+    expect(saveCount()).toBe(beforeMoveSaves);
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    expect(
+      Object.values(
+        state.targetDraftEditsStore.getMetadataFile("schema-change.jpg") ?? {},
+      ),
+    ).toEqual([{ target: original, edit }]);
+    expect(
+      state.applicationErrors.filter(
+        ({ error_type }) =>
+          error_type === "metadata-target-new-property-move-schema-changed",
+      ),
+    ).toEqual([]);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "[application-error:metadata-target-new-property-move-schema-changed]",
+      ),
+      expect.objectContaining({ affectedFiles: ["schema-change.jpg"] }),
+    );
+    consoleError.mockRestore();
+  });
+
   it("leaves the original New Property draft untouched when a move is stale or collides", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");

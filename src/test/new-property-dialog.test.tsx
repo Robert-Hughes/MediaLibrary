@@ -295,12 +295,14 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.getByTestId("new-property-next")).toBeDisabled();
   });
 
-  it("puts the default first, deduplicates suggestions, and restores a custom target", async () => {
+  it("locks the schema while allowing an existing destination to change", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
     _setWritableSchemaDefinitionsCache(testDefinitions);
     const info = testDefinitions[0];
     render(
       <NewPropertyDialog
-        onSave={() => {}}
+        onSave={onSave}
         onCancel={() => {}}
         initialTarget={{
           kind: "NewProperty",
@@ -319,7 +321,31 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.getByTestId("new-property-next")).toHaveTextContent(
       "Save destination",
     );
-    expect(await screen.findByDisplayValue("Saved-Custom")).toBeInTheDocument();
+    const schema = await screen.findByLabelText("Property schema");
+    expect(schema).toHaveValue(`${info.group}:${info.name}`);
+    expect(schema).toHaveAttribute("readonly");
+    expect(
+      screen
+        .getByTestId(
+          `schema-option-${schemaDefinitionIdToken(testDefinitions[0].id)}`,
+        )
+        .closest(".dialog-results-list"),
+    ).not.toBeVisible();
+    const destination = screen.getByTestId("new-property-destination-group");
+    expect(destination).toHaveFocus();
+    expect(destination).toBeEnabled();
+    await user.clear(destination);
+    await user.type(destination, "Edited-Custom");
+    await user.click(screen.getByTestId("new-property-next"));
+    expect(onSave).toHaveBeenCalledWith({
+      kind: "NewProperty",
+      schema_id: info.id,
+      write_target: {
+        group1: "Edited-Custom",
+        group7: `ID-${info.id.tag_id}`,
+        tag_name: info.name,
+      },
+    });
     const options = Array.from(
       document.querySelectorAll<HTMLDataListElement>(
         "#new-property-group-suggestions option",
@@ -327,6 +353,15 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     ).map((option) => option.getAttribute("value"));
     expect(options[0]).toBe(info.group);
     expect(new Set(options).size).toBe(options.length);
+  });
+
+  it("keeps schema selection enabled when adding a property", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+
+    expect(
+      screen.getByLabelText("Search Writable Properties"),
+    ).not.toHaveAttribute("readonly");
   });
 
   it("selects a focused search result with the keyboard", async () => {

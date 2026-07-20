@@ -50,6 +50,7 @@ export function NewPropertyDialog({
     initialTarget?.write_target.group1 ?? "",
   );
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const destinationInputRef = useRef<HTMLInputElement>(null);
 
   const writableDefinitions = useWritableSchemaDefinitions();
 
@@ -86,8 +87,12 @@ export function NewPropertyDialog({
   const visibleSuggestions = suggestions.slice(0, MAX_VISIBLE_RESULTS);
 
   useEffect(() => {
-    searchInputRef.current?.focus();
-  }, [writableDefinitions]);
+    if (initialTarget && selectedTag) {
+      destinationInputRef.current?.focus();
+    } else if (!initialTarget) {
+      searchInputRef.current?.focus();
+    }
+  }, [initialTarget, selectedTag, writableDefinitions]);
 
   useEffect(() => {
     if (!initialTarget || writableDefinitions === "loading") return;
@@ -209,7 +214,9 @@ export function NewPropertyDialog({
                   opacity: 0.8,
                 }}
               >
-                Search Writable Properties
+                {initialTarget
+                  ? "Property schema"
+                  : "Search Writable Properties"}
               </label>
               <input
                 id="new-property-search"
@@ -217,16 +224,26 @@ export function NewPropertyDialog({
                 type="text"
                 className="dialog-input"
                 value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Search by name, group, ID, table..."
+                onChange={
+                  initialTarget
+                    ? undefined
+                    : (event) => handleSearchChange(event.target.value)
+                }
+                onKeyDown={initialTarget ? undefined : handleKeyDown}
+                placeholder={
+                  initialTarget
+                    ? undefined
+                    : "Search by name, group, ID, table..."
+                }
                 data-testid="new-property-key"
                 autoComplete="off"
+                readOnly={initialTarget !== undefined}
                 style={{ width: "100%", boxSizing: "border-box" }}
               />
 
               <div
                 className="dialog-results-list"
+                hidden={initialTarget !== undefined}
                 style={{
                   maxHeight: "220px",
                   overflowY: "auto",
@@ -376,6 +393,7 @@ export function NewPropertyDialog({
                   </div>
                   <input
                     id="new-property-destination-group"
+                    ref={destinationInputRef}
                     role="combobox"
                     aria-autocomplete="list"
                     aria-controls="new-property-group-suggestions"
