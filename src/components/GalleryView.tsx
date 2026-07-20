@@ -129,6 +129,8 @@ interface Props {
   onNormalise?: (fileRelativePath: string) => void;
   /** Reveal the current photo in the host file manager. Index resolved by the parent. */
   onShowInFileExplorer?: (fileRelativePath: string) => void;
+  /** Open the current photo in the app-level full map view. */
+  onOpenFullMap?: (fileRelativePath: string) => void;
 }
 
 export function GalleryView({
@@ -154,6 +156,7 @@ export function GalleryView({
   onGeocode,
   onNormalise,
   onShowInFileExplorer,
+  onOpenFullMap,
 }: Props) {
   const photo = photos[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -527,6 +530,11 @@ export function GalleryView({
               onShowInFileExplorer={
                 onShowInFileExplorer
                   ? () => onShowInFileExplorer(photo.relative_path)
+                  : undefined
+              }
+              onOpenFullMap={
+                onOpenFullMap
+                  ? () => onOpenFullMap(photo.relative_path)
                   : undefined
               }
             />

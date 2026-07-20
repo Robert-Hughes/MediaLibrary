@@ -19,6 +19,7 @@ import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
 import { GalleryView } from "./components/GalleryView";
+import { FullMapView } from "./components/FullMapView";
 import { StatusBar } from "./components/StatusBar";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
@@ -135,9 +136,11 @@ function LoadedView({
 
   const [listSearchQuery, setListSearchQuery] = useState("");
   const [selectionCount, setSelectionCount] = useState(0);
+  const [fullMapPaths, setFullMapPaths] = useState<string[] | null>(null);
 
   useEffect(() => {
     setListSearchQuery("");
+    setFullMapPaths(null);
   }, [state.folder]);
 
   // Ctrl/Cmd+F focuses the relevant search box.  When the gallery's
@@ -391,6 +394,7 @@ function LoadedView({
           normalise.actions.start(state.folder, items, [...initialGroups]);
         }}
         onCopyPaths={onCopyPaths}
+        onShowOnMap={setFullMapPaths}
         onSelectionCountChange={setSelectionCount}
         onPreviewRemoveFieldFromSelectedPhotos={previewRemoveFieldFromPhotos}
         onRemoveFieldFromSelectedPhotos={(id, relPaths) => {
@@ -462,6 +466,17 @@ function LoadedView({
             );
             if (idx >= 0) void onShowInExplorer(idx);
           }}
+          onOpenFullMap={(relPath) => setFullMapPaths([relPath])}
+        />
+      )}
+      {fullMapPaths && (
+        <FullMapView
+          relativePaths={fullMapPaths}
+          photos={state.photos}
+          thumbnails={state.thumbnails}
+          imageMetadataOccurrences={state.imageMetadataOccurrences}
+          targetDraftEdits={state.targetDraftEdits}
+          onClose={() => setFullMapPaths(null)}
         />
       )}
       {showColumnDialog && (

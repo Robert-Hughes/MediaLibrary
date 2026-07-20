@@ -80,6 +80,8 @@ interface Props {
   onNormalise?: (fileRelativePaths: string[]) => void;
   /** Copy absolute paths for the given relative paths to the clipboard. */
   onCopyPaths?: (fileRelativePaths: string[]) => void;
+  /** Open the selected photos in the full map view. */
+  onShowOnMap?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
   onRemoveFieldFromSelectedPhotos?: (
@@ -354,6 +356,7 @@ export function PhotoList({
   onGeocode,
   onNormalise,
   onCopyPaths,
+  onShowOnMap,
   onSelectionCountChange,
   onRemoveFieldFromSelectedPhotos,
   onPreviewRemoveFieldFromSelectedPhotos,
@@ -709,6 +712,7 @@ export function PhotoList({
           onPhotoOpen={onPhotoOpen}
           onShowInExplorer={onShowInExplorer}
           onCopyPaths={onCopyPaths}
+          onShowOnMap={onShowOnMap}
           onGenerateAiDescription={onGenerateAiDescription}
           onGeocode={onGeocode}
           onNormalise={onNormalise}

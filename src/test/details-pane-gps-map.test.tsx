@@ -205,6 +205,25 @@ describe("DetailsPane GPS Map integration", () => {
     expect(optionLabels()).toEqual(overviewLabels);
   });
 
+  it("opens the full map from the details-pane GPS overview", () => {
+    const onOpenFullMap = vi.fn();
+    render(
+      <DetailsPane
+        photo={photo}
+        occurrences={occurrencesFor(validGpsMetadata())}
+        onOpenFullMap={onOpenFullMap}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Open full map for this photo",
+      }),
+    );
+
+    expect(onOpenFullMap).toHaveBeenCalledOnce();
+  });
+
   it("keeps GPS menu actions and counts based on the full group while rows are filtered", async () => {
     _setTagInfoCacheEntry("GPS:GPSVersionID", {
       group: "GPS",
@@ -1053,5 +1072,25 @@ describe("GpsMapOverview component", () => {
 
     expect(onContextMenu).not.toHaveBeenCalled();
     expect(screen.queryByTestId("context-menu")).toBeNull();
+  });
+
+  it("opens the full map by mouse and keyboard when enabled", () => {
+    const onOpenFullMap = vi.fn();
+    render(
+      <GpsMapOverview
+        lat={34.0522}
+        lon={-118.2437}
+        onOpenFullMap={onOpenFullMap}
+      />,
+    );
+    const grid = screen.getByRole("button", {
+      name: "Open full map for this photo",
+    });
+
+    fireEvent.click(grid);
+    fireEvent.keyDown(grid, { key: "Enter" });
+    fireEvent.keyDown(grid, { key: " " });
+
+    expect(onOpenFullMap).toHaveBeenCalledTimes(3);
   });
 });

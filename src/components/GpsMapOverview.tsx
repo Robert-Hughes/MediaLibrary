@@ -4,12 +4,14 @@ interface GpsMapOverviewProps {
   lat: number;
   lon: number;
   onContextMenu?: React.MouseEventHandler<HTMLDivElement>;
+  onOpenFullMap?: () => void;
 }
 
 export function GpsMapOverview({
   lat,
   lon,
   onContextMenu,
+  onOpenFullMap,
 }: GpsMapOverviewProps) {
   const position = { lat, lon };
 
@@ -19,6 +21,16 @@ export function GpsMapOverview({
         className="gps-map-overview__grid"
         data-testid="gps-map-overview-grid"
         onContextMenu={onContextMenu}
+        onClick={onOpenFullMap}
+        onKeyDown={(event) => {
+          if (!onOpenFullMap) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          onOpenFullMap();
+        }}
+        role={onOpenFullMap ? "button" : undefined}
+        tabIndex={onOpenFullMap ? 0 : undefined}
+        aria-label={onOpenFullMap ? "Open full map for this photo" : undefined}
       >
         <div className="gps-map-overview__item">
           <div className="gps-map-overview__label">World</div>
