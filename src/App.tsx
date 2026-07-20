@@ -22,6 +22,7 @@ import { GalleryView } from "./components/GalleryView";
 import { FullMapView } from "./components/FullMapView";
 import { StatusBar } from "./components/StatusBar";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
+import { BulkMetadataEditorDialog } from "./components/BulkMetadataEditorDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
 import { TargetVerifyOutcomeDialog } from "./components/TargetVerifyOutcomeDialog";
 import { ModalDialog } from "./components/ModalDialog";
@@ -137,10 +138,12 @@ function LoadedView({
   const [listSearchQuery, setListSearchQuery] = useState("");
   const [selectionCount, setSelectionCount] = useState(0);
   const [fullMapPaths, setFullMapPaths] = useState<string[] | null>(null);
+  const [bulkEditPaths, setBulkEditPaths] = useState<string[] | null>(null);
 
   useEffect(() => {
     setListSearchQuery("");
     setFullMapPaths(null);
+    setBulkEditPaths(null);
   }, [state.folder]);
 
   // Ctrl/Cmd+F focuses the relevant search box.  When the gallery's
@@ -184,6 +187,16 @@ function LoadedView({
     if (searchMatched === null) return sortedPhotos;
     return sortedPhotos.filter((p) => searchMatched.has(p.relative_path));
   }, [sortedPhotos, searchMatched]);
+  const bulkEditPhotos = useMemo(() => {
+    if (bulkEditPaths === null) return [];
+    const byPath = new Map(
+      state.photos.map((photo) => [photo.relative_path, photo]),
+    );
+    return bulkEditPaths.flatMap((path) => {
+      const photo = byPath.get(path);
+      return photo ? [photo] : [];
+    });
+  }, [bulkEditPaths, state.photos]);
 
   useEffect(() => {
     const len = displayPhotos.length;
@@ -394,6 +407,7 @@ function LoadedView({
           normalise.actions.start(state.folder, items, [...initialGroups]);
         }}
         onCopyPaths={onCopyPaths}
+        onBulkEdit={(relativePaths) => setBulkEditPaths([...relativePaths])}
         onShowOnMap={setFullMapPaths}
         onSelectionCountChange={setSelectionCount}
         onPreviewRemoveFieldFromSelectedPhotos={previewRemoveFieldFromPhotos}
@@ -401,6 +415,21 @@ function LoadedView({
           return actions.removeMetadataFieldFromFiles(id, relPaths);
         }}
       />
+      {bulkEditPaths !== null && bulkEditPhotos.length > 0 && (
+        <BulkMetadataEditorDialog
+          key={bulkEditPaths.join("\n")}
+          photos={bulkEditPhotos}
+          imageMetadataOccurrences={state.imageMetadataOccurrences}
+          targetDraftEdits={state.targetDraftEdits}
+          onPreview={(request) =>
+            actions.previewBulkMetadataDraftBatch(bulkEditPaths, request)
+          }
+          onStage={(request) =>
+            actions.stageBulkMetadataDraftBatch(bulkEditPaths, request)
+          }
+          onClose={() => setBulkEditPaths(null)}
+        />
+      )}
       {state.galleryIndex !== null && displayPhotos.length > 0 && (
         <GalleryView
           photos={displayPhotos}
