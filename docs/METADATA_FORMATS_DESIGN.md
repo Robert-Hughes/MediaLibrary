@@ -80,8 +80,9 @@ rewritten, truncated or deleted.
 
 `MetadataValue` carries typed text, numbers, rationals, lists, structures,
 dates, times, offsets and date-times. `MetadataDraftEdit` carries `Set`,
-`Delete`, `ListAdd` or `ListRemove`, plus optional display text. Display text is
-not execution identity and is omitted from JSON when absent.
+`Delete`, `ListAdd` or `ListRemove`. Drafts persist only semantic values;
+user-facing text is derived from the value, exact schema ID and resolved tag
+information by the shared schema-aware formatter.
 
 Redundant `Set` suppression uses semantic equality: sequences are ordered,
 bags are unordered, structures ignore object-key insertion order, and nested
