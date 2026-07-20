@@ -64,7 +64,12 @@ import {
   type GeneratedDraftStageResult,
   type GeneratedMetadataProducer,
 } from "./generatedTargetDrafts";
-
+import {
+  BulkMetadataDraftPlanError,
+  planBulkMetadataDraftBatch,
+  type BulkMetadataDraftPlan,
+  type BulkMetadataDraftRequest,
+} from "./bulkMetadataDrafts";
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
   errorType: string,
@@ -116,6 +121,16 @@ export interface MediaLibraryActions {
     producer: GeneratedMetadataProducer,
     edits: SchemaMetadataEdit[],
   ) => GeneratedDraftStageResult;
+  previewBulkMetadataDraftBatch: (
+    relativePaths: string[],
+    request: BulkMetadataDraftRequest,
+  ) =>
+    | { kind: "ready"; plan: BulkMetadataDraftPlan }
+    | { kind: "blocked"; reason: string; relativePath?: string };
+  stageBulkMetadataDraftBatch: (
+    relativePaths: string[],
+    request: BulkMetadataDraftRequest,
+  ) => boolean;
   removeMetadataTargets: (
     relativePath: string,
     targets: MetadataDraftTarget[],
@@ -1122,6 +1137,82 @@ export function useMediaLibrary(
     [requireTargetDraftPersistenceReady],
   );
 
+  const buildBulkMetadataDraftPlan = useCallback(
+    (relativePaths: string[], request: BulkMetadataDraftRequest) => {
+      const paths = [...new Set(relativePaths)];
+      return planBulkMetadataDraftBatch({
+        files: paths.map((relativePath) => ({
+          relativePath,
+          occurrences:
+            imageMetadataOccurrencesStoreRef.current.get(relativePath),
+          targetDrafts:
+            targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
+        })),
+        request,
+      });
+    },
+    [],
+  );
+
+  const previewBulkMetadataDraftBatch = useCallback(
+    (
+      relativePaths: string[],
+      request: BulkMetadataDraftRequest,
+    ):
+      | { kind: "ready"; plan: BulkMetadataDraftPlan }
+      | { kind: "blocked"; reason: string; relativePath?: string } => {
+      const persistence = targetDraftPersistenceRef.current;
+      if (persistence.status !== "ready") {
+        return {
+          kind: "blocked",
+          reason:
+            persistence.status === "load-failed"
+              ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`
+              : TARGET_DRAFT_LOAD_BLOCKED_MESSAGE,
+          relativePath: relativePaths[0],
+        };
+      }
+      try {
+        return {
+          kind: "ready",
+          plan: buildBulkMetadataDraftPlan(relativePaths, request),
+        };
+      } catch (error) {
+        return {
+          kind: "blocked",
+          reason: error instanceof Error ? error.message : String(error),
+          relativePath:
+            error instanceof BulkMetadataDraftPlanError
+              ? error.relativePath
+              : relativePaths[0],
+        };
+      }
+    },
+    [buildBulkMetadataDraftPlan],
+  );
+
+  const stageBulkMetadataDraftBatch = useCallback(
+    (relativePaths: string[], request: BulkMetadataDraftRequest): boolean => {
+      const paths = [...new Set(relativePaths)];
+      if (!requireTargetDraftPersistenceReady(paths)) return false;
+      try {
+        const plan = buildBulkMetadataDraftPlan(paths, request);
+        targetDraftEditsStoreRef.current.applyExactMutationBatch(
+          plan.mutations,
+        );
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-target-bulk-stage", error, paths);
+        return false;
+      }
+    },
+    [
+      buildBulkMetadataDraftPlan,
+      pushApplicationError,
+      requireTargetDraftPersistenceReady,
+    ],
+  );
+
   const applyGpsTargetDraftBatch = useCallback(
     (relativePath: string, entries: MetadataTargetDraftEntry[]): boolean => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
@@ -1879,6 +1970,8 @@ export function useMediaLibrary(
       dismissError,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
+      previewBulkMetadataDraftBatch,
+      stageBulkMetadataDraftBatch,
       removeMetadataTargets,
       removeMetadataFields,
       removeMetadataFieldFromFiles,
@@ -1913,6 +2006,8 @@ export function useMediaLibrary(
       dismissError,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
+      previewBulkMetadataDraftBatch,
+      stageBulkMetadataDraftBatch,
       removeMetadataTargets,
       removeMetadataFields,
       removeMetadataFieldFromFiles,

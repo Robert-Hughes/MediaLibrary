@@ -74,6 +74,7 @@ interface Props {
   /** Exact top-level metadata identity; null only for synthetic nested values. */
   propertyId: SchemaDefinitionId | null;
   propertyLabel?: string;
+  contextHint?: React.ReactNode;
   initialMetadataValue?: MetadataValue;
   /** Parent-provided schema for synthetic nested paths such as Tag[0]. */
   schemaOverride?: InheritedEditorSchema;
@@ -127,6 +128,7 @@ function coordinateIsNegative(value: number): boolean {
 export function TypedValueEditor({
   propertyId,
   propertyLabel: suppliedPropertyLabel,
+  contextHint,
   initialMetadataValue,
   schemaOverride,
   metadataForFile,
@@ -165,18 +167,21 @@ export function TypedValueEditor({
     (propertyId !== null &&
       (tag === null || tag === "loading" || !tag.writable));
   const schemaHint = (override?: string) => (
-    <EditorMetaHint
-      source={
-        schemaOverride
-          ? {
-              kind: "synthetic",
-              label: `${schemaOverride.sourceLabel ?? propertyLabel} — ${describeKind(schemaOverride.kind)}`,
-              description: `From parent schema${readOnly ? " — read-only" : ""}`,
-              readOnly,
-            }
-          : buildSource(tag, override)
-      }
-    />
+    <>
+      <EditorMetaHint
+        source={
+          schemaOverride
+            ? {
+                kind: "synthetic",
+                label: `${schemaOverride.sourceLabel ?? propertyLabel} — ${describeKind(schemaOverride.kind)}`,
+                description: `From parent schema${readOnly ? " — read-only" : ""}`,
+                readOnly,
+              }
+            : buildSource(tag, override)
+        }
+      />
+      {contextHint}
+    </>
   );
   const saveText = (value: string) => {
     onSaveMetadata({ value: { kind: "Text", value }, intent: "Set" });
