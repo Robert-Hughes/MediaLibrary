@@ -232,9 +232,6 @@ export function NewPropertyDialog({
                   overflowY: "auto",
                   padding: "6px",
                   marginTop: "10px",
-                  border: "1px solid var(--border-color, #3e4451)",
-                  borderRadius: "6px",
-                  backgroundColor: "var(--bg-list, #181a1f)",
                   display: "flex",
                   flexDirection: "column",
                   gap: "6px",
@@ -277,20 +274,10 @@ export function NewPropertyDialog({
                           setDestinationGroup(info.group);
                         }}
                         aria-pressed={isSelected}
+                        className="dialog-results-option"
                         style={{
                           padding: "10px 14px",
                           cursor: "pointer",
-                          backgroundColor: isSelected
-                            ? "var(--accent-selected-bg, #2b3a4a)"
-                            : "var(--bg-card, #1e1e1e)",
-                          color: isSelected
-                            ? "var(--accent-selected-fg, #61afef)"
-                            : "var(--fg-default, #abb2bf)",
-                          border: isSelected
-                            ? "1px solid var(--accent-selected-border, #61afef)"
-                            : "1px solid var(--border-color, #3e4451)",
-                          borderRadius: "6px",
-                          transition: "all 0.15s ease-in-out",
                           textAlign: "left",
                           font: "inherit",
                         }}

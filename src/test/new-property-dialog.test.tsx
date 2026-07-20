@@ -89,6 +89,35 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
     expect(screen.queryAllByTestId(/^schema-option-/)).toHaveLength(0);
   });
 
+  it("uses theme-token classes for the schema selector and its inputs", () => {
+    _setWritableSchemaDefinitionsCache(testDefinitions);
+    render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);
+
+    const search = screen.getByTestId("new-property-key");
+    expect(search).toHaveClass("dialog-input");
+    const results = screen.getByText(
+      "Type to search writable properties.",
+    ).parentElement;
+    expect(results).toHaveClass("dialog-results-list");
+
+    fireEvent.change(search, { target: { value: "Title" } });
+
+    const option = screen.getByTestId(
+      `schema-option-${schemaDefinitionIdToken(testDefinitions[0].id)}`,
+    );
+    expect(option).toHaveClass("dialog-results-option");
+    expect(option).not.toHaveAttribute(
+      "style",
+      expect.stringMatching(/#|--bg-|--fg-/),
+    );
+
+    fireEvent.click(option);
+    expect(option).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("new-property-destination-group")).toHaveClass(
+      "dialog-input",
+    );
+  });
+
   it("filters search matches by friendly name", () => {
     _setWritableSchemaDefinitionsCache(testDefinitions);
     render(<NewPropertyDialog onSave={() => {}} onCancel={() => {}} />);

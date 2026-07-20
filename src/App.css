@@ -1745,6 +1745,59 @@ body {
   margin-bottom: 16px;
 }
 
+.dialog-input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.dialog-input::placeholder {
+  color: var(--text-dim);
+}
+
+.dialog-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 20%, transparent);
+}
+
+.dialog-results-list {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--text-primary);
+}
+
+.dialog-results-option {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  transition:
+    background 0.15s ease-in-out,
+    border-color 0.15s ease-in-out,
+    color 0.15s ease-in-out;
+}
+
+.dialog-results-option:hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+}
+
+.dialog-results-option[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.dialog-results-option:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* ── BagEditor chip list (Phase 4) ─────────────────────────────────────── */
 
 .bag-editor-chips {
