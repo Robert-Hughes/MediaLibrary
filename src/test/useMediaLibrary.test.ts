@@ -1613,13 +1613,24 @@ describe("useMediaLibrary", () => {
       expectedErrorType: string,
     ) => {
       const before = saveCount();
-      await act(async () => {
-        await result.current[1].setNewPropertyDraft(
-          path,
-          newPropertyTargetFor(id),
-          edit,
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      try {
+        await act(async () => {
+          await result.current[1].setNewPropertyDraft(
+            path,
+            newPropertyTargetFor(id),
+            edit,
+          );
+        });
+        expect(consoleError).toHaveBeenCalledWith(
+          expect.stringContaining(`[application-error:${expectedErrorType}]`),
+          expect.objectContaining({ affectedFiles: [path] }),
         );
-      });
+      } finally {
+        consoleError.mockRestore();
+      }
       expect(stateStore().getMetadataFile(path)).toBeUndefined();
       expect(saveCount()).toBe(before);
       expect(lastErrorType()).toBe(expectedErrorType);
