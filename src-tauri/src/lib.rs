@@ -196,6 +196,7 @@ struct ScanErrorPayload {
 #[derive(Clone, Serialize)]
 struct ApplicationErrorPayload {
     scan_id: u64,
+    severity: String,
     error_type: String, // "metadata", "thumbnail", "scanner"
     error_message: String,
     affected_files: Vec<String>, // relative paths of files that failed
@@ -380,6 +381,7 @@ fn start_scan(
                                         "worker_error",
                                         ApplicationErrorPayload {
                                             scan_id,
+                                            severity: "error".to_string(),
                                             error_type: "metadata".to_string(),
                                             error_message: error_msg,
                                             affected_files: affected,
@@ -403,6 +405,7 @@ fn start_scan(
                                     "worker_error",
                                     ApplicationErrorPayload {
                                         scan_id,
+                                        severity: "error".to_string(),
                                         error_type: "metadata".to_string(),
                                         error_message: error_msg,
                                         affected_files: rel_paths.clone(),
@@ -552,6 +555,7 @@ fn start_scan(
                         "worker_error",
                         ApplicationErrorPayload {
                             scan_id,
+                            severity: "error".to_string(),
                             error_type: "scanner".to_string(),
                             error_message: err.message,
                             affected_files: err.path.into_iter().collect(),

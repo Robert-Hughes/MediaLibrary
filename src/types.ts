@@ -706,6 +706,7 @@ export interface ScanErrorPayload {
 
 export interface ApplicationErrorPayload {
   scan_id: number;
+  severity: "error" | "warning";
   error_type: string;
   error_message: string;
   affected_files: string[];

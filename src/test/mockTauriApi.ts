@@ -275,6 +275,7 @@ export function createMockTauriApi(): MockTauriApi {
     ) =>
       emit("worker_error", {
         scan_id: scanId ?? mock.currentScanId,
+        severity: "error",
         error_type,
         error_message,
         affected_files,
