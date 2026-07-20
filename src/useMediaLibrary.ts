@@ -204,11 +204,16 @@ export function useMediaLibrary(
   );
 
   const pushApplicationError = useCallback(
-    (workerType: string, error: unknown, affectedFiles: string[] = []) => {
+    (errorType: string, error: unknown, affectedFiles: string[] = []) => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error(`[application-error:${errorType}] ${errorMessage}`, {
+        affectedFiles,
+        error,
+      });
       const payload: ApplicationErrorPayload = {
         scan_id: activeScanIdRef.current,
-        error_type: workerType,
-        error_message: error instanceof Error ? error.message : String(error),
+        error_type: errorType,
+        error_message: errorMessage,
         affected_files: affectedFiles,
       };
       setAppState((prev) => {
