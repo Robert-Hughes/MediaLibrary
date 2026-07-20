@@ -108,6 +108,12 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
     map.on("dragstart", markUserMovement);
     map.on("zoomstart", markUserMovement);
     mapRef.current = map;
+    // A fresh Leaflet instance always needs an initial fit. In React Strict
+    // Mode the construction effect is deliberately set up twice; retaining
+    // the first instance's fit key would leave the second, real map at the
+    // default world view.
+    previousCoordinateKeyRef.current = "__unfitted__";
+    userMovedRef.current = false;
 
     const invalidateSizeTimeout = window.setTimeout(
       () => map.invalidateSize(),
