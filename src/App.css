@@ -1606,6 +1606,19 @@ body {
   animation: slideDown 0.3s ease-out;
 }
 
+.error-banner--warning {
+  background: color-mix(
+    in oklch,
+    var(--accent-warning, #e5c07b) 18%,
+    var(--surface)
+  );
+  border-color: color-mix(
+    in oklch,
+    var(--accent-warning, #e5c07b) 45%,
+    transparent
+  );
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;
@@ -1638,6 +1651,17 @@ body {
   font-weight: 600;
   color: var(--accent-error);
   margin-bottom: 4px;
+}
+
+.error-banner--warning .error-banner-title {
+  color: var(--accent-warning, #e5c07b);
+}
+
+.error-banner-code {
+  margin-bottom: 4px;
+  color: var(--text-dim);
+  font-family: monospace;
+  font-size: 11px;
 }
 
 .error-banner-message {

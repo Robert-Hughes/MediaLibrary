@@ -6,6 +6,7 @@ import type { ApplicationErrorPayload } from "../types";
 
 const error: ApplicationErrorPayload = {
   scan_id: 1,
+  severity: "error",
   error_type: "test-error",
   error_message: "Something failed",
   affected_files: ["photo.jpg"],
@@ -20,6 +21,8 @@ describe("ErrorBanner top-layer presentation", () => {
       "popover",
       "manual",
     );
+    expect(screen.getByText("Application Error")).toBeInTheDocument();
+    expect(screen.getByText("test-error")).toBeInTheDocument();
     expect(show).toHaveBeenCalledOnce();
     show.mockRestore();
   });

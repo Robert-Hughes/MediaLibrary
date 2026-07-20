@@ -7,6 +7,25 @@ interface Props {
   onDismiss: (index: number) => void;
 }
 
+function applicationErrorTitle(error: ApplicationErrorPayload): string {
+  switch (error.error_type) {
+    case "metadata":
+      return "Metadata Loading Error";
+    case "thumbnail":
+      return "Thumbnail Generation Error";
+    case "scanner":
+      return "Scanning Error";
+    case "apply":
+      return "Apply Error";
+    case "apply-warning":
+      return "Apply Warning";
+    default:
+      return error.severity === "warning"
+        ? "Application Warning"
+        : "Application Error";
+  }
+}
+
 export function ErrorBanner({ errors, onDismiss }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const popoverOpenRef = useRef(false);
@@ -44,18 +63,20 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
       data-testid="application-error-popover"
     >
       {errors.map((error, index) => (
-        <div key={index} className="error-banner" data-testid="error-banner">
+        <div
+          key={index}
+          className={`error-banner error-banner--${error.severity}`}
+          data-testid="error-banner"
+        >
           <div className="error-banner-content">
-            <span className="error-banner-icon">⚠️</span>
+            <span className="error-banner-icon">
+              {error.severity === "warning" ? "⚠️" : "⛔"}
+            </span>
             <div className="error-banner-text">
               <div className="error-banner-title">
-                {error.error_type === "metadata" && "Metadata Loading Error"}
-                {error.error_type === "thumbnail" &&
-                  "Thumbnail Generation Error"}
-                {error.error_type === "scanner" && "Scanning Error"}
-                {error.error_type === "apply" && "Apply Error"}
-                {error.error_type === "apply-warning" && "Apply Warning"}
+                {applicationErrorTitle(error)}
               </div>
+              <div className="error-banner-code">{error.error_type}</div>
               <div className="error-banner-message">{error.error_message}</div>
               {error.affected_files.length > 0 && (
                 <div className="error-banner-files">

@@ -212,6 +212,7 @@ export function useMediaLibrary(
       });
       const payload: ApplicationErrorPayload = {
         scan_id: activeScanIdRef.current,
+        severity: "error",
         error_type: errorType,
         error_message: errorMessage,
         affected_files: affectedFiles,
@@ -426,6 +427,7 @@ export function useMediaLibrary(
         };
         targetLoadErrorRef.current = {
           scan_id: scanId,
+          severity: "error",
           error_type: "metadata-target-load",
           error_message: errorMessage,
           affected_files: [],
