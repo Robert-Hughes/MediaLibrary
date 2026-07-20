@@ -1,6 +1,10 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { ApplicationErrorPayload } from "../types";
-import { listenForApplicationErrorBringToFront } from "../applicationErrorTopLayer";
+import {
+  getApplicationErrorTopLayerState,
+  subscribeApplicationErrorTopLayer,
+} from "../applicationErrorTopLayer";
 
 interface Props {
   errors: ApplicationErrorPayload[];
@@ -30,6 +34,11 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const popoverOpenRef = useRef(false);
   const newestError = errors[errors.length - 1];
+  const topLayerState = useSyncExternalStore(
+    subscribeApplicationErrorTopLayer,
+    getApplicationErrorTopLayerState,
+    getApplicationErrorTopLayerState,
+  );
 
   const bringToFront = useCallback(() => {
     const container = containerRef.current;
@@ -48,14 +57,9 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
       return;
     }
     bringToFront();
-  }, [bringToFront, errors.length, newestError]);
+  }, [bringToFront, errors.length, newestError, topLayerState.revision]);
 
-  useEffect(
-    () => listenForApplicationErrorBringToFront(bringToFront),
-    [bringToFront],
-  );
-
-  return (
+  const content = (
     <div
       ref={containerRef}
       className="error-banner-container"
@@ -98,4 +102,6 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
       ))}
     </div>
   );
+
+  return createPortal(content, topLayerState.target ?? document.body);
 }
