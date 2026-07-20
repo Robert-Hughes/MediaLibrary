@@ -146,6 +146,8 @@ interface Props {
    * agnostic about how the photo is addressed.
    */
   onShowInFileExplorer?: () => void;
+  /** Open this photo in the app-level full map view. */
+  onOpenFullMap?: () => void;
 }
 
 function detailsRowMatchesSearch(
@@ -557,6 +559,7 @@ export function DetailsPane({
   onGeocode,
   onNormalise,
   onShowInFileExplorer,
+  onOpenFullMap,
 }: Props) {
   const metadata = useMemo(
     () =>
@@ -1290,6 +1293,7 @@ export function DetailsPane({
                   <GpsMapOverview
                     lat={resolvedGps.lat}
                     lon={resolvedGps.lon}
+                    onOpenFullMap={onOpenFullMap}
                     onContextMenu={(event) =>
                       openGroupContextMenu(event, "GPS")
                     }

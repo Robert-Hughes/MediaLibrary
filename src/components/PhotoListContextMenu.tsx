@@ -25,6 +25,7 @@ interface Props {
   onPhotoOpen: (index: number) => void;
   onShowInExplorer: (index: number) => void;
   onCopyPaths?: (relativePaths: string[]) => void;
+  onShowOnMap?: (relativePaths: string[]) => void;
   onGenerateAiDescription?: (relativePaths: string[]) => void;
   onGeocode?: (relativePaths: string[]) => void;
   onNormalise?: (relativePaths: string[]) => void;
@@ -43,6 +44,7 @@ export function PhotoListContextMenu({
   onPhotoOpen,
   onShowInExplorer,
   onCopyPaths,
+  onShowOnMap,
   onGenerateAiDescription,
   onGeocode,
   onNormalise,
@@ -90,6 +92,18 @@ export function PhotoListContextMenu({
               {
                 label: count > 1 ? `Copy Paths (${count})` : "Copy Path",
                 onClick: () => onCopyPaths(selectedPaths),
+              },
+            ]
+          : []),
+        ...(onShowOnMap && selectedPaths.length > 0
+          ? [
+              {
+                label:
+                  count > 1 ? `Show on Map (${count} ${noun})` : "Show on Map",
+                onClick: () => {
+                  onClose();
+                  onShowOnMap(selectedPaths);
+                },
               },
             ]
           : []),

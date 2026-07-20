@@ -269,6 +269,23 @@ describe("PhotoList context menu (multi-select)", () => {
     expect(onCopyPaths).toHaveBeenCalledWith(["1.jpg", "2.jpg", "4.jpg"]);
   });
 
+  it("Show on Map passes all selected paths and closes the context menu", async () => {
+    const onShowOnMap = vi.fn();
+    setup({ onShowOnMap });
+    fireEvent.click(rows()[1]);
+    fireEvent.click(rows()[3], { ctrlKey: true });
+    fireEvent.contextMenu(rows()[3]);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Show on Map (2 photos)",
+      }),
+    );
+
+    expect(onShowOnMap).toHaveBeenCalledWith(["1.jpg", "3.jpg"]);
+    expect(screen.queryByTestId("context-menu")).toBeNull();
+  });
+
   it("Copy Path is hidden when onCopyPaths prop is not provided", async () => {
     setup();
     fireEvent.click(rows()[2]);
