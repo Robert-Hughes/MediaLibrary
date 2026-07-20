@@ -75,11 +75,6 @@ export const KNOWN_METADATA_IDS = {
   subSecTimeOriginal: id("Exif::Main", "37521"),
   subSecTimeDigitized: id("Exif::Main", "37522"),
   iptcCodedCharacterSet: id("IPTC::EnvelopeRecord", "90"),
-  compositeGpsLatitude: id("Composite", "GPS-GPSLatitude"),
-  compositeGpsLongitude: id("Composite", "GPS-GPSLongitude"),
-  compositeShutterSpeed: id("Composite", "Exif-ShutterSpeed"),
-  compositeAperture: id("Composite", "Exif-Aperture"),
-  compositeFocalLength35efl: id("Composite", "Exif-FocalLength35efl"),
 } as const;
 
 export const GPS_IDS = {

@@ -19,7 +19,7 @@ whose value is the complete language map. Conflicting values for one language
 produce one read-only `Unknown` parent occurrence.
 
 `ImageMetadata` contains only authoritative occurrences. Columns, sorting,
-normalisation, overwrite, generated workflows and composite semantic editors
+normalisation, overwrite, generated workflows and multi-field semantic editors
 may derive deliberate schema-oriented read-only projections. Those projections
 never decide the identity or ownership of an existing Details row.
 
@@ -51,13 +51,13 @@ the complete target; destination editing atomically replaces the exact original
 target while retaining the semantic edit. Target-only warnings expose only
 operations safe for their stored target.
 
-A fresh composite GPS editor resolves its six schema fields into complete
+A fresh grouped GPS editor resolves its six schema fields into complete
 targets before it opens. Saving pairs semantic edits with those captured
 targets, validates each target directly against current authoritative state and
 applies the exact batch atomically. It does not plan a replacement destination
 from a schema at save time. An individually targetable GPS occurrence can be
 edited through its exact captured target even when another occurrence shares
-its schema. Composite GPS editing remains disabled when the six-member set is
+its schema. Grouped GPS editing remains disabled when the six-member set is
 ambiguous.
 
 Details group removal calls the target-addressed removal planner with only the
@@ -113,7 +113,7 @@ missing or duplicate result, silent ignore, and semantic mismatch preserve the
 draft. ExistingOccurrence apply validates the full occurrence, schema and
 write-target snapshot; it never locates an owner by schema.
 
-Composite editors may use schema IDs to enumerate semantic fields, but every
+Multi-field editors may use schema IDs to enumerate semantic fields, but every
 field resolves to a complete mutation target before the editor opens. A single
 existing staged New Property target is already the destination and is preserved
 exactly; the registered default destination is used only when there is neither

@@ -14,7 +14,7 @@
  */
 import type { MetadataValue, SchemaDefinitionId } from "../types";
 import type { SchemaDraftDisplayProjection } from "../targetDraftView";
-import { GPS_IDS, KNOWN_METADATA_IDS } from "../metadata/knownIds";
+import { GPS_IDS } from "../metadata/knownIds";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
 import { schemaDefinitionIdToken } from "./schemaDefinitionId";
 
@@ -24,16 +24,8 @@ import { schemaDefinitionIdToken } from "./schemaDefinitionId";
  */
 type MetadataBag = MetadataCollection;
 type GpsScalar = string | number;
-type SelectedGpsValue = { id: SchemaDefinitionId; value: GpsScalar };
-
-/**
- * GPS tag groups exiftool surfaces. `Composite` is the convenient
- * decimal-degrees view; the others are the per-format raw fields.
- * Listed in priority order — Composite preferred because it's already
- * decimal.
- */
-const LAT_IDS = [KNOWN_METADATA_IDS.compositeGpsLatitude, GPS_IDS.latitude];
-const LON_IDS = [KNOWN_METADATA_IDS.compositeGpsLongitude, GPS_IDS.longitude];
+const LAT_IDS = [GPS_IDS.latitude];
+const LON_IDS = [GPS_IDS.longitude];
 const LAT_REF_IDS = [GPS_IDS.latitudeRef];
 const LON_REF_IDS = [GPS_IDS.longitudeRef];
 
@@ -110,7 +102,7 @@ function extractValue(
   ids: readonly SchemaDefinitionId[],
   drafts: SchemaDraftDisplayProjection | undefined,
   metadata: MetadataBag | undefined,
-): SelectedGpsValue | null {
+): GpsScalar | null {
   // Drafts win whether they are Set or Delete — a Delete-intent draft
   // means "this field is being removed", so we treat it as no value.
   for (const id of ids) {
@@ -118,28 +110,16 @@ function extractValue(
     if (d) {
       if (d.intent === "Delete") return null;
       const value = gpsScalarFromMetadataValue(d.value);
-      if (value !== null) return { id, value };
+      if (value !== null) return value;
     }
   }
   for (const id of ids) {
     const v = gpsScalarFromMetadataEntry(
       metadata ? metadataGet(metadata, id) : undefined,
     );
-    if (v !== null) return { id, value: v };
+    if (v !== null) return v;
   }
   return null;
-}
-
-function extractScalar(
-  ids: readonly SchemaDefinitionId[],
-  drafts: SchemaDraftDisplayProjection | undefined,
-  metadata: MetadataBag | undefined,
-): GpsScalar | null {
-  return extractValue(ids, drafts, metadata)?.value ?? null;
-}
-
-function isCompositeGpsId(id: SchemaDefinitionId): boolean {
-  return id.table === "Composite";
 }
 
 /**
@@ -157,20 +137,14 @@ export function resolveGps(
   const rawLat = extractValue(LAT_IDS, drafts, metadata);
   const rawLon = extractValue(LON_IDS, drafts, metadata);
   if (rawLat == null || rawLon == null) return { lat: null, lon: null };
-  let lat = parseMagnitude(rawLat.value);
-  let lon = parseMagnitude(rawLon.value);
+  let lat = parseMagnitude(rawLat);
+  let lon = parseMagnitude(rawLon);
   if (lat == null || lon == null) return { lat: null, lon: null };
-  // Composite values are signed already; raw GPS/XMP/EXIF latitude and
-  // longitude values carry their sign in the paired hemisphere ref.
-  if (!isCompositeGpsId(rawLat.id)) {
-    const ref = parseRef(extractScalar(LAT_REF_IDS, drafts, metadata));
-    if (ref === "S") lat = -Math.abs(lat);
-    else if (ref === "N") lat = Math.abs(lat);
-  }
-  if (!isCompositeGpsId(rawLon.id)) {
-    const ref = parseRef(extractScalar(LON_REF_IDS, drafts, metadata));
-    if (ref === "W") lon = -Math.abs(lon);
-    else if (ref === "E") lon = Math.abs(lon);
-  }
+  const latRef = parseRef(extractValue(LAT_REF_IDS, drafts, metadata));
+  if (latRef === "S") lat = -Math.abs(lat);
+  else if (latRef === "N") lat = Math.abs(lat);
+  const lonRef = parseRef(extractValue(LON_REF_IDS, drafts, metadata));
+  if (lonRef === "W") lon = -Math.abs(lon);
+  else if (lonRef === "E") lon = Math.abs(lon);
   return { lat, lon };
 }

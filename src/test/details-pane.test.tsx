@@ -1808,7 +1808,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expectZeroSouthWestEdits(onApplyGpsTargetDraftBatch.mock.calls[0][0]);
   });
 
-  it("keeps ordinary GPS row editing enabled while composite GPS capture is blocked", () => {
+  it("keeps ordinary GPS row editing enabled while grouped GPS capture is blocked", () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5,
       "GPS:GPSLatitudeRef": "N",
@@ -1856,7 +1856,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     );
   });
 
-  it("keeps ordinary GPS row actions available when the composite callback is absent", () => {
+  it("keeps ordinary GPS row actions available when the grouped callback is absent", () => {
     const metadata = mockMetadata({ "GPS:GPSLatitude": 51.5 });
     render(
       <DetailsPane
@@ -1878,7 +1878,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     );
   });
 
-  it("preserves a staged custom altitude destination through unchanged composite save", async () => {
+  it("preserves a staged custom altitude destination through unchanged grouped save", async () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5,
       "GPS:GPSLatitudeRef": "N",
@@ -1939,7 +1939,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     ).toBe(false);
   });
 
-  it("keeps the composite editor open and saves nothing when a captured selector changes", async () => {
+  it("keeps the grouped editor open and saves nothing when a captured selector changes", async () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5,
       "GPS:GPSLatitudeRef": "N",
@@ -2027,7 +2027,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     );
   }
 
-  it("composite GPS save, rerender and reopen workflow", async () => {
+  it("grouped GPS save, rerender and reopen workflow", async () => {
     // Seed schema cache with string enum options
     _setTagInfoCacheEntry("GPS:GPSLatitudeRef", {
       group: "GPS",
@@ -2088,7 +2088,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     const lonRefSelect = screen.getByTestId("gps-editor-lon-ref");
     await user.selectOptions(lonRefSelect, "W");
 
-    // Save the composite editor
+    // Save the grouped editor
     await user.click(screen.getByTestId("gps-editor-save"));
 
     // Confirm that the dialog closed
@@ -2146,7 +2146,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
   });
 
-  it("individual enum edit followed by composite GPS edit", async () => {
+  it("individual enum edit followed by grouped GPS edit", async () => {
     // Seed schema cache with string enum options for LatitudeRef
     _setTagInfoCacheEntry("GPS:GPSLatitudeRef", {
       group: "GPS",
@@ -2238,7 +2238,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     openContextMenu("GPSLatitude");
     await user.click(screen.getByRole("button", { name: "Edit GPS…" }));
 
-    // Assert that the composite latitude-ref select opens as S
+    // Assert that the grouped latitude-ref select opens as S
     expect(await screen.findByTestId("gps-editor-lat-ref")).toHaveValue("S");
 
     // Cancel the editor

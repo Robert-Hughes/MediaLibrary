@@ -92,8 +92,10 @@ describe("DetailsPane: Reverse Geocode button", () => {
         photo={photo}
         occurrences={occurrencesFromMetadataCollection(
           mockMetadata({
-            "Composite:GPSLatitude": 51.5,
-            "Composite:GPSLongitude": -0.1,
+            "GPS:GPSLatitude": 51.5,
+            "GPS:GPSLatitudeRef": "N",
+            "GPS:GPSLongitude": 0.1,
+            "GPS:GPSLongitudeRef": "W",
           }),
         )}
         onGeocode={onGeocode}

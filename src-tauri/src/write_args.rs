@@ -1065,13 +1065,13 @@ mod tests {
     fn float_renders_decimal_in_numeric_group() {
         let i = info(TagKind::Real);
         let args = build_new_property_fixture_args(
-            "Composite",
+            "GPS",
             "GPSAltitude",
             &i,
             &metadata_set(MetadataValue::Real(123.45)),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-1Composite:7ID-Y:GPSAltitude=123.45"]);
+        assert_eq!(args.numeric, vec!["-1GPS:7ID-Y:GPSAltitude=123.45"]);
     }
 
     #[test]

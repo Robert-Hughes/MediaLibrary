@@ -1,5 +1,5 @@
 import { ModalDialog } from "../ModalDialog";
-// GPS composite editor.
+// Grouped GPS editor.
 //
 // GPS coordinates are split across paired tags in the file:
 //   - GPSLatitude       (positive decimal degrees)
@@ -10,7 +10,7 @@ import { ModalDialog } from "../ModalDialog";
 //   - GPSAltitudeRef    (0 = above SL,
 //                        1 = below SL)  — optional
 //
-// The editor presents a single composite UI (decimal degrees by default,
+// The editor presents one coordinated UI (decimal degrees by default,
 // with a DMS toggle).  On save it emits one MetadataDraftEdit per paired tag via
 // the batch callback.  The on-screen warning makes the multi-tag write
 // explicit; per the policy in METADATA_FORMATS_DESIGN.md §5 paired-tags

@@ -6,7 +6,7 @@
 // frontend routing because they combine multiple tags or reinterpret a packed
 // value:
 //
-//   - GPS coordinates       — composite editor with paired Latitude/Ref…
+//   - GPS coordinates       — grouped editor with paired Latitude/Ref…
 //   - Flash bitfield        — checkbox-per-bit editor
 //
 // Adding a new override means adding one entry here and (if a new editor)

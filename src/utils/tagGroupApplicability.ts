@@ -9,7 +9,6 @@
 
 const ALWAYS_ALLOWED = new Set<string>([
   "XMP",
-  "Composite",
   "File",
   "ICC_Profile",
   "ICC-header",
@@ -224,7 +223,7 @@ function groupOf(tagKey: string): string {
   return colon < 0 ? "" : tagKey.slice(0, colon);
 }
 
-/** True when the group is in the always-allowed set (XMP-*, Composite, …). */
+/** True when the group is in the always-allowed set (XMP-*, ICC-*, etc.). */
 function isUniversal(group: string): boolean {
   if (ALWAYS_ALLOWED.has(group)) return true;
   // XMP namespaces all start with `XMP-` (XMP-dc, XMP-exif, XMP-photoshop, …).
