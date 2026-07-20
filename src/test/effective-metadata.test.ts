@@ -20,28 +20,37 @@ import {
 } from "../utils/metadataCollection";
 
 const ID: SchemaDefinitionId = { table: "XMP::dc", tag_id: "title" };
+const OTHER_ID: SchemaDefinitionId = {
+  table: "XMP::photoshop",
+  tag_id: "City",
+};
 const text = (value: string): MetadataValue => ({ kind: "Text", value });
 
 function occurrence(
   value: MetadataValue,
-  options: { copy?: number; path?: string } = {},
+  options: {
+    copy?: number;
+    path?: string;
+    schemaId?: SchemaDefinitionId;
+  } = {},
 ): MetadataOccurrence {
+  const schemaId = options.schemaId ?? ID;
   return {
     id: {
       document: null,
       path: options.path ?? `XMP-${options.copy ?? 0}`,
-      runtime_tag_id: ID.tag_id,
+      runtime_tag_id: schemaId.tag_id,
       tag_id_scope: {
         table: "TestFixture::Runtime",
-        tag_id: ID.tag_id,
+        tag_id: schemaId.tag_id,
         index: null,
       },
       copy: options.copy ?? 0,
     },
-    schema_id: structuredClone(ID),
+    schema_id: structuredClone(schemaId),
     value: structuredClone(value),
     tag_info: {
-      id: structuredClone(ID),
+      id: structuredClone(schemaId),
       group: "XMP-dc",
       name: "Title",
       writable: true,
@@ -337,5 +346,23 @@ describe("buildEffectiveMetadataForFile", () => {
     const snapshot = structuredClone({ item, targetDrafts });
     buildEffectiveMetadataForFile({ occurrences: [item], targetDrafts });
     expect({ item, targetDrafts }).toEqual(snapshot);
+  });
+
+  it("limits authoritative values and drafts to requested schema IDs", () => {
+    const requested = occurrence(text("disk"));
+    const unrelated = occurrence(text("London"), { schemaId: OTHER_ID });
+    const result = buildEffectiveMetadataForFile(
+      {
+        occurrences: [requested, unrelated],
+        targetDrafts: targets(
+          existingEntry(requested, { intent: "Set", value: text("pending") }),
+          existingEntry(unrelated, { intent: "Set", value: text("Paris") }),
+        ),
+      },
+      { ids: [ID] },
+    );
+
+    expect(valueOf(result)).toEqual(text("pending"));
+    expect(metadataGet(result, OTHER_ID)).toBeUndefined();
   });
 });
