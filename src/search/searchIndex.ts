@@ -4,10 +4,7 @@ import type {
   SearchOccurrencesState,
   SearchSchemaLabel,
 } from "../workers/searchWorkerProtocol";
-import {
-  displayStringOfMetadataDraft,
-  metadataEntryToDisplayString,
-} from "../draft";
+import { formatMetadataValue } from "../draft";
 import { formatPhotoRowDate } from "../utils/photoDate";
 import {
   formatSchemaDefinitionIdForDiagnostics,
@@ -58,6 +55,21 @@ function labelChunk(
     : [];
 }
 
+function valueChunk(
+  id: SearchSchemaId,
+  value: import("../types").MetadataValue | null | undefined,
+  labels: Map<string, SearchSchemaLabel>,
+): string[] {
+  const label = labels.get(schemaDefinitionIdToken(id));
+  const friendly = formatMetadataValue({
+    schemaId: id,
+    value,
+    tagInfo: label,
+  });
+  const raw = formatMetadataValue({ value });
+  return friendly === raw ? [friendly] : [friendly, raw];
+}
+
 function occurrencesChunk(
   occurrences: SearchOccurrencesState | undefined,
   labels: Map<string, SearchSchemaLabel>,
@@ -68,7 +80,7 @@ function occurrencesChunk(
     parts.push(
       ...labelChunk(entry.schemaId, labels),
       ...exactIdChunk(entry.schemaId),
-      metadataEntryToDisplayString(entry.value),
+      ...valueChunk(entry.schemaId, entry.value, labels),
       entry.occurrenceId.document ?? "",
       entry.occurrenceId.path,
       entry.occurrenceId.runtime_tag_id,
@@ -97,11 +109,12 @@ function draftsChunk(
   if (!edits) return "";
   const parts: string[] = [];
   for (const entry of edits) {
-    const display = displayStringOfMetadataDraft(entry.edit);
     parts.push(
       ...labelChunk(entry.id, labels),
       ...exactIdChunk(entry.id),
-      display === null ? "—" : (display ?? ""),
+      ...(entry.edit.intent === "Delete"
+        ? ["—"]
+        : valueChunk(entry.id, entry.edit.value, labels)),
     );
   }
   return parts.join("\n");

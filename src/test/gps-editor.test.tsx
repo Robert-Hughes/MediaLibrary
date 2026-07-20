@@ -13,7 +13,6 @@ import { GpsEditor } from "../components/editors/GpsEditor";
 import {
   parseDecimalDegrees,
   parseHemisphere,
-  decimalToDms,
 } from "../components/editors/editorHelpers";
 import { gpsMemberGroup as exactGpsMemberGroup } from "../metadata/tag_overrides";
 import { testId } from "./factories";
@@ -161,18 +160,6 @@ describe("GpsEditor", () => {
       value: { kind: "Text", value: "W" },
       intent: "Set",
     });
-    // Pretty-form display for the pending-change cell.
-    expect(
-      (editFor(edits, exampleGroup.latitudeId) as { display?: string }).display,
-    ).toBe(`51 deg 30' 0" N`);
-    expect(
-      (editFor(edits, exampleGroup.latitudeRefId) as { display?: string })
-        .display,
-    ).toBe("North");
-    expect(
-      (editFor(edits, exampleGroup.longitudeRefId) as { display?: string })
-        .display,
-    ).toBe("West");
   });
 
   it("Save emits 6 paired semantic draft edits when altitude is filled", async () => {
@@ -204,18 +191,11 @@ describe("GpsEditor", () => {
       value: { kind: "Real", value: 120.5 },
       intent: "Set",
     });
-    expect(
-      (editFor(edits, exampleGroup.altitudeId) as { display?: string }).display,
-    ).toBe("120.5 m Above Sea Level");
     // exiftool encodes AltitudeRef as 0 (above) or 1 (below).
     expect(editFor(edits, exampleGroup.altitudeRefId)).toMatchObject({
       value: { kind: "Integer", value: 0 },
       intent: "Set",
     });
-    expect(
-      (editFor(edits, exampleGroup.altitudeRefId) as { display?: string })
-        .display,
-    ).toBe("Above Sea Level");
   });
 
   it("Empty altitude leaves the altitude pair untouched", () => {
@@ -702,18 +682,6 @@ describe("gpsMemberGroup", () => {
     expect(gpsMemberGroup("GPS:GPSMapDatum")).toBeNull();
     expect(gpsMemberGroup("XMP-dc:Subject")).toBeNull();
     expect(gpsMemberGroup("plain")).toBeNull();
-  });
-});
-
-describe("decimalToDms", () => {
-  it("formats a decimal latitude with hemisphere", () => {
-    expect(decimalToDms(51.50726667, "N")).toBe(`51 deg 30' 26.16" N`);
-  });
-  it("renders whole degrees without trailing zeros", () => {
-    expect(decimalToDms(51.5, "N")).toBe(`51 deg 30' 0" N`);
-  });
-  it("uses the supplied hemisphere regardless of sign", () => {
-    expect(decimalToDms(0.13, "W")).toMatch(/W$/);
   });
 });
 

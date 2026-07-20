@@ -195,7 +195,6 @@ describe("DateTimeEditor", () => {
         value: { year: 2024, month: 1, day: 15 },
       },
       intent: "Set",
-      display: "2024:01:15",
     });
   });
 
@@ -234,11 +233,10 @@ describe("DateTimeEditor", () => {
         },
       },
       intent: "Set",
-      display: "14:30:05+01:00",
     });
   });
 
-  it("Save emits semantic DateTime with exiftool display", () => {
+  it("Save emits semantic DateTime", () => {
     const onSave = vi.fn();
     render(
       <DateTimeEditor
@@ -280,7 +278,6 @@ describe("DateTimeEditor", () => {
         },
       },
       intent: "Set",
-      display: "2024:01:15 14:30:00",
     });
   });
 
@@ -301,7 +298,7 @@ describe("DateTimeEditor", () => {
 });
 
 describe("RationalEditor", () => {
-  it("emits fraction string as display in fraction mode", async () => {
+  it("emits a semantic fraction in fraction mode", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -323,14 +320,16 @@ describe("RationalEditor", () => {
     await user.type(den, "8000");
     fireEvent.click(screen.getByTestId("rational-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
-    expect(onSave.mock.calls[0][0].display).toBe("1/8000");
-    expect(onSave.mock.calls[0][0].value).toEqual({
-      kind: "Rational",
-      value: { numerator: 1, denominator: 8000 },
+    expect(onSave.mock.calls[0][0]).toEqual({
+      intent: "Set",
+      value: {
+        kind: "Rational",
+        value: { numerator: 1, denominator: 8000 },
+      },
     });
   });
 
-  it("emits integer-form display when denominator is 1", async () => {
+  it("emits a semantic integer rational when denominator is 1", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -348,14 +347,16 @@ describe("RationalEditor", () => {
     await user.clear(num);
     await user.type(num, "3");
     fireEvent.click(screen.getByTestId("rational-editor-save"));
-    expect(onSave.mock.calls[0][0].display).toBe("3");
-    expect(onSave.mock.calls[0][0].value).toEqual({
-      kind: "Rational",
-      value: { numerator: 3, denominator: 1 },
+    expect(onSave.mock.calls[0][0]).toEqual({
+      intent: "Set",
+      value: {
+        kind: "Rational",
+        value: { numerator: 3, denominator: 1 },
+      },
     });
   });
 
-  it("emits reduced fraction display in decimal mode", async () => {
+  it("emits a reduced semantic fraction in decimal mode", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -373,10 +374,12 @@ describe("RationalEditor", () => {
     await user.clear(dec);
     await user.type(dec, "0.004");
     fireEvent.click(screen.getByTestId("rational-editor-save"));
-    expect(onSave.mock.calls[0][0].display).toBe("1/250");
-    expect(onSave.mock.calls[0][0].value).toEqual({
-      kind: "Rational",
-      value: { numerator: 1, denominator: 250 },
+    expect(onSave.mock.calls[0][0]).toEqual({
+      intent: "Set",
+      value: {
+        kind: "Rational",
+        value: { numerator: 1, denominator: 250 },
+      },
     });
   });
 });

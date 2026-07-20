@@ -49,7 +49,6 @@ function draft(value = "draft"): MetadataTargetDraftEntry {
     edit: {
       intent: "Set",
       value: { kind: "Text", value },
-      display: value,
     },
   };
 }
@@ -377,8 +376,8 @@ describe("inactive TargetApplyController lifecycle", () => {
       draftsChanged: true,
     });
     expect(
-      Object.values(stores.drafts.getMetadataFile(path)!)[0].edit.display,
-    ).toBe("authoritative");
+      Object.values(stores.drafts.getMetadataFile(path)!)[0].edit.value,
+    ).toEqual({ kind: "Text", value: "authoritative" });
     expect(onFinalApplied).toHaveBeenCalledWith(
       result.commandResult,
       result.application,
@@ -405,8 +404,8 @@ describe("inactive TargetApplyController lifecycle", () => {
     await controller.run("folder", [path]);
     expect(onProgress).not.toHaveBeenCalled();
     expect(
-      Object.values(stores.drafts.getMetadataFile(path)!)[0].edit.display,
-    ).toBe("draft");
+      Object.values(stores.drafts.getMetadataFile(path)!)[0].edit.value,
+    ).toEqual({ kind: "Text", value: "draft" });
     expect(api.cleanupSuppression).toEqual([true, true]);
     expect(gate.isSuppressed()).toBe(false);
   });

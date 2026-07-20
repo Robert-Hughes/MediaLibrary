@@ -615,28 +615,60 @@ describe("buildOccurrenceDetailsPresentation", () => {
     expect(deleted.effectiveDraftReason).toBeNull();
   });
 
-  it.each([
-    ["South", "S"],
-    ["West", "W"],
-  ])("preserves the complete Set display label %s", (display, value) => {
-    const current = occurrence(
-      "labelled-set",
-      { kind: "Text", value: "N" },
-      {
-        tag_info: tagInfo(schema, { kind: { kind: "Text" } }),
+  it.each(["S", "W"])(
+    "derives the staged display from semantic value %s",
+    (value) => {
+      const current = occurrence(
+        "labelled-set",
+        { kind: "Text", value: "N" },
+        {
+          tag_info: tagInfo(schema, { kind: { kind: "Text" } }),
+        },
+      );
+      const row = buildOccurrenceDetailsPresentation({
+        occurrences: [current],
+        targetDrafts: collection([
+          {
+            target: exactTarget(current),
+            edit: { intent: "Set", value: { kind: "Text", value } },
+          },
+        ]),
+      }).groups[0].rows[0];
+
+      expect(row.stagedValue).toBe(value);
+    },
+  );
+
+  it("formats current and staged enum values through the same schema path", () => {
+    const enumInfo = tagInfo(schema, {
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [
+            { code: "N", label: "North" },
+            { code: "S", label: "South" },
+          ],
+        },
       },
+    });
+    const current = occurrence(
+      "enum-set",
+      { kind: "Text", value: "N" },
+      { tag_info: enumInfo },
     );
     const row = buildOccurrenceDetailsPresentation({
       occurrences: [current],
       targetDrafts: collection([
         {
           target: exactTarget(current),
-          edit: { intent: "Set", value: { kind: "Text", value }, display },
+          edit: { intent: "Set", value: { kind: "Text", value: "S" } },
         },
       ]),
     }).groups[0].rows[0];
 
-    expect(row.stagedValue).toBe(display);
+    expect(row.currentValue).toBe("North");
+    expect(row.stagedValue).toBe("South");
   });
 
   it("retains a stale target snapshot without overlaying its staged value", () => {

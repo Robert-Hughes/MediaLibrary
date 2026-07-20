@@ -14,12 +14,11 @@ beforeEach(() => {
 });
 
 describe("exact-ID test factories", () => {
-  it("preserves every display-projection edit intent and optional display text", () => {
+  it("preserves every display-projection edit intent", () => {
     const edits = {
       "Test:Set": {
         intent: "Set",
         value: { kind: "Text", value: "replacement" },
-        display: "Replacement",
       },
       "Test:Delete": { intent: "Delete", value: null },
       "Test:ListAdd": {
@@ -31,7 +30,6 @@ describe("exact-ID test factories", () => {
             items: [{ kind: "Text", value: "added" }],
           },
         },
-        display: "Added",
       },
       "Test:ListRemove": {
         intent: "ListRemove",

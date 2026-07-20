@@ -66,6 +66,7 @@ function labelsFromResolved(
         group: info.group,
         name: info.name,
         description: info.description,
+        kind: info.kind,
       });
     }
   }

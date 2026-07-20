@@ -928,7 +928,6 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
     const expected = structuredClone(source);
     store.replaceMetadataFile("photo.jpg", [source]);
     source.target.schema_id.table = "mutated";
-    source.edit.display = "mutated";
     if (source.edit.value?.kind === "Unknown")
       source.edit.value.value.raw = { changed: true };
     expect(Object.values(store.getMetadataFile("photo.jpg")!)[0]).toEqual(

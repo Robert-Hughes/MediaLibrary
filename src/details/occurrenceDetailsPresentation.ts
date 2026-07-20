@@ -8,11 +8,7 @@ import type {
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
-import {
-  displayStringOfMetadataDraft,
-  metadataValueToDisplayString,
-  metadataValueToDisplayStringForTag,
-} from "../draft";
+import { formatMetadataValue } from "../draft";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import {
   existingOccurrenceTargetFromOccurrence,
@@ -169,34 +165,26 @@ function existingLabel(occurrence: MetadataOccurrence): string {
 
 function draftDisplay(
   schemaId: SchemaDefinitionId,
-  draft: MetadataTargetDraftEntry | null,
   effectiveDraftValue: MetadataValue | null,
   displayTagInfo: TagInfo | null,
 ): string | null {
   if (effectiveDraftValue === null) return null;
-  if (draft?.edit.intent === "Set" && draft.edit.display) {
-    return draft.edit.display;
-  }
-  return displayTagInfo
-    ? metadataValueToDisplayStringForTag(
-        schemaId,
-        effectiveDraftValue,
-        displayTagInfo,
-      )
-    : metadataValueToDisplayString(effectiveDraftValue);
+  return formatMetadataValue({
+    schemaId,
+    value: effectiveDraftValue,
+    tagInfo: displayTagInfo,
+  });
 }
 
 function currentDisplay(
   occurrence: MetadataOccurrence,
   displayTagInfo: TagInfo | null,
 ): string {
-  return displayTagInfo
-    ? metadataValueToDisplayStringForTag(
-        occurrence.schema_id,
-        occurrence.value,
-        displayTagInfo,
-      )
-    : metadataValueToDisplayString(occurrence.value);
+  return formatMetadataValue({
+    schemaId: occurrence.schema_id,
+    value: occurrence.value,
+    tagInfo: displayTagInfo,
+  });
 }
 
 function targetGroup(target: MetadataDraftTarget): string {
@@ -536,7 +524,6 @@ export function buildOccurrenceDetailsPresentation(
         ? null
         : draftDisplay(
             occurrence.schema_id,
-            draft,
             effectiveDraftValue,
             displayTagInfo,
           );
@@ -606,7 +593,14 @@ export function buildOccurrenceDetailsPresentation(
       input.tagInfos?.[schemaDefinitionIdToken(entry.target.schema_id)] ?? null;
     const group = targetGroup(entry.target);
     const label = targetLabel(entry.target, tagInfo);
-    const stagedValue = displayStringOfMetadataDraft(entry.edit) ?? null;
+    const stagedValue =
+      entry.edit.intent === "Delete"
+        ? null
+        : formatMetadataValue({
+            schemaId: entry.target.schema_id,
+            value: entry.edit.value,
+            tagInfo,
+          });
     const destinationSafety = classifyNewPropertyDestination({
       schemaId: entry.target.schema_id,
       writeTarget: entry.target.write_target,
@@ -678,7 +672,14 @@ export function buildOccurrenceDetailsPresentation(
     const tagInfo =
       input.tagInfos?.[schemaDefinitionIdToken(entry.target.schema_id)] ?? null;
     const label = targetLabel(entry.target, tagInfo);
-    const stagedValue = displayStringOfMetadataDraft(entry.edit) ?? null;
+    const stagedValue =
+      entry.edit.intent === "Delete"
+        ? null
+        : formatMetadataValue({
+            schemaId: entry.target.schema_id,
+            value: entry.edit.value,
+            tagInfo,
+          });
     const searchParts = targetSearchParts({
       target: entry.target,
       edit: entry.edit,

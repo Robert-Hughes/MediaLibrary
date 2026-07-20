@@ -5,7 +5,15 @@ import type {
   TagKind,
   UtcOffsetValue,
 } from "../../types";
-import { metadataValueToDisplayString } from "../../draft";
+import { formatMetadataValue } from "../../draft";
+export {
+  decodeFlashCode,
+  describeFlashCode,
+  encodeFlashFields,
+  MODE_LABELS,
+  RETURN_LABELS,
+  type FlashFields,
+} from "../../metadata/flash";
 
 export type EnumTagKind = Extract<TagKind, { kind: "Enum" }>;
 
@@ -13,16 +21,13 @@ export function enumDraftEdit(
   kind: EnumTagKind,
   code: string,
 ): MetadataDraftEdit {
-  const display =
-    kind.data.options.find((option) => option.code === code)?.label ?? code;
   if (kind.data.repr === "Integer") {
     return {
       value: { kind: "Integer", value: Number(code) },
       intent: "Set",
-      display,
     };
   }
-  return { value: { kind: "Text", value: code }, intent: "Set", display };
+  return { value: { kind: "Text", value: code }, intent: "Set" };
 }
 
 // ── BagEditor Helpers ────────────────────────────────────────────────────────
@@ -38,12 +43,14 @@ export function initialItemsFrom(
   if (value.kind === "List") {
     return value.value.items
       .map((item) =>
-        item.kind === "Text" ? item.value : metadataValueToDisplayString(item),
+        item.kind === "Text"
+          ? item.value
+          : formatMetadataValue({ value: item }),
       )
       .filter((s) => s.length > 0);
   }
   if (value.kind === "Null") return [];
-  const s = metadataValueToDisplayString(value);
+  const s = formatMetadataValue({ value });
   return s ? [s] : [];
 }
 
@@ -217,91 +224,10 @@ export function numericInitialString(value: MetadataValue | undefined): string {
 export function textInitialString(value: MetadataValue | undefined): string {
   if (!value || value.kind === "Null") return "";
   if (value.kind === "Text") return value.value;
-  return metadataValueToDisplayString(value);
-}
-
-// ── FlashEditor Helpers ───────────────────────────────────────────────────────
-
-export interface FlashFields {
-  fired: boolean;
-  returnStatus: 0 | 2 | 3; // skip 1 (reserved)
-  mode: 0 | 1 | 2 | 3;
-  noFunction: boolean;
-  redEye: boolean;
-}
-
-export function decodeFlashCode(code: number): FlashFields {
-  return {
-    fired: (code & 0b1) !== 0,
-    returnStatus: ((code >> 1) & 0b11) as 0 | 2 | 3,
-    mode: ((code >> 3) & 0b11) as 0 | 1 | 2 | 3,
-    noFunction: (code & 0b100000) !== 0,
-    redEye: (code & 0b1000000) !== 0,
-  };
-}
-
-export function encodeFlashFields(f: FlashFields): number {
-  return (
-    (f.fired ? 1 : 0) |
-    ((f.returnStatus & 0b11) << 1) |
-    ((f.mode & 0b11) << 3) |
-    (f.noFunction ? 0b100000 : 0) |
-    (f.redEye ? 0b1000000 : 0)
-  );
-}
-
-export const MODE_LABELS: Record<number, string> = {
-  0: "Unknown",
-  1: "Compulsory firing",
-  2: "Compulsory suppression",
-  3: "Auto",
-};
-
-export const RETURN_LABELS: Record<number, string> = {
-  0: "No return detected",
-  2: "Return not detected",
-  3: "Return detected",
-};
-
-/**
- * Compose a human-readable description from the field bag — used for the
- * MetadataDraftEdit.display string so the pending-change cell shows "Flash fired,
- * Auto, Red-eye reduction" instead of a bare integer code.  Roughly mirrors
- * exiftool's PrintConv for the Flash tag.
- */
-export function describeFlashCode(f: FlashFields): string {
-  const parts: string[] = [];
-  if (f.noFunction) {
-    parts.push("No flash function");
-  } else {
-    parts.push(f.fired ? "Fired" : "Did not fire");
-    if (f.mode !== 0) parts.push(MODE_LABELS[f.mode]);
-    if (f.returnStatus !== 0) parts.push(RETURN_LABELS[f.returnStatus]);
-    if (f.redEye) parts.push("Red-eye reduction");
-  }
-  return parts.join(", ");
+  return formatMetadataValue({ value });
 }
 
 // ── GpsEditor Helpers ─────────────────────────────────────────────────────────
-
-/**
- * Format a decimal-degrees value plus hemisphere as exiftool's canonical
- * DMS display string, e.g. `51 deg 30' 26.16" N`.  Used for the
- * MetadataDraftEdit.display field so the pending-change cell shows the same form
- * the user would see in the read view (Pass A pretty output).
- */
-export function decimalToDms(
-  decimal: number,
-  hemisphere: "N" | "S" | "E" | "W",
-): string {
-  const abs = Math.abs(decimal);
-  const deg = Math.floor(abs);
-  const minFloat = (abs - deg) * 60;
-  const min = Math.floor(minFloat);
-  const sec = (minFloat - min) * 60;
-  const secStr = sec.toFixed(2).replace(/\.?0+$/, "");
-  return `${deg} deg ${min}' ${secStr}" ${hemisphere}`;
-}
 
 /**
  * Best-effort extraction of decimal-degrees latitude from a metadata value.

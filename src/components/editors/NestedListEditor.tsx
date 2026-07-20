@@ -20,7 +20,7 @@ import type {
   TagKind,
   MetadataValue,
 } from "../../types";
-import { metadataValueToDisplayString } from "../../draft";
+import { formatMetadataValue } from "../../draft";
 import type { InnerEditorProps } from "./StructEditor";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import { defaultMetadataValueForKind } from "./editorHelpers";
@@ -60,7 +60,7 @@ function shortLabel(v: MetadataValue, idx: number): string {
         return candidate.value;
     }
   }
-  const s = metadataValueToDisplayString(v);
+  const s = formatMetadataValue({ value: v });
   return s ? s.slice(0, 80) : `Item ${idx + 1}`;
 }
 

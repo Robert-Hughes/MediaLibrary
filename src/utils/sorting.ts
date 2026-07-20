@@ -6,7 +6,7 @@ import type {
   SortConfig,
   SortKey,
 } from "../types";
-import { metadataEntryToDisplayString as metadataValueToDisplayString } from "../draft";
+import { formatMetadataValue } from "../draft";
 import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
@@ -20,7 +20,7 @@ export type SortTarget =
 
 function getMetadataValueAsString(v: MetadataValue | undefined): string {
   if (v === undefined) return "";
-  return metadataValueToDisplayString(v);
+  return formatMetadataValue({ value: v });
 }
 
 type PrecomputedImageSortValues = Map<string, Map<string, string>>;

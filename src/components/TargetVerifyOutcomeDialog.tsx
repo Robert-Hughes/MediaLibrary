@@ -1,12 +1,14 @@
-import type { MetadataDraftTarget, MetadataValue } from "../types";
+import type {
+  MetadataDraftTarget,
+  MetadataValue,
+  SchemaDefinitionId,
+} from "../types";
 import {
   targetVerifyPrimaryAction,
   type TargetVerifyOutcomesByFile,
 } from "../targetVerifyOutcomes";
-import {
-  metadataEntryToDisplayString,
-  metadataValueToDiagnosticString,
-} from "../draft";
+import { formatMetadataValue, metadataValueToDiagnosticString } from "../draft";
+import { useTagInfo } from "../hooks/useTagInfo";
 import { formatMetadataOccurrenceIdForDiagnostics } from "../utils/metadataOccurrenceId";
 import { formatSchemaDefinitionIdForDiagnostics } from "../utils/schemaDefinitionId";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
@@ -21,11 +23,19 @@ interface Props {
   onDismissAll: () => void;
 }
 
-function Value({ value }: { value: MetadataValue | null }) {
+function Value({
+  schemaId,
+  value,
+}: {
+  schemaId: SchemaDefinitionId;
+  value: MetadataValue | null;
+}) {
+  const tag = useTagInfo(schemaId);
+  const tagInfo = tag === "loading" ? null : tag;
   const diagnostic = metadataValueToDiagnosticString(value);
   return (
     <div title={diagnostic}>
-      <div>{metadataEntryToDisplayString(value)}</div>
+      <div>{formatMetadataValue({ schemaId, value, tagInfo })}</div>
       {diagnostic ? (
         <div className="verify-value-diagnostic">{diagnostic}</div>
       ) : null}
@@ -170,13 +180,22 @@ export function TargetVerifyOutcomeDialog({
                       <tbody>
                         <tr>
                           <td>
-                            <Value value={entry.sent} />
+                            <Value
+                              schemaId={entry.currentTarget.schema_id}
+                              value={entry.sent}
+                            />
                           </td>
                           <td>
-                            <Value value={entry.before} />
+                            <Value
+                              schemaId={entry.currentTarget.schema_id}
+                              value={entry.before}
+                            />
                           </td>
                           <td>
-                            <Value value={entry.observed} />
+                            <Value
+                              schemaId={entry.currentTarget.schema_id}
+                              value={entry.observed}
+                            />
                           </td>
                         </tr>
                       </tbody>

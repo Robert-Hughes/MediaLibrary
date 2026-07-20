@@ -840,7 +840,6 @@ mod tests {
         draft_edits::MetadataDraftEdit {
             value: Some(value),
             intent: draft_edits::EditIntent::Set,
-            display: Some("wire display".to_owned()),
         }
     }
 

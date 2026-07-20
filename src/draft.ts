@@ -2,24 +2,36 @@
 
 import type { MetadataValue, SchemaDefinitionId, TagInfo } from "./types";
 import { GPS_IDS, KNOWN_METADATA_IDS, isKnownId } from "./metadata/knownIds";
+import { isFlashTag } from "./metadata/tag_overrides";
+import { decodeFlashCode, describeFlashCode } from "./metadata/flash";
 
-export function displayStringOfMetadataDraft(
-  d: import("./types").MetadataDraftEdit | undefined,
-): string | null | undefined {
-  if (d === undefined) return undefined;
-  if (d.intent === "Delete") return null;
-  if (d.display !== undefined && d.display !== null) return d.display;
-  return metadataValueToDisplayString(d.value);
+export interface MetadataValueFormatInput {
+  value: MetadataValue | null | undefined;
+  schemaId?: SchemaDefinitionId;
+  tagInfo?: Pick<TagInfo, "kind"> | null;
 }
 
-/** Stringify a MetadataValue for the `string | null` display path. */
-export function metadataEntryToDisplayString(
-  v: MetadataValue | null | undefined,
-): string {
-  return metadataValueToDisplayString(v);
+/** Canonical user-facing presentation for a semantic metadata value. */
+export function formatMetadataValue({
+  value,
+  schemaId,
+  tagInfo,
+}: MetadataValueFormatInput): string {
+  const enumLabel = enumLabelFromSchema(value, tagInfo);
+  if (enumLabel !== null) return enumLabel;
+
+  if (schemaId) {
+    const tagFormatted = formatKnownPhotoTag(schemaId, value);
+    if (tagFormatted !== null) return tagFormatted;
+
+    const flashFormatted = formatFlash(schemaId, value);
+    if (flashFormatted !== null) return flashFormatted;
+  }
+
+  return formatMetadataValueFallback(value);
 }
 
-export function metadataValueToDisplayString(
+function formatMetadataValueFallback(
   v: MetadataValue | null | undefined,
 ): string {
   if (v === null || v === undefined) return "";
@@ -39,7 +51,7 @@ export function metadataValueToDisplayString(
     case "Time":
       return renderMetadataTime(v.value);
     case "DateTime":
-      return `${metadataValueToDisplayString({
+      return `${formatMetadataValueFallback({
         kind: "Date",
         value: v.value.date,
       })} ${renderMetadataTime(v.value.time)}`;
@@ -48,10 +60,10 @@ export function metadataValueToDisplayString(
     case "LangAlt":
       return renderLangAlt(v.value);
     case "List":
-      return v.value.items.map(metadataValueToDisplayString).join(", ");
+      return v.value.items.map(formatMetadataValueFallback).join(", ");
     case "Struct":
       return Object.entries(v.value)
-        .map(([key, value]) => `${key}: ${metadataValueToDisplayString(value)}`)
+        .map(([key, value]) => `${key}: ${formatMetadataValueFallback(value)}`)
         .join("; ");
     case "Binary":
       return "<binary>";
@@ -78,13 +90,13 @@ export function metadataValueToDiagnosticString(
     case "Rational":
       return `Rational(${v.value.numerator}/${v.value.denominator})`;
     case "Date":
-      return `Date(${metadataValueToDisplayString(v)})`;
+      return `Date(${formatMetadataValueFallback(v)})`;
     case "Time":
-      return `Time(${metadataValueToDisplayString(v)})`;
+      return `Time(${formatMetadataValueFallback(v)})`;
     case "DateTime":
-      return `DateTime(${metadataValueToDisplayString(v)})`;
+      return `DateTime(${formatMetadataValueFallback(v)})`;
     case "TimeOffset":
-      return `TimeOffset(${metadataValueToDisplayString(v)})`;
+      return `TimeOffset(${formatMetadataValueFallback(v)})`;
     case "LangAlt":
       return `LangAlt{${Object.entries(v.value)
         .sort(([a], [b]) => a.localeCompare(b))
@@ -113,23 +125,9 @@ export function metadataValueToDiagnosticString(
   }
 }
 
-export function metadataValueToDisplayStringForTag(
-  id: SchemaDefinitionId,
-  v: MetadataValue | null | undefined,
-  tagInfo?: TagInfo | null,
-): string {
-  const enumLabel = enumLabelFromSchema(v, tagInfo);
-  if (enumLabel !== null) return enumLabel;
-
-  const tagFormatted = formatKnownPhotoTag(id, v);
-  if (tagFormatted !== null) return tagFormatted;
-
-  return metadataValueToDisplayString(v);
-}
-
 function enumLabelFromSchema(
   v: MetadataValue | null | undefined,
-  tagInfo?: TagInfo | null,
+  tagInfo?: Pick<TagInfo, "kind"> | null,
 ): string | null {
   if (tagInfo?.kind.kind !== "Enum") return null;
 
@@ -140,10 +138,38 @@ function enumLabelFromSchema(
   return option?.label ? option.label : null;
 }
 
+function formatFlash(
+  id: SchemaDefinitionId,
+  value: MetadataValue | null | undefined,
+): string | null {
+  if (!isFlashTag(id)) return null;
+  const code = enumCodeFromMetadataValue(value);
+  if (code === null) return null;
+  const numericCode = Number(code);
+  if (!Number.isInteger(numericCode)) return null;
+  return describeFlashCode(decodeFlashCode(numericCode));
+}
+
 function formatKnownPhotoTag(
   id: SchemaDefinitionId,
   v: MetadataValue | null | undefined,
 ): string | null {
+  if (isKnownId(id, GPS_IDS.latitudeRef)) {
+    const code = enumCodeFromMetadataValue(v);
+    return code === "N" ? "North" : code === "S" ? "South" : null;
+  }
+  if (isKnownId(id, GPS_IDS.longitudeRef)) {
+    const code = enumCodeFromMetadataValue(v);
+    return code === "E" ? "East" : code === "W" ? "West" : null;
+  }
+  if (isKnownId(id, GPS_IDS.altitudeRef)) {
+    const code = enumCodeFromMetadataValue(v);
+    return code === "0"
+      ? "Above Sea Level"
+      : code === "1"
+        ? "Below Sea Level"
+        : null;
+  }
   if (
     [
       GPS_IDS.latitude,

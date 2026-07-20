@@ -1280,11 +1280,7 @@ mod tests {
     }
 
     fn edit(intent: EditIntent, value: Option<MetadataValue>) -> MetadataDraftEdit {
-        MetadataDraftEdit {
-            value,
-            intent,
-            display: None,
-        }
+        MetadataDraftEdit { value, intent }
     }
 
     fn existing_entry(

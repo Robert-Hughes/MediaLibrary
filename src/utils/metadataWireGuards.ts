@@ -333,8 +333,7 @@ export function isMetadataDraftEdit(
       value.intent === "ListAdd" ||
       value.intent === "ListRemove") &&
     hasOwnStringKey(value, "value") &&
-    (value.value === null || isMetadataValue(value.value)) &&
-    (value.display === undefined || typeof value.display === "string")
+    (value.value === null || isMetadataValue(value.value))
   );
 }
 

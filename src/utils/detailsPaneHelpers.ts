@@ -1,7 +1,9 @@
 import type { PhotoInfo } from "../types";
-import { metadataEntryToDisplayString } from "../draft";
+import { formatMetadataValue as formatSemanticMetadataValue } from "../draft";
 
-export const formatMetadataValue = metadataEntryToDisplayString;
+export const formatMetadataValue = (
+  value: Parameters<typeof formatSemanticMetadataValue>[0]["value"],
+) => formatSemanticMetadataValue({ value });
 
 /** Format an OS timestamp (seconds since epoch, from Rust) into a readable string. */
 export function formatTimestamp(ts: number | null): string {

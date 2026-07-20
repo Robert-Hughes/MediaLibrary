@@ -24,7 +24,6 @@ import type { FlashFields } from "./editorHelpers";
 import {
   decodeFlashCode,
   encodeFlashFields,
-  describeFlashCode,
   MODE_LABELS,
   RETURN_LABELS,
 } from "./editorHelpers";
@@ -64,7 +63,6 @@ export function FlashEditor({
     onSave({
       value: { kind: "Integer", value: code },
       intent: "Set",
-      display: describeFlashCode(fields),
     });
   };
 

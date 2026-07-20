@@ -2,9 +2,4 @@
 import type { EditIntent } from "./EditIntent";
 import type { MetadataValue } from "./MetadataValue";
 
-export type MetadataDraftEdit = { value: MetadataValue | null, intent: EditIntent, 
-/**
- * Optional pretty-printed label for UI display only. The persisted value
- * remains semantic and must not round-trip through this string.
- */
-display?: string, };
+export type MetadataDraftEdit = { value: MetadataValue | null, intent: EditIntent, };

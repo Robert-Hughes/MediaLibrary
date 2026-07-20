@@ -1,7 +1,7 @@
 import { ModalDialog } from "../ModalDialog";
 // Temporal editor.  Each schema kind chooses the matching HTML input:
-// date, time, or datetime-local. Save stores semantic temporal values and
-// keeps the ExifTool storage string as display text for pending rows.
+// date, time, or datetime-local. Save stores semantic temporal values; the
+// shared schema-aware formatter derives their presentation.
 
 import { useState, useEffect, useRef } from "react";
 import type {
@@ -163,28 +163,7 @@ export function DateTimeEditor({
       return;
     }
 
-    let display = result;
-    if (subsecondRef.current) {
-      if (mode === "time") {
-        const offsetStr = offsetRef.current;
-        const timePart =
-          offsetStr && result.endsWith(offsetStr)
-            ? result.slice(0, -offsetStr.length)
-            : result;
-        display = `${timePart}.${subsecondRef.current}${offsetStr}`;
-      } else if (mode === "datetime") {
-        const offsetStr = semanticOffset
-          ? formatTimeOffset(semanticOffset)
-          : "";
-        display = `${result}.${subsecondRef.current}${offsetStr}`;
-      }
-    } else {
-      if (mode === "datetime" && semanticOffset) {
-        display = `${result}${formatTimeOffset(semanticOffset)}`;
-      }
-    }
-
-    onSave({ value: semanticValue, intent: "Set", display });
+    onSave({ value: semanticValue, intent: "Set" });
   };
 
   const inputType =

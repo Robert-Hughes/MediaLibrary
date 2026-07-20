@@ -523,7 +523,6 @@ pub(crate) fn text_edit(value: String) -> MetadataDraftEdit {
     MetadataDraftEdit {
         value: Some(MetadataValue::Text(value)),
         intent: EditIntent::Set,
-        display: None,
     }
 }
 
@@ -534,7 +533,6 @@ pub(crate) fn lang_alt_edit(value: String) -> MetadataDraftEdit {
     MetadataDraftEdit {
         value: Some(MetadataValue::LangAlt(langs)),
         intent: EditIntent::Set,
-        display: None,
     }
 }
 
@@ -548,7 +546,6 @@ pub(crate) fn bag_edit(items: &[String]) -> MetadataDraftEdit {
             items: items.iter().cloned().map(MetadataValue::Text).collect(),
         }),
         intent: EditIntent::Set,
-        display: None,
     }
 }
 

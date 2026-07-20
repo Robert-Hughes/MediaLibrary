@@ -360,7 +360,6 @@ pub fn compose_geocode_edits(addr: &AddressFields) -> SchemaMetadataEditMap {
         MetadataDraftEdit {
             value: Some(MetadataValue::Text(s.to_string())),
             intent: EditIntent::Set,
-            display: None,
         }
     }
     fn delete_field() -> MetadataDraftEdit {
@@ -373,7 +372,6 @@ pub fn compose_geocode_edits(addr: &AddressFields) -> SchemaMetadataEditMap {
         MetadataDraftEdit {
             value: None,
             intent: EditIntent::Delete,
-            display: None,
         }
     }
 
