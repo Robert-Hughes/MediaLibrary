@@ -115,7 +115,7 @@ describe("generated target-aware production action", () => {
     const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
       notifications += 1;
     });
-    const errorsBefore = state.workerErrors.length;
+    const errorsBefore = state.applicationErrors.length;
     const targetDraftBefore = saveCount(mock, "save_metadata_draft_edits");
     let stageResult;
 
@@ -132,7 +132,7 @@ describe("generated target-aware production action", () => {
     expect(notifications).toBe(0);
     expect(result.current[0].kind).toBe("loaded");
     if (result.current[0].kind !== "loaded") return;
-    expect(result.current[0].workerErrors).toHaveLength(errorsBefore);
+    expect(result.current[0].applicationErrors).toHaveLength(errorsBefore);
     expect(
       saveCount(mock, "save_metadata_draft_edits") - targetDraftBefore,
     ).toBe(0);
@@ -156,7 +156,7 @@ describe("generated target-aware production action", () => {
     const state = result.current[0];
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
     expect(state.targetDraftPersistence.status).toBe("load-failed");
-    const errorsBefore = state.workerErrors.length;
+    const errorsBefore = state.applicationErrors.length;
     const targetDraftBefore = saveCount(mock, "save_metadata_draft_edits");
     let stageResult;
     act(() => {
@@ -168,7 +168,7 @@ describe("generated target-aware production action", () => {
     });
     expect(stageResult).toEqual({ kind: "success", changed: false });
     if (result.current[0].kind !== "loaded") return;
-    expect(result.current[0].workerErrors).toHaveLength(errorsBefore);
+    expect(result.current[0].applicationErrors).toHaveLength(errorsBefore);
     expect(
       saveCount(mock, "save_metadata_draft_edits") - targetDraftBefore,
     ).toBe(0);
@@ -406,7 +406,9 @@ describe("generated target-aware production action", () => {
     ).toBe(false);
     const state = result.current[0];
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
-    expect(state.workerErrors[state.workerErrors.length - 1]?.worker_type).toBe(
+    expect(
+      state.applicationErrors[state.applicationErrors.length - 1]?.error_type,
+    ).toBe(
       "metadata-target-generated-readiness",
     );
   });

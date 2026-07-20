@@ -5,7 +5,7 @@ import type {
   ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
-  WorkerErrorPayload,
+  ApplicationErrorPayload,
   MetadataOccurrences,
   MetadataValue,
   MetadataTargetDraftEntry,
@@ -268,17 +268,17 @@ export function createMockTauriApi(): MockTauriApi {
         message,
       } satisfies ScanErrorPayload),
     emitWorkerError: (
-      worker_type,
+      error_type,
       error_message,
       affected_files = [],
       scanId,
     ) =>
       emit("worker_error", {
         scan_id: scanId ?? mock.currentScanId,
-        worker_type,
+        error_type,
         error_message,
         affected_files,
-      } satisfies WorkerErrorPayload),
+      } satisfies ApplicationErrorPayload),
     invalidateMetadataOccurrences: (relativePath) =>
       emit("apply_metadata_edits_progress", {
         current: 1,

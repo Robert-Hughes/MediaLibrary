@@ -589,7 +589,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("worker_error events append to workerErrors when in loaded state", async () => {
+  it("worker_error events append to applicationErrors when loaded", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -620,11 +620,11 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.workerErrors).toHaveLength(2);
-      expect(state.workerErrors[0].worker_type).toBe("metadata");
-      expect(state.workerErrors[0].error_message).toBe("ExifTool failed");
-      expect(state.workerErrors[0].affected_files).toEqual(["a.jpg"]);
-      expect(state.workerErrors[1].worker_type).toBe("thumbnail");
+      expect(state.applicationErrors).toHaveLength(2);
+      expect(state.applicationErrors[0].error_type).toBe("metadata");
+      expect(state.applicationErrors[0].error_message).toBe("ExifTool failed");
+      expect(state.applicationErrors[0].affected_files).toEqual(["a.jpg"]);
+      expect(state.applicationErrors[1].error_type).toBe("thumbnail");
     }
   });
 
@@ -663,12 +663,12 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.workerErrors).toHaveLength(1);
-      expect(state.workerErrors[0].error_message).toBe("second error");
+      expect(state.applicationErrors).toHaveLength(1);
+      expect(state.applicationErrors[0].error_message).toBe("second error");
     }
   });
 
-  it("workerErrors is capped — keeps the most recent N and drops older ones", async () => {
+  it("applicationErrors is capped and keeps the most recent entries", async () => {
     // Without a cap, a folder with thousands of metadata failures grows the
     // array (and React state) without bound.  Cap at 20 and keep the most
     // recent ones since they're the ones the user can act on.
@@ -701,14 +701,15 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.workerErrors.length).toBeLessThanOrEqual(20);
+      expect(state.applicationErrors.length).toBeLessThanOrEqual(20);
       // The most recent error must be retained.
       expect(
-        state.workerErrors[state.workerErrors.length - 1].error_message,
+        state.applicationErrors[state.applicationErrors.length - 1]
+          .error_message,
       ).toBe("error 29");
       // The oldest one must have been dropped.
       expect(
-        state.workerErrors.find((e) => e.error_message === "error 0"),
+        state.applicationErrors.find((e) => e.error_message === "error 0"),
       ).toBeUndefined();
     }
   });
@@ -831,7 +832,7 @@ describe("useMediaLibrary", () => {
     });
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.workerErrors).toHaveLength(1);
+      expect(state.applicationErrors).toHaveLength(1);
     }
   });
 
@@ -1275,7 +1276,7 @@ describe("useMediaLibrary", () => {
         ).toHaveLength(2);
       }
       expect(state.metadataProgress.getRemaining()).toBe(0);
-      expect(state.workerErrors).toEqual([]);
+      expect(state.applicationErrors).toEqual([]);
     }
   });
 
@@ -1603,7 +1604,8 @@ describe("useMediaLibrary", () => {
     const lastErrorType = () => {
       const state = result.current[0];
       if (state.kind !== "loaded") throw new Error("expected loaded state");
-      return state.workerErrors[state.workerErrors.length - 1]?.worker_type;
+      return state.applicationErrors[state.applicationErrors.length - 1]
+        ?.error_type;
     };
     const expectRejected = async (
       path: string,
@@ -2122,8 +2124,8 @@ describe("useMediaLibrary", () => {
     expect(state.imageMetadataOccurrences.get("shared.jpg")).toEqual([]);
     expect(state.targetVerifyOutcomes).toEqual({});
     expect(
-      state.workerErrors.filter(({ worker_type }) =>
-        worker_type.includes("new-property"),
+      state.applicationErrors.filter(({ error_type }) =>
+        error_type.includes("new-property"),
       ),
     ).toEqual([]);
     expect(
@@ -2176,8 +2178,8 @@ describe("useMediaLibrary", () => {
     ).toBeUndefined();
     expect(state.targetVerifyOutcomes).toEqual({});
     expect(
-      state.workerErrors.filter(({ worker_type }) =>
-        worker_type.includes("new-property"),
+      state.applicationErrors.filter(({ error_type }) =>
+        error_type.includes("new-property"),
       ),
     ).toEqual([]);
     expect(
@@ -2254,9 +2256,9 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(state.folder).toBe("/folder-b");
     expect(
-      state.workerErrors.filter(
-        ({ worker_type }) =>
-          worker_type === "metadata-target-new-property-schema-lookup",
+      state.applicationErrors.filter(
+        ({ error_type }) =>
+          error_type === "metadata-target-new-property-schema-lookup",
       ),
     ).toEqual([]);
     expect(
@@ -2461,7 +2463,8 @@ describe("useMediaLibrary", () => {
     const finalState = result.current[0];
     if (finalState.kind !== "loaded") return;
     expect(
-      finalState.workerErrors[finalState.workerErrors.length - 1]?.worker_type,
+      finalState.applicationErrors[finalState.applicationErrors.length - 1]
+        ?.error_type,
     ).toBe("metadata-target-unavailable");
   });
 
@@ -2672,17 +2675,18 @@ describe("useMediaLibrary", () => {
       replacement,
     );
     expect(
-      state.workerErrors.filter(
-        ({ worker_type }) => worker_type === "metadata-target-file",
+      state.applicationErrors.filter(
+        ({ error_type }) => error_type === "metadata-target-file",
       ),
     ).toHaveLength(1);
     expect(
-      state.workerErrors.filter(
-        ({ worker_type }) => worker_type === "metadata-target-warning",
+      state.applicationErrors.filter(
+        ({ error_type }) => error_type === "metadata-target-warning",
       ),
     ).toHaveLength(1);
     expect(
-      state.workerErrors[state.workerErrors.length - 1]?.affected_files,
+      state.applicationErrors[state.applicationErrors.length - 1]
+        ?.affected_files,
     ).toEqual([path]);
   });
 
@@ -2947,7 +2951,9 @@ describe("useMediaLibrary", () => {
       status: "load-failed",
       error: "invalid schema version",
     });
-    expect(state.workerErrors[0].worker_type).toBe("metadata-target-load");
+    expect(state.applicationErrors[0].error_type).toBe(
+      "metadata-target-load",
+    );
     expect(
       mock.invocations.some(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toBe(false);

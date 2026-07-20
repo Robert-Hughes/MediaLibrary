@@ -90,7 +90,7 @@ export function scheduleBatchedFlush(
 /** Cap on retained worker errors. A misconfigured ExifTool or a bad folder
  *  can produce thousands of failures; without a cap the array grows unbounded
  *  and bloats React state.  Most-recent-N is what the user can act on. */
-export const MAX_WORKER_ERRORS = 20;
+export const MAX_APPLICATION_ERRORS = 20;
 
 export const RECENT_FOLDERS_KEY = "media_library_recent_folders";
 export const MAX_RECENT_FOLDERS = 5;

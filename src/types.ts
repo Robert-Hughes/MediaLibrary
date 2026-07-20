@@ -414,8 +414,8 @@ export type AppState =
       sortConfig: SortConfig;
       metadataVersion: number; // Incremented when a metadata batch lands; invalidates sort useMemo
 
-      // Worker errors
-      workerErrors: WorkerErrorPayload[];
+      // Application errors and warnings
+      applicationErrors: ApplicationErrorPayload[];
 
       // Exact target-aware metadata drafts.
       targetDraftEdits: TargetDraftEditsByFile;
@@ -704,9 +704,9 @@ export interface ScanErrorPayload {
   message: string;
 }
 
-export interface WorkerErrorPayload {
+export interface ApplicationErrorPayload {
   scan_id: number;
-  worker_type: string;
+  error_type: string;
   error_message: string;
   affected_files: string[];
 }

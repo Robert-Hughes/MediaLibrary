@@ -321,7 +321,7 @@ function LoadedView({
   return (
     <>
       <ErrorBanner
-        errors={state.workerErrors}
+        errors={state.applicationErrors}
         onDismiss={actions.dismissError}
       />
       <MenuBar

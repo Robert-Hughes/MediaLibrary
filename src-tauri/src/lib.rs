@@ -194,9 +194,9 @@ struct ScanErrorPayload {
 
 /// Emitted when a worker encounters an error (e.g., ExifTool not found, thumbnail generation failed)
 #[derive(Clone, Serialize)]
-struct WorkerErrorPayload {
+struct ApplicationErrorPayload {
     scan_id: u64,
-    worker_type: String, // "metadata", "thumbnail", "scanner"
+    error_type: String, // "metadata", "thumbnail", "scanner"
     error_message: String,
     affected_files: Vec<String>, // relative paths of files that failed
 }
@@ -378,9 +378,9 @@ fn start_scan(
                                 for (error_msg, affected) in grouped_failures {
                                     let _ = app.emit(
                                         "worker_error",
-                                        WorkerErrorPayload {
+                                        ApplicationErrorPayload {
                                             scan_id,
-                                            worker_type: "metadata".to_string(),
+                                            error_type: "metadata".to_string(),
                                             error_message: error_msg,
                                             affected_files: affected,
                                         },
@@ -401,9 +401,9 @@ fn start_scan(
                                 // Emit error to UI
                                 let _ = app.emit(
                                     "worker_error",
-                                    WorkerErrorPayload {
+                                    ApplicationErrorPayload {
                                         scan_id,
-                                        worker_type: "metadata".to_string(),
+                                        error_type: "metadata".to_string(),
                                         error_message: error_msg,
                                         affected_files: rel_paths.clone(),
                                     },
@@ -550,9 +550,9 @@ fn start_scan(
                     log::warn!("[walk] error: {} ({:?})", err.message, err.path);
                     let _ = app_walk_err.emit(
                         "worker_error",
-                        WorkerErrorPayload {
+                        ApplicationErrorPayload {
                             scan_id,
-                            worker_type: "scanner".to_string(),
+                            error_type: "scanner".to_string(),
                             error_message: err.message,
                             affected_files: err.path.into_iter().collect(),
                         },
