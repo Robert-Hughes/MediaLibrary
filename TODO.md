@@ -1,10 +1,6 @@
 Current
 =======
 
-- SchemaDefinitionId and MetadataOccurence work. 
-  - Then work through manual checklist (which will prob first need updating from the occurence work). 
-  - GPS editor sets lat/long to different string format than the one from exiftool. How does this work? Do we store separate display string? I thoiught we used semantic MetadataValue for everything now?
-  
 - How do you add a GPS if the file doesn't have one? (Using hte nice editor)
 
 - Full map view

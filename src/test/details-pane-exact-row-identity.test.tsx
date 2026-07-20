@@ -15,6 +15,7 @@ import type {
   MetadataOccurrence,
   SchemaDefinitionId,
   TagInfo,
+  TagKind,
 } from "../types";
 import {
   existingOccurrenceTargetFromOccurrence,
@@ -148,6 +149,81 @@ function stagedGpsNewProperty(group1 = "CustomGPS") {
   const store = new TargetDraftEditsStore();
   store.setMetadataTarget(photo.relative_path, target, edit);
   return { info, target, edit, store };
+}
+
+function registerGpsTagInfos() {
+  const fields: Array<{
+    id: (typeof GPS_IDS)[keyof typeof GPS_IDS];
+    name: string;
+    kind: TagKind;
+  }> = [
+    { id: GPS_IDS.latitude, name: "GPSLatitude", kind: { kind: "Real" } },
+    {
+      id: GPS_IDS.latitudeRef,
+      name: "GPSLatitudeRef",
+      kind: { kind: "Text" },
+    },
+    { id: GPS_IDS.longitude, name: "GPSLongitude", kind: { kind: "Real" } },
+    {
+      id: GPS_IDS.longitudeRef,
+      name: "GPSLongitudeRef",
+      kind: { kind: "Text" },
+    },
+    { id: GPS_IDS.altitude, name: "GPSAltitude", kind: { kind: "Real" } },
+    {
+      id: GPS_IDS.altitudeRef,
+      name: "GPSAltitudeRef",
+      kind: { kind: "Integer", data: { min: null, max: null } },
+    },
+  ];
+  for (const field of fields) {
+    _setTagInfoCacheEntry(field.id, {
+      id: field.id,
+      group: "GPS",
+      name: field.name,
+      writable: true,
+      kind: field.kind,
+      description: null,
+    });
+  }
+}
+
+function gpsExistingOccurrence(): MetadataOccurrence {
+  const info: TagInfo = {
+    id: GPS_IDS.latitude,
+    group: "GPS",
+    name: "GPSLatitude",
+    writable: true,
+    kind: { kind: "Real" },
+    description: null,
+  };
+  _setTagInfoCacheEntry(GPS_IDS.latitude, info);
+  return {
+    id: {
+      document: null,
+      path: "JPEG-APP1-GPS",
+      runtime_tag_id: "2",
+      tag_id_scope: {
+        table: GPS_IDS.latitude.table,
+        tag_id: GPS_IDS.latitude.tag_id,
+        index: GPS_IDS.latitude.index ?? null,
+      },
+      copy: 0,
+    },
+    schema_id: structuredClone(GPS_IDS.latitude),
+    value: { kind: "Real", value: 51.5 },
+    tag_info: info,
+    observed_selector: {
+      group1: "GPS",
+      group7: "ID-2",
+      tag_name: "GPSLatitude",
+    },
+    write_target: {
+      group1: "GPS",
+      group7: "ID-2",
+      tag_name: "GPSLatitude",
+    },
+  };
 }
 
 function targetDrafts(source: MetadataOccurrence, edit: MetadataDraftEdit) {
@@ -1145,6 +1221,58 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     expect(view.onReplaceNewPropertyDraftTarget).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.queryByTestId("numeric-editor-input")).toBeNull(),
+    );
+  });
+
+  it("opens the composite GPS editor from an exact GPS New Property row", async () => {
+    const { target, store } = stagedGpsNewProperty();
+    registerGpsTagInfos();
+    renderPane({
+      occurrences: [],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+
+    fireEvent.contextMenu(rowForNewPropertyTarget(target));
+    const editGps = screen.getByRole("button", { name: "Edit GPS…" });
+    expect(editGps).toBeEnabled();
+    await userEvent.click(editGps);
+
+    expect(await screen.findByTestId("gps-editor-overlay")).toBeInTheDocument();
+  });
+
+  it("shows stale GPS row editing as disabled before the editor opens", () => {
+    const occurrence = gpsExistingOccurrence();
+    const staleTarget = exactTarget(occurrence);
+    staleTarget.write_target.group1 = "StaleGPS";
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget(photo.relative_path, staleTarget, {
+      intent: "Set",
+      value: { kind: "Real", value: 52 },
+    });
+    renderPane({
+      occurrences: [occurrence],
+      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+    });
+
+    fireEvent.contextMenu(rowForOccurrence(occurrence));
+    const editGps = screen.getByRole("button", { name: "Edit GPS…" });
+    expect(editGps).toBeDisabled();
+    expect(editGps).toHaveAttribute(
+      "title",
+      expect.stringMatching(/different complete target snapshot/i),
+    );
+  });
+
+  it("shows duplicate-ID GPS row editing as disabled", () => {
+    const occurrence = gpsExistingOccurrence();
+    renderPane({ occurrences: [occurrence, structuredClone(occurrence)] });
+
+    fireEvent.contextMenu(existingOccurrenceRows()[0]);
+    const editGps = screen.getByRole("button", { name: "Edit GPS…" });
+    expect(editGps).toBeDisabled();
+    expect(editGps).toHaveAttribute(
+      "title",
+      expect.stringMatching(/occurrence ID is duplicated/i),
     );
   });
 
