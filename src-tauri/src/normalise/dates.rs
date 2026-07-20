@@ -90,7 +90,6 @@ fn set_edit(value: MetadataValue) -> MetadataDraftEdit {
     MetadataDraftEdit {
         value: Some(value),
         intent: EditIntent::Set,
-        display: None,
     }
 }
 

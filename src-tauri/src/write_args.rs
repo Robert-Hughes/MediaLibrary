@@ -658,28 +658,24 @@ mod tests {
         MetadataDraftEdit {
             value: Some(v),
             intent: EditIntent::Set,
-            display: None,
         }
     }
     fn metadata_delete() -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: None,
             intent: EditIntent::Delete,
-            display: None,
         }
     }
     fn metadata_list_add(v: MetadataValue) -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: Some(v),
             intent: EditIntent::ListAdd,
-            display: None,
         }
     }
     fn metadata_list_remove(v: MetadataValue) -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: Some(v),
             intent: EditIntent::ListRemove,
-            display: None,
         }
     }
     fn text(value: &str) -> MetadataValue {
@@ -982,12 +978,10 @@ mod tests {
         let add = MetadataDraftEdit {
             value: None,
             intent: EditIntent::ListAdd,
-            display: None,
         };
         let remove = MetadataDraftEdit {
             value: None,
             intent: EditIntent::ListRemove,
-            display: None,
         };
 
         let add_args = build_new_property_fixture_args("XMP-dc", "Title", &i, &add).unwrap();

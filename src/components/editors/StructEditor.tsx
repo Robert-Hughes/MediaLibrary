@@ -16,7 +16,7 @@ import type {
   TagKind,
 } from "../../types";
 import type { MetadataCollection } from "../../utils/metadataCollection";
-import { metadataValueToDisplayString } from "../../draft";
+import { formatMetadataValue } from "../../draft";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
 import type { InheritedEditorSchema } from "./editorSchema";
 import { ModalDialog } from "../ModalDialog";
@@ -185,7 +185,7 @@ export function StructEditor({
                         className="struct-editor-complex-preview"
                         data-testid={`struct-editor-preview-${idx}`}
                       >
-                        {metadataValueToDisplayString(row.value).slice(0, 60)}
+                        {formatMetadataValue({ value: row.value }).slice(0, 60)}
                       </span>
                       {SubEditor && (
                         <button

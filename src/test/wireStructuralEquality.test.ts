@@ -26,13 +26,13 @@ describe("wireStructuralEqual", () => {
     expect(
       wireStructuralEqual(
         { intent: "Set" },
-        { intent: "Set", display: undefined },
+        { intent: "Set", optional: undefined },
       ),
     ).toBe(true);
     expect(
       wireStructuralEqual(
         { intent: "Set" },
-        { intent: "Set", display: "value" },
+        { intent: "Set", optional: "value" },
       ),
     ).toBe(false);
   });

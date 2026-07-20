@@ -39,7 +39,6 @@ function draft(numerator = 1): MetadataTargetDraftEntry {
     edit: {
       intent: "Set",
       value: { kind: "Rational", value: { numerator, denominator: 2 } },
-      display: `${numerator}/2`,
     },
   };
 }

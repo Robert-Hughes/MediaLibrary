@@ -117,12 +117,10 @@ describe("FlashEditor", () => {
     );
     fireEvent.click(screen.getByTestId("flash-editor-red-eye"));
     fireEvent.click(screen.getByTestId("flash-editor-save"));
-    expect(onSave.mock.calls[0][0]).toMatchObject({
+    expect(onSave.mock.calls[0][0]).toEqual({
       value: { kind: "Integer", value: 89 },
       intent: "Set",
     });
-    expect(onSave.mock.calls[0][0].display).toMatch(/Fired/);
-    expect(onSave.mock.calls[0][0].display).toMatch(/Red-eye reduction/);
   });
 });
 

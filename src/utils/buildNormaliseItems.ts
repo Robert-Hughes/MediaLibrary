@@ -12,7 +12,7 @@ import type {
   NormaliseRequestItem,
   SchemaDefinitionId,
 } from "../types";
-import { metadataValueToDisplayString } from "../draft";
+import { formatMetadataValue } from "../draft";
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
@@ -60,7 +60,7 @@ function metadataEntryToString(v: EffectiveMetadataEntry): string | null {
     v.kind === "DateTime" ||
     v.kind === "TimeOffset"
   ) {
-    return metadataValueToDisplayString(v);
+    return formatMetadataValue({ value: v });
   }
   return null;
 }

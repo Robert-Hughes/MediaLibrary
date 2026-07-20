@@ -49,7 +49,6 @@ const created = (
 const setEdit = (value: string): MetadataDraftEdit => ({
   intent: "Set",
   value: { kind: "Text", value },
-  display: `display ${value}`,
 });
 
 const entry = (

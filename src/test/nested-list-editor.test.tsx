@@ -92,7 +92,6 @@ function enumIntentEditor(props: InnerEditorProps) {
           props.onSaveMetadata({
             intent: "Set",
             value: { kind: "Text", value: "first" },
-            display: "First option",
           })
         }
       >

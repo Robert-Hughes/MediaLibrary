@@ -9,6 +9,7 @@ import type {
   SearchOccurrenceEntry,
   SearchSchemaLabel,
 } from "../workers/searchWorkerProtocol";
+import { testId } from "./factories";
 
 const edit = (value: string): MetadataDraftEdit => ({
   value: { kind: "Text", value },
@@ -136,6 +137,7 @@ describe("SearchIndex", () => {
       group: "XMP-dc",
       name: "Title",
       description: "A short title for the resource",
+      kind: { kind: "Text" },
     };
     idx.setOccurrences("a.jpg", searchable(occurrence(id, "Northern lights")), [
       label,
@@ -150,6 +152,60 @@ describe("SearchIndex", () => {
     ]) {
       expect(matchedSet(idx, query), query).toEqual(new Set(["a.jpg"]));
     }
+  });
+
+  it("indexes friendly and raw semantic forms for occurrences and drafts", () => {
+    const idx = new SearchIndex();
+    seed(idx);
+    const enumId = { table: "Test::Enum", tag_id: "Direction" };
+    const enumLabel: SearchSchemaLabel = {
+      id: enumId,
+      group: "Test",
+      name: "Direction",
+      description: null,
+      kind: {
+        kind: "Enum",
+        data: {
+          repr: "String",
+          options: [{ code: "south-code", label: "South" }],
+        },
+      },
+    };
+    idx.setOccurrences(
+      "a.jpg",
+      [
+        {
+          schemaId: enumId,
+          value: { kind: "Text", value: "south-code" },
+          occurrenceId: occurrence(enumId, "south-code").id,
+        },
+      ],
+      [enumLabel],
+    );
+
+    const flashId = testId("ExifIFD:Flash");
+    const flashLabel: SearchSchemaLabel = {
+      id: flashId,
+      group: "ExifIFD",
+      name: "Flash",
+      description: null,
+      kind: { kind: "Integer", data: { min: null, max: null } },
+    };
+    idx.setDrafts(
+      "b.jpg",
+      [
+        {
+          id: flashId,
+          edit: { intent: "Set", value: { kind: "Integer", value: 89 } },
+        },
+      ],
+      [flashLabel],
+    );
+
+    expect(matchedSet(idx, "South")).toEqual(new Set(["a.jpg"]));
+    expect(matchedSet(idx, "south-code")).toEqual(new Set(["a.jpg"]));
+    expect(matchedSet(idx, "Red-eye reduction")).toEqual(new Set(["b.jpg"]));
+    expect(matchedSet(idx, "89")).toEqual(new Set(["b.jpg"]));
   });
 
   it("keeps omitted schema index distinct from index zero", () => {

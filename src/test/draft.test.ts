@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
-import {
-  metadataValueToDisplayString,
-  metadataValueToDisplayStringForTag as exactDisplayForTag,
-  metadataEntryToDisplayString,
-  metadataValueToDiagnosticString,
-} from "../draft";
+import { formatMetadataValue, metadataValueToDiagnosticString } from "../draft";
 import type { MetadataValue, TagInfo, TagKind } from "../types";
 import { testId } from "./factories";
+
+const metadataValueToDisplayString = (
+  value: MetadataValue | null | undefined,
+) => formatMetadataValue({ value });
+const metadataEntryToDisplayString = metadataValueToDisplayString;
 
 const metadataValueToDisplayStringForTag = (
   key: string,
   value: MetadataValue | null | undefined,
   info?: TagInfo,
-) => exactDisplayForTag(testId(key), value, info);
+) => formatMetadataValue({ schemaId: testId(key), value, tagInfo: info });
 
 describe("metadataEntryToDisplayString (regression)", () => {
   it("joins arrays with comma-space", () => {
@@ -372,6 +372,15 @@ describe("metadataValueToDisplayStringForTag", () => {
         value: 123.4,
       }),
     ).toBe("123.4 m");
+  });
+
+  it("formats Flash integers through the canonical formatter", () => {
+    expect(
+      metadataValueToDisplayStringForTag("ExifIFD:Flash", {
+        kind: "Integer",
+        value: 89,
+      }),
+    ).toBe("Fired, Auto, Red-eye reduction");
   });
 
   it("formats GPSLatitude Rational fallback as degrees, not a giant fraction", () => {

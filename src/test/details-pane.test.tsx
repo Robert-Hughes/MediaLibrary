@@ -2135,7 +2135,6 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       edit: {
         value: { kind: "Text", value: "S" },
         intent: "Set",
-        display: "South",
       },
     });
     expect(draftFor(testId("GPS:GPSLongitudeRef"))).toMatchObject({
@@ -2143,7 +2142,6 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       edit: {
         value: { kind: "Text", value: "W" },
         intent: "Set",
-        display: "West",
       },
     });
   });
@@ -2219,7 +2217,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       expect(screen.queryByTestId("enum-editor-overlay")).toBeNull();
     });
 
-    // Confirm resulting draft is semantic Text("S") and display "South"
+    // Confirm resulting draft is semantic Text("S").
     const draftsJson = JSON.parse(
       screen.getByTestId("drafts-debug").textContent || "{}",
     ) as Record<string, MetadataTargetDraftEntry>;
@@ -2233,7 +2231,6 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       edit: {
         value: { kind: "Text", value: "S" },
         intent: "Set",
-        display: "South",
       },
     });
 

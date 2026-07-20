@@ -7,6 +7,7 @@ import type {
   MetadataOccurrenceId,
   MetadataValue,
   SchemaDefinitionId,
+  TagKind,
 } from "../types";
 import type { SearchPhotoFields } from "../search/searchIndex";
 
@@ -15,6 +16,7 @@ export interface SearchSchemaLabel {
   group: string;
   name: string;
   description: string | null;
+  kind: TagKind;
 }
 
 export interface SearchOccurrenceEntry {

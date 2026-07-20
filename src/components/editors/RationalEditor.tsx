@@ -158,15 +158,6 @@ export function RationalEditor({
     // For decimal-mode input we synthesise the fraction via decimalToRational;
     // for fraction-mode we use the user's literal num/den (preserves "1/8000"
     // even if the decimal would simplify oddly).
-    let display: string;
-    if (mode === "fraction") {
-      const n = parseInt(num, 10);
-      const d = parseInt(den, 10);
-      display = d === 1 ? String(n) : `${n}/${d}`;
-    } else {
-      const r = result.rational;
-      display = r.den === 1 ? String(r.num) : `${r.num}/${r.den}`;
-    }
     onSave({
       value: {
         kind: "Rational",
@@ -176,7 +167,6 @@ export function RationalEditor({
         },
       },
       intent: "Set",
-      display,
     });
   };
 

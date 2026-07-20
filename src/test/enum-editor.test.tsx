@@ -31,7 +31,6 @@ describe("EnumEditor", () => {
     expect(enumDraftEdit(kind, "S")).toEqual({
       intent: "Set",
       value: { kind: "Text", value: "S" },
-      display: "South",
     });
   });
   it("renders dropdown with all options", () => {
@@ -72,12 +71,13 @@ describe("EnumEditor", () => {
     fireEvent.click(screen.getByTestId("enum-editor-save"));
     expect(onSave).toHaveBeenCalledOnce();
     const edit = onSave.mock.calls[0][0];
-    expect(edit.intent).toBe("Set");
-    expect(edit.value).toEqual({ kind: "Integer", value: 3 });
-    expect(edit.display).toBe("Rotate 180");
+    expect(edit).toEqual({
+      intent: "Set",
+      value: { kind: "Integer", value: 3 },
+    });
   });
 
-  it("emits raw code as display when Custom… code is out-of-spec", async () => {
+  it("emits a semantic custom code when it is out-of-spec", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(
@@ -96,10 +96,13 @@ describe("EnumEditor", () => {
     await user.clear(customInput);
     await user.type(customInput, "11");
     fireEvent.click(screen.getByTestId("enum-editor-save"));
-    expect(onSave.mock.calls[0][0].display).toBe("11");
+    expect(onSave.mock.calls[0][0]).toEqual({
+      intent: "Set",
+      value: { kind: "Integer", value: 11 },
+    });
   });
 
-  it("emits schema label as display for in-spec String repr", () => {
+  it("emits the semantic code for in-spec String repr", () => {
     const onSave = vi.fn();
     render(
       <EnumEditor
@@ -119,7 +122,10 @@ describe("EnumEditor", () => {
     ) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "no" } });
     fireEvent.click(screen.getByTestId("enum-editor-save"));
-    expect(onSave.mock.calls[0][0].display).toBe("No");
+    expect(onSave.mock.calls[0][0]).toEqual({
+      intent: "Set",
+      value: { kind: "Text", value: "no" },
+    });
   });
 
   it("emits MetadataValue::Text on Save for String repr", () => {

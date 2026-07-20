@@ -33,11 +33,6 @@ pub enum EditIntent {
 pub struct MetadataDraftEdit {
     pub value: Option<MetadataValue>,
     pub intent: EditIntent,
-    /// Optional pretty-printed label for UI display only. The persisted value
-    /// remains semantic and must not round-trip through this string.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[cfg_attr(test, ts(optional))]
-    pub display: Option<String>,
 }
 
 // Schema-addressed edit suggestion emitted by generation jobs. It is an
@@ -245,11 +240,10 @@ mod tests {
         }
     }
 
-    fn edit(display: Option<&str>) -> MetadataDraftEdit {
+    fn edit() -> MetadataDraftEdit {
         MetadataDraftEdit {
             value: Some(MetadataValue::Text("Reykjavik draft".to_string())),
             intent: EditIntent::Set,
-            display: display.map(str::to_string),
         }
     }
 
@@ -274,11 +268,11 @@ mod tests {
                     tag_name: "Title".to_string(),
                 },
             },
-            edit: edit(Some("Title")),
+            edit: edit(),
         }
     }
 
-    fn new_property(index: Option<u32>, display: Option<&str>) -> MetadataTargetDraftEntry {
+    fn new_property(index: Option<u32>) -> MetadataTargetDraftEntry {
         MetadataTargetDraftEntry {
             target: MetadataDraftTarget::NewProperty {
                 schema_id: schema(index),
@@ -288,7 +282,7 @@ mod tests {
                     tag_name: "Title".to_string(),
                 },
             },
-            edit: edit(display),
+            edit: edit(),
         }
     }
 
@@ -310,22 +304,22 @@ mod tests {
         let old = dir.path().join(OLD_DRAFT_FILE_NAME);
         let bytes = b"historical\r\nbytes\0\xff";
         std::fs::write(&old, bytes).unwrap();
-        let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None, None)])]);
+        let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None)])]);
         save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         assert_eq!(std::fs::read(old).unwrap(), bytes);
     }
 
     #[test]
-    fn display_none_is_omitted_from_json() {
+    fn removed_display_field_is_omitted_from_json() {
         let dir = tempdir().unwrap();
-        let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None, None)])]);
+        let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None)])]);
         save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         let contents = std::fs::read_to_string(dir.path().join(TARGET_DRAFT_FILE_NAME)).unwrap();
         assert!(!contents.contains("\"display\""));
     }
 
     #[test]
-    fn exact_targets_with_the_same_display_survive_round_trip() {
+    fn exact_targets_survive_round_trip() {
         let dir = tempdir().unwrap();
         let drafts = HashMap::from([(
             "photo.jpg".to_string(),
@@ -343,7 +337,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let drafts = HashMap::from([(
             "photo.jpg".to_string(),
-            vec![existing(None, "IFD0"), new_property(Some(0), Some("Title"))],
+            vec![existing(None, "IFD0"), new_property(Some(0))],
         )]);
         save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
@@ -359,7 +353,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let target = dir.path().join(TARGET_DRAFT_FILE_NAME);
         std::fs::write(&target, b"preserve me").unwrap();
-        let duplicate = new_property(None, None);
+        let duplicate = new_property(None);
         let drafts = HashMap::from([("photo.jpg".to_string(), vec![duplicate.clone(), duplicate])]);
         assert!(save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).is_err());
         assert_eq!(std::fs::read(target).unwrap(), b"preserve me");

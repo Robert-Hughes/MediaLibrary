@@ -367,7 +367,6 @@ mod tests {
         MetadataDraftEdit {
             value: Some(MetadataValue::Text(format!("semantic:{label}"))),
             intent: EditIntent::Set,
-            display: Some(format!("display:{label}")),
         }
     }
 

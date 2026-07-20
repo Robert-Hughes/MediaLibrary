@@ -114,7 +114,6 @@ fn metadata_set(value: MetadataValue) -> MetadataDraftEdit {
     MetadataDraftEdit {
         value: Some(value),
         intent: EditIntent::Set,
-        display: None,
     }
 }
 
@@ -122,7 +121,6 @@ fn metadata_delete() -> MetadataDraftEdit {
     MetadataDraftEdit {
         value: None,
         intent: EditIntent::Delete,
-        display: None,
     }
 }
 
@@ -130,7 +128,6 @@ fn metadata_edit(value: MetadataValue, intent: EditIntent) -> MetadataDraftEdit 
     MetadataDraftEdit {
         value: Some(value),
         intent,
-        display: None,
     }
 }
 

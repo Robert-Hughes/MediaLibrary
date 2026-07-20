@@ -239,12 +239,9 @@ describe("target-aware target and edit wire guards", () => {
     expect(isMetadataDraftTarget({ ...target, write_target: {} })).toBe(false);
   });
 
-  it("accepts every edit intent, null values, and optional string display", () => {
+  it("accepts every edit intent and null values", () => {
     for (const intent of ["Set", "Delete", "ListAdd", "ListRemove"]) {
       expect(isMetadataDraftEdit({ intent, value: null })).toBe(true);
-      expect(
-        isMetadataDraftEdit({ intent, value: null, display: "label" }),
-      ).toBe(true);
     }
   });
 
@@ -286,16 +283,13 @@ describe("target-aware target and edit wire guards", () => {
     expect(isMetadataValue({ kind: "Null", value: undefined })).toBe(false);
   });
 
-  it("rejects invalid intents, values, displays, and missing values", () => {
+  it("rejects invalid intents, values, and missing values", () => {
     expect(isMetadataDraftEdit({ intent: "Replace", value: null })).toBe(false);
     expect(
       isMetadataDraftEdit({
         intent: "Set",
         value: { kind: "Rational", value: { numerator: 1, denominator: 0 } },
       }),
-    ).toBe(false);
-    expect(
-      isMetadataDraftEdit({ intent: "Set", value: null, display: 1 }),
     ).toBe(false);
     expect(isMetadataDraftEdit({ intent: "Set" })).toBe(false);
   });

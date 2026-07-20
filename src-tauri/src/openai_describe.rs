@@ -634,7 +634,6 @@ pub fn compose_metadata_draft_edits(
         MetadataDraftEdit {
             value: Some(MetadataValue::Text(s)),
             intent: EditIntent::Set,
-            display: None,
         }
     }
     fn list_edit(items: Vec<String>) -> MetadataDraftEdit {
@@ -644,7 +643,6 @@ pub fn compose_metadata_draft_edits(
                 items: items.into_iter().map(MetadataValue::Text).collect(),
             }),
             intent: EditIntent::Set,
-            display: None,
         }
     }
     let mut edits = crate::draft_edits::SchemaMetadataEditMap::new();
@@ -684,7 +682,6 @@ pub fn compose_metadata_draft_edits(
                 generated_at_local,
             ))),
             intent: EditIntent::Set,
-            display: None,
         },
     );
     edits

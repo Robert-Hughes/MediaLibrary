@@ -21,7 +21,7 @@ import type { MetadataDraftEdit, SchemaDefinitionId } from "../../types";
 import { formatSchemaDefinitionIdForDiagnostics } from "../../utils/schemaDefinitionId";
 import type { GpsTagGroup } from "../../metadata/tag_overrides";
 import { READ_ONLY_TOOLTIP } from "./readOnlyMessages";
-import { decimalToDms, enumDraftEdit, type EnumTagKind } from "./editorHelpers";
+import { enumDraftEdit, type EnumTagKind } from "./editorHelpers";
 import { GpsMap, type GpsPosition } from "../GpsMap";
 import { formatCoordinate } from "../../utils/gpsUtils";
 
@@ -148,7 +148,6 @@ export function GpsEditor({
           edit: {
             value: { kind: "Real", value: alt },
             intent: "Set",
-            display: `${alt} m ${altRef === "above" ? "Above" : "Below"} Sea Level`,
           },
         },
         // exiftool encodes AltitudeRef as 0 (above sea level) or 1 (below).
@@ -159,8 +158,6 @@ export function GpsEditor({
             : {
                 value: { kind: "Integer", value: altRef === "above" ? 0 : 1 },
                 intent: "Set",
-                display:
-                  altRef === "above" ? "Above Sea Level" : "Below Sea Level",
               },
         },
       ];
@@ -171,7 +168,6 @@ export function GpsEditor({
         edit: {
           value: { kind: "Real", value: lat },
           intent: "Set",
-          display: decimalToDms(lat, latRef),
         },
       },
       {
@@ -181,7 +177,6 @@ export function GpsEditor({
           : {
               value: { kind: "Text", value: latRef },
               intent: "Set",
-              display: latRef === "N" ? "North" : "South",
             },
       },
       {
@@ -189,7 +184,6 @@ export function GpsEditor({
         edit: {
           value: { kind: "Real", value: lon },
           intent: "Set",
-          display: decimalToDms(lon, lonRef),
         },
       },
       {
@@ -199,7 +193,6 @@ export function GpsEditor({
           : {
               value: { kind: "Text", value: lonRef },
               intent: "Set",
-              display: lonRef === "E" ? "East" : "West",
             },
       },
       ...altitudeEdits,

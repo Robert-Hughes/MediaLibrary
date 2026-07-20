@@ -51,7 +51,6 @@ export function TimeOffsetEditor({
         value: offset,
       },
       intent: "Set",
-      display: formatTimeOffset(offset),
     });
   };
 

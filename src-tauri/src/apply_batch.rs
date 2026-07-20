@@ -764,7 +764,6 @@ mod tests {
             edit: MetadataDraftEdit {
                 value: Some(MetadataValue::Text(text.into())),
                 intent: EditIntent::Set,
-                display: None,
             },
         }
     }

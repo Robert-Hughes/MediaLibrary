@@ -12,10 +12,7 @@ import type { TargetDraftCollection } from "../targetDraftEdits";
 import { formatPhotoRowDate } from "../utils/photoDate";
 import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
-import {
-  displayStringOfMetadataDraft,
-  metadataValueToDisplayStringForTag,
-} from "../draft";
+import { formatMetadataValue } from "../draft";
 import { useTagInfo } from "../hooks/useTagInfo";
 import { metadataGet } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
@@ -29,14 +26,13 @@ const EMPTY_CELL = "—";
 
 function CellContent({
   text,
-  draft,
+  draftValue,
   searchQuery,
 }: {
   text: string;
-  draft?: MetadataDraftEdit;
+  draftValue?: string | null;
   searchQuery: string;
 }) {
-  const draftValue = displayStringOfMetadataDraft(draft);
   if (draftValue !== undefined) {
     return (
       <>
@@ -55,13 +51,13 @@ function CellContent({
   return <HighlightedText text={text} searchQuery={searchQuery} />;
 }
 
-function formatMetadataValue(
+function formatMetadataCellValue(
   id: SchemaDefinitionId,
   v: ImageMetadataEntry | undefined,
   tagInfo: Exclude<ReturnType<typeof useTagInfo>, "loading">,
 ): string {
   if (v === undefined) return EMPTY_CELL;
-  const s = metadataValueToDisplayStringForTag(id, v, tagInfo);
+  const s = formatMetadataValue({ schemaId: id, value: v, tagInfo });
   return s === "" ? EMPTY_CELL : s;
 }
 
@@ -80,8 +76,18 @@ function MetadataCellContent({
   const tagInfo = tag !== "loading" ? tag : null;
   return (
     <CellContent
-      text={formatMetadataValue(id, value, tagInfo)}
-      draft={draft}
+      text={formatMetadataCellValue(id, value, tagInfo)}
+      draftValue={
+        draft === undefined
+          ? undefined
+          : draft.intent === "Delete"
+            ? null
+            : formatMetadataValue({
+                schemaId: id,
+                value: draft.value,
+                tagInfo,
+              })
+      }
       searchQuery={searchQuery}
     />
   );
@@ -238,7 +244,7 @@ export const PhotoRow = memo(function PhotoRow({
           <span className="photo-cell-text">
             <CellContent
               text={photo.relative_path}
-              draft={undefined}
+              draftValue={undefined}
               searchQuery={searchQuery}
             />
           </span>
@@ -270,7 +276,7 @@ export const PhotoRow = memo(function PhotoRow({
             >
               <CellContent
                 text={formatPhotoRowDate(osValue(photo, col.key))}
-                draft={undefined}
+                draftValue={undefined}
                 searchQuery={searchQuery}
               />
             </div>
