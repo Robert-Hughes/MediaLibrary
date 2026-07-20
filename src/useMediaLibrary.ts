@@ -1536,7 +1536,8 @@ export function useMediaLibrary(
             replacementTarget.schema_id,
           )
         ) {
-          pushApplicationError(
+          logApplicationIssue(
+            "error",
             "metadata-target-new-property-move-schema-changed",
             "Destination editing cannot change the draft's exact schema. Nothing was moved.",
             [fileRelativePath],
