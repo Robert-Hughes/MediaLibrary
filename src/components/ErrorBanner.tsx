@@ -1,7 +1,7 @@
-import { WorkerErrorPayload } from "../types";
+import { ApplicationErrorPayload } from "../types";
 
 interface Props {
-  errors: WorkerErrorPayload[];
+  errors: ApplicationErrorPayload[];
   onDismiss: (index: number) => void;
 }
 
@@ -16,12 +16,12 @@ export function ErrorBanner({ errors, onDismiss }: Props) {
             <span className="error-banner-icon">⚠️</span>
             <div className="error-banner-text">
               <div className="error-banner-title">
-                {error.worker_type === "metadata" && "Metadata Loading Error"}
-                {error.worker_type === "thumbnail" &&
+                {error.error_type === "metadata" && "Metadata Loading Error"}
+                {error.error_type === "thumbnail" &&
                   "Thumbnail Generation Error"}
-                {error.worker_type === "scanner" && "Scanning Error"}
-                {error.worker_type === "apply" && "Apply Error"}
-                {error.worker_type === "apply-warning" && "Apply Warning"}
+                {error.error_type === "scanner" && "Scanning Error"}
+                {error.error_type === "apply" && "Apply Error"}
+                {error.error_type === "apply-warning" && "Apply Warning"}
               </div>
               <div className="error-banner-message">{error.error_message}</div>
               {error.affected_files.length > 0 && (

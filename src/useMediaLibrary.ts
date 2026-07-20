@@ -10,7 +10,7 @@ import type {
   ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
-  WorkerErrorPayload,
+  ApplicationErrorPayload,
   PhotoInfo,
   SortConfig,
   VisibleColumn,
@@ -25,7 +25,7 @@ import type {
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
-  MAX_WORKER_ERRORS,
+  MAX_APPLICATION_ERRORS,
   normalizeMetadataOccurrencesFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
@@ -194,7 +194,7 @@ export function useMediaLibrary(
   const apiRef = useRef(api);
   apiRef.current = api;
   const activeFolderRef = useRef<string | null>(null);
-  const targetLoadErrorRef = useRef<WorkerErrorPayload | null>(null);
+  const targetLoadErrorRef = useRef<ApplicationErrorPayload | null>(null);
   const targetDraftPersistenceRef = useRef<TargetDraftPersistenceState>(
     TARGET_DRAFT_NOT_LOADED_STATE,
   );
@@ -205,18 +205,18 @@ export function useMediaLibrary(
 
   const pushApplicationError = useCallback(
     (workerType: string, error: unknown, affectedFiles: string[] = []) => {
-      const payload: WorkerErrorPayload = {
+      const payload: ApplicationErrorPayload = {
         scan_id: activeScanIdRef.current,
-        worker_type: workerType,
+        error_type: workerType,
         error_message: error instanceof Error ? error.message : String(error),
         affected_files: affectedFiles,
       };
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
-        const workerErrors = [...prev.workerErrors, payload].slice(
-          -MAX_WORKER_ERRORS,
+        const applicationErrors = [...prev.applicationErrors, payload].slice(
+          -MAX_APPLICATION_ERRORS,
         );
-        return { ...prev, workerErrors };
+        return { ...prev, applicationErrors };
       });
     },
     [],
@@ -421,7 +421,7 @@ export function useMediaLibrary(
         };
         targetLoadErrorRef.current = {
           scan_id: scanId,
-          worker_type: "metadata-target-load",
+          error_type: "metadata-target-load",
           error_message: errorMessage,
           affected_files: [],
         };
@@ -467,7 +467,7 @@ export function useMediaLibrary(
             columnWidths: prev.columnWidths,
             sortConfig: prev.sortConfig,
             metadataVersion: 0,
-            workerErrors: targetLoadErrorRef.current
+            applicationErrors: targetLoadErrorRef.current
               ? [targetLoadErrorRef.current]
               : [],
             targetDraftEdits: targetDraftEditsStoreRef.current.getAllMetadata(),
@@ -608,7 +608,7 @@ export function useMediaLibrary(
               columnWidths: prev.columnWidths,
               sortConfig: prev.sortConfig,
               metadataVersion: 0,
-              workerErrors: targetLoadErrorRef.current
+              applicationErrors: targetLoadErrorRef.current
                 ? [targetLoadErrorRef.current]
                 : [],
               targetDraftEdits:
@@ -673,20 +673,20 @@ export function useMediaLibrary(
 
       const unlistenWorkerError = await api.listen("worker_error", (raw) => {
         if (cancelled) return;
-        const payload = raw as WorkerErrorPayload;
+        const payload = raw as ApplicationErrorPayload;
         console.error(
-          `Worker error (${payload.worker_type}):`,
+          `Worker error (${payload.error_type}):`,
           payload.error_message,
         );
 
-        // Add error to the state so UI can display it (capped — see MAX_WORKER_ERRORS)
+        // Add error to the state so UI can display it (capped — see MAX_APPLICATION_ERRORS)
         setAppState((prev) => {
           if (prev.kind !== "loaded") return prev;
-          const next = [...prev.workerErrors, payload];
-          if (next.length > MAX_WORKER_ERRORS) {
-            next.splice(0, next.length - MAX_WORKER_ERRORS);
+          const next = [...prev.applicationErrors, payload];
+          if (next.length > MAX_APPLICATION_ERRORS) {
+            next.splice(0, next.length - MAX_APPLICATION_ERRORS);
           }
-          return { ...prev, workerErrors: next };
+          return { ...prev, applicationErrors: next };
         });
       });
 
@@ -1005,9 +1005,9 @@ export function useMediaLibrary(
   const dismissError = useCallback((index: number) => {
     setAppState((prev) => {
       if (prev.kind !== "loaded") return prev;
-      const newErrors = [...prev.workerErrors];
+      const newErrors = [...prev.applicationErrors];
       newErrors.splice(index, 1);
-      return { ...prev, workerErrors: newErrors };
+      return { ...prev, applicationErrors: newErrors };
     });
   }, []);
 
