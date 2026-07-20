@@ -23,29 +23,17 @@ import {
 import { useRowSelection } from "../hooks/useRowSelection";
 import { PhotoListContextMenu } from "./PhotoListContextMenu";
 import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
-import {
-  confirmRemoveFieldFromPhotos,
-  showMetadataRemovalPreviewBlocked,
-  showNoMetadataRemovalNeeded,
-} from "../utils/removeFieldPrompts";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { useTagInfos } from "../hooks/useTagInfo";
 import {
   visibleColumnToken,
   sortKeyMatchesColumn,
 } from "../utils/columnIdentity";
-import type { MetadataRemovalFilesPreview } from "../metadataRemovalTargets";
 
 export type ColumnContextTarget =
   | { kind: "path"; key: "relative_path"; label: "Path" }
   | { kind: "os"; key: string; label: string }
   | { kind: "image"; id: SchemaDefinitionId; label: string };
-
-export type HeaderActionScope = {
-  paths: string[];
-  scope: "selection" | "all";
-};
-
 interface Props {
   photos: PhotoInfo[];
   thumbnails: ThumbnailStore;
@@ -86,14 +74,6 @@ interface Props {
   onShowOnMap?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
-  onRemoveFieldFromSelectedPhotos?: (
-    id: SchemaDefinitionId,
-    relativePaths: string[],
-  ) => boolean;
-  onPreviewRemoveFieldFromSelectedPhotos?: (
-    id: SchemaDefinitionId,
-    relativePaths: string[],
-  ) => MetadataRemovalFilesPreview;
 }
 
 const EMPTY_TARGET_DRAFT_COLLECTION: TargetDraftCollection = {};
@@ -361,8 +341,6 @@ export function PhotoList({
   onBulkEdit,
   onShowOnMap,
   onSelectionCountChange,
-  onRemoveFieldFromSelectedPhotos,
-  onPreviewRemoveFieldFromSelectedPhotos,
 }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
@@ -495,33 +473,6 @@ export function PhotoList({
       rowHeight,
       onSelectionCountChange,
     });
-
-  function pathsForHeaderRemoveAction(): HeaderActionScope {
-    const indices = Array.from(selectedIndices).sort((a, b) => a - b);
-
-    if (indices.length > 0) {
-      return {
-        scope: "selection",
-        paths: indices
-          .map((i) => photos[i]?.relative_path)
-          .filter((p): p is string => typeof p === "string"),
-      };
-    }
-
-    if (selectedIndex !== null) {
-      const path = photos[selectedIndex]?.relative_path;
-      return {
-        scope: "selection",
-        paths: path ? [path] : [],
-      };
-    }
-
-    return {
-      scope: "all",
-      paths: photos.map((p) => p.relative_path),
-    };
-  }
-
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -546,19 +497,11 @@ export function PhotoList({
     (e: React.MouseEvent, target: ColumnContextTarget) => {
       e.preventDefault();
       e.stopPropagation();
-      const canOpenColumnMenu =
-        Boolean(onSelectColumns) ||
-        (Boolean(onRemoveFieldFromSelectedPhotos) &&
-          Boolean(onPreviewRemoveFieldFromSelectedPhotos));
-      if (canOpenColumnMenu) {
+      if (onSelectColumns) {
         setColumnContextMenu({ x: e.clientX, y: e.clientY, target });
       }
     },
-    [
-      onSelectColumns,
-      onRemoveFieldFromSelectedPhotos,
-      onPreviewRemoveFieldFromSelectedPhotos,
-    ],
+    [onSelectColumns],
   );
 
   const handleColumnClick = useCallback(
@@ -726,89 +669,22 @@ export function PhotoList({
         />
       )}
 
-      {columnContextMenu &&
-        (() => {
-          const scope = pathsForHeaderRemoveAction();
-          const id =
-            columnContextMenu.target.kind === "image"
-              ? columnContextMenu.target.id
-              : null;
-
-          const options = [];
-          if (
-            columnContextMenu.target.kind === "image" &&
-            id &&
-            onRemoveFieldFromSelectedPhotos &&
-            onPreviewRemoveFieldFromSelectedPhotos &&
-            scope.paths.length > 0
-          ) {
-            const photoNoun = scope.paths.length === 1 ? "photo" : "photos";
-            const label =
-              scope.scope === "all"
-                ? `Remove field from all ${scope.paths.length} ${photoNoun}…`
-                : `Remove field from ${scope.paths.length} ${photoNoun}…`;
-
-            options.push({
-              label,
-              onClick: async () => {
-                const preview = onPreviewRemoveFieldFromSelectedPhotos(
-                  id,
-                  scope.paths,
-                );
-                if (preview.kind === "blocked") {
-                  await showMetadataRemovalPreviewBlocked({
-                    tag: columnContextMenu.target.label,
-                    relativePath: preview.relativePath,
-                    reason: preview.reason,
-                  });
-                  setColumnContextMenu(null);
-                  return;
-                }
-                if (
-                  preview.existingFieldsToDelete +
-                    preview.stagedCreationsToCancel ===
-                  0
-                ) {
-                  await showNoMetadataRemovalNeeded(
-                    columnContextMenu.target.label,
-                  );
-                  setColumnContextMenu(null);
-                  return;
-                }
-                const confirmed = await confirmRemoveFieldFromPhotos({
-                  tag: columnContextMenu.target.label,
-                  preview,
-                  scope: scope.scope,
-                });
-                if (confirmed) {
-                  onRemoveFieldFromSelectedPhotos(id, scope.paths);
-                }
-                setColumnContextMenu(null);
-              },
-            });
-          }
-
-          if (onSelectColumns) {
-            options.push({
+      {columnContextMenu && onSelectColumns && (
+        <ContextMenu
+          x={columnContextMenu.x}
+          y={columnContextMenu.y}
+          options={[
+            {
               label: "Select Columns…",
               onClick: () => {
                 onSelectColumns();
                 setColumnContextMenu(null);
               },
-            });
-          }
-
-          if (options.length === 0) return null;
-
-          return (
-            <ContextMenu
-              x={columnContextMenu.x}
-              y={columnContextMenu.y}
-              options={options}
-              onClose={() => setColumnContextMenu(null)}
-            />
-          );
-        })()}
+            },
+          ]}
+          onClose={() => setColumnContextMenu(null)}
+        />
+      )}
     </div>
   );
 }

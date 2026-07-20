@@ -14,6 +14,11 @@ import type {
   TargetDraftCollection,
 } from "./targetDraftEdits";
 import { metadataTargetDraftEntryEqualsExact } from "./targetDraftEdits";
+import type { GpsTagGroup } from "./metadata/tag_overrides";
+import {
+  planGpsTargetDraftBatch,
+  validateGpsTargetDraftEntries,
+} from "./gpsTargetDrafts";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
@@ -24,7 +29,10 @@ import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdEquals,
 } from "./utils/schemaDefinitionId";
-import { findDuplicateMetadataOccurrenceId } from "./utils/metadataOccurrences";
+import {
+  findDuplicateMetadataOccurrenceId,
+  resolveExactMetadataOccurrence,
+} from "./utils/metadataOccurrences";
 import { applyMetadataDraftEditExactly } from "./utils/effectiveMetadata";
 import { mergeMetadataValueExactly } from "./metadataValueMerge";
 import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSafety";
@@ -51,6 +59,15 @@ export type BulkMetadataDraftRequest =
   | {
       operation: "Delete";
       schemaId: SchemaDefinitionId;
+    }
+  | {
+      operation: "SetGps";
+      group: GpsTagGroup;
+      edits: Array<{ id: SchemaDefinitionId; edit: MetadataDraftEdit }>;
+    }
+  | {
+      operation: "DeleteGps";
+      group: GpsTagGroup;
     };
 
 export interface BulkMetadataDraftPreview {
@@ -113,7 +130,6 @@ function fail(
     schemaId === undefined ? undefined : structuredClone(schemaId),
   );
 }
-
 function emptyPreview(photoCount: number): BulkMetadataDraftPreview {
   return {
     photoCount,
@@ -127,9 +143,7 @@ function emptyPreview(photoCount: number): BulkMetadataDraftPreview {
   };
 }
 
-function requireOccurrences(
-  file: BulkMetadataFileState,
-): readonly MetadataOccurrence[] {
+function requireOccurrences(file: BulkMetadataFileState): MetadataOccurrence[] {
   if (file.occurrences === "loading") {
     fail(
       "occurrences-loading",
@@ -497,6 +511,117 @@ function planSetForFile(
 
   return changed ? { path: file.relativePath, upserts, deletes } : null;
 }
+function gpsGroupIds(group: GpsTagGroup): SchemaDefinitionId[] {
+  return [
+    group.latitudeId,
+    group.latitudeRefId,
+    group.longitudeId,
+    group.longitudeRefId,
+    group.altitudeId,
+    group.altitudeRefId,
+  ].map((id) => structuredClone(id));
+}
+
+function planGpsSetForFile(
+  file: BulkMetadataFileState,
+  request: Extract<BulkMetadataDraftRequest, { operation: "SetGps" }>,
+  preview: BulkMetadataDraftPreview,
+): ExactTargetMutationBatchItem | null {
+  const occurrences = requireOccurrences(file);
+  validateStoredDrafts(file);
+  const planned = planGpsTargetDraftBatch(
+    request.edits,
+    occurrences,
+    file.targetDrafts,
+  );
+  const entries = validateGpsTargetDraftEntries(
+    planned.map(({ target, edit }) => ({ target, edit })),
+    occurrences,
+    file.targetDrafts,
+  );
+  const upserts: MetadataTargetDraftEntry[] = [];
+  const deletes: MetadataDraftTarget[] = [];
+  let changed = false;
+
+  for (const entry of entries) {
+    if (entry.edit.intent !== "Set" || entry.edit.value === null) {
+      fail(
+        "invalid-edit",
+        "The grouped GPS editor must return non-null Set edits. Nothing was staged.",
+        file.relativePath,
+        entry.target.schema_id,
+      );
+    }
+    const slot = metadataDraftTargetSlotToken(entry.target);
+    const owner = file.targetDrafts?.[slot];
+    let occurrence: MetadataOccurrence | undefined;
+    if (entry.target.kind === "ExistingOccurrence") {
+      const exact = resolveExactMetadataOccurrence(
+        occurrences,
+        entry.target.occurrence_id,
+      );
+      if (exact.kind !== "unique") {
+        fail(
+          "stale-existing-draft",
+          "A captured GPS occurrence is no longer uniquely available. Nothing was staged.",
+          file.relativePath,
+          entry.target.schema_id,
+        );
+      }
+      occurrence = exact.occurrence;
+    }
+    const current = owner
+      ? applyMetadataDraftEditExactly(
+          occurrence?.value,
+          owner.edit,
+          occurrence?.tag_info?.kind,
+        )
+      : { applied: true as const, value: occurrence?.value };
+    if (!current.applied) {
+      fail(
+        "unpreviewable-draft",
+        `A staged GPS edit for '${file.relativePath}' cannot be composed safely: ${current.reason}`,
+        file.relativePath,
+        entry.target.schema_id,
+      );
+    }
+    changed =
+      planTargetSet({
+        target: entry.target,
+        authoritativeValue: occurrence?.value,
+        effectiveValue: current.value,
+        desiredValue: entry.edit.value,
+        owner,
+        upserts,
+        deletes,
+        preview,
+      }) || changed;
+  }
+
+  return changed ? { path: file.relativePath, upserts, deletes } : null;
+}
+function planDeleteForFile(
+  file: BulkMetadataFileState,
+  schemaIds: readonly SchemaDefinitionId[],
+  preview: BulkMetadataDraftPreview,
+): ExactTargetMutationBatchItem | null {
+  requireOccurrences(file);
+  validateStoredDrafts(file);
+  const planned = planMetadataRemovalTargets({
+    schemaIds,
+    occurrences: file.occurrences,
+    targetDrafts: file.targetDrafts,
+  });
+  const affected = planned.upserts.length + planned.deletes.length > 0;
+  if (!affected) return null;
+  preview.existingOccurrencesDeleted += planned.upserts.length;
+  preview.stagedCreationsCancelled += planned.deletes.length;
+  return {
+    path: file.relativePath,
+    upserts: planned.upserts,
+    deletes: planned.deletes,
+  };
+}
 
 /**
  * Plan a complete multi-file operation without mutating any store. Every file
@@ -526,38 +651,45 @@ export function planBulkMetadataDraftBatch(input: {
   const preview = emptyPreview(files.length);
   const mutations: ExactTargetMutationBatchItem[] = [];
 
-  if (request.operation === "Set") {
-    const edit = validateSetRequest(request);
-    for (const file of files) {
-      const mutation = planSetForFile(file, request, edit.value, preview);
-      if (mutation === null) preview.noOpPhotoCount += 1;
-      else {
-        preview.affectedPhotoCount += 1;
-        mutations.push(mutation);
+  switch (request.operation) {
+    case "Set": {
+      const edit = validateSetRequest(request);
+      for (const file of files) {
+        const mutation = planSetForFile(file, request, edit.value, preview);
+        if (mutation === null) preview.noOpPhotoCount += 1;
+        else {
+          preview.affectedPhotoCount += 1;
+          mutations.push(mutation);
+        }
       }
+      break;
     }
-  } else {
-    for (const file of files) {
-      requireOccurrences(file);
-      validateStoredDrafts(file);
-      const planned = planMetadataRemovalTargets({
-        schemaIds: [request.schemaId],
-        occurrences: file.occurrences,
-        targetDrafts: file.targetDrafts,
-      });
-      const affected = planned.upserts.length + planned.deletes.length > 0;
-      if (!affected) {
-        preview.noOpPhotoCount += 1;
-        continue;
+    case "SetGps": {
+      for (const file of files) {
+        const mutation = planGpsSetForFile(file, request, preview);
+        if (mutation === null) preview.noOpPhotoCount += 1;
+        else {
+          preview.affectedPhotoCount += 1;
+          mutations.push(mutation);
+        }
       }
-      preview.affectedPhotoCount += 1;
-      preview.existingOccurrencesDeleted += planned.upserts.length;
-      preview.stagedCreationsCancelled += planned.deletes.length;
-      mutations.push({
-        path: file.relativePath,
-        upserts: planned.upserts,
-        deletes: planned.deletes,
-      });
+      break;
+    }
+    case "Delete":
+    case "DeleteGps": {
+      const schemaIds =
+        request.operation === "Delete"
+          ? [request.schemaId]
+          : gpsGroupIds(request.group);
+      for (const file of files) {
+        const mutation = planDeleteForFile(file, schemaIds, preview);
+        if (mutation === null) preview.noOpPhotoCount += 1;
+        else {
+          preview.affectedPhotoCount += 1;
+          mutations.push(mutation);
+        }
+      }
+      break;
     }
   }
 

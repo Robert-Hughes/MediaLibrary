@@ -3,6 +3,7 @@ import type {
   ImageMetadataOccurrencesStore,
   MetadataDraftEdit,
   PhotoInfo,
+  SchemaDefinitionId,
   TagInfo,
 } from "../types";
 import type { TargetDraftEditsByFile } from "../targetDraftEdits";
@@ -19,6 +20,10 @@ import {
   tagInfoDisplayName,
 } from "../utils/schemaDefinitionId";
 import { metadataEditCapabilities } from "../metadataEditCapabilities";
+import { GPS_IDS } from "../metadata/knownIds";
+import type { GpsTagGroup } from "../metadata/tag_overrides";
+import { buildEffectiveMetadataForFile } from "../utils/effectiveMetadata";
+import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { ModalDialog } from "./ModalDialog";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 
@@ -35,8 +40,33 @@ interface Props {
   onClose: () => void;
 }
 
-type Candidate = { info: TagInfo; count: number };
+type Candidate =
+  | { kind: "schema"; token: string; info: TagInfo; count: number }
+  | {
+      kind: "gps";
+      token: "gps-location";
+      group: GpsTagGroup;
+      count: number;
+    };
 type Phase = "choose" | "editor" | "preview";
+
+const GPS_GROUP: GpsTagGroup = {
+  latitudeId: GPS_IDS.latitude,
+  latitudeRefId: GPS_IDS.latitudeRef,
+  longitudeId: GPS_IDS.longitude,
+  longitudeRefId: GPS_IDS.longitudeRef,
+  altitudeId: GPS_IDS.altitude,
+  altitudeRefId: GPS_IDS.altitudeRef,
+};
+
+const GPS_IDS_ARRAY: readonly SchemaDefinitionId[] = [
+  GPS_GROUP.latitudeId,
+  GPS_GROUP.latitudeRefId,
+  GPS_GROUP.longitudeId,
+  GPS_GROUP.longitudeRefId,
+  GPS_GROUP.altitudeId,
+  GPS_GROUP.altitudeRefId,
+];
 
 function appliesToEveryPhoto(
   info: TagInfo,
@@ -45,6 +75,12 @@ function appliesToEveryPhoto(
   return photos.every(
     (photo) => filterTagInfosByFilename([info], photo.filename).length === 1,
   );
+}
+
+function candidateLabel(candidate: Candidate): string {
+  return candidate.kind === "gps"
+    ? "GPS Location"
+    : tagInfoDisplayName(candidate.info);
 }
 
 function previewSummary(plan: BulkMetadataDraftPlan): string[] {
@@ -88,7 +124,11 @@ export function BulkMetadataEditorDialog({
       ),
     [photos, imageMetadataOccurrences, targetDraftEdits],
   );
-  const presentInfos = useTagInfos(frequencies.map(({ id }) => id));
+  const allLookupIds = useMemo(
+    () => [...frequencies.map(({ id }) => id), ...GPS_IDS_ARRAY],
+    [frequencies],
+  );
+  const tagInfos = useTagInfos(allLookupIds);
   const writableDefinitions = useWritableSchemaDefinitions();
   const [search, setSearch] = useState("");
   const [selectedToken, setSelectedToken] = useState<string | null>(null);
@@ -109,26 +149,73 @@ export function BulkMetadataEditorDialog({
         if (!appliesToEveryPhoto(info, photos)) continue;
         if (metadataEditCapabilities(info).groupedEditor !== null) continue;
         const token = schemaDefinitionIdToken(info.id);
-        byToken.set(token, { info, count: countByToken.get(token) ?? 0 });
+        byToken.set(token, {
+          kind: "schema",
+          token,
+          info,
+          count: countByToken.get(token) ?? 0,
+        });
       }
     }
     for (const { id, count } of frequencies) {
       const token = schemaDefinitionIdToken(id);
-      const info = presentInfos[token];
+      const info = tagInfos[token];
       if (!info || info === "loading") continue;
       if (metadataEditCapabilities(info).groupedEditor !== null) continue;
-      if (!byToken.has(token)) byToken.set(token, { info, count });
+      if (!byToken.has(token)) {
+        byToken.set(token, { kind: "schema", token, info, count });
+      }
     }
-    return Array.from(byToken.values()).sort((left, right) =>
-      tagInfoDisplayName(left.info).localeCompare(
-        tagInfoDisplayName(right.info),
-      ),
+
+    const gpsInfos = GPS_IDS_ARRAY.map(
+      (id) => tagInfos[schemaDefinitionIdToken(id)],
     );
-  }, [frequencies, photos, presentInfos, writableDefinitions]);
+    if (
+      gpsInfos.every(
+        (info): info is TagInfo =>
+          info !== undefined &&
+          info !== null &&
+          info !== "loading" &&
+          info.writable &&
+          appliesToEveryPhoto(info, photos),
+      )
+    ) {
+      const count = photos.filter((photo) => {
+        const effective = resolveEffectiveGpsForFile({
+          occurrences: imageMetadataOccurrences.get(photo.relative_path),
+          targetDrafts: targetDraftEdits[photo.relative_path],
+        });
+        return effective.lat !== null && effective.lon !== null;
+      }).length;
+      byToken.set("gps-location", {
+        kind: "gps",
+        token: "gps-location",
+        group: structuredClone(GPS_GROUP),
+        count,
+      });
+    }
+
+    return Array.from(byToken.values()).sort((left, right) =>
+      candidateLabel(left).localeCompare(candidateLabel(right)),
+    );
+  }, [
+    frequencies,
+    imageMetadataOccurrences,
+    photos,
+    tagInfos,
+    targetDraftEdits,
+    writableDefinitions,
+  ]);
 
   const lowerSearch = search.trim().toLowerCase();
-  const filteredCandidates = candidates.filter(({ info }) => {
+  const filteredCandidates = candidates.filter((candidate) => {
     if (!lowerSearch) return true;
+    if (candidate.kind === "gps") {
+      return ["gps location", "latitude", "longitude", "altitude"].some(
+        (value) => value.includes(lowerSearch),
+      );
+    }
+    const { info } = candidate;
     return [
       tagInfoDisplayName(info),
       info.group,
@@ -140,13 +227,12 @@ export function BulkMetadataEditorDialog({
     ].some((value) => value.toLowerCase().includes(lowerSearch));
   });
   const selected =
-    candidates.find(
-      ({ info }) => schemaDefinitionIdToken(info.id) === selectedToken,
-    ) ?? null;
-  const capabilities = selected
-    ? metadataEditCapabilities(selected.info)
-    : null;
-  const mergeAvailable = capabilities?.mergeMode !== null;
+    candidates.find((candidate) => candidate.token === selectedToken) ?? null;
+  const capabilities =
+    selected?.kind === "schema"
+      ? metadataEditCapabilities(selected.info)
+      : null;
+  const mergeAvailable = capabilities?.mergeMode != null;
 
   const review = (nextRequest: BulkMetadataDraftRequest) => {
     const result = onPreview(nextRequest);
@@ -166,17 +252,53 @@ export function BulkMetadataEditorDialog({
   };
 
   if (phase === "editor" && selected) {
+    const contextHint = (
+      <p className="dialog-hint" data-testid="bulk-editor-context-hint">
+        {merge && mergeAvailable
+          ? `The entered value will be merged with the effective value on each of the ${photos.length} selected photos.`
+          : `The entered value will replace this property on all ${photos.length} selected photos, creating it where missing.`}
+      </p>
+    );
+    if (selected.kind === "gps") {
+      const seedPhoto = photos[0];
+      const seedInput = {
+        occurrences: seedPhoto
+          ? imageMetadataOccurrences.get(seedPhoto.relative_path)
+          : undefined,
+        targetDrafts: seedPhoto
+          ? targetDraftEdits[seedPhoto.relative_path]
+          : undefined,
+      };
+      return (
+        <TypedValueEditor
+          propertyId={selected.group.latitudeId}
+          propertyLabel="GPS Location"
+          contextHint={contextHint}
+          editorMode="gps"
+          metadataForFile={buildEffectiveMetadataForFile(seedInput, {
+            ids: GPS_IDS_ARRAY,
+          })}
+          effectiveGps={resolveEffectiveGpsForFile(seedInput)}
+          onSaveMetadata={() => {
+            setError("GPS Location must be saved through its grouped editor.");
+            setPhase("choose");
+          }}
+          onSaveMetadataBatch={(edits) =>
+            review({
+              operation: "SetGps",
+              group: structuredClone(selected.group),
+              edits: structuredClone(edits),
+            })
+          }
+          onCancel={() => setPhase("choose")}
+        />
+      );
+    }
     return (
       <TypedValueEditor
         propertyId={selected.info.id}
         propertyLabel={tagInfoDisplayName(selected.info)}
-        contextHint={
-          <p className="dialog-hint" data-testid="bulk-editor-context-hint">
-            {merge && mergeAvailable
-              ? `The entered value will be merged with the effective value on each of the ${photos.length} selected photos.`
-              : `The entered value will replace this property on all ${photos.length} selected photos, creating it where missing.`}
-          </p>
-        }
+        contextHint={contextHint}
         onSaveMetadata={(edit: MetadataDraftEdit) => {
           if (edit.intent !== "Set" || edit.value === null) {
             setError("Use the Delete action to remove this property.");
@@ -221,8 +343,8 @@ export function BulkMetadataEditorDialog({
           <>
             <div className="dialog-body">
               <h3>
-                {request.operation}{" "}
-                {selected ? tagInfoDisplayName(selected.info) : "metadata"}
+                {request.operation.startsWith("Set") ? "Set" : "Delete"}{" "}
+                {selected ? candidateLabel(selected) : "metadata"}
               </h3>
               <p>
                 {plan.preview.affectedPhotoCount} of {plan.preview.photoCount}{" "}
@@ -291,17 +413,16 @@ export function BulkMetadataEditorDialog({
                     No metadata properties match.
                   </div>
                 ) : (
-                  filteredCandidates.map(({ info, count }) => {
-                    const token = schemaDefinitionIdToken(info.id);
-                    const active = token === selectedToken;
+                  filteredCandidates.map((candidate) => {
+                    const active = candidate.token === selectedToken;
                     return (
                       <button
                         type="button"
-                        key={token}
+                        key={candidate.token}
                         className="dialog-results-option"
                         aria-pressed={active}
                         onClick={() => {
-                          setSelectedToken(token);
+                          setSelectedToken(candidate.token);
                           setMerge(false);
                           setError(null);
                         }}
@@ -314,13 +435,15 @@ export function BulkMetadataEditorDialog({
                             gap: "16px",
                           }}
                         >
-                          <strong>{tagInfoDisplayName(info)}</strong>
+                          <strong>{candidateLabel(candidate)}</strong>
                           <span>
-                            {count} of {photos.length} photos
+                            {candidate.count} of {photos.length} photos
                           </span>
                         </div>
                         <div style={{ fontSize: "11px", opacity: 0.75 }}>
-                          {info.kind.kind} · {info.id.table} / {info.id.tag_id}
+                          {candidate.kind === "gps"
+                            ? "Grouped GPS coordinate and altitude fields"
+                            : `${candidate.info.kind.kind} · ${candidate.info.id.table} / ${candidate.info.id.tag_id}`}
                         </div>
                       </button>
                     );
@@ -330,7 +453,7 @@ export function BulkMetadataEditorDialog({
 
               {selected ? (
                 <div style={{ marginTop: "18px" }}>
-                  <h3>{tagInfoDisplayName(selected.info)}</h3>
+                  <h3>{candidateLabel(selected)}</h3>
                   <label style={{ marginRight: "20px" }}>
                     <input
                       type="radio"
@@ -378,14 +501,21 @@ export function BulkMetadataEditorDialog({
               </button>
               <button
                 className="btn-primary"
-                disabled={!selected || !selected.info.writable}
+                disabled={!selected}
                 onClick={() => {
                   if (!selected) return;
                   if (operation === "Delete") {
-                    review({
-                      operation: "Delete",
-                      schemaId: structuredClone(selected.info.id),
-                    });
+                    review(
+                      selected.kind === "gps"
+                        ? {
+                            operation: "DeleteGps",
+                            group: structuredClone(selected.group),
+                          }
+                        : {
+                            operation: "Delete",
+                            schemaId: structuredClone(selected.info.id),
+                          },
+                    );
                   } else {
                     setPhase("editor");
                   }

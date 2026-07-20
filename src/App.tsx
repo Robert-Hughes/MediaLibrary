@@ -14,7 +14,7 @@ import {
   type MediaLibraryActions,
 } from "./useMediaLibrary";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "./types";
-import type { AppState, SchemaDefinitionId } from "./types";
+import type { AppState } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
 import { PhotoList } from "./components/PhotoList";
@@ -51,7 +51,6 @@ import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
-import { previewMetadataRemovalFiles } from "./metadataRemovalTargets";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -296,22 +295,6 @@ function LoadedView({
     setListSearchQuery("has:edits");
   }, []);
 
-  const previewRemoveFieldFromPhotos = useCallback(
-    (schemaId: SchemaDefinitionId, relativePaths: string[]) =>
-      previewMetadataRemovalFiles({
-        schemaId,
-        relativePaths,
-        targetDraftPersistence: state.targetDraftPersistence,
-        occurrencesForPath: (path) => state.imageMetadataOccurrences.get(path),
-        targetDraftsForPath: (path) => state.targetDraftEdits[path],
-      }),
-    [
-      state.imageMetadataOccurrences,
-      state.targetDraftEdits,
-      state.targetDraftPersistence,
-    ],
-  );
-
   /**
    * Resolve the GPS payload for a set of rel-paths into the shape
    * the geocode_images_cmd expects. The frontend owns the
@@ -410,10 +393,6 @@ function LoadedView({
         onBulkEdit={(relativePaths) => setBulkEditPaths([...relativePaths])}
         onShowOnMap={setFullMapPaths}
         onSelectionCountChange={setSelectionCount}
-        onPreviewRemoveFieldFromSelectedPhotos={previewRemoveFieldFromPhotos}
-        onRemoveFieldFromSelectedPhotos={(id, relPaths) => {
-          return actions.removeMetadataFieldFromFiles(id, relPaths);
-        }}
       />
       {bulkEditPaths !== null && bulkEditPhotos.length > 0 && (
         <BulkMetadataEditorDialog
