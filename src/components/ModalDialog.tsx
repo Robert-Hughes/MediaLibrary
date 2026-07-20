@@ -4,6 +4,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
+import { requestApplicationErrorBringToFront } from "../applicationErrorTopLayer";
 
 export interface ModalDialogProps {
   open: boolean;
@@ -86,6 +87,7 @@ export function ModalDialog({
           : null;
 
       dialog.showModal();
+      requestApplicationErrorBringToFront();
 
       if (!dialog.contains(document.activeElement)) {
         const initial = dialog.querySelector<HTMLElement>("[autofocus]");
@@ -184,6 +186,7 @@ export function ModalDialog({
           const dialog = ref.current;
           if (dialog?.isConnected && openRef.current && !dialog.open) {
             dialog.showModal();
+            requestApplicationErrorBringToFront();
           }
         });
       }}

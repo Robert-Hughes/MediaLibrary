@@ -1,4 +1,6 @@
+import { useCallback, useEffect, useRef } from "react";
 import { ApplicationErrorPayload } from "../types";
+import { listenForApplicationErrorBringToFront } from "../applicationErrorTopLayer";
 
 interface Props {
   errors: ApplicationErrorPayload[];
@@ -6,10 +8,41 @@ interface Props {
 }
 
 export function ErrorBanner({ errors, onDismiss }: Props) {
-  if (errors.length === 0) return null;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const popoverOpenRef = useRef(false);
+  const newestError = errors[errors.length - 1];
+
+  const bringToFront = useCallback(() => {
+    const container = containerRef.current;
+    if (!container || errors.length === 0) return;
+    if (popoverOpenRef.current) container.hidePopover();
+    container.showPopover();
+    popoverOpenRef.current = true;
+  }, [errors.length]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (errors.length === 0) {
+      if (popoverOpenRef.current) container.hidePopover();
+      popoverOpenRef.current = false;
+      return;
+    }
+    bringToFront();
+  }, [bringToFront, newestError]);
+
+  useEffect(
+    () => listenForApplicationErrorBringToFront(bringToFront),
+    [bringToFront],
+  );
 
   return (
-    <div className="error-banner-container">
+    <div
+      ref={containerRef}
+      className="error-banner-container"
+      popover="manual"
+      data-testid="application-error-popover"
+    >
       {errors.map((error, index) => (
         <div key={index} className="error-banner" data-testid="error-banner">
           <div className="error-banner-content">
