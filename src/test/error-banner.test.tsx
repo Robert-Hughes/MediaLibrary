@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ErrorBanner } from "../components/ErrorBanner";
 import { ModalDialog } from "../components/ModalDialog";
@@ -27,14 +27,9 @@ describe("ErrorBanner top-layer presentation", () => {
     show.mockRestore();
   });
 
-  it("returns an existing error popover to the front after a modal opens", () => {
-    const show = vi.spyOn(HTMLElement.prototype, "showPopover");
-    const hide = vi.spyOn(HTMLElement.prototype, "hidePopover");
+  it("portals into the active modal so its dismissal remains interactive", () => {
     const dismiss = vi.fn();
-    const { rerender } = render(
-      <ErrorBanner errors={[error]} onDismiss={dismiss} />,
-    );
-    rerender(
+    render(
       <>
         <ErrorBanner errors={[error]} onDismiss={dismiss} />
         <ModalDialog open onDismiss={vi.fn()} aria-label="Test dialog">
@@ -43,9 +38,72 @@ describe("ErrorBanner top-layer presentation", () => {
       </>,
     );
 
-    expect(show).toHaveBeenCalledTimes(2);
-    expect(hide).toHaveBeenCalledOnce();
-    show.mockRestore();
-    hide.mockRestore();
+    const dialog = screen.getByRole("dialog");
+    expect(
+      dialog.contains(screen.getByTestId("application-error-popover")),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss error" }));
+    expect(dismiss).toHaveBeenCalledWith(0);
+  });
+
+  it("follows nested dialogs back to the body as they open and close", () => {
+    const dismiss = vi.fn();
+    const banner = <ErrorBanner errors={[error]} onDismiss={dismiss} />;
+    const outer = (
+      <ModalDialog open onDismiss={vi.fn()} aria-label="Outer dialog">
+        outer
+      </ModalDialog>
+    );
+    const inner = (
+      <ModalDialog open onDismiss={vi.fn()} aria-label="Inner dialog">
+        inner
+      </ModalDialog>
+    );
+    const { rerender } = render(banner);
+    expect(
+      screen.getByTestId("application-error-popover").closest("dialog"),
+    ).toBeNull();
+
+    rerender(
+      <>
+        {banner}
+        {outer}
+      </>,
+    );
+    expect(
+      screen
+        .getByRole("dialog", { name: "Outer dialog" })
+        .contains(screen.getByTestId("application-error-popover")),
+    ).toBe(true);
+
+    rerender(
+      <>
+        {banner}
+        {outer}
+        {inner}
+      </>,
+    );
+    expect(
+      screen
+        .getByRole("dialog", { name: "Inner dialog" })
+        .contains(screen.getByTestId("application-error-popover")),
+    ).toBe(true);
+
+    rerender(
+      <>
+        {banner}
+        {outer}
+      </>,
+    );
+    expect(
+      screen
+        .getByRole("dialog", { name: "Outer dialog" })
+        .contains(screen.getByTestId("application-error-popover")),
+    ).toBe(true);
+
+    rerender(banner);
+    expect(
+      screen.getByTestId("application-error-popover").closest("dialog"),
+    ).toBeNull();
   });
 });

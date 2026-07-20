@@ -4,7 +4,7 @@ import {
   useLayoutEffect,
   useRef,
 } from "react";
-import { requestApplicationErrorBringToFront } from "../applicationErrorTopLayer";
+import { registerApplicationErrorDialog } from "../applicationErrorTopLayer";
 
 export interface ModalDialogProps {
   open: boolean;
@@ -67,6 +67,7 @@ export function ModalDialog({
   const expectedCloseEventsRef = useRef(0);
   const openerRef = useRef<HTMLElement | null>(null);
   const lifecycleGenerationRef = useRef(0);
+  const unregisterApplicationErrorDialogRef = useRef<(() => void) | null>(null);
   const openRef = useRef(open);
   openRef.current = open;
 
@@ -77,26 +78,38 @@ export function ModalDialog({
 
     dialog.setAttribute("closedby", dismissible ? "closerequest" : "none");
 
-    if (open && !dialog.open) {
-      const active = document.activeElement;
-      openerRef.current =
-        active instanceof HTMLElement
-          ? dialog.contains(active)
-            ? focusTracker.previous
-            : active
-          : null;
+    if (open) {
+      if (!dialog.open) {
+        const active = document.activeElement;
+        openerRef.current =
+          active instanceof HTMLElement
+            ? dialog.contains(active)
+              ? focusTracker.previous
+              : active
+            : null;
 
-      dialog.showModal();
-      requestApplicationErrorBringToFront();
+        dialog.showModal();
 
-      if (!dialog.contains(document.activeElement)) {
-        const initial = dialog.querySelector<HTMLElement>("[autofocus]");
-        initial?.focus();
+        if (!dialog.contains(document.activeElement)) {
+          const initial = dialog.querySelector<HTMLElement>("[autofocus]");
+          initial?.focus();
+        }
       }
-    } else if (!open && dialog.open) {
-      expectedCloseEventsRef.current += 1;
-      dialog.close();
+      unregisterApplicationErrorDialogRef.current ??=
+        registerApplicationErrorDialog(dialog);
+    } else {
+      unregisterApplicationErrorDialogRef.current?.();
+      unregisterApplicationErrorDialogRef.current = null;
+      if (dialog.open) {
+        expectedCloseEventsRef.current += 1;
+        dialog.close();
+      }
     }
+
+    return () => {
+      unregisterApplicationErrorDialogRef.current?.();
+      unregisterApplicationErrorDialogRef.current = null;
+    };
   }, [dismissible, open]);
 
   // Strict Mode-safe focus restoration on genuine unmount.
@@ -186,7 +199,9 @@ export function ModalDialog({
           const dialog = ref.current;
           if (dialog?.isConnected && openRef.current && !dialog.open) {
             dialog.showModal();
-            requestApplicationErrorBringToFront();
+            unregisterApplicationErrorDialogRef.current?.();
+            unregisterApplicationErrorDialogRef.current =
+              registerApplicationErrorDialog(dialog);
           }
         });
       }}
