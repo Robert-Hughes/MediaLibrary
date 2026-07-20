@@ -267,12 +267,14 @@ function compositeGpsEditingAvailability({
   targetDraftEdits,
   targetDraftPersistence,
   callbackAvailable,
+  expectedTarget,
 }: {
   group: GpsTagGroup;
   occurrences: ImageMetadataOccurrencesState | undefined;
   targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceState;
   callbackAvailable: boolean;
+  expectedTarget?: MetadataDraftTarget;
 }): { blocked?: string } {
   if (targetDraftPersistence.status !== "ready")
     return {
@@ -285,11 +287,27 @@ function compositeGpsEditingAvailability({
         "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
     };
   try {
-    planGpsTargetDraftBatch(
+    const planned = planGpsTargetDraftBatch(
       gpsGroupIds(group).map((id) => ({
         id,
         edit: { intent: "Delete" as const, value: null },
       })),
+      occurrences ?? "loading",
+      targetDraftEdits,
+    );
+    if (
+      expectedTarget !== undefined &&
+      !planned.some(({ target }) =>
+        metadataDraftTargetEquals(target, expectedTarget),
+      )
+    ) {
+      return {
+        blocked:
+          "The selected GPS draft destination is not the destination the composite editor would edit. Nothing was saved.",
+      };
+    }
+    validateGpsTargetDraftEntries(
+      planned,
       occurrences ?? "loading",
       targetDraftEdits,
     );
@@ -1020,6 +1038,11 @@ export function DetailsPane({
         occurrences ?? "loading",
         targetDraftEdits,
       );
+      validateGpsTargetDraftEntries(
+        planned,
+        occurrences ?? "loading",
+        targetDraftEdits,
+      );
       setEditDialogUnavailableMessage(null);
       setEditDialog({
         kind: "gps-composite",
@@ -1082,13 +1105,11 @@ export function DetailsPane({
   const activeRowContext = rowContextMenu
     ? allOccurrenceRows.find((row) => row.key === rowContextMenu.rowKey)
     : undefined;
+  const activeRowGpsGroup = activeRowContext
+    ? gpsMemberGroup(rowSchemaId(activeRowContext))
+    : null;
   const rowCanOpenContextMenu = (row: OccurrenceDetailsRow): boolean => {
-    if (
-      row.kind === "ExistingOccurrenceRow" &&
-      gpsMemberGroup(row.occurrence.schema_id) !== null
-    ) {
-      return true;
-    }
+    if (gpsMemberGroup(rowSchemaId(row)) !== null) return true;
     if (!targetDraftsWritable) return false;
     if (row.kind !== "ExistingOccurrenceRow") {
       return row.draftTargets.length > 0;
@@ -1416,29 +1437,25 @@ export function DetailsPane({
               : undefined
           }
           onEditGps={
-            activeRowContext.kind === "ExistingOccurrenceRow" &&
-            gpsMemberGroup(activeRowContext.occurrence.schema_id) !== null
+            activeRowGpsGroup !== null
               ? () => {
-                  const group = gpsMemberGroup(
-                    activeRowContext.occurrence.schema_id,
-                  );
-                  if (group) openGpsCompositeEditor(group);
+                  openGpsCompositeEditor(activeRowGpsGroup);
                   setRowContextMenu(null);
                 }
               : undefined
           }
           gpsEditingUnavailableReason={(() => {
-            if (activeRowContext.kind !== "ExistingOccurrenceRow") {
-              return undefined;
-            }
-            const group = gpsMemberGroup(activeRowContext.occurrence.schema_id);
-            if (group === null) return undefined;
+            if (activeRowGpsGroup === null) return undefined;
             return compositeGpsEditingAvailability({
-              group,
+              group: activeRowGpsGroup,
               occurrences,
               targetDraftEdits,
               targetDraftPersistence,
               callbackAvailable: onApplyGpsTargetDraftBatch !== undefined,
+              expectedTarget:
+                activeRowContext.kind === "ExistingOccurrenceRow"
+                  ? undefined
+                  : activeRowContext.target,
             }).blocked;
           })()}
           onDiscard={

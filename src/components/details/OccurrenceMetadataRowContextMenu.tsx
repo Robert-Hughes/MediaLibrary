@@ -25,6 +25,16 @@ export function OccurrenceMetadataRowContextMenu({
   onClose: () => void;
   gpsEditingUnavailableReason?: string;
 }) {
+  const editGpsOption = onEditGps
+    ? [
+        {
+          label: "Edit GPS…",
+          onClick: onEditGps,
+          disabled: gpsEditingUnavailableReason !== undefined,
+          title: gpsEditingUnavailableReason,
+        },
+      ]
+    : [];
   const options = (() => {
     switch (row.kind) {
       case "ExistingOccurrenceRow": {
@@ -35,16 +45,7 @@ export function OccurrenceMetadataRowContextMenu({
           ...(!staleOrDuplicate && targetable && onEdit
             ? [{ label: "Edit…", onClick: onEdit }]
             : []),
-          ...(!staleOrDuplicate && onEditGps
-            ? [
-                {
-                  label: "Edit GPS…",
-                  onClick: onEditGps,
-                  disabled: gpsEditingUnavailableReason !== undefined,
-                  title: gpsEditingUnavailableReason,
-                },
-              ]
-            : []),
+          ...editGpsOption,
           ...(row.draftTargets.length > 0 && onDiscard
             ? [{ label: "Discard edit", onClick: onDiscard }]
             : []),
@@ -59,10 +60,14 @@ export function OccurrenceMetadataRowContextMenu({
           ...(onEditDestination
             ? [{ label: "Edit destination…", onClick: onEditDestination }]
             : []),
+          ...editGpsOption,
           ...(onDiscard ? [{ label: "Discard edit", onClick: onDiscard }] : []),
         ];
       case "MissingOccurrenceDraftRow":
-        return onDiscard ? [{ label: "Discard edit", onClick: onDiscard }] : [];
+        return [
+          ...editGpsOption,
+          ...(onDiscard ? [{ label: "Discard edit", onClick: onDiscard }] : []),
+        ];
     }
   })();
 
