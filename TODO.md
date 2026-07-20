@@ -1,13 +1,6 @@
 Current
 =======
 
-- How do you add a GPS if the file doesn't have one? (Using hte nice editor)
-
-- Full map view
-  - Select a bunch of photos, right click, "show on Map" opens map popup with pins/thumbnails for each photo
-  - Clicking on the small maps on property list should open the full map (showing just this one photo)
-
-  
 - Add bulk tag editor
   - Choose a tag name
   - Choose Overwrite/Delete/Update
