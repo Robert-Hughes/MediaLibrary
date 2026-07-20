@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import L from "leaflet";
@@ -96,6 +97,30 @@ describe("PhotoMap", () => {
     );
 
     expect(mapInstance.setView).toHaveBeenCalledWith([51.5, -0.12], 16, {
+      animate: false,
+    });
+  });
+
+  it("fits the real map instance after a Strict Mode effect replay", () => {
+    render(
+      <StrictMode>
+        <PhotoMap
+          fitRequest={0}
+          items={[
+            {
+              relativePath: "one.jpg",
+              lat: 51.5,
+              lon: -0.12,
+              thumbnail: "loading",
+            },
+          ]}
+        />
+      </StrictMode>,
+    );
+
+    expect(L.map).toHaveBeenCalledTimes(2);
+    expect(mapInstance.setView).toHaveBeenCalledTimes(2);
+    expect(mapInstance.setView).toHaveBeenLastCalledWith([51.5, -0.12], 16, {
       animate: false,
     });
   });
