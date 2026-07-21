@@ -1904,6 +1904,8 @@ body {
 }
 
 .photo-map-cluster__footprint {
+  --photo-map-footprint-scale: 1;
+
   position: absolute;
   left: 50%;
   top: 50%;
@@ -1913,8 +1915,12 @@ body {
   border: 1px solid color-mix(in srgb, var(--accent) 68%, transparent);
   border-radius: 50%;
   background: color-mix(in srgb, var(--accent) 18%, transparent);
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--photo-map-footprint-scale));
   pointer-events: none;
+}
+
+.photo-map-cluster__footprint--zooming {
+  transition: transform 0.25s cubic-bezier(0, 0, 0.25, 1);
 }
 
 .photo-map-cluster__badge {
