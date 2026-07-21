@@ -109,9 +109,10 @@ export async function resolveTagInfosExact(
     const requestedIds = requested.map(([, id]) => id);
     const request = (async () => {
       try {
-        const found = await invoke<TagInfo[]>("get_tag_infos", {
-          ids: requestedIds,
-        });
+        const found =
+          (await invoke<TagInfo[] | null>("get_tag_infos", {
+            ids: requestedIds,
+          })) ?? [];
         const foundByToken = new Map(
           found.map((info) => [schemaDefinitionIdToken(info.id), info]),
         );
@@ -224,14 +225,12 @@ export function useTagInfos(
   useEffect(() => {
     if (stableData.tokens.length === 0) return;
 
-    for (const token of stableData.tokens) {
-      if (!cache.has(token)) {
-        const id = stableData.uniqueMap.get(token)!;
-        void fetchTagInfo(id, token).catch(() => {
-          // Explicit batch resolution is responsible for retrying failures.
-        });
-      }
-    }
+    void resolveTagInfosExact(
+      stableData.tokens.map((token) => stableData.uniqueMap.get(token)!),
+    ).catch(() => {
+      // The cache records failures while the hook settles. Explicit callers
+      // of resolveTagInfosExact remain responsible for retrying them.
+    });
 
     const cleanups = stableData.tokens.map((token) =>
       subscribe(token, () => setTick((n) => n + 1)),
