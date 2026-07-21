@@ -1,15 +1,7 @@
 Current
 =======
 
-- Add bulk metadata editor
-  - Right click on selected photos on the main list, "Bulk Edit (X photos)..."
-  - Choose Overwrite/Delete/Update/Add
-  - Choose a metadata name (show the number of photos with that metadata, same logic as Select Columns dialog)
-  - Choose further options like new value, add or remove from set etc.
-  - Use existing editors/routing
-  - Grouped editors like GPS?
-  - Remove existing right click option on the headers once we have this new feature
-  - As with all other editing actions, only touches drafts. User must still apply to files using normal workflow.
+- Bulk metadata editor - review/improve
 
 - 2010 folder (and possibly others)
   - Remove all description/title/keywords fields so can be regenerated
