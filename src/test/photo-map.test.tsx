@@ -37,6 +37,7 @@ vi.mock("leaflet", () => ({
     map: vi.fn(() => mapInstance),
     tileLayer: vi.fn(() => ({ addTo: vi.fn().mockReturnThis() })),
     markerClusterGroup: vi.fn(() => clusterGroupInstance),
+    latLng: vi.fn((lat: number, lng: number) => ({ lat, lng })),
     marker: vi.fn(() => {
       const marker = {
         addTo: vi.fn().mockReturnThis(),
@@ -108,14 +109,14 @@ describe("PhotoMap", () => {
     );
   });
 
-  it("sizes a translucent cluster footprint to its farthest photo", () => {
+  it("ignores Leaflet's transient cluster position when sizing the footprint", () => {
     render(<PhotoMap fitRequest={0} items={[]} />);
 
     const options = vi.mocked(L.markerClusterGroup).mock.calls[0][0];
     const createIcon = options?.iconCreateFunction;
     const cluster = {
       getChildCount: () => 3,
-      getLatLng: () => ({ lat: 5, lng: 5 }),
+      getLatLng: () => ({ lat: 500, lng: 500 }),
       getAllChildMarkers: () => [
         { getLatLng: () => ({ lat: 5, lng: 5 }) },
         { getLatLng: () => ({ lat: 8, lng: 9 }) },
