@@ -82,6 +82,12 @@ function clusterIcon(
   const coordinates = markers.map(
     (marker) => markerCoordinates.get(marker) ?? marker.getLatLng(),
   );
+  const firstCoordinate = coordinates[0];
+  const hasIdenticalCoordinates = coordinates.every(
+    (coordinate) =>
+      coordinate.lat === firstCoordinate.lat &&
+      coordinate.lng === firstCoordinate.lng,
+  );
 
   // MarkerCluster temporarily moves cluster markers while animating between
   // zoom levels. Calculate its final weighted centre from the immutable photo
@@ -101,10 +107,10 @@ function clusterIcon(
   );
   const footprintSize = Math.ceil(radius * 2);
   const iconSize = Math.max(CLUSTER_BADGE_SIZE_PX, footprintSize);
-  const label = `${count.toLocaleString()} ${count === 1 ? "photo" : "photos"}`;
+  const label = `${count.toLocaleString()} ${count === 1 ? "photo" : "photos"}${hasIdenticalCoordinates ? " at identical coordinates" : ""}`;
 
   return L.divIcon({
-    className: "photo-map-cluster",
+    className: `photo-map-cluster${hasIdenticalCoordinates ? " photo-map-cluster--identical" : ""}`,
     html: `<span class="photo-map-cluster__footprint" style="width:${footprintSize}px;height:${footprintSize}px"></span><span class="photo-map-cluster__badge" aria-label="${label}" title="${label}">${count.toLocaleString()}</span>`,
     iconSize: [iconSize, iconSize],
     iconAnchor: [iconSize / 2, iconSize / 2],

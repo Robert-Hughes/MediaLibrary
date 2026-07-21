@@ -1948,6 +1948,15 @@ body {
   background: var(--accent-hover);
 }
 
+.photo-map-cluster--identical .photo-map-cluster__badge {
+  background: var(--accent-error);
+}
+
+.photo-map-cluster--identical:hover .photo-map-cluster__badge,
+.photo-map-cluster--identical:focus-visible .photo-map-cluster__badge {
+  background: color-mix(in srgb, var(--accent-error) 82%, white);
+}
+
 .photo-map-icon--snapshot,
 .photo-map-icon--departing {
   pointer-events: none !important;
