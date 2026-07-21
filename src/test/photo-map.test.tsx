@@ -135,6 +135,7 @@ describe("PhotoMap", () => {
     } as unknown as L.MarkerCluster;
 
     const icon = createIcon?.(cluster) as unknown as {
+      className: string;
       html: string;
       iconSize: number[];
       iconAnchor: number[];
@@ -142,6 +143,7 @@ describe("PhotoMap", () => {
 
     expect(icon.html).toContain('style="width:100px;height:100px"');
     expect(icon.html).toContain('aria-label="3 photos"');
+    expect(icon.className).toBe("photo-map-cluster");
     expect(icon.iconSize).toEqual([100, 100]);
     expect(icon.iconAnchor).toEqual([50, 50]);
   });
@@ -161,11 +163,16 @@ describe("PhotoMap", () => {
     } as unknown as L.MarkerCluster;
 
     const icon = createIcon?.(cluster) as unknown as {
+      className: string;
       html: string;
       iconSize: number[];
     };
 
     expect(icon.html).toContain('style="width:0px;height:0px"');
+    expect(icon.html).toContain(
+      'aria-label="2 photos at identical coordinates"',
+    );
+    expect(icon.className).toContain("photo-map-cluster--identical");
     expect(icon.iconSize).toEqual([36, 36]);
   });
 
