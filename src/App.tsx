@@ -390,7 +390,10 @@ function LoadedView({
           normalise.actions.start(state.folder, items, [...initialGroups]);
         }}
         onCopyPaths={onCopyPaths}
-        onBulkEdit={(relativePaths) => setBulkEditPaths([...relativePaths])}
+        onBulkEdit={(relativePaths) => {
+          if (!actions.canOpenBulkMetadataEditor(relativePaths)) return;
+          setBulkEditPaths([...relativePaths]);
+        }}
         onShowOnMap={setFullMapPaths}
         onSelectionCountChange={setSelectionCount}
       />

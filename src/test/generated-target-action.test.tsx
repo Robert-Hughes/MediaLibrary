@@ -411,6 +411,28 @@ describe("generated target-aware production action", () => {
     ).toBe("metadata-target-generated-readiness");
   });
 
+  it("prevents the bulk editor opening while occurrences are loading", async () => {
+    const { result } = await loadedFile({ emitMetadata: false });
+    let ready;
+    act(() => {
+      ready = result.current[1].canOpenBulkMetadataEditor(["photo.jpg"]);
+    });
+
+    expect(ready).toBe(false);
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("Expected loaded state");
+    expect(
+      state.applicationErrors[state.applicationErrors.length - 1],
+    ).toMatchObject({
+      error_type: "metadata-target-bulk-readiness",
+      affected_files: ["photo.jpg"],
+    });
+    expect(
+      state.applicationErrors[state.applicationErrors.length - 1]
+        ?.error_message,
+    ).toContain("bulk metadata editor was not opened");
+  });
+
   it("does not mutate caller-owned generated entries", async () => {
     const { result } = await loadedFile();
     const entry = generated(ID.mlibAiDescription, "generated");
