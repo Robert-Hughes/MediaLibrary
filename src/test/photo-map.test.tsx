@@ -12,9 +12,6 @@ const mapInstance = {
   setView: vi.fn().mockReturnThis(),
   fitBounds: vi.fn().mockReturnThis(),
   getZoom: vi.fn(() => 5),
-  getZoomScale: vi.fn(
-    (toZoom: number, fromZoom: number) => 2 ** (toZoom - fromZoom),
-  ),
   project: vi.fn(({ lat, lng }: { lat: number; lng: number }) => ({
     x: lng * 10,
     y: lat * 10,
@@ -93,6 +90,14 @@ describe("PhotoMap", () => {
         maxClusterRadius: 56,
         spiderfyOnMaxZoom: true,
         showCoverageOnHover: false,
+        animate: false,
+      }),
+    );
+    expect(L.map).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        zoomAnimation: true,
+        fadeAnimation: true,
       }),
     );
     expect(L.marker).toHaveBeenNthCalledWith(
@@ -164,37 +169,48 @@ describe("PhotoMap", () => {
     expect(icon.iconSize).toEqual([36, 36]);
   });
 
-  it("scales footprints through the zoom animation and then resets them", () => {
-    render(<PhotoMap fitRequest={0} items={[]} />);
-    const mapElement = document.querySelector<HTMLElement>(".photo-map");
-    const footprint = document.createElement("span");
-    footprint.className = "photo-map-cluster__footprint";
-    mapElement?.append(footprint);
+  it("crossfades replaced icons and clears ghosts when another zoom starts", () => {
+    vi.useFakeTimers();
+    try {
+      render(<PhotoMap fitRequest={0} items={[]} />);
+      const mapElement = document.querySelector<HTMLElement>(".photo-map");
+      const replaced = document.createElement("div");
+      replaced.className = "photo-map-cluster";
+      const retained = document.createElement("div");
+      retained.className = "photo-map-marker";
+      mapElement?.append(replaced, retained);
 
-    const zoomStart = mapInstance.on.mock.calls.find(
-      ([event]) => event === "zoomstart",
-    )?.[1] as (() => void) | undefined;
-    const zoomAnimation = mapInstance.on.mock.calls.find(
-      ([event]) => event === "zoomanim",
-    )?.[1] as ((event: { zoom: number }) => void) | undefined;
-    const animationEnd = clusterGroupInstance.on.mock.calls.find(
-      ([event]) => event === "animationend",
-    )?.[1] as (() => void) | undefined;
+      const zoomEndHandlers = mapInstance.on.mock.calls
+        .filter(([event]) => event === "zoomend")
+        .map(([, handler]) => handler as () => void);
+      expect(zoomEndHandlers).toHaveLength(2);
 
-    zoomStart?.();
-    zoomAnimation?.({ zoom: 6 });
+      zoomEndHandlers[0]();
+      replaced.remove();
+      const entering = document.createElement("div");
+      entering.className = "photo-map-cluster";
+      mapElement?.append(entering);
+      zoomEndHandlers[1]();
 
-    expect(footprint).toHaveClass("photo-map-cluster__footprint--zooming");
-    expect(
-      footprint.style.getPropertyValue("--photo-map-footprint-scale"),
-    ).toBe("2");
+      expect(
+        mapElement?.querySelector(".photo-map-icon--departing"),
+      ).toBeInTheDocument();
+      expect(entering).toHaveClass("photo-map-icon--entering");
+      expect(retained).not.toHaveClass("photo-map-icon--entering");
 
-    animationEnd?.();
+      const zoomStart = mapInstance.on.mock.calls.find(
+        ([event]) => event === "zoomstart",
+      )?.[1] as (() => void) | undefined;
+      zoomStart?.();
 
-    expect(footprint).not.toHaveClass("photo-map-cluster__footprint--zooming");
-    expect(
-      footprint.style.getPropertyValue("--photo-map-footprint-scale"),
-    ).toBe("");
+      expect(
+        mapElement?.querySelector(".photo-map-icon--departing"),
+      ).not.toBeInTheDocument();
+      expect(entering).not.toHaveClass("photo-map-icon--entering");
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
   });
 
   it("centres a single photo at local zoom", () => {

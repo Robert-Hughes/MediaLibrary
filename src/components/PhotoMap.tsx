@@ -20,6 +20,8 @@ interface PhotoMapProps {
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const CLUSTER_RADIUS_PX = 56;
 const CLUSTER_BADGE_SIZE_PX = 36;
+const CROSSFADE_DURATION_MS = 160;
+const PHOTO_ICON_SELECTOR = ".photo-map-cluster, .photo-map-marker";
 
 function displayLongitudes(items: PhotoMapItem[]): number[] {
   if (items.length < 2) {
@@ -139,6 +141,11 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
       boxZoom: true,
       keyboard: true,
       touchZoom: true,
+      // Leaflet retains and scales the previous tile level only on its animated
+      // zoom path. CSS makes that geometry transition effectively instant while
+      // fadeAnimation crossfades each replacement tile after it has loaded.
+      zoomAnimation: true,
+      fadeAnimation: true,
       tap: true,
     } as L.MapOptions & { tap?: boolean });
 
@@ -147,6 +154,57 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
       attribution:
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
+
+    // MarkerCluster only swaps cluster layers on zoomend, and its built-in
+    // positional animation can jump when rapid zooms interrupt its timeout
+    // queue. Keep clustering non-animated and crossfade only the DOM icons it
+    // actually replaces, without changing Leaflet's marker positions.
+    type CrossfadeSnapshot = {
+      originals: HTMLElement[];
+      clones: Map<HTMLElement, HTMLElement>;
+    };
+    let crossfadeSnapshot: CrossfadeSnapshot | null = null;
+    const crossfadeTimeouts = new Set<number>();
+    const currentPhotoIcons = () =>
+      Array.from(
+        containerRef.current?.querySelectorAll<HTMLElement>(
+          PHOTO_ICON_SELECTOR,
+        ) ?? [],
+      ).filter(
+        (icon) =>
+          !icon.classList.contains("photo-map-icon--snapshot") &&
+          !icon.classList.contains("photo-map-icon--departing"),
+      );
+    const clearCrossfadeArtifacts = () => {
+      for (const timeout of crossfadeTimeouts) window.clearTimeout(timeout);
+      crossfadeTimeouts.clear();
+      containerRef.current
+        ?.querySelectorAll<HTMLElement>(
+          ".photo-map-icon--snapshot, .photo-map-icon--departing",
+        )
+        .forEach((icon) => icon.remove());
+      containerRef.current
+        ?.querySelectorAll<HTMLElement>(".photo-map-icon--entering")
+        .forEach((icon) => icon.classList.remove("photo-map-icon--entering"));
+      crossfadeSnapshot = null;
+    };
+    const captureCrossfade = () => {
+      clearCrossfadeArtifacts();
+      const originals = currentPhotoIcons();
+      const clones = new Map<HTMLElement, HTMLElement>();
+      for (const original of originals) {
+        const clone = original.cloneNode(true) as HTMLElement;
+        clone.classList.add("photo-map-icon--snapshot");
+        clone.setAttribute("aria-hidden", "true");
+        original.parentElement?.append(clone);
+        clones.set(original, clone);
+      }
+      crossfadeSnapshot = { originals, clones };
+    };
+
+    // Register before MarkerCluster so the outgoing icons are captured just
+    // before its synchronous, non-animated layer swap on zoomend.
+    map.on("zoomend", captureCrossfade);
 
     const clusterGroup = L.markerClusterGroup({
       maxClusterRadius: CLUSTER_RADIUS_PX,
@@ -157,40 +215,54 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
       showCoverageOnHover: false,
       removeOutsideVisibleBounds: true,
       chunkedLoading: true,
+      animate: false,
     }).addTo(map);
 
-    let zoomStart = map.getZoom();
+    const finishCrossfade = () => {
+      const snapshot = crossfadeSnapshot;
+      if (!snapshot) return;
+      crossfadeSnapshot = null;
+      const retained = new Set(
+        snapshot.originals.filter((icon) => icon.isConnected),
+      );
+
+      for (const [original, clone] of snapshot.clones) {
+        if (retained.has(original)) {
+          clone.remove();
+          continue;
+        }
+        clone.classList.remove("photo-map-icon--snapshot");
+        clone.classList.add("photo-map-icon--departing");
+        const timeout = window.setTimeout(() => {
+          clone.remove();
+          crossfadeTimeouts.delete(timeout);
+        }, CROSSFADE_DURATION_MS);
+        crossfadeTimeouts.add(timeout);
+      }
+
+      for (const icon of currentPhotoIcons()) {
+        if (retained.has(icon)) continue;
+        icon.classList.add("photo-map-icon--entering");
+        const timeout = window.setTimeout(() => {
+          icon.classList.remove("photo-map-icon--entering");
+          crossfadeTimeouts.delete(timeout);
+        }, CROSSFADE_DURATION_MS);
+        crossfadeTimeouts.add(timeout);
+      }
+    };
+    map.on("zoomend", finishCrossfade);
+
     const markDragStart = () => {
       userMovedRef.current = true;
     };
     const markZoomStart = () => {
       userMovedRef.current = true;
-      zoomStart = map.getZoom();
-    };
-    const animateFootprints = (event: L.ZoomAnimEvent) => {
-      const scale = map.getZoomScale(event.zoom, zoomStart);
-      containerRef.current
-        ?.querySelectorAll<HTMLElement>(".photo-map-cluster__footprint")
-        .forEach((footprint) => {
-          footprint.classList.add("photo-map-cluster__footprint--zooming");
-          footprint.style.setProperty(
-            "--photo-map-footprint-scale",
-            String(scale),
-          );
-        });
-    };
-    const finishFootprintAnimation = () => {
-      containerRef.current
-        ?.querySelectorAll<HTMLElement>(".photo-map-cluster__footprint")
-        .forEach((footprint) => {
-          footprint.classList.remove("photo-map-cluster__footprint--zooming");
-          footprint.style.removeProperty("--photo-map-footprint-scale");
-        });
+      // Snapshots are not Leaflet layers and cannot follow another map zoom.
+      // Remove an unfinished fade before it can become a stationary ghost.
+      clearCrossfadeArtifacts();
     };
     map.on("dragstart", markDragStart);
     map.on("zoomstart", markZoomStart);
-    map.on("zoomanim", animateFootprints);
-    clusterGroup.on("animationend", finishFootprintAnimation);
     mapRef.current = map;
     clusterGroupRef.current = clusterGroup;
     // A fresh Leaflet instance always needs an initial fit. In React Strict
@@ -209,8 +281,9 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
       window.clearTimeout(invalidateSizeTimeout);
       map.off("dragstart", markDragStart);
       map.off("zoomstart", markZoomStart);
-      map.off("zoomanim", animateFootprints);
-      clusterGroup.off("animationend", finishFootprintAnimation);
+      map.off("zoomend", captureCrossfade);
+      map.off("zoomend", finishCrossfade);
+      clearCrossfadeArtifacts();
       map.remove();
       mapRef.current = null;
       clusterGroupRef.current = null;
