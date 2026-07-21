@@ -132,6 +132,7 @@ describe("App CLI folder argument", () => {
       if (cmd === "start_scan") {
         return Promise.resolve();
       }
+      if (cmd === "get_tag_infos") return Promise.resolve([]);
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
       return Promise.resolve(null);
     });

@@ -107,11 +107,11 @@ describe("DetailsPane embedded TagInfo", () => {
   });
 
   it("looks up a schema that has no embedded information and deduplicates occurrences", async () => {
-    vi.mocked(invoke).mockResolvedValue(embedded);
+    vi.mocked(invoke).mockResolvedValue([embedded]);
     renderPane([occurrence(0, null), occurrence(1, null)]);
 
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(invoke).toHaveBeenCalledWith("get_tag_info", { id });
+    expect(invoke).toHaveBeenCalledWith("get_tag_infos", { ids: [id] });
   });
 
   it("keeps a same-schema New Property editable from embedded exact information", () => {

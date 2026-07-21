@@ -20,6 +20,7 @@ import {
   tagInfoDisplayName,
 } from "../utils/schemaDefinitionId";
 import { metadataEditCapabilities } from "../metadataEditCapabilities";
+import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
 import { GPS_IDS } from "../metadata/knownIds";
 import type { GpsTagGroup } from "../metadata/tag_overrides";
 import { buildEffectiveMetadataForFile } from "../utils/effectiveMetadata";
@@ -83,6 +84,63 @@ function candidateLabel(candidate: Candidate): string {
     : tagInfoDisplayName(candidate.info);
 }
 
+function tagInfoMatchesSearch(info: TagInfo, lowerSearch: string): boolean {
+  return [
+    tagInfoDisplayName(info),
+    info.group,
+    info.name,
+    info.id.table,
+    info.id.tag_id,
+    info.description ?? "",
+    info.kind.kind,
+  ].some((value) => value.toLowerCase().includes(lowerSearch));
+}
+
+function readOnlyReason(candidate: Candidate | null): string | null {
+  if (candidate === null || candidate.kind === "gps") return null;
+  if (!candidate.info.writable) {
+    return "ExifTool's schema marks this property as read-only.";
+  }
+  if (candidate.info.kind.kind === "Binary") {
+    return "This property contains binary data, which MediaLibrary cannot safely write.";
+  }
+  if (candidate.info.kind.kind === "Unknown") {
+    return "ExifTool does not provide a supported writable datatype for this property.";
+  }
+  if (!tagInfoSupportsMetadataWrite(candidate.info)) {
+    return "This property's schema is not supported by the metadata write pipeline.";
+  }
+  return null;
+}
+
+function DialogErrorStatus({
+  title,
+  message,
+  testId,
+}: {
+  title: string;
+  message: string;
+  testId: string;
+}) {
+  return (
+    <div
+      className="error-banner error-banner--error bulk-editor-error-status"
+      role="alert"
+      data-testid={testId}
+    >
+      <div className="error-banner-content">
+        <span className="error-banner-icon" aria-hidden="true">
+          ⛔
+        </span>
+        <div className="error-banner-text">
+          <div className="error-banner-title">{title}</div>
+          <div className="error-banner-message">{message}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function previewSummary(plan: BulkMetadataDraftPlan): string[] {
   const { preview } = plan;
   return [
@@ -138,14 +196,16 @@ export function BulkMetadataEditorDialog({
   const [request, setRequest] = useState<BulkMetadataDraftRequest | null>(null);
   const [plan, setPlan] = useState<BulkMetadataDraftPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const lowerSearch = search.trim().toLowerCase();
 
   const candidates = useMemo(() => {
     const countByToken = new Map(
       frequencies.map(({ id, count }) => [schemaDefinitionIdToken(id), count]),
     );
     const byToken = new Map<string, Candidate>();
-    if (writableDefinitions !== "loading") {
+    if (lowerSearch && writableDefinitions !== "loading") {
       for (const info of writableDefinitions) {
+        if (!tagInfoMatchesSearch(info, lowerSearch)) continue;
         if (!appliesToEveryPhoto(info, photos)) continue;
         if (metadataEditCapabilities(info).groupedEditor !== null) continue;
         const token = schemaDefinitionIdToken(info.id);
@@ -162,6 +222,7 @@ export function BulkMetadataEditorDialog({
       const info = tagInfos[token];
       if (!info || info === "loading") continue;
       if (metadataEditCapabilities(info).groupedEditor !== null) continue;
+      if (lowerSearch && !tagInfoMatchesSearch(info, lowerSearch)) continue;
       if (!byToken.has(token)) {
         byToken.set(token, { kind: "schema", token, info, count });
       }
@@ -187,12 +248,20 @@ export function BulkMetadataEditorDialog({
         });
         return effective.lat !== null && effective.lon !== null;
       }).length;
-      byToken.set("gps-location", {
-        kind: "gps",
-        token: "gps-location",
-        group: structuredClone(GPS_GROUP),
-        count,
-      });
+      const gpsMatches = [
+        "gps location",
+        "latitude",
+        "longitude",
+        "altitude",
+      ].some((value) => value.includes(lowerSearch));
+      if (count > 0 || (lowerSearch && gpsMatches)) {
+        byToken.set("gps-location", {
+          kind: "gps",
+          token: "gps-location",
+          group: structuredClone(GPS_GROUP),
+          count,
+        });
+      }
     }
 
     return Array.from(byToken.values()).sort((left, right) =>
@@ -202,32 +271,14 @@ export function BulkMetadataEditorDialog({
     frequencies,
     imageMetadataOccurrences,
     photos,
+    lowerSearch,
     tagInfos,
     targetDraftEdits,
     writableDefinitions,
   ]);
-
-  const lowerSearch = search.trim().toLowerCase();
-  const filteredCandidates = candidates.filter((candidate) => {
-    if (!lowerSearch) return true;
-    if (candidate.kind === "gps") {
-      return ["gps location", "latitude", "longitude", "altitude"].some(
-        (value) => value.includes(lowerSearch),
-      );
-    }
-    const { info } = candidate;
-    return [
-      tagInfoDisplayName(info),
-      info.group,
-      info.name,
-      info.id.table,
-      info.id.tag_id,
-      info.description ?? "",
-      info.kind.kind,
-    ].some((value) => value.toLowerCase().includes(lowerSearch));
-  });
   const selected =
     candidates.find((candidate) => candidate.token === selectedToken) ?? null;
+  const selectedReadOnlyReason = readOnlyReason(selected);
   const capabilities =
     selected?.kind === "schema"
       ? metadataEditCapabilities(selected.info)
@@ -384,11 +435,6 @@ export function BulkMetadataEditorDialog({
                 Choose one exact metadata property, then Set or Delete it across
                 the selected photos.
               </p>
-              {error ? (
-                <p role="alert" className="editor-meta-hint-warning">
-                  {error}
-                </p>
-              ) : null}
               <div className="column-search">
                 <input
                   type="text"
@@ -408,13 +454,15 @@ export function BulkMetadataEditorDialog({
                   <div className="no-results">
                     Loading metadata properties...
                   </div>
-                ) : filteredCandidates.length === 0 ? (
+                ) : candidates.length === 0 ? (
                   <div className="no-results">
                     No metadata properties match.
                   </div>
                 ) : (
-                  filteredCandidates.map((candidate) => {
+                  candidates.map((candidate) => {
                     const active = candidate.token === selectedToken;
+                    const candidateReadOnly =
+                      readOnlyReason(candidate) !== null;
                     return (
                       <button
                         type="button"
@@ -443,7 +491,7 @@ export function BulkMetadataEditorDialog({
                         <div style={{ fontSize: "11px", opacity: 0.75 }}>
                           {candidate.kind === "gps"
                             ? "Grouped GPS coordinate and altitude fields"
-                            : `${candidate.info.kind.kind} · ${candidate.info.id.table} / ${candidate.info.id.tag_id}`}
+                            : `${candidate.info.kind.kind} · ${candidate.info.id.table} / ${candidate.info.id.tag_id}${candidateReadOnly ? " · Read-only" : ""}`}
                         </div>
                       </button>
                     );
@@ -454,27 +502,39 @@ export function BulkMetadataEditorDialog({
               {selected ? (
                 <div style={{ marginTop: "18px" }}>
                   <h3>{candidateLabel(selected)}</h3>
-                  <label style={{ marginRight: "20px" }}>
-                    <input
-                      type="radio"
-                      name="bulk-operation"
-                      checked={operation === "Set"}
-                      onChange={() => setOperation("Set")}
-                    />{" "}
-                    Set
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="bulk-operation"
-                      checked={operation === "Delete"}
-                      onChange={() => {
-                        setOperation("Delete");
-                        setMerge(false);
-                      }}
-                    />{" "}
-                    Delete
-                  </label>
+                  {selectedReadOnlyReason ? (
+                    <DialogErrorStatus
+                      title="This property is read-only"
+                      message={selectedReadOnlyReason}
+                      testId="bulk-editor-read-only-status"
+                    />
+                  ) : null}
+                  <fieldset
+                    disabled={selectedReadOnlyReason !== null}
+                    className="bulk-editor-operation-fieldset"
+                  >
+                    <label style={{ marginRight: "20px" }}>
+                      <input
+                        type="radio"
+                        name="bulk-operation"
+                        checked={operation === "Set"}
+                        onChange={() => setOperation("Set")}
+                      />{" "}
+                      Set
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="bulk-operation"
+                        checked={operation === "Delete"}
+                        onChange={() => {
+                          setOperation("Delete");
+                          setMerge(false);
+                        }}
+                      />{" "}
+                      Delete
+                    </label>
+                  </fieldset>
                   {operation === "Set" && mergeAvailable ? (
                     <label style={{ display: "block", marginTop: "12px" }}>
                       <input
@@ -494,6 +554,13 @@ export function BulkMetadataEditorDialog({
                   </p>
                 </div>
               ) : null}
+              {error ? (
+                <DialogErrorStatus
+                  title="Bulk edit could not be previewed"
+                  message={error}
+                  testId="bulk-editor-error-status"
+                />
+              ) : null}
             </div>
             <div className="dialog-footer">
               <button className="btn-secondary" onClick={onClose}>
@@ -501,7 +568,7 @@ export function BulkMetadataEditorDialog({
               </button>
               <button
                 className="btn-primary"
-                disabled={!selected}
+                disabled={!selected || selectedReadOnlyReason !== null}
                 onClick={() => {
                   if (!selected) return;
                   if (operation === "Delete") {

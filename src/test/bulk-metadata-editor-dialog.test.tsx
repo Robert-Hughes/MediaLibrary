@@ -50,6 +50,143 @@ afterEach(() => {
 });
 
 describe("BulkMetadataEditorDialog", () => {
+  it("shows occurring properties by default and adds zero-occurrence matches while searching", async () => {
+    const unusedId: SchemaDefinitionId = {
+      table: "XMP::dc",
+      tag_id: "description",
+    };
+    const unusedInfo: TagInfo = {
+      ...info,
+      id: unusedId,
+      name: "Description",
+      description: "Description",
+    };
+    _setWritableSchemaDefinitionsCache([info, unusedInfo]);
+    _setTagInfoCacheEntry(id, info);
+    const existing = occurrenceFromSchemaValue(
+      id,
+      { kind: "Text", value: "Old" },
+      0,
+    );
+    existing.tag_info = info;
+
+    render(
+      <BulkMetadataEditorDialog
+        photos={makePhotos(["one.jpg"])}
+        imageMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
+        targetDraftEdits={{}}
+        onPreview={vi.fn()}
+        onStage={() => true}
+        onClose={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /XMP-dc:Title/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /XMP-dc:Description/ }),
+    ).not.toBeInTheDocument();
+
+    await userEvent.type(
+      screen.getByPlaceholderText("Search metadata properties..."),
+      "description",
+    );
+
+    expect(
+      screen.getByRole("button", { name: /XMP-dc:Description/ }),
+    ).toHaveTextContent("0 of 1 photos");
+  });
+
+  it("keeps an occurring unsupported property visible but disables its operations", async () => {
+    const thumbnailId: SchemaDefinitionId = {
+      table: "Composite::Main",
+      tag_id: "Exif-ThumbnailImage",
+    };
+    const thumbnailInfo: TagInfo = {
+      id: thumbnailId,
+      group: "All",
+      name: "ThumbnailImage",
+      writable: true,
+      kind: { kind: "Unknown" },
+      description: "Thumbnail Image",
+    };
+    _setWritableSchemaDefinitionsCache([]);
+    _setTagInfoCacheEntry(thumbnailId, thumbnailInfo);
+    const thumbnail = occurrenceFromSchemaValue(
+      thumbnailId,
+      { kind: "Binary" },
+      0,
+    );
+    thumbnail.tag_info = thumbnailInfo;
+    const onPreview = vi.fn();
+
+    render(
+      <BulkMetadataEditorDialog
+        photos={makePhotos(["thumbnail.jpg"])}
+        imageMetadataOccurrences={occurrenceStore({
+          "thumbnail.jpg": [thumbnail],
+        })}
+        targetDraftEdits={{}}
+        onPreview={onPreview}
+        onStage={() => true}
+        onClose={() => {}}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /All:ThumbnailImage/ }),
+    );
+
+    expect(screen.getByTestId("bulk-editor-read-only-status")).toHaveClass(
+      "error-banner",
+      "error-banner--error",
+    );
+    expect(screen.getByLabelText("Set")).toBeDisabled();
+    expect(screen.getByLabelText("Delete")).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Enter value..." }),
+    ).toBeDisabled();
+    expect(onPreview).not.toHaveBeenCalled();
+  });
+
+  it("shows preview failures in the dialog error-banner style", async () => {
+    _setWritableSchemaDefinitionsCache([info]);
+    _setTagInfoCacheEntry(id, info);
+    const existing = occurrenceFromSchemaValue(
+      id,
+      { kind: "Text", value: "Old" },
+      0,
+    );
+    existing.tag_info = info;
+
+    render(
+      <BulkMetadataEditorDialog
+        photos={makePhotos(["one.jpg"])}
+        imageMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
+        targetDraftEdits={{}}
+        onPreview={() => ({
+          kind: "blocked",
+          reason: "The occurrence is not safely targetable.",
+          relativePath: "one.jpg",
+        })}
+        onStage={() => true}
+        onClose={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /XMP-dc:Title/ }));
+    await userEvent.click(screen.getByLabelText("Delete"));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Review Delete" }),
+    );
+
+    const status = screen.getByTestId("bulk-editor-error-status");
+    expect(status).toHaveClass("error-banner", "error-banner--error");
+    expect(status).toHaveTextContent("Bulk edit could not be previewed");
+    expect(status).toHaveTextContent("Affected file: one.jpg");
+  });
+
   it("uses TypedValueEditor to collect a semantic Set value", async () => {
     _setWritableSchemaDefinitionsCache([info]);
     _setTagInfoCacheEntry(id, info);
@@ -156,6 +293,10 @@ describe("BulkMetadataEditorDialog", () => {
       />,
     );
 
+    await userEvent.type(
+      screen.getByPlaceholderText("Search metadata properties..."),
+      "gps",
+    );
     await userEvent.click(screen.getByRole("button", { name: /GPS Location/ }));
     expect(
       screen.queryByLabelText("Merge with existing value"),

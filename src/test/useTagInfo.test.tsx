@@ -270,11 +270,14 @@ describe("useTagInfo exact lookup hook", () => {
       description: "Model",
     };
 
-    vi.mocked(invoke).mockResolvedValueOnce(tag1).mockResolvedValueOnce(tag3);
+    vi.mocked(invoke).mockResolvedValueOnce([tag1, tag3]);
 
     const { result } = renderHook(() => useTagInfos([id1, id2, id3]));
 
-    expect(invoke).toHaveBeenCalledTimes(2);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith("get_tag_infos", {
+      ids: [id1, id3],
+    });
 
     await waitFor(() => {
       expect(result.current).toEqual({

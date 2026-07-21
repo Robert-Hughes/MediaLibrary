@@ -1709,6 +1709,23 @@ body {
   color: var(--text-primary);
 }
 
+.bulk-editor-error-status {
+  margin-top: 12px;
+  box-shadow: none;
+  animation: none;
+}
+
+.bulk-editor-operation-fieldset {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.bulk-editor-operation-fieldset:disabled {
+  opacity: 0.55;
+}
+
 /* ── Dialogs / Modals ─────────────────────────────────────────────────────── */
 
 .modal-dialog {
