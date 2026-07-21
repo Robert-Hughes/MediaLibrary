@@ -12,6 +12,9 @@ const mapInstance = {
   setView: vi.fn().mockReturnThis(),
   fitBounds: vi.fn().mockReturnThis(),
   getZoom: vi.fn(() => 5),
+  getZoomScale: vi.fn(
+    (toZoom: number, fromZoom: number) => 2 ** (toZoom - fromZoom),
+  ),
   project: vi.fn(({ lat, lng }: { lat: number; lng: number }) => ({
     x: lng * 10,
     y: lat * 10,
@@ -25,6 +28,8 @@ const clusterGroupInstance = {
   addTo: vi.fn().mockReturnThis(),
   addLayers: vi.fn().mockReturnThis(),
   clearLayers: vi.fn().mockReturnThis(),
+  on: vi.fn().mockReturnThis(),
+  off: vi.fn().mockReturnThis(),
 };
 
 const markerInstances: Array<{
@@ -157,6 +162,39 @@ describe("PhotoMap", () => {
 
     expect(icon.html).toContain('style="width:0px;height:0px"');
     expect(icon.iconSize).toEqual([36, 36]);
+  });
+
+  it("scales footprints through the zoom animation and then resets them", () => {
+    render(<PhotoMap fitRequest={0} items={[]} />);
+    const mapElement = document.querySelector<HTMLElement>(".photo-map");
+    const footprint = document.createElement("span");
+    footprint.className = "photo-map-cluster__footprint";
+    mapElement?.append(footprint);
+
+    const zoomStart = mapInstance.on.mock.calls.find(
+      ([event]) => event === "zoomstart",
+    )?.[1] as (() => void) | undefined;
+    const zoomAnimation = mapInstance.on.mock.calls.find(
+      ([event]) => event === "zoomanim",
+    )?.[1] as ((event: { zoom: number }) => void) | undefined;
+    const animationEnd = clusterGroupInstance.on.mock.calls.find(
+      ([event]) => event === "animationend",
+    )?.[1] as (() => void) | undefined;
+
+    zoomStart?.();
+    zoomAnimation?.({ zoom: 6 });
+
+    expect(footprint).toHaveClass("photo-map-cluster__footprint--zooming");
+    expect(
+      footprint.style.getPropertyValue("--photo-map-footprint-scale"),
+    ).toBe("2");
+
+    animationEnd?.();
+
+    expect(footprint).not.toHaveClass("photo-map-cluster__footprint--zooming");
+    expect(
+      footprint.style.getPropertyValue("--photo-map-footprint-scale"),
+    ).toBe("");
   });
 
   it("centres a single photo at local zoom", () => {

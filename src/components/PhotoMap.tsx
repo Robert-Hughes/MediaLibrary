@@ -159,11 +159,38 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
       chunkedLoading: true,
     }).addTo(map);
 
-    const markUserMovement = () => {
+    let zoomStart = map.getZoom();
+    const markDragStart = () => {
       userMovedRef.current = true;
     };
-    map.on("dragstart", markUserMovement);
-    map.on("zoomstart", markUserMovement);
+    const markZoomStart = () => {
+      userMovedRef.current = true;
+      zoomStart = map.getZoom();
+    };
+    const animateFootprints = (event: L.ZoomAnimEvent) => {
+      const scale = map.getZoomScale(event.zoom, zoomStart);
+      containerRef.current
+        ?.querySelectorAll<HTMLElement>(".photo-map-cluster__footprint")
+        .forEach((footprint) => {
+          footprint.classList.add("photo-map-cluster__footprint--zooming");
+          footprint.style.setProperty(
+            "--photo-map-footprint-scale",
+            String(scale),
+          );
+        });
+    };
+    const finishFootprintAnimation = () => {
+      containerRef.current
+        ?.querySelectorAll<HTMLElement>(".photo-map-cluster__footprint")
+        .forEach((footprint) => {
+          footprint.classList.remove("photo-map-cluster__footprint--zooming");
+          footprint.style.removeProperty("--photo-map-footprint-scale");
+        });
+    };
+    map.on("dragstart", markDragStart);
+    map.on("zoomstart", markZoomStart);
+    map.on("zoomanim", animateFootprints);
+    clusterGroup.on("animationend", finishFootprintAnimation);
     mapRef.current = map;
     clusterGroupRef.current = clusterGroup;
     // A fresh Leaflet instance always needs an initial fit. In React Strict
@@ -180,8 +207,10 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
 
     return () => {
       window.clearTimeout(invalidateSizeTimeout);
-      map.off("dragstart", markUserMovement);
-      map.off("zoomstart", markUserMovement);
+      map.off("dragstart", markDragStart);
+      map.off("zoomstart", markZoomStart);
+      map.off("zoomanim", animateFootprints);
+      clusterGroup.off("animationend", finishFootprintAnimation);
       map.remove();
       mapRef.current = null;
       clusterGroupRef.current = null;
