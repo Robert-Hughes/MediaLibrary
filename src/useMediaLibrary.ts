@@ -115,6 +115,7 @@ export interface MediaLibraryActions {
   updateColumnWidth: (col: string, width: number) => void;
   resetColumnWidths: () => void;
   dismissError: (index: number) => void;
+  canOpenBulkMetadataEditor: (relativePaths: string[]) => boolean;
   canStageGeneratedMetadata: (relativePaths: string[]) => boolean;
   applyGeneratedMetadataDraftBatch: (
     relativePath: string,
@@ -1065,8 +1066,12 @@ export function useMediaLibrary(
     });
   }, []);
 
-  const canStageGeneratedMetadata = useCallback(
-    (relativePaths: string[]): boolean => {
+  const requireAuthoritativeMetadataReady = useCallback(
+    (
+      relativePaths: string[],
+      errorType: string,
+      blockedAction: string,
+    ): boolean => {
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       const unavailable = paths.find(
@@ -1076,8 +1081,8 @@ export function useMediaLibrary(
       );
       if (unavailable !== undefined) {
         pushApplicationError(
-          "metadata-target-generated-readiness",
-          `Authoritative metadata occurrences are still loading for '${unavailable}'. Generated metadata was not started.`,
+          errorType,
+          `Authoritative metadata occurrences are still loading for '${unavailable}'. ${blockedAction}`,
           [unavailable],
         );
         return false;
@@ -1085,6 +1090,26 @@ export function useMediaLibrary(
       return true;
     },
     [pushApplicationError, requireTargetDraftPersistenceReady],
+  );
+
+  const canOpenBulkMetadataEditor = useCallback(
+    (relativePaths: string[]): boolean =>
+      requireAuthoritativeMetadataReady(
+        relativePaths,
+        "metadata-target-bulk-readiness",
+        "The bulk metadata editor was not opened.",
+      ),
+    [requireAuthoritativeMetadataReady],
+  );
+
+  const canStageGeneratedMetadata = useCallback(
+    (relativePaths: string[]): boolean =>
+      requireAuthoritativeMetadataReady(
+        relativePaths,
+        "metadata-target-generated-readiness",
+        "Generated metadata was not started.",
+      ),
+    [requireAuthoritativeMetadataReady],
   );
 
   const applyGeneratedMetadataDraftBatch = useCallback(
@@ -1968,6 +1993,7 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
+      canOpenBulkMetadataEditor,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
       previewBulkMetadataDraftBatch,
@@ -2004,6 +2030,7 @@ export function useMediaLibrary(
       updateColumnWidth,
       resetColumnWidths,
       dismissError,
+      canOpenBulkMetadataEditor,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
       previewBulkMetadataDraftBatch,
