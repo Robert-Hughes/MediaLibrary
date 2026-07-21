@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet.markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
 import { normaliseLongitude } from "../utils/gpsUtils";
 
 export interface PhotoMapItem {
@@ -16,6 +18,8 @@ interface PhotoMapProps {
 }
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const CLUSTER_RADIUS_PX = 56;
+const CLUSTER_BADGE_SIZE_PX = 36;
 
 function displayLongitudes(items: PhotoMapItem[]): number[] {
   if (items.length < 2) {
@@ -65,9 +69,36 @@ function markerIcon(thumbnail: PhotoMapItem["thumbnail"]): L.DivIcon {
   });
 }
 
+function clusterIcon(map: L.Map, cluster: L.MarkerCluster): L.DivIcon {
+  const count = cluster.getChildCount();
+  const zoom = map.getZoom();
+  const centre = map.project(cluster.getLatLng(), zoom);
+  const radius = cluster
+    .getAllChildMarkers()
+    .reduce(
+      (largest, marker) =>
+        Math.max(
+          largest,
+          centre.distanceTo(map.project(marker.getLatLng(), zoom)),
+        ),
+      0,
+    );
+  const footprintSize = Math.ceil(radius * 2);
+  const iconSize = Math.max(CLUSTER_BADGE_SIZE_PX, footprintSize);
+  const label = `${count.toLocaleString()} ${count === 1 ? "photo" : "photos"}`;
+
+  return L.divIcon({
+    className: "photo-map-cluster",
+    html: `<span class="photo-map-cluster__footprint" style="width:${footprintSize}px;height:${footprintSize}px"></span><span class="photo-map-cluster__badge" aria-label="${label}" title="${label}">${count.toLocaleString()}</span>`,
+    iconSize: [iconSize, iconSize],
+    iconAnchor: [iconSize / 2, iconSize / 2],
+  });
+}
+
 export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
+  const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
   const userMovedRef = useRef(false);
   const previousCoordinateKeyRef = useRef("");
@@ -102,12 +133,23 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
         '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(map);
 
+    const clusterGroup = L.markerClusterGroup({
+      maxClusterRadius: CLUSTER_RADIUS_PX,
+      iconCreateFunction: (cluster) => clusterIcon(map, cluster),
+      zoomToBoundsOnClick: true,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      removeOutsideVisibleBounds: true,
+      chunkedLoading: true,
+    }).addTo(map);
+
     const markUserMovement = () => {
       userMovedRef.current = true;
     };
     map.on("dragstart", markUserMovement);
     map.on("zoomstart", markUserMovement);
     mapRef.current = map;
+    clusterGroupRef.current = clusterGroup;
     // A fresh Leaflet instance always needs an initial fit. In React Strict
     // Mode the construction effect is deliberately set up twice; retaining
     // the first instance's fit key would leave the second, real map at the
@@ -126,22 +168,24 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
       map.off("zoomstart", markUserMovement);
       map.remove();
       mapRef.current = null;
+      clusterGroupRef.current = null;
       markersRef.current = [];
     };
   }, []);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
+    const clusterGroup = clusterGroupRef.current;
+    if (!clusterGroup) return;
 
-    for (const marker of markersRef.current) marker.remove();
+    clusterGroup.clearLayers();
     markersRef.current = items.map((item, index) =>
       L.marker([item.lat, longitudes[index]], {
         icon: markerIcon(item.thumbnail),
         interactive: false,
         keyboard: false,
-      }).addTo(map),
+      }),
     );
+    clusterGroup.addLayers(markersRef.current);
   }, [items, longitudes]);
 
   useEffect(() => {
