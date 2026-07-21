@@ -69,20 +69,34 @@ function markerIcon(thumbnail: PhotoMapItem["thumbnail"]): L.DivIcon {
   });
 }
 
-function clusterIcon(map: L.Map, cluster: L.MarkerCluster): L.DivIcon {
+function clusterIcon(
+  map: L.Map,
+  cluster: L.MarkerCluster,
+  markerCoordinates: WeakMap<L.Marker, L.LatLng>,
+): L.DivIcon {
   const count = cluster.getChildCount();
   const zoom = map.getZoom();
-  const centre = map.project(cluster.getLatLng(), zoom);
-  const radius = cluster
-    .getAllChildMarkers()
-    .reduce(
-      (largest, marker) =>
-        Math.max(
-          largest,
-          centre.distanceTo(map.project(marker.getLatLng(), zoom)),
-        ),
-      0,
-    );
+  const markers = cluster.getAllChildMarkers();
+  const coordinates = markers.map(
+    (marker) => markerCoordinates.get(marker) ?? marker.getLatLng(),
+  );
+
+  // MarkerCluster temporarily moves cluster markers while animating between
+  // zoom levels. Calculate its final weighted centre from the immutable photo
+  // coordinates instead of cluster.getLatLng(), which can expose that transient
+  // position and leave the cached footprint permanently mis-sized.
+  const centreLatLng = L.latLng(
+    coordinates.reduce((sum, coordinate) => sum + coordinate.lat, 0) /
+      coordinates.length,
+    coordinates.reduce((sum, coordinate) => sum + coordinate.lng, 0) /
+      coordinates.length,
+  );
+  const centre = map.project(centreLatLng, zoom);
+  const radius = coordinates.reduce(
+    (largest, coordinate) =>
+      Math.max(largest, centre.distanceTo(map.project(coordinate, zoom))),
+    0,
+  );
   const footprintSize = Math.ceil(radius * 2);
   const iconSize = Math.max(CLUSTER_BADGE_SIZE_PX, footprintSize);
   const label = `${count.toLocaleString()} ${count === 1 ? "photo" : "photos"}`;
@@ -99,6 +113,7 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
+  const markerCoordinatesRef = useRef(new WeakMap<L.Marker, L.LatLng>());
   const markersRef = useRef<L.Marker[]>([]);
   const userMovedRef = useRef(false);
   const previousCoordinateKeyRef = useRef("");
@@ -135,7 +150,8 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
 
     const clusterGroup = L.markerClusterGroup({
       maxClusterRadius: CLUSTER_RADIUS_PX,
-      iconCreateFunction: (cluster) => clusterIcon(map, cluster),
+      iconCreateFunction: (cluster) =>
+        clusterIcon(map, cluster, markerCoordinatesRef.current),
       zoomToBoundsOnClick: true,
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
@@ -178,13 +194,16 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
     if (!clusterGroup) return;
 
     clusterGroup.clearLayers();
-    markersRef.current = items.map((item, index) =>
-      L.marker([item.lat, longitudes[index]], {
+    markersRef.current = items.map((item, index) => {
+      const coordinate = L.latLng(item.lat, longitudes[index]);
+      const marker = L.marker([coordinate.lat, coordinate.lng], {
         icon: markerIcon(item.thumbnail),
         interactive: false,
         keyboard: false,
-      }),
-    );
+      });
+      markerCoordinatesRef.current.set(marker, coordinate);
+      return marker;
+    });
     clusterGroup.addLayers(markersRef.current);
   }, [items, longitudes]);
 
