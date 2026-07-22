@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   normaliseLongitude,
   formatCoordinate,
+  getCompactDisplayLongitudes,
   getNearestEquivalentLongitude,
   isValidCoordinate,
 } from "../utils/gpsUtils";
@@ -74,6 +75,16 @@ describe("gpsUtils", () => {
       expect(getNearestEquivalentLongitude(-179, 0)).toBe(-179);
       expect(getNearestEquivalentLongitude(-179, 540)).toBe(541);
       expect(getNearestEquivalentLongitude(-179, 360)).toBe(181);
+    });
+  });
+
+  describe("getCompactDisplayLongitudes", () => {
+    it("keeps nearby positive longitudes in the same world copy", () => {
+      expect(getCompactDisplayLongitudes([0.1, 0.2])).toEqual([0.1, 0.2]);
+    });
+
+    it("uses adjacent world copies for coordinates across the date line", () => {
+      expect(getCompactDisplayLongitudes([179, -179])).toEqual([179, 181]);
     });
   });
 
