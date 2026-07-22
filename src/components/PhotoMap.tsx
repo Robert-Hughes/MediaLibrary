@@ -3,7 +3,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
-import { normaliseLongitude } from "../utils/gpsUtils";
+import { getCompactDisplayLongitudes } from "../utils/gpsUtils";
 
 export interface PhotoMapItem {
   relativePath: string;
@@ -22,40 +22,6 @@ const CLUSTER_RADIUS_PX = 56;
 const CLUSTER_BADGE_SIZE_PX = 36;
 const CROSSFADE_DURATION_MS = 160;
 const PHOTO_ICON_SELECTOR = ".photo-map-cluster, .photo-map-marker";
-
-function displayLongitudes(items: PhotoMapItem[]): number[] {
-  if (items.length < 2) {
-    return items.map((item) => normaliseLongitude(item.lon));
-  }
-
-  const values = items
-    .map((item, index) => ({
-      index,
-      value: ((normaliseLongitude(item.lon) % 360) + 360) % 360,
-    }))
-    .sort((left, right) => left.value - right.value);
-
-  let largestGap = -1;
-  let start = values[0].value;
-  for (let index = 0; index < values.length; index += 1) {
-    const current = values[index].value;
-    const next =
-      index === values.length - 1
-        ? values[0].value + 360
-        : values[index + 1].value;
-    const gap = next - current;
-    if (gap > largestGap) {
-      largestGap = gap;
-      start = next % 360;
-    }
-  }
-
-  const result = new Array<number>(items.length);
-  for (const entry of values) {
-    result[entry.index] = entry.value < start ? entry.value + 360 : entry.value;
-  }
-  return result;
-}
 
 function escapeHtmlAttribute(value: string): string {
   return value.replace(
@@ -145,7 +111,10 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
   const previousCoordinateKeyRef = useRef("");
   const previousFitRequestRef = useRef(fitRequest);
 
-  const longitudes = useMemo(() => displayLongitudes(items), [items]);
+  const longitudes = useMemo(
+    () => getCompactDisplayLongitudes(items.map((item) => item.lon)),
+    [items],
+  );
   const coordinateKey = items
     .map(
       (item, index) => `${item.relativePath}:${item.lat}:${longitudes[index]}`,
