@@ -110,12 +110,38 @@ describe("PhotoMap", () => {
       [11, 181],
       expect.objectContaining({ interactive: false, keyboard: false }),
     );
+    const markerIcons = vi
+      .mocked(L.divIcon)
+      .mock.calls.map(([options]) => String(options?.html));
+    expect(markerIcons[0]).toContain('title="east.jpg" aria-label="east.jpg"');
+    expect(markerIcons[1]).toContain('title="west.jpg" aria-label="west.jpg"');
     expect(mapInstance.fitBounds).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ padding: [64, 64], maxZoom: 16 }),
     );
     expect(clusterGroupInstance.addLayers).toHaveBeenCalledWith(
       markerInstances.map((marker) => marker),
+    );
+  });
+
+  it("escapes the identifier shown by a thumbnail marker tooltip", () => {
+    render(
+      <PhotoMap
+        fitRequest={0}
+        items={[
+          {
+            relativePath: 'folder/a & "b".jpg',
+            lat: 10,
+            lon: 20,
+            thumbnail: "loading",
+          },
+        ]}
+      />,
+    );
+
+    const icon = vi.mocked(L.divIcon).mock.calls[0][0];
+    expect(String(icon?.html)).toContain(
+      'title="folder/a &amp; &quot;b&quot;.jpg" aria-label="folder/a &amp; &quot;b&quot;.jpg"',
     );
   });
 
