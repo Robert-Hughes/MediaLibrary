@@ -2103,6 +2103,26 @@ body {
   outline-offset: 1px;
 }
 
+.bulk-editor-candidate-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bulk-editor-grouped-badge {
+  padding: 1px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 /* ── BagEditor chip list (Phase 4) ─────────────────────────────────────── */
 
 .bag-editor-chips {

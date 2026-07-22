@@ -254,7 +254,8 @@ export function BulkMetadataEditorDialog({
         "longitude",
         "altitude",
       ].some((value) => value.includes(lowerSearch));
-      if (count > 0 || (lowerSearch && gpsMatches)) {
+      const includeGps = lowerSearch ? gpsMatches : count > 0;
+      if (includeGps) {
         byToken.set("gps-location", {
           kind: "gps",
           token: "gps-location",
@@ -483,7 +484,14 @@ export function BulkMetadataEditorDialog({
                             gap: "16px",
                           }}
                         >
-                          <strong>{candidateLabel(candidate)}</strong>
+                          <strong className="bulk-editor-candidate-label">
+                            {candidateLabel(candidate)}
+                            {candidate.kind === "gps" ? (
+                              <span className="bulk-editor-grouped-badge">
+                                Grouped field
+                              </span>
+                            ) : null}
+                          </strong>
                           <span>
                             {candidate.count} of {photos.length} photos
                           </span>

@@ -311,4 +311,43 @@ describe("BulkMetadataEditorDialog", () => {
     );
     expect(screen.getByText("Delete GPS Location")).toBeInTheDocument();
   });
+
+  it("filters an occurring grouped GPS property by the active search", async () => {
+    _setWritableSchemaDefinitionsCache(gpsInfos);
+    const latitude = occurrenceFromSchemaValue(
+      GPS_IDS.latitude,
+      { kind: "Real", value: 51.5 },
+      0,
+    );
+    const longitude = occurrenceFromSchemaValue(
+      GPS_IDS.longitude,
+      { kind: "Real", value: -0.12 },
+      1,
+    );
+
+    render(
+      <BulkMetadataEditorDialog
+        photos={makePhotos(["gps.jpg"])}
+        imageMetadataOccurrences={occurrenceStore({
+          "gps.jpg": [latitude, longitude],
+        })}
+        targetDraftEdits={{}}
+        onPreview={vi.fn()}
+        onStage={() => true}
+        onClose={() => {}}
+      />,
+    );
+
+    const gpsOption = screen.getByRole("button", { name: /GPS Location/ });
+    expect(gpsOption).toHaveTextContent("Grouped field");
+
+    await userEvent.type(
+      screen.getByPlaceholderText("Search metadata properties..."),
+      "copyright",
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /GPS Location/ }),
+    ).not.toBeInTheDocument();
+  });
 });
