@@ -57,15 +57,33 @@ function displayLongitudes(items: PhotoMapItem[]): number[] {
   return result;
 }
 
-function markerIcon(thumbnail: PhotoMapItem["thumbnail"]): L.DivIcon {
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(
+    /[&<>"']/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[character] ?? character,
+  );
+}
+
+function markerIcon(
+  thumbnail: PhotoMapItem["thumbnail"],
+  identifier: string,
+): L.DivIcon {
   const content =
     thumbnail === "loading" || thumbnail === "failed"
       ? '<span class="photo-map-marker__fallback" aria-hidden="true">▧</span>'
       : `<img class="photo-map-marker__image" src="data:image/jpeg;base64,${thumbnail}" alt="" />`;
+  const escapedIdentifier = escapeHtmlAttribute(identifier);
 
   return L.divIcon({
     className: "photo-map-marker",
-    html: `<span class="photo-map-marker__frame">${content}</span><span class="photo-map-marker__tip"></span>`,
+    html: `<span class="photo-map-marker__frame" title="${escapedIdentifier}" aria-label="${escapedIdentifier}">${content}</span><span class="photo-map-marker__tip"></span>`,
     iconSize: [48, 58],
     iconAnchor: [24, 58],
   });
@@ -305,7 +323,7 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
     markersRef.current = items.map((item, index) => {
       const coordinate = L.latLng(item.lat, longitudes[index]);
       const marker = L.marker([coordinate.lat, coordinate.lng], {
-        icon: markerIcon(item.thumbnail),
+        icon: markerIcon(item.thumbnail, item.relativePath),
         interactive: false,
         keyboard: false,
       });

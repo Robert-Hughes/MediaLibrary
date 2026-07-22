@@ -1,8 +1,6 @@
 Current
 =======
 
-- Bulk metadata editor - review/improve
-
 - 2010 folder (and possibly others)
   - Remove all description/title/keywords fields so can be regenerated
   - Remove wrong GPS data (coords + the lower-level geocoded fields, leave higher-level London, UK etc.) from photos (several different clusters)
@@ -14,6 +12,7 @@ Bugs/quirks/tweaks/improvements
 =================================
 
 - Some image thumbnails are rotated
+- clicking the number of photos at the bottom of the big list could select all?
 
 Features
 ========
