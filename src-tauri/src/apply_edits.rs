@@ -898,16 +898,56 @@ fn verify_plan(
     post_by_id: &BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>,
 ) -> VerifiedTarget {
     match &plan.target {
-        MetadataDraftTarget::ExistingOccurrence { occurrence_id, .. } => {
-            let occurrence = post_by_id.get(occurrence_id).copied();
-            VerifiedTarget {
-                verification: verify_existing_plan(plan, occurrence),
-                post_write: match occurrence {
-                    Some(occurrence) => TargetApplyPostWriteState::Unique {
-                        occurrence: Box::new(observed_occurrence(occurrence)),
-                    },
-                    None => TargetApplyPostWriteState::Missing,
+        MetadataDraftTarget::ExistingOccurrence {
+            occurrence_id,
+            schema_id,
+            write_target,
+        } => {
+            let exact = post_by_id.get(occurrence_id).copied();
+            let stable_matches = post_by_id
+                .values()
+                .copied()
+                .filter(|occurrence| {
+                    existing_occurrence_matches_except_copy(
+                        occurrence,
+                        occurrence_id,
+                        schema_id,
+                        write_target,
+                    )
+                })
+                .collect::<Vec<_>>();
+            let evidence = if stable_matches.is_empty() {
+                exact.into_iter().collect::<Vec<_>>()
+            } else {
+                stable_matches.clone()
+            };
+            let post_write = match evidence.as_slice() {
+                [] => TargetApplyPostWriteState::Missing,
+                [occurrence] => TargetApplyPostWriteState::Unique {
+                    occurrence: Box::new(observed_occurrence(occurrence)),
                 },
+                many => TargetApplyPostWriteState::Multiple {
+                    occurrences: many
+                        .iter()
+                        .map(|occurrence| observed_occurrence(occurrence))
+                        .collect(),
+                },
+            };
+            let verification = match stable_matches.as_slice() {
+                [] => verify_existing_plan(plan, exact, false),
+                [occurrence] => {
+                    verify_existing_plan(plan, Some(occurrence), occurrence.id != *occurrence_id)
+                }
+                many => ambiguous_existing_occurrence_verification(
+                    occurrence_id,
+                    schema_id,
+                    write_target,
+                    many,
+                ),
+            };
+            VerifiedTarget {
+                verification,
+                post_write,
             }
         }
         MetadataDraftTarget::NewProperty {
@@ -1027,6 +1067,42 @@ fn verify_plan(
     }
 }
 
+fn existing_occurrence_matches_except_copy(
+    occurrence: &MetadataOccurrence,
+    occurrence_id: &MetadataOccurrenceId,
+    schema_id: &SchemaDefinitionId,
+    write_target: &MetadataWriteTarget,
+) -> bool {
+    occurrence.id.document == occurrence_id.document
+        && occurrence.id.path == occurrence_id.path
+        && occurrence.id.runtime_tag_id == occurrence_id.runtime_tag_id
+        && occurrence.id.tag_id_scope == occurrence_id.tag_id_scope
+        && &occurrence.schema_id == schema_id
+        && occurrence.write_target.as_ref() == Some(write_target)
+}
+
+fn ambiguous_existing_occurrence_verification(
+    occurrence_id: &MetadataOccurrenceId,
+    schema_id: &SchemaDefinitionId,
+    write_target: &MetadataWriteTarget,
+    occurrences: &[&MetadataOccurrence],
+) -> TargetVerification {
+    let message = format!(
+        "Existing occurrence {occurrence_id:?} disappeared after write and its stable destination ({schema_id}, {}) resolved to multiple Copy-number candidates: {:?}",
+        write_target.selector(),
+        occurrences
+            .iter()
+            .map(|occurrence| &occurrence.id)
+            .collect::<Vec<_>>()
+    );
+    TargetVerification {
+        kind: "AmbiguousPostWrite".to_string(),
+        message: Some(message.clone()),
+        observed: None,
+        draft_reconciliation: MetadataDraftReconciliation::Blocked { reason: message },
+    }
+}
+
 fn ambiguous_new_property_verification(
     schema_id: &SchemaDefinitionId,
     write_target: &MetadataWriteTarget,
@@ -1051,6 +1127,7 @@ fn ambiguous_new_property_verification(
 fn verify_existing_plan(
     plan: &TargetPlan,
     occurrence: Option<&MetadataOccurrence>,
+    rebound: bool,
 ) -> TargetVerification {
     let MetadataDraftTarget::ExistingOccurrence {
         occurrence_id,
@@ -1105,6 +1182,13 @@ fn verify_existing_plan(
     );
     let draft_reconciliation = if matches!(kind.as_str(), "Match" | "DeleteOk") {
         MetadataDraftReconciliation::Clear
+    } else if rebound {
+        match MetadataDraftTarget::from_existing_occurrence(occurrence) {
+            Ok(target) => MetadataDraftReconciliation::Replace { target },
+            Err(error) => MetadataDraftReconciliation::Blocked {
+                reason: error.to_string(),
+            },
+        }
     } else {
         MetadataDraftReconciliation::Keep
     };
@@ -2514,6 +2598,99 @@ mod tests {
             sibling_outcome.draft_reconciliation,
             MetadataDraftReconciliation::Blocked { .. }
         ));
+    }
+
+    #[test]
+    fn existing_target_rebinds_after_unique_copy_number_change() {
+        let info = schema("1", "IFD0", "Number", true, TagKind::Text);
+        let before = occurrence(
+            occurrence_id("P", "1", 1),
+            MetadataValue::Text("before".into()),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Number",
+        );
+        let entry = existing_entry(
+            &before,
+            edit(EditIntent::Set, Some(MetadataValue::Text("after".into()))),
+        );
+        let rebound = occurrence(
+            occurrence_id("P", "1", 0),
+            MetadataValue::Text("after".into()),
+            Some(info),
+            Some("IFD0"),
+            "Number",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![before])),
+            Ok(image(vec![rebound.clone()])),
+        ]);
+
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+
+        assert_eq!(outcome.outcomes[0].kind, "Match");
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(outcome.targets_to_clear, vec![entry.target]);
+        let TargetApplyPostWriteState::Unique { occurrence } = &outcome.audit_records[0].post_write
+        else {
+            panic!("unique Copy-number rebind must retain the observed occurrence")
+        };
+        assert_eq!(occurrence.occurrence_id, rebound.id);
+    }
+
+    #[test]
+    fn existing_target_blocks_ambiguous_copy_number_rebind() {
+        let info = schema("1", "IFD0", "Number", true, TagKind::Text);
+        let before = occurrence(
+            occurrence_id("P", "1", 1),
+            MetadataValue::Text("before".into()),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Number",
+        );
+        let entry = existing_entry(
+            &before,
+            edit(EditIntent::Set, Some(MetadataValue::Text("after".into()))),
+        );
+        let first = occurrence(
+            occurrence_id("P", "1", 1),
+            MetadataValue::Text("after".into()),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Number",
+        );
+        let second = occurrence(
+            occurrence_id("P", "1", 2),
+            MetadataValue::Text("after".into()),
+            Some(info),
+            Some("IFD0"),
+            "Number",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![before])),
+            Ok(image(vec![first.clone(), second.clone()])),
+        ]);
+
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+
+        assert_eq!(outcome.outcomes[0].kind, "AmbiguousPostWrite");
+        assert!(matches!(
+            &outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Blocked { reason }
+                if reason.contains("multiple Copy-number candidates")
+        ));
+        assert!(outcome.targets_to_clear.is_empty());
+        let TargetApplyPostWriteState::Multiple { occurrences } =
+            &outcome.audit_records[0].post_write
+        else {
+            panic!("ambiguous Copy-number rebind must retain every candidate")
+        };
+        assert_eq!(occurrences.len(), 2);
+        assert_eq!(occurrences[0].occurrence_id, first.id);
+        assert_eq!(occurrences[1].occurrence_id, second.id);
     }
 
     #[test]
