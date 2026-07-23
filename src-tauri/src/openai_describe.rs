@@ -36,6 +36,7 @@ const MAX_IMAGE_DIMENSION: u32 = 1024;
 /// Hard cap on `/responses` output tokens.  Hitting this leaves JSON
 /// unparseable, so callers must check `status=="incomplete"`.
 pub const MAX_OUTPUT_TOKENS: u32 = 1200;
+pub const DESCRIBE_REASONING_EFFORT: &str = "low";
 
 /// Expected output tokens for cost estimation only.  Tuned by the test set
 /// in the experiment; bounded by `MAX_OUTPUT_TOKENS`.
@@ -438,6 +439,17 @@ fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
         }
     }
 
+    if model.starts_with("gpt-5") {
+        // Reasoning tokens share MAX_OUTPUT_TOKENS with the visible JSON. At
+        // medium effort, seven production images spent most of the 1,200-token
+        // budget on hidden reasoning and were truncated before completing the
+        // short schema. Low preserves reasoning while reserving enough budget
+        // for the user-visible description fields.
+        request["reasoning"] = serde_json::json!({
+            "effort": DESCRIBE_REASONING_EFFORT
+        });
+    }
+
     request
 }
 
@@ -451,7 +463,13 @@ pub async fn count_input_tokens(
 ) -> Result<u32, String> {
     let mut body = build_request_body(model, image_bytes);
     if let Some(obj) = body.as_object_mut() {
-        for k in ["temperature", "top_p", "max_output_tokens", "service_tier"] {
+        for k in [
+            "temperature",
+            "top_p",
+            "max_output_tokens",
+            "service_tier",
+            "reasoning",
+        ] {
             obj.remove(k);
         }
     }
@@ -929,6 +947,22 @@ mod tests {
     }
 
     #[test]
+    fn gpt_5_describe_requests_low_reasoning_effort() {
+        let body = build_request_body("gpt-5.6-luna", &tiny_png_bytes());
+        assert_eq!(body["reasoning"]["effort"], "low");
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
+    }
+
+    #[test]
+    fn non_reasoning_describe_model_omits_reasoning_config() {
+        let body = build_request_body("gpt-4o", &tiny_png_bytes());
+        assert!(body.get("reasoning").is_none());
+        assert_eq!(body["temperature"], 0);
+        assert_eq!(body["top_p"], 1);
+    }
+
+    #[test]
     fn compose_metadata_draft_edits_maps_every_field_to_mlib_namespace() {
         let out = AiOutput {
             description: "a thing".into(),
@@ -1222,42 +1256,42 @@ mod tests {
         )
         .join("com.xman2.medialibrary");
         let settings = crate::settings::load_settings(&app_data).expect("load app settings");
-        let image_path = std::path::PathBuf::from(
-            std::env::var_os("MEDIALIBRARY_LIVE_IMAGE")
-                .expect("set MEDIALIBRARY_LIVE_IMAGE to an image path"),
-        );
-        let bytes = load_and_downscale_image(&image_path).expect("load diagnostic image");
+        let image_paths: Vec<std::path::PathBuf> =
+            if let Some(paths) = std::env::var_os("MEDIALIBRARY_LIVE_IMAGES") {
+                std::env::split_paths(&paths).collect()
+            } else {
+                vec![std::path::PathBuf::from(
+                    std::env::var_os("MEDIALIBRARY_LIVE_IMAGE")
+                        .expect("set MEDIALIBRARY_LIVE_IMAGE or MEDIALIBRARY_LIVE_IMAGES"),
+                )]
+            };
+        assert!(!image_paths.is_empty(), "at least one image is required");
         let client = OpenAiClient::new(DEFAULT_BASE_URL, &settings.openai_api_key, 1);
 
-        match describe_one(&client, &settings.openai_model, &bytes).await {
-            Ok((_output, usage)) => eprintln!(
-                "LIVE_RESULT completed input={} cached={} cache_write={} output={} reasoning={} visible={} tier={} effort={}",
-                usage.input_tokens,
-                usage.cached_input_tokens,
-                usage.cache_write_input_tokens,
-                usage.output_tokens,
-                usage.reasoning_tokens,
-                usage.non_reasoning_output_tokens(),
-                usage.service_tier,
-                usage.reasoning_effort
-            ),
-            Err(error) => {
-                if let Some(usage) = error.usage() {
+        for image_path in image_paths {
+            let bytes = load_and_downscale_image(&image_path).expect("load diagnostic image");
+            match describe_one(&client, &settings.openai_model, &bytes).await {
+                Ok((output, usage)) => eprintln!(
+                    "LIVE_RESULT_JSON {}",
+                    serde_json::json!({
+                        "path": image_path,
+                        "status": "completed",
+                        "usage": usage,
+                        "non_reasoning_output_tokens": usage.non_reasoning_output_tokens(),
+                        "output": output,
+                    })
+                ),
+                Err(error) => {
                     eprintln!(
-                        "LIVE_RESULT failed kind={} detail={} input={} cached={} cache_write={} output={} reasoning={} visible={} tier={} effort={}",
-                        error.kind(),
-                        error.detail(),
-                        usage.input_tokens,
-                        usage.cached_input_tokens,
-                        usage.cache_write_input_tokens,
-                        usage.output_tokens,
-                        usage.reasoning_tokens,
-                        usage.non_reasoning_output_tokens(),
-                        usage.service_tier,
-                        usage.reasoning_effort
+                        "LIVE_RESULT_JSON {}",
+                        serde_json::json!({
+                            "path": image_path,
+                            "status": "failed",
+                            "kind": error.kind(),
+                            "detail": error.detail(),
+                            "usage": error.usage(),
+                        })
                     );
-                } else {
-                    panic!("live call failed without usage: {}", error.detail());
                 }
             }
         }
