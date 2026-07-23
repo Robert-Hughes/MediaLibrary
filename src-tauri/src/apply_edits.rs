@@ -961,12 +961,27 @@ fn verify_plan(
                 },
             };
             let verification = match matches.as_slice() {
-                [] => TargetVerification {
-                    kind: if candidates.is_empty() {
-                        "MissingPostWrite".to_string()
+                [] if candidates.is_empty() => {
+                    // ExifTool represents an empty assignment as property
+                    // deletion. Route true absence through the shared semantic
+                    // verifier so Set(empty) can succeed while every non-empty
+                    // Set remains MissingPostWrite.
+                    let (kind, message) =
+                        verify_semantic(schema_id, &plan.edit, None, Some(&plan.kind));
+                    let draft_reconciliation = if kind == "Match" {
+                        MetadataDraftReconciliation::Clear
                     } else {
-                        "TargetChangedPostWrite".to_string()
-                    },
+                        MetadataDraftReconciliation::Keep
+                    };
+                    TargetVerification {
+                        kind,
+                        message,
+                        observed: None,
+                        draft_reconciliation,
+                    }
+                }
+                [] => TargetVerification {
+                    kind: "TargetChangedPostWrite".to_string(),
                     message: Some(format!(
                         "New property {schema_id} has no occurrence at attempted selector {}; observed candidates: {:?}",
                         write_target.selector(),
@@ -1047,20 +1062,23 @@ fn verify_existing_plan(
     };
 
     let Some(occurrence) = occurrence else {
-        if plan.edit.intent == EditIntent::Delete {
+        let (kind, message) = verify_semantic(schema_id, &plan.edit, None, Some(&plan.kind));
+        if matches!(kind.as_str(), "Match" | "DeleteOk") {
             return TargetVerification {
-                kind: "DeleteOk".to_string(),
-                message: None,
+                kind,
+                message,
                 observed: None,
                 draft_reconciliation: MetadataDraftReconciliation::Clear,
             };
         }
         let reason = format!("Exact occurrence {occurrence_id:?} no longer exists");
         return TargetVerification {
-            kind: "MissingPostWrite".to_string(),
-            message: Some(format!(
-                "Exact occurrence {occurrence_id:?} is absent after write"
-            )),
+            kind,
+            message: message.or_else(|| {
+                Some(format!(
+                    "Exact occurrence {occurrence_id:?} is absent after write"
+                ))
+            }),
             observed: None,
             draft_reconciliation: MetadataDraftReconciliation::Blocked { reason },
         };
@@ -2619,6 +2637,53 @@ mod tests {
     }
 
     #[test]
+    fn existing_empty_list_set_matches_absent_readback_and_clears_draft() {
+        let info = schema(
+            "1",
+            "XMP-test",
+            "Items",
+            true,
+            TagKind::Bag(Box::new(TagKind::Text)),
+        );
+        let before = occurrence(
+            occurrence_id("P", "1", 0),
+            MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![MetadataValue::Text("old".into())],
+            },
+            Some(info),
+            Some("XMP-test"),
+            "Items",
+        );
+        let sent = MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![],
+        };
+        let entry = existing_entry(&before, edit(EditIntent::Set, Some(sent.clone())));
+        let client = FakeClient::new(vec![Ok(image(vec![before])), Ok(image(vec![]))]);
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+
+        assert_eq!(outcome.outcomes[0].kind, "Match");
+        assert_eq!(outcome.outcomes[0].sent, Some(sent.clone()));
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(outcome.targets_to_clear, vec![entry.target.clone()]);
+        let audit = &outcome.audit_records[0];
+        assert_eq!(audit.sent, Some(sent));
+        assert!(matches!(
+            audit.post_write,
+            TargetApplyPostWriteState::Missing
+        ));
+        assert_eq!(audit.verification.kind, "Match");
+        assert_eq!(
+            audit.verification.proposed_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+    }
+
+    #[test]
     fn existing_list_add_and_remove_verify_semantically() {
         let info = schema(
             "1",
@@ -2859,6 +2924,47 @@ mod tests {
                 .map(|record| record.write.selector.group1.as_str())
                 .collect::<Vec<_>>(),
             vec!["IFD0", "IFD1"]
+        );
+    }
+
+    #[test]
+    fn new_property_empty_list_set_matches_absent_readback_and_clears_draft() {
+        let info = schema(
+            "1",
+            "XMP-test",
+            "Items",
+            true,
+            TagKind::Bag(Box::new(TagKind::Text)),
+        );
+        let sent = MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![],
+        };
+        let entry = new_entry(&info, edit(EditIntent::Set, Some(sent.clone())));
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![]))]);
+        let outcome = apply_fake(
+            std::slice::from_ref(&entry),
+            &client,
+            std::slice::from_ref(&info),
+        );
+
+        assert_eq!(outcome.outcomes[0].kind, "Match");
+        assert_eq!(outcome.outcomes[0].sent, Some(sent.clone()));
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(outcome.targets_to_clear, vec![entry.target.clone()]);
+        let audit = &outcome.audit_records[0];
+        assert_eq!(audit.sent, Some(sent));
+        assert!(matches!(
+            audit.post_write,
+            TargetApplyPostWriteState::Missing
+        ));
+        assert_eq!(audit.verification.kind, "Match");
+        assert_eq!(
+            audit.verification.proposed_reconciliation,
+            MetadataDraftReconciliation::Clear
         );
     }
 
