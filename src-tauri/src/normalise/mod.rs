@@ -1011,7 +1011,7 @@ pub async fn process_image(
                 stats.group(NormaliseGroup::Description).n_ai_errors += 1;
                 ai_calls.push(PerImageAiCall {
                     group: "description",
-                    usage: AiCallUsage::default(),
+                    usage: err.usage.clone().unwrap_or_default(),
                     error: Some(err.detail.clone()),
                 });
                 if first_ai_error.is_none() {
@@ -1069,7 +1069,7 @@ pub async fn process_image(
                 stats.group(NormaliseGroup::Title).n_ai_errors += 1;
                 ai_calls.push(PerImageAiCall {
                     group: "title",
-                    usage: AiCallUsage::default(),
+                    usage: err.usage.clone().unwrap_or_default(),
                     error: Some(err.detail.clone()),
                 });
                 if first_ai_error.is_none() {
@@ -1229,14 +1229,14 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 p: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 *self.captured.lock().await = Some(p);
                 Ok(("merged".into(), AiCallUsage::default()))
             }
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
         }
@@ -1285,13 +1285,13 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
             async fn generate_title(
                 &self,
                 p: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 *self.captured_description.lock().await = Some(p.description);
                 Ok(("Generated Title".into(), AiCallUsage::default()))
             }
@@ -1349,13 +1349,13 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 panic!("context-only description must not call AI");
             }
             async fn generate_title(
                 &self,
                 p: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert_eq!(p.description, "A cat sitting on a windowsill.");
                 self.calls.lock().await.push("title");
                 Ok(("Cat On Windowsill".into(), AiCallUsage::default()))
@@ -1420,7 +1420,7 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 p: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert!(p.keywords.contains(&"cat".to_string()));
                 assert_eq!(
                     p.location.get("city").and_then(serde_json::Value::as_str),
@@ -1439,7 +1439,7 @@ mod tests_dispatcher {
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 panic!("title AI must not fire");
             }
         }
@@ -1512,13 +1512,13 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 panic!("context-only description must not call AI");
             }
             async fn generate_title(
                 &self,
                 p: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert_eq!(p.description, "A cat sitting on a windowsill.");
                 assert!(p.keywords.contains(&"cat".to_string()));
                 assert_eq!(
@@ -1635,14 +1635,14 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 self.cancel.store(true, Ordering::Relaxed);
                 Ok(("Merged version.".into(), AiCallUsage::default()))
             }
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 panic!("title AI must NOT fire after cancel");
             }
         }
@@ -1794,20 +1794,31 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 Ok((
                     "Merged factual description.".into(),
                     AiCallUsage {
                         input_tokens: 800,
                         output_tokens: 250,
+                        ..Default::default()
                     },
                 ))
             }
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
-                Err("simulated rate limit".into())
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
+                Err(
+                    NormaliseAiError::from("simulated rate limit").with_usage(AiCallUsage {
+                        input_tokens: 700,
+                        cached_input_tokens: 100,
+                        cache_write_input_tokens: 50,
+                        output_tokens: 1200,
+                        reasoning_tokens: 1150,
+                        service_tier: "default".into(),
+                        reasoning_effort: "medium".into(),
+                    }),
+                )
             }
         }
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1842,6 +1853,8 @@ mod tests_dispatcher {
             .find(|c| c.error.is_some())
             .expect("title call err");
         assert_eq!(failure.group, "title");
+        assert_eq!(failure.usage.output_tokens, 1200);
+        assert_eq!(failure.usage.reasoning_tokens, 1150);
 
         // Write audit rows the way lib.rs does, then read them back
         // and assert the wire shape matches what users would see in
@@ -1849,20 +1862,23 @@ mod tests_dispatcher {
         let dir = tempdir().unwrap();
         let log_path = dir.path().join("normalise_audit.jsonl");
         let mut summary = NormaliseSummary::default();
-        // Synthetic pricing — input $0.10/M, output $0.40/M → ~$0.000180 per call.
-        let cost_per_call = |u: &AiCallUsage| {
-            (u.input_tokens as f64 / 1_000_000.0) * 0.10
-                + (u.output_tokens as f64 / 1_000_000.0) * 0.40
-        };
+        let pricing = crate::openai_describe::pricing_for("gpt-5.6-luna").unwrap();
+        let cost_per_call = |u: &AiCallUsage| u.cost(&pricing);
         for call in &ai_calls {
             let cost = cost_per_call(&call.usage);
             let entry = NormaliseAuditEntry {
                 ts: "2026-05-20T12:00:00Z".to_string(),
-                model: "gpt-test".to_string(),
+                model: "gpt-5.6-luna".to_string(),
                 prompt_version: "v1".to_string(),
                 group: call.group.to_string(),
                 input_tokens: call.usage.input_tokens,
+                cached_input_tokens: call.usage.cached_input_tokens,
+                cache_write_input_tokens: call.usage.cache_write_input_tokens,
                 output_tokens: call.usage.output_tokens,
+                reasoning_tokens: call.usage.reasoning_tokens,
+                non_reasoning_output_tokens: call.usage.non_reasoning_output_tokens(),
+                service_tier: call.usage.service_tier.clone(),
+                reasoning_effort: call.usage.reasoning_effort.clone(),
                 cost_usd: cost,
                 error: call.error.clone().unwrap_or_default(),
                 relative_path: item.rel_path.clone(),
@@ -1882,7 +1898,11 @@ mod tests_dispatcher {
             prompt_version: String,
             group: String,
             input_tokens: u32,
+            cached_input_tokens: u32,
+            cache_write_input_tokens: u32,
             output_tokens: u32,
+            reasoning_tokens: u32,
+            non_reasoning_output_tokens: u32,
             cost_usd: f64,
             error: String,
             relative_path: String,
@@ -1897,21 +1917,26 @@ mod tests_dispatcher {
         let desc_row = parsed.iter().find(|r| r.group == "description").unwrap();
         assert_eq!(desc_row.input_tokens, 800);
         assert_eq!(desc_row.output_tokens, 250);
-        assert_eq!(desc_row.model, "gpt-test");
+        assert_eq!(desc_row.model, "gpt-5.6-luna");
         assert_eq!(desc_row.prompt_version, "v1");
         assert_eq!(desc_row.ts, "2026-05-20T12:00:00Z");
         assert_eq!(desc_row.relative_path, "trip/photo.jpg");
         assert!(desc_row.cost_usd > 0.0);
         assert!(desc_row.error.is_empty());
         let title_row = parsed.iter().find(|r| r.group == "title").unwrap();
-        assert_eq!(title_row.input_tokens, 0);
-        assert_eq!(title_row.output_tokens, 0);
-        assert_eq!(title_row.cost_usd, 0.0);
+        assert_eq!(title_row.input_tokens, 700);
+        assert_eq!(title_row.cached_input_tokens, 100);
+        assert_eq!(title_row.cache_write_input_tokens, 50);
+        assert_eq!(title_row.output_tokens, 1200);
+        assert_eq!(title_row.reasoning_tokens, 1150);
+        assert_eq!(title_row.non_reasoning_output_tokens, 50);
+        assert!(title_row.cost_usd > 0.0);
         assert_eq!(title_row.error, "simulated rate limit");
 
         // Batch-level totals reflect both calls.
         assert_eq!(summary.ai_calls_total, 2);
-        assert!((summary.ai_cost_total_usd - cost_per_call(&success.usage)).abs() < 1e-9);
+        let expected_total = cost_per_call(&success.usage) + cost_per_call(&failure.usage);
+        assert!((summary.ai_cost_total_usd - expected_total).abs() < 1e-9);
         let desc = summary.per_group.get(&NormaliseGroup::Description).unwrap();
         assert_eq!(desc.n_normalised_ai, 1);
         let title = summary.per_group.get(&NormaliseGroup::Title).unwrap();
@@ -1938,7 +1963,7 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 p: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert!(p.description_sources.is_empty());
                 assert!(p.ai_context.contains_key("XMP-mlib:AIDescription"));
                 self.calls.lock().await.push("description");
@@ -1950,7 +1975,7 @@ mod tests_dispatcher {
             async fn generate_title(
                 &self,
                 p: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert_eq!(p.description, "A black cat sitting by a window.");
                 self.calls.lock().await.push("title");
                 Ok(("Cat By Window".into(), AiCallUsage::default()))
@@ -2063,7 +2088,7 @@ mod tests_dispatcher {
             async fn merge_description(
                 &self,
                 p: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert!(p.description_sources.is_empty());
                 assert!(p.ai_context.contains_key("XMP-mlib:AIDescription"));
                 self.calls.lock().await.push("description");
@@ -2072,7 +2097,7 @@ mod tests_dispatcher {
             async fn generate_title(
                 &self,
                 p: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert_eq!(p.description, self.canonical_desc);
                 self.calls.lock().await.push("title");
                 Ok(("Mock Title".into(), AiCallUsage::default()))

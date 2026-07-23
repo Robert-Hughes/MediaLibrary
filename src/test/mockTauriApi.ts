@@ -133,7 +133,12 @@ export interface MockTauriApi {
   describeUsageSummary: {
     totalInputTokens: number;
     totalCachedTokens: number;
+    totalCacheWriteTokens: number;
     totalOutputTokens: number;
+    totalReasoningTokens: number;
+    totalNonReasoningOutputTokens: number;
+    serviceTier: string;
+    reasoningEffort: string;
     predictedCostUsd: number;
     actualCostUsd: number;
   };
@@ -329,7 +334,12 @@ export function createMockTauriApi(): MockTauriApi {
     describeUsageSummary: {
       totalInputTokens: 0,
       totalCachedTokens: 0,
+      totalCacheWriteTokens: 0,
       totalOutputTokens: 0,
+      totalReasoningTokens: 0,
+      totalNonReasoningOutputTokens: 0,
+      serviceTier: "default",
+      reasoningEffort: "",
       predictedCostUsd: 0,
       actualCostUsd: 0,
     },

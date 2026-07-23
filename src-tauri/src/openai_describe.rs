@@ -39,7 +39,10 @@ pub const MAX_OUTPUT_TOKENS: u32 = 1200;
 
 /// Expected output tokens for cost estimation only.  Tuned by the test set
 /// in the experiment; bounded by `MAX_OUTPUT_TOKENS`.
-pub const EXPECTED_OUTPUT_TOKENS: u32 = 250;
+/// Expected total output (visible structured output plus hidden reasoning).
+/// Rounded upward from the successful-call average in the July 2026
+/// gpt-5.6-luna batch to allow for its capped long-output tail.
+pub const EXPECTED_OUTPUT_TOKENS: u32 = 280;
 
 /// Representative input-token count for one downscaled (≤1024px) image
 /// plus the system prompt. Used only by the model-dropdown cost preview,
@@ -135,6 +138,7 @@ description.";
 pub struct ModelPricing {
     pub input_per_1m: f64,
     pub cached_input_per_1m: f64,
+    pub cache_write_input_per_1m: f64,
     pub output_per_1m: f64,
 }
 
@@ -145,36 +149,43 @@ pub fn pricing_for(model: &str) -> Option<ModelPricing> {
         "gpt-5.6-luna" => ModelPricing {
             input_per_1m: 1.00,
             cached_input_per_1m: 0.10,
+            cache_write_input_per_1m: 1.25,
             output_per_1m: 6.00,
         },
         "gpt-5.6-sol" => ModelPricing {
             input_per_1m: 5.00,
             cached_input_per_1m: 0.50,
+            cache_write_input_per_1m: 6.25,
             output_per_1m: 30.00,
         },
         "gpt-4o" => ModelPricing {
             input_per_1m: 2.50,
             cached_input_per_1m: 1.25,
+            cache_write_input_per_1m: 2.50,
             output_per_1m: 10.00,
         },
         "gpt-5.4-nano" => ModelPricing {
             input_per_1m: 0.20,
             cached_input_per_1m: 0.02,
+            cache_write_input_per_1m: 0.20,
             output_per_1m: 1.25,
         },
         "gpt-5.4-mini" => ModelPricing {
             input_per_1m: 0.75,
             cached_input_per_1m: 0.075,
+            cache_write_input_per_1m: 0.75,
             output_per_1m: 4.50,
         },
         "gpt-5.4" => ModelPricing {
             input_per_1m: 2.50,
             cached_input_per_1m: 0.25,
+            cache_write_input_per_1m: 2.50,
             output_per_1m: 15.00,
         },
         "gpt-5.5" => ModelPricing {
             input_per_1m: 5.00,
             cached_input_per_1m: 0.50,
+            cache_write_input_per_1m: 5.00,
             output_per_1m: 30.00,
         },
         _ => return None,
@@ -192,12 +203,15 @@ pub struct AiOutput {
     pub interpretation: String,
 }
 
-#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UsageStats {
     pub input_tokens: u32,
     pub cached_input_tokens: u32,
+    pub cache_write_input_tokens: u32,
     pub output_tokens: u32,
     pub reasoning_tokens: u32,
+    pub service_tier: String,
+    pub reasoning_effort: String,
 }
 
 impl UsageStats {
@@ -206,9 +220,8 @@ impl UsageStats {
     /// `input_tokens` and `output_tokens` are required — these drive cost
     /// reporting and the audit log; silently treating a missing field as
     /// zero (the previous behaviour) hid API shape drift and produced
-    /// "$0.00" cost summaries. `cached_input_tokens` and
-    /// `reasoning_tokens` are optional and default to zero (the latter is
-    /// only emitted by reasoning models).
+    /// "$0.00" cost summaries. Detail counters and response metadata are
+    /// optional and default to zero / empty for older model response shapes.
     pub fn from_response(response: &serde_json::Value) -> Result<Self, String> {
         let usage = response
             .get("usage")
@@ -226,34 +239,76 @@ impl UsageStats {
         let cached_input_tokens = usage["input_tokens_details"]["cached_tokens"]
             .as_u64()
             .unwrap_or(0) as u32;
+        let cache_write_input_tokens = usage["input_tokens_details"]["cache_write_tokens"]
+            .as_u64()
+            .unwrap_or(0) as u32;
         let reasoning_tokens = usage["output_tokens_details"]["reasoning_tokens"]
             .as_u64()
             .unwrap_or(0) as u32;
+        if cached_input_tokens.saturating_add(cache_write_input_tokens) > input_tokens {
+            return Err(format!(
+                "usage input detail tokens exceed input_tokens: cached={} cache_write={} input={}",
+                cached_input_tokens, cache_write_input_tokens, input_tokens
+            ));
+        }
+        if reasoning_tokens > output_tokens {
+            return Err(format!(
+                "usage reasoning_tokens exceeds output_tokens: reasoning={} output={}",
+                reasoning_tokens, output_tokens
+            ));
+        }
         Ok(Self {
             input_tokens,
             cached_input_tokens,
+            cache_write_input_tokens,
             output_tokens,
             reasoning_tokens,
+            service_tier: response["service_tier"].as_str().unwrap_or("").to_string(),
+            reasoning_effort: response["reasoning"]["effort"]
+                .as_str()
+                .unwrap_or("")
+                .to_string(),
         })
     }
 
     pub fn add(&mut self, other: &UsageStats) {
         self.input_tokens += other.input_tokens;
         self.cached_input_tokens += other.cached_input_tokens;
+        self.cache_write_input_tokens += other.cache_write_input_tokens;
         self.output_tokens += other.output_tokens;
         self.reasoning_tokens += other.reasoning_tokens;
+        merge_response_label(&mut self.service_tier, &other.service_tier);
+        merge_response_label(&mut self.reasoning_effort, &other.reasoning_effort);
     }
 
-    /// Compute USD cost given a pricing row.  Reasoning tokens (zero for
-    /// non-reasoning models, but plumbed through for symmetry) bill at the
-    /// output rate.
+    pub fn non_reasoning_output_tokens(&self) -> u32 {
+        self.output_tokens.saturating_sub(self.reasoning_tokens)
+    }
+
+    /// Compute USD cost given a pricing row. `reasoning_tokens` is a subset
+    /// of `output_tokens`, so it is logged separately but never added again.
     pub fn cost(&self, p: &ModelPricing) -> f64 {
-        let non_cached = self.input_tokens.saturating_sub(self.cached_input_tokens);
+        let non_cached = self
+            .input_tokens
+            .saturating_sub(self.cached_input_tokens)
+            .saturating_sub(self.cache_write_input_tokens);
         let input_cost = (non_cached as f64 / 1_000_000.0) * p.input_per_1m;
         let cached_cost = (self.cached_input_tokens as f64 / 1_000_000.0) * p.cached_input_per_1m;
-        let output_cost =
-            ((self.output_tokens + self.reasoning_tokens) as f64 / 1_000_000.0) * p.output_per_1m;
-        input_cost + cached_cost + output_cost
+        let cache_write_cost =
+            (self.cache_write_input_tokens as f64 / 1_000_000.0) * p.cache_write_input_per_1m;
+        let output_cost = (self.output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
+        input_cost + cached_cost + cache_write_cost + output_cost
+    }
+}
+
+fn merge_response_label(aggregate: &mut String, next: &str) {
+    if next.is_empty() || aggregate == next || aggregate == "mixed" {
+        return;
+    }
+    if aggregate.is_empty() {
+        *aggregate = next.to_string();
+    } else {
+        *aggregate = "mixed".to_string();
     }
 }
 
@@ -358,6 +413,7 @@ fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
     let data_url = format!("data:image/jpeg;base64,{}", b64);
     let mut request = serde_json::json!({
         "model": model,
+        "service_tier": "default",
         "instructions": SYSTEM_INSTRUCTIONS,
         "input": [{
             "type": "message",
@@ -395,7 +451,7 @@ pub async fn count_input_tokens(
 ) -> Result<u32, String> {
     let mut body = build_request_body(model, image_bytes);
     if let Some(obj) = body.as_object_mut() {
-        for k in ["temperature", "top_p", "max_output_tokens"] {
+        for k in ["temperature", "top_p", "max_output_tokens", "service_tier"] {
             obj.remove(k);
         }
     }
@@ -427,13 +483,16 @@ pub enum DescribeError {
     Incomplete {
         reason: String,
         raw_text: String,
+        usage: Option<UsageStats>,
     },
     Refused {
         detail: String,
+        usage: Option<UsageStats>,
     },
     BadJson {
         detail: String,
         raw_text: String,
+        usage: Option<UsageStats>,
     },
     /// `usage` block missing or malformed in an otherwise-successful
     /// response. Surfaced separately from BadJson so the GUI and audit
@@ -463,9 +522,20 @@ impl DescribeError {
             DescribeError::Decode(s) | DescribeError::Network(s) => s.clone(),
             DescribeError::HttpError { status, body } => format!("HTTP {}: {}", status, body),
             DescribeError::Incomplete { reason, .. } => format!("response truncated: {}", reason),
-            DescribeError::Refused { detail }
+            DescribeError::Refused { detail, .. }
             | DescribeError::BadJson { detail, .. }
             | DescribeError::UsageParse { detail, .. } => detail.clone(),
+        }
+    }
+
+    /// Usage can be present even when an otherwise billable API response is
+    /// incomplete, refused, or contains malformed structured output.
+    pub fn usage(&self) -> Option<&UsageStats> {
+        match self {
+            DescribeError::Incomplete { usage, .. }
+            | DescribeError::Refused { usage, .. }
+            | DescribeError::BadJson { usage, .. } => usage.as_ref(),
+            _ => None,
         }
     }
 }
@@ -549,7 +619,12 @@ pub async fn describe_one(
         serde_json::from_str(&text).map_err(|e| DescribeError::BadJson {
             detail: e.to_string(),
             raw_text: text.clone(),
+            usage: None,
         })?;
+
+    // Parse usage before classifying semantic failures: incomplete and
+    // refused responses are still billable and commonly include usage.
+    let usage_result = UsageStats::from_response(&json);
 
     // Detect content-moderation refusals. The Responses API surfaces
     // these as a `refusal` content part somewhere inside `output[*].content[*]`
@@ -557,7 +632,10 @@ pub async fn describe_one(
     // of) an `output_text` part. Walk every part rather than guessing a
     // fixed index.
     if let Some(refusal) = find_refusal(&json) {
-        return Err(DescribeError::Refused { detail: refusal });
+        return Err(DescribeError::Refused {
+            detail: refusal,
+            usage: usage_result.ok(),
+        });
     }
 
     let status_str = json["status"].as_str().unwrap_or("");
@@ -567,10 +645,14 @@ pub async fn describe_one(
             .as_str()
             .unwrap_or("unknown")
             .to_string();
-        return Err(DescribeError::Incomplete { reason, raw_text });
+        return Err(DescribeError::Incomplete {
+            reason,
+            raw_text,
+            usage: usage_result.ok(),
+        });
     }
 
-    let usage = UsageStats::from_response(&json).map_err(|detail| {
+    let usage = usage_result.map_err(|detail| {
         log::warn!(
             "[describe] usage parse failed; cost reporting will be incomplete: {} (body: {})",
             detail,
@@ -584,6 +666,7 @@ pub async fn describe_one(
     let parsed: AiOutput = serde_json::from_str(&raw_text).map_err(|e| DescribeError::BadJson {
         detail: e.to_string(),
         raw_text: raw_text.clone(),
+        usage: Some(usage.clone()),
     })?;
     Ok((parsed, usage))
 }
@@ -756,6 +839,7 @@ mod tests {
             cached_input_tokens: 0,
             output_tokens: 250,
             reasoning_tokens: 0,
+            ..Default::default()
         };
         let c = u.cost(&p);
         assert!((c - 0.005).abs() < 1e-9, "got {}", c);
@@ -764,10 +848,10 @@ mod tests {
     #[test]
     fn typical_per_image_cost_matches_hand_calc_for_gpt_4o() {
         // gpt-4o: $2.50/1M input, $10/1M output.
-        // 1100 input tokens + 250 output tokens =
-        //   1100/1e6 * 2.50 + 250/1e6 * 10.00 = 0.00275 + 0.00250 = 0.00525
+        // 1100 input tokens + 280 total output tokens =
+        //   1100/1e6 * 2.50 + 280/1e6 * 10.00 = 0.00275 + 0.00280 = 0.00555
         let c = estimate_typical_cost_per_image("gpt-4o").unwrap();
-        assert!((c - 0.00525).abs() < 1e-9, "got {}", c);
+        assert!((c - 0.00555).abs() < 1e-9, "got {}", c);
     }
 
     #[test]
@@ -776,7 +860,7 @@ mod tests {
         assert_eq!(total_input, 2200);
         let (predicted, upper) =
             estimate_describe_cost_from_input_tokens("gpt-4o", total_input, 2).unwrap();
-        let expected_predicted = (2200.0 / 1e6) * 2.50 + (500.0 / 1e6) * 10.00;
+        let expected_predicted = (2200.0 / 1e6) * 2.50 + (560.0 / 1e6) * 10.00;
         let expected_upper = (2200.0 / 1e6) * 2.50 + (2400.0 / 1e6) * 10.00;
         assert!((predicted - expected_predicted).abs() < 1e-9);
         assert!((upper - expected_upper).abs() < 1e-9);
@@ -812,9 +896,36 @@ mod tests {
             cached_input_tokens: 800,
             output_tokens: 0,
             reasoning_tokens: 0,
+            ..Default::default()
         };
         let expected = (200.0 / 1e6) * 2.50 + (800.0 / 1e6) * 1.25;
         assert!((u.cost(&p) - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn reasoning_tokens_are_not_billed_twice() {
+        let p = pricing_for("gpt-5.6-luna").unwrap();
+        let u = UsageStats {
+            output_tokens: 1186,
+            reasoning_tokens: 1024,
+            ..Default::default()
+        };
+        let expected = (1186.0 / 1e6) * 6.0;
+        assert!((u.cost(&p) - expected).abs() < 1e-12);
+        assert_eq!(u.non_reasoning_output_tokens(), 162);
+    }
+
+    #[test]
+    fn gpt_5_6_cache_reads_and_writes_use_distinct_rates() {
+        let p = pricing_for("gpt-5.6-luna").unwrap();
+        let u = UsageStats {
+            input_tokens: 1000,
+            cached_input_tokens: 300,
+            cache_write_input_tokens: 200,
+            ..Default::default()
+        };
+        let expected = (500.0 / 1e6) * 1.0 + (300.0 / 1e6) * 0.1 + (200.0 / 1e6) * 1.25;
+        assert!((u.cost(&p) - expected).abs() < 1e-12);
     }
 
     #[test]
@@ -920,8 +1031,11 @@ mod tests {
             "status": "incomplete",
             "incomplete_details": { "reason": "max_output_tokens" },
             "output": [{ "content": [{ "type": "output_text", "text": "{\"descr" }] }],
-            "usage": { "input_tokens": 1, "input_tokens_details": {"cached_tokens":0},
-                       "output_tokens": 600, "output_tokens_details": {"reasoning_tokens":0} }
+            "service_tier": "default",
+            "reasoning": {"effort": "medium"},
+            "usage": { "input_tokens": 10,
+                       "input_tokens_details": {"cached_tokens":2,"cache_write_tokens":3},
+                       "output_tokens": 600, "output_tokens_details": {"reasoning_tokens":550} }
         });
         Mock::given(method("POST"))
             .and(path("/responses"))
@@ -930,8 +1044,16 @@ mod tests {
             .await;
         let client = OpenAiClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
-            Err(DescribeError::Incomplete { reason, .. }) => {
-                assert_eq!(reason, "max_output_tokens")
+            Err(DescribeError::Incomplete { reason, usage, .. }) => {
+                assert_eq!(reason, "max_output_tokens");
+                let usage = usage.expect("billable incomplete response keeps usage");
+                assert_eq!(usage.cached_input_tokens, 2);
+                assert_eq!(usage.cache_write_input_tokens, 3);
+                assert_eq!(usage.output_tokens, 600);
+                assert_eq!(usage.reasoning_tokens, 550);
+                assert_eq!(usage.non_reasoning_output_tokens(), 50);
+                assert_eq!(usage.service_tier, "default");
+                assert_eq!(usage.reasoning_effort, "medium");
             }
             other => panic!("expected Incomplete, got {:?}", other),
         }
@@ -989,7 +1111,7 @@ mod tests {
             .await;
         let client = OpenAiClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
-            Err(DescribeError::Refused { detail }) => assert_eq!(detail, "cannot help"),
+            Err(DescribeError::Refused { detail, .. }) => assert_eq!(detail, "cannot help"),
             other => panic!("expected Refused, got {:?}", other),
         }
     }
@@ -1042,7 +1164,23 @@ mod tests {
         assert_eq!(u.input_tokens, 100);
         assert_eq!(u.output_tokens, 20);
         assert_eq!(u.cached_input_tokens, 0);
+        assert_eq!(u.cache_write_input_tokens, 0);
         assert_eq!(u.reasoning_tokens, 0);
+        assert!(u.service_tier.is_empty());
+        assert!(u.reasoning_effort.is_empty());
+    }
+
+    #[test]
+    fn from_response_rejects_overlapping_input_detail_totals() {
+        let json = serde_json::json!({
+            "usage": {
+                "input_tokens": 100,
+                "input_tokens_details": {"cached_tokens": 80, "cache_write_tokens": 30},
+                "output_tokens": 1
+            }
+        });
+        let err = UsageStats::from_response(&json).expect_err("detail total must fit input");
+        assert!(err.contains("exceed input_tokens"), "got: {}", err);
     }
 
     #[tokio::test]
@@ -1073,9 +1211,61 @@ mod tests {
         assert_eq!(out.description, "d");
     }
 
+    /// Manual diagnostic for a previously capped production image. Kept
+    /// ignored so ordinary test runs remain offline and deterministic.
+    #[cfg(target_os = "windows")]
+    #[tokio::test]
+    #[ignore = "live OpenAI diagnostic; sends one local image"]
+    async fn live_reproduce_previous_max_output_tokens_failure() {
+        let app_data = std::path::PathBuf::from(
+            std::env::var("APPDATA").expect("APPDATA must be available on Windows"),
+        )
+        .join("com.xman2.medialibrary");
+        let settings = crate::settings::load_settings(&app_data).expect("load app settings");
+        let image_path = std::path::PathBuf::from(
+            std::env::var_os("MEDIALIBRARY_LIVE_IMAGE")
+                .expect("set MEDIALIBRARY_LIVE_IMAGE to an image path"),
+        );
+        let bytes = load_and_downscale_image(&image_path).expect("load diagnostic image");
+        let client = OpenAiClient::new(DEFAULT_BASE_URL, &settings.openai_api_key, 1);
+
+        match describe_one(&client, &settings.openai_model, &bytes).await {
+            Ok((_output, usage)) => eprintln!(
+                "LIVE_RESULT completed input={} cached={} cache_write={} output={} reasoning={} visible={} tier={} effort={}",
+                usage.input_tokens,
+                usage.cached_input_tokens,
+                usage.cache_write_input_tokens,
+                usage.output_tokens,
+                usage.reasoning_tokens,
+                usage.non_reasoning_output_tokens(),
+                usage.service_tier,
+                usage.reasoning_effort
+            ),
+            Err(error) => {
+                if let Some(usage) = error.usage() {
+                    eprintln!(
+                        "LIVE_RESULT failed kind={} detail={} input={} cached={} cache_write={} output={} reasoning={} visible={} tier={} effort={}",
+                        error.kind(),
+                        error.detail(),
+                        usage.input_tokens,
+                        usage.cached_input_tokens,
+                        usage.cache_write_input_tokens,
+                        usage.output_tokens,
+                        usage.reasoning_tokens,
+                        usage.non_reasoning_output_tokens(),
+                        usage.service_tier,
+                        usage.reasoning_effort
+                    );
+                } else {
+                    panic!("live call failed without usage: {}", error.detail());
+                }
+            }
+        }
+    }
+
     #[tokio::test]
     async fn count_input_tokens_returns_server_count_and_strips_sampling_params() {
-        // The /input_tokens endpoint rejects temperature/top_p/max_output_tokens.
+        // The /input_tokens endpoint rejects runtime-only response parameters.
         // We must strip them before sending. Mock asserts on the body shape
         // by responding to ANY POST, but the contract is that the request
         // succeeds, which it wouldn't against the real API if we forgot the

@@ -694,6 +694,7 @@ pub async fn normalise_metadata_cmd(
                         cost_usd: 0.0,
                         error: format!("{} pair(s) XMP↔IIM diverged; primary won", loc_conflicts,),
                         relative_path: rel.clone(),
+                        ..Default::default()
                     };
                     let _ = batch_audit_log::append(&log_path, &entry);
                 }
@@ -711,23 +712,40 @@ pub async fn normalise_metadata_cmd(
                             date_conflicts,
                         ),
                         relative_path: rel.clone(),
+                        ..Default::default()
                     };
                     let _ = batch_audit_log::append(&log_path, &entry);
                 }
                 for call in &ai_calls {
-                    let cost = pricing
-                        .map(|p| {
-                            (call.usage.input_tokens as f64 / 1_000_000.0) * p.input_per_1m
-                                + (call.usage.output_tokens as f64 / 1_000_000.0) * p.output_per_1m
-                        })
-                        .unwrap_or(0.0);
+                    let cost = pricing.map(|p| call.usage.cost(&p)).unwrap_or(0.0);
+                    log::info!(
+                        "[normalise] ai_call path={} group={} status={} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={} cost_usd={}",
+                        rel,
+                        call.group,
+                        if call.error.is_some() { "failed" } else { "ok" },
+                        call.usage.input_tokens,
+                        call.usage.cached_input_tokens,
+                        call.usage.cache_write_input_tokens,
+                        call.usage.output_tokens,
+                        call.usage.reasoning_tokens,
+                        call.usage.non_reasoning_output_tokens(),
+                        call.usage.service_tier,
+                        call.usage.reasoning_effort,
+                        cost
+                    );
                     let entry = normalise::NormaliseAuditEntry {
                         ts: now.clone(),
                         model: model_name.clone(),
                         prompt_version: openai_normalise::NORMALISE_PROMPT_VERSION.to_string(),
                         group: call.group.to_string(),
                         input_tokens: call.usage.input_tokens,
+                        cached_input_tokens: call.usage.cached_input_tokens,
+                        cache_write_input_tokens: call.usage.cache_write_input_tokens,
                         output_tokens: call.usage.output_tokens,
+                        reasoning_tokens: call.usage.reasoning_tokens,
+                        non_reasoning_output_tokens: call.usage.non_reasoning_output_tokens(),
+                        service_tier: call.usage.service_tier.clone(),
+                        reasoning_effort: call.usage.reasoning_effort.clone(),
                         cost_usd: cost,
                         error: call.error.clone().unwrap_or_default(),
                         relative_path: rel.clone(),
@@ -749,12 +767,7 @@ pub async fn normalise_metadata_cmd(
                     .unwrap_or_default();
                 let pricing = openai_describe::pricing_for(&model_name);
                 for call in &ai_calls {
-                    let cost = pricing
-                        .map(|p| {
-                            (call.usage.input_tokens as f64 / 1_000_000.0) * p.input_per_1m
-                                + (call.usage.output_tokens as f64 / 1_000_000.0) * p.output_per_1m
-                        })
-                        .unwrap_or(0.0);
+                    let cost = pricing.map(|p| call.usage.cost(&p)).unwrap_or(0.0);
                     summary.record_ai_call(cost);
                 }
             }

@@ -125,11 +125,28 @@ function UsageSummary({
       <div>
         Input tokens: {s.totalInputTokens.toLocaleString()}
         {s.totalCachedTokens > 0 && (
-          <> (cached {s.totalCachedTokens.toLocaleString()})</>
+          <> (cached reads {s.totalCachedTokens.toLocaleString()})</>
+        )}
+        {s.totalCacheWriteTokens > 0 && (
+          <> (cache writes {s.totalCacheWriteTokens.toLocaleString()})</>
         )}
         {" · "}
         Output tokens: {s.totalOutputTokens.toLocaleString()}
+        {s.totalReasoningTokens > 0 && (
+          <>
+            {" "}
+            (reasoning {s.totalReasoningTokens.toLocaleString()}; visible{" "}
+            {s.totalNonReasoningOutputTokens.toLocaleString()})
+          </>
+        )}
       </div>
+      {(s.serviceTier || s.reasoningEffort) && (
+        <div>
+          {s.serviceTier && <>Service tier: {s.serviceTier}</>}
+          {s.serviceTier && s.reasoningEffort && " · "}
+          {s.reasoningEffort && <>Reasoning effort: {s.reasoningEffort}</>}
+        </div>
+      )}
       <div>
         Estimate: {formatCost(comparisonCostUsd)}
         {" · "}

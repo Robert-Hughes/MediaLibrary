@@ -22,7 +22,17 @@ pub struct DescribeLogEntry {
     pub n_failed: usize,
     pub total_input_tokens: u32,
     pub total_cached_tokens: u32,
+    #[serde(default)]
+    pub total_cache_write_tokens: u32,
     pub total_output_tokens: u32,
+    #[serde(default)]
+    pub total_reasoning_tokens: u32,
+    #[serde(default)]
+    pub total_non_reasoning_output_tokens: u32,
+    #[serde(default)]
+    pub service_tier: String,
+    #[serde(default)]
+    pub reasoning_effort: String,
     pub predicted_cost_usd: f64,
     pub actual_cost_usd: f64,
     /// Per-image errors. Bounded — we record only the failure rows, not
@@ -35,6 +45,8 @@ pub struct DescribeLogError {
     pub relative_path: String,
     pub kind: crate::batch_job::BatchFailureKind,
     pub detail: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<crate::openai_describe::UsageStats>,
 }
 
 pub fn log_file_path(app_data_dir: &Path) -> PathBuf {
@@ -60,15 +72,32 @@ mod tests {
             n_failed: 1,
             total_input_tokens: 5000,
             total_cached_tokens: 0,
+            total_cache_write_tokens: 0,
             total_output_tokens: 500,
+            total_reasoning_tokens: 0,
+            total_non_reasoning_output_tokens: 500,
+            service_tier: "default".into(),
+            reasoning_effort: String::new(),
             predicted_cost_usd: 0.0175,
             actual_cost_usd: 0.018,
             errors: vec![DescribeLogError {
                 relative_path: "x.jpg".into(),
                 kind: crate::batch_job::BatchFailureKind::Incomplete,
                 detail: "max_output_tokens".into(),
+                usage: None,
             }],
         }
+    }
+
+    #[test]
+    fn old_log_rows_deserialize_with_new_usage_fields_defaulted() {
+        let old = r#"{"ts":"2026-01-01T00:00:00Z","model":"gpt-4o","prompt_version":"v1","n_images":1,"n_succeeded":1,"n_failed":0,"total_input_tokens":100,"total_cached_tokens":0,"total_output_tokens":20,"predicted_cost_usd":0.1,"actual_cost_usd":0.1,"errors":[]}"#;
+        let entry: DescribeLogEntry = serde_json::from_str(old).unwrap();
+        assert_eq!(entry.total_cache_write_tokens, 0);
+        assert_eq!(entry.total_reasoning_tokens, 0);
+        assert_eq!(entry.total_non_reasoning_output_tokens, 0);
+        assert!(entry.service_tier.is_empty());
+        assert!(entry.reasoning_effort.is_empty());
     }
 
     #[test]

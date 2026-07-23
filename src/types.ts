@@ -523,7 +523,12 @@ export interface DescribeFailure {
 export interface DescribeUsageSummary {
   totalInputTokens: number;
   totalCachedTokens: number;
+  totalCacheWriteTokens: number;
   totalOutputTokens: number;
+  totalReasoningTokens: number;
+  totalNonReasoningOutputTokens: number;
+  serviceTier: string;
+  reasoningEffort: string;
   predictedCostUsd: number;
   actualCostUsd: number;
 }

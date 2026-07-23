@@ -12,7 +12,7 @@
 //! the per-image walker so the dispatcher can append exactly one row
 //! per AI call.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Typed AI failure surfaced by Group B / Group C up to the dispatcher.
 /// Mapped to a `BatchFailureKind` so per-image failure rows preserve
@@ -21,6 +21,7 @@ use serde::Serialize;
 pub struct NormaliseAiError {
     pub kind: crate::batch_job::BatchFailureKind,
     pub detail: String,
+    pub usage: Option<AiCallUsage>,
 }
 
 impl NormaliseAiError {
@@ -28,6 +29,7 @@ impl NormaliseAiError {
         Self {
             kind: crate::batch_job::BatchFailureKind::AiKeyMissing,
             detail: "OpenAI API key is not configured. Open Settings to enter your key.".into(),
+            usage: None,
         }
     }
 
@@ -51,7 +53,28 @@ impl NormaliseAiError {
         } else {
             K::AiCallFailed
         };
-        Self { kind, detail }
+        Self {
+            kind,
+            detail,
+            usage: None,
+        }
+    }
+
+    pub fn with_usage(mut self, usage: AiCallUsage) -> Self {
+        self.usage = Some(usage);
+        self
+    }
+}
+
+impl From<String> for NormaliseAiError {
+    fn from(detail: String) -> Self {
+        Self::from_client_string(detail)
+    }
+}
+
+impl From<&str> for NormaliseAiError {
+    fn from(detail: &str) -> Self {
+        Self::from_client_string(detail.to_string())
     }
 }
 
@@ -59,11 +82,7 @@ impl NormaliseAiError {
 /// Mock clients can return `Default::default()`; the production
 /// `OpenAiNormaliseClient` parses these out of the `/responses`
 /// response body so the audit log can record real cost.
-#[derive(Debug, Clone, Default)]
-pub struct AiCallUsage {
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-}
+pub type AiCallUsage = crate::openai_describe::UsageStats;
 
 /// Per-AI-call record returned by `process_image` so the dispatcher
 /// can append a row to the JSONL audit log for each one. Includes
@@ -79,7 +98,7 @@ pub struct PerImageAiCall {
 
 /// Audit-log row recorded for one AI call. Written to a JSONL file by
 /// the dispatcher; shape matches plan §6 "cost audit".
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct NormaliseAuditEntry {
     pub ts: String,
@@ -88,7 +107,19 @@ pub struct NormaliseAuditEntry {
     /// `"description"` (Group B) or `"title"` (Group C).
     pub group: String,
     pub input_tokens: u32,
+    #[serde(default)]
+    pub cached_input_tokens: u32,
+    #[serde(default)]
+    pub cache_write_input_tokens: u32,
     pub output_tokens: u32,
+    #[serde(default)]
+    pub reasoning_tokens: u32,
+    #[serde(default)]
+    pub non_reasoning_output_tokens: u32,
+    #[serde(default)]
+    pub service_tier: String,
+    #[serde(default)]
+    pub reasoning_effort: String,
     pub cost_usd: f64,
     /// Empty string on success; failure detail otherwise.
     pub error: String,
@@ -128,12 +159,14 @@ pub trait NormaliseAiClient: Send + Sync {
     async fn merge_description(
         &self,
         prompt: DescriptionMergePrompt,
-    ) -> Result<(String, AiCallUsage), String>;
+    ) -> Result<(String, AiCallUsage), NormaliseAiError>;
 
     /// Generate a short title from a description + context. Case-3
     /// Title AI path.
-    async fn generate_title(&self, prompt: TitleGenPrompt)
-        -> Result<(String, AiCallUsage), String>;
+    async fn generate_title(
+        &self,
+        prompt: TitleGenPrompt,
+    ) -> Result<(String, AiCallUsage), NormaliseAiError>;
 }
 
 /// Captures the prompts that would have fired so the estimate phase
@@ -152,7 +185,7 @@ impl NormaliseAiClient for CapturingAiClient {
     async fn merge_description(
         &self,
         p: DescriptionMergePrompt,
-    ) -> Result<(String, AiCallUsage), String> {
+    ) -> Result<(String, AiCallUsage), NormaliseAiError> {
         let mut stand_in = p
             .description_sources
             .values()
@@ -166,7 +199,10 @@ impl NormaliseAiClient for CapturingAiClient {
         Ok((stand_in, AiCallUsage::default()))
     }
 
-    async fn generate_title(&self, p: TitleGenPrompt) -> Result<(String, AiCallUsage), String> {
+    async fn generate_title(
+        &self,
+        p: TitleGenPrompt,
+    ) -> Result<(String, AiCallUsage), NormaliseAiError> {
         let stand_in = p
             .description
             .split_whitespace()

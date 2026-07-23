@@ -17,7 +17,9 @@
 
 use serde::Deserialize;
 
-use crate::normalise::{AiCallUsage, DescriptionMergePrompt, NormaliseAiClient, TitleGenPrompt};
+use crate::normalise::{
+    AiCallUsage, DescriptionMergePrompt, NormaliseAiClient, NormaliseAiError, TitleGenPrompt,
+};
 use crate::openai_describe::OpenAiClient;
 use crate::openai_http::OpenAiHttp;
 
@@ -132,6 +134,7 @@ fn build_request_body(
 ) -> serde_json::Value {
     serde_json::json!({
         "model": model,
+        "service_tier": "default",
         "input": [
             { "role": "system", "content": system_prompt },
             { "role": "user", "content": serde_json::to_string(&user_payload).unwrap_or_default() }
@@ -218,14 +221,13 @@ impl OpenAiNormaliseClient {
     }
 
     /// Preflight a built request body against `/responses/input_tokens`.
-    /// Drops the runtime parameters (`temperature`, `top_p`,
-    /// `max_output_tokens`) before posting — these are not accepted by
+    /// Drops runtime parameters before posting — these are not accepted by
     /// the token-count endpoint. Mirrors the shape of
     /// `openai_describe::count_input_tokens`.
     pub async fn count_input_tokens(&self, body: &serde_json::Value) -> Result<u32, String> {
         let mut body = body.clone();
         if let Some(obj) = body.as_object_mut() {
-            for k in ["temperature", "top_p", "max_output_tokens"] {
+            for k in ["temperature", "top_p", "max_output_tokens", "service_tier"] {
                 obj.remove(k);
             }
         }
@@ -243,14 +245,10 @@ impl OpenAiNormaliseClient {
 }
 
 /// Extract the `usage` block from a `/responses` body. The Responses
-/// API surfaces `usage.input_tokens` / `usage.output_tokens`; both
-/// default to zero if missing so the audit log still records a row.
-fn extract_usage(body: &serde_json::Value) -> AiCallUsage {
-    let u = &body["usage"];
-    AiCallUsage {
-        input_tokens: u["input_tokens"].as_u64().unwrap_or(0) as u32,
-        output_tokens: u["output_tokens"].as_u64().unwrap_or(0) as u32,
-    }
+/// API surfaces `usage.input_tokens` / `usage.output_tokens`; both are
+/// required so response-shape drift cannot silently produce a zero-cost row.
+fn extract_usage(body: &serde_json::Value) -> Result<AiCallUsage, String> {
+    AiCallUsage::from_response(body)
 }
 
 #[async_trait::async_trait]
@@ -258,9 +256,9 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
     async fn merge_description(
         &self,
         prompt: DescriptionMergePrompt,
-    ) -> Result<(String, AiCallUsage), String> {
-        let user_payload =
-            serde_json::to_value(&prompt).map_err(|e| format!("serialise merge prompt: {}", e))?;
+    ) -> Result<(String, AiCallUsage), NormaliseAiError> {
+        let user_payload = serde_json::to_value(&prompt)
+            .map_err(|e| NormaliseAiError::from(format!("serialise merge prompt: {}", e)))?;
         let body = build_request_body(
             &self.model,
             DESCRIPTION_SYSTEM_PROMPT,
@@ -269,20 +267,25 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
             "description_merge",
             DESCRIPTION_OUTPUT_TOKENS,
         );
-        let response = post_responses(&self.http, &body).await?;
-        let usage = extract_usage(&response);
-        let text = extract_structured_text(&response)?;
-        let parsed: DescriptionReply = serde_json::from_str(&text)
-            .map_err(|e| format!("bad description JSON: {} (raw: {})", e, text))?;
+        let response = post_responses(&self.http, &body)
+            .await
+            .map_err(NormaliseAiError::from)?;
+        let usage = extract_usage(&response).map_err(NormaliseAiError::from)?;
+        let text = extract_structured_text(&response)
+            .map_err(|e| NormaliseAiError::from(e).with_usage(usage.clone()))?;
+        let parsed: DescriptionReply = serde_json::from_str(&text).map_err(|e| {
+            NormaliseAiError::from(format!("bad description JSON: {} (raw: {})", e, text))
+                .with_usage(usage.clone())
+        })?;
         Ok((parsed.description, usage))
     }
 
     async fn generate_title(
         &self,
         prompt: TitleGenPrompt,
-    ) -> Result<(String, AiCallUsage), String> {
-        let user_payload =
-            serde_json::to_value(&prompt).map_err(|e| format!("serialise title prompt: {}", e))?;
+    ) -> Result<(String, AiCallUsage), NormaliseAiError> {
+        let user_payload = serde_json::to_value(&prompt)
+            .map_err(|e| NormaliseAiError::from(format!("serialise title prompt: {}", e)))?;
         let body = build_request_body(
             &self.model,
             TITLE_SYSTEM_PROMPT,
@@ -291,11 +294,16 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
             "title_generation",
             TITLE_OUTPUT_TOKENS,
         );
-        let response = post_responses(&self.http, &body).await?;
-        let usage = extract_usage(&response);
-        let text = extract_structured_text(&response)?;
-        let parsed: TitleReply = serde_json::from_str(&text)
-            .map_err(|e| format!("bad title JSON: {} (raw: {})", e, text))?;
+        let response = post_responses(&self.http, &body)
+            .await
+            .map_err(NormaliseAiError::from)?;
+        let usage = extract_usage(&response).map_err(NormaliseAiError::from)?;
+        let text = extract_structured_text(&response)
+            .map_err(|e| NormaliseAiError::from(e).with_usage(usage.clone()))?;
+        let parsed: TitleReply = serde_json::from_str(&text).map_err(|e| {
+            NormaliseAiError::from(format!("bad title JSON: {} (raw: {})", e, text))
+                .with_usage(usage.clone())
+        })?;
         Ok((parsed.title, usage))
     }
 }
@@ -329,6 +337,7 @@ mod tests {
             400,
         );
         assert_eq!(body["model"], "gpt-5.4-nano");
+        assert_eq!(body["service_tier"], "default");
         assert_eq!(body["text"]["format"]["type"], "json_schema");
         assert_eq!(body["text"]["format"]["strict"], true);
         assert_eq!(body["text"]["format"]["name"], "description_merge");
@@ -382,5 +391,29 @@ mod tests {
         let body = serde_json::json!({ "output": [] });
         let err = extract_structured_text(&body).expect_err("must error");
         assert!(err.contains("missing"));
+    }
+
+    #[test]
+    fn extract_usage_requires_top_level_token_counts_and_keeps_details() {
+        let body = serde_json::json!({
+            "service_tier": "default",
+            "reasoning": {"effort": "medium"},
+            "usage": {
+                "input_tokens": 50,
+                "input_tokens_details": {"cached_tokens": 10, "cache_write_tokens": 5},
+                "output_tokens": 30,
+                "output_tokens_details": {"reasoning_tokens": 20}
+            }
+        });
+        let usage = extract_usage(&body).unwrap();
+        assert_eq!(usage.cached_input_tokens, 10);
+        assert_eq!(usage.cache_write_input_tokens, 5);
+        assert_eq!(usage.reasoning_tokens, 20);
+        assert_eq!(usage.service_tier, "default");
+        assert_eq!(usage.reasoning_effort, "medium");
+
+        let err = extract_usage(&serde_json::json!({"usage": {"output_tokens": 1}}))
+            .expect_err("missing input must not silently become zero");
+        assert!(err.contains("input_tokens"));
     }
 }
