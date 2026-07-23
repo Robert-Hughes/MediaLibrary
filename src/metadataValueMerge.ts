@@ -88,6 +88,29 @@ export function mergeMetadataValueExactly(
     };
   }
 
+  if (schemaKind.kind === "Text") {
+    if (patch.kind !== "Text") {
+      return {
+        kind: "unsupported",
+        reason: "The text editor did not return a text value.",
+      };
+    }
+    if (current !== undefined && current.kind !== "Text") {
+      return {
+        kind: "unsupported",
+        reason: "The existing value is not a text value.",
+      };
+    }
+    const existingText = current?.value ?? "";
+    return {
+      kind: "merged",
+      value: {
+        kind: "Text",
+        value: existingText + patch.value,
+      },
+    };
+  }
+
   return {
     kind: "unsupported",
     reason: `Merge is not supported for ${schemaKind.kind} metadata.`,

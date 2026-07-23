@@ -1,7 +1,8 @@
 import type { SchemaDefinitionId, TagInfo } from "./types";
 import { gpsMemberGroup } from "./metadata/tag_overrides";
 
-export type MetadataMergeMode = "list-union" | "lang-alt" | null;
+export type MetadataMergeMode =
+  "list-union" | "lang-alt" | "string-concat" | null;
 
 export interface MetadataEditCapabilities {
   groupedEditor: "gps" | null;
@@ -28,6 +29,8 @@ export function metadataEditCapabilities(
       return { groupedEditor: null, mergeMode: "list-union" };
     case "LangAlt":
       return { groupedEditor: null, mergeMode: "lang-alt" };
+    case "Text":
+      return { groupedEditor: null, mergeMode: "string-concat" };
     default:
       return { groupedEditor: null, mergeMode: null };
   }
