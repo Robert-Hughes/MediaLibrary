@@ -368,6 +368,89 @@ fn new_property_default_destination_roundtrip_is_family7_qualified() {
     assert_eq!(created.write_target.as_ref(), Some(write_target));
 }
 
+#[test]
+fn empty_xmp_bag_set_accepts_exiftool_absence_for_new_and_existing_targets() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+    let id = medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text();
+    let empty_bag = metadata_bag(&[]);
+
+    let before = read_one(dir.path(), &dst);
+    assert_eq!(
+        before.occurrences.for_schema(&id).count(),
+        0,
+        "fixture must begin without AIOcrText"
+    );
+
+    let new_empty = apply_target_file(
+        folder,
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: id.clone(),
+            edit: metadata_set(empty_bag.clone()),
+        }],
+    );
+    assert!(new_empty.error.is_none(), "{:?}", new_empty.error);
+    assert_eq!(new_empty.outcomes.len(), 1);
+    assert_eq!(new_empty.outcomes[0].kind, "Match");
+    assert_eq!(new_empty.outcomes[0].sent, Some(empty_bag.clone()));
+    assert_eq!(new_empty.outcomes[0].observed, None);
+    assert_eq!(new_empty.targets_to_clear.len(), 1);
+    assert_eq!(
+        read_one(dir.path(), &dst)
+            .occurrences
+            .for_schema(&id)
+            .count(),
+        0,
+        "ExifTool represents the empty Bag as an absent property"
+    );
+
+    let populated = apply_target_file(
+        folder,
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: id.clone(),
+            edit: metadata_set(metadata_bag(&["visible text"])),
+        }],
+    );
+    assert!(populated.error.is_none(), "{:?}", populated.error);
+    assert_eq!(populated.outcomes[0].kind, "Match");
+    assert_eq!(
+        read_one(dir.path(), &dst)
+            .occurrences
+            .for_schema(&id)
+            .count(),
+        1
+    );
+
+    let existing_empty = apply_target_file(
+        folder,
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: id.clone(),
+            edit: metadata_set(empty_bag.clone()),
+        }],
+    );
+    assert!(existing_empty.error.is_none(), "{:?}", existing_empty.error);
+    assert_eq!(existing_empty.outcomes.len(), 1);
+    assert_eq!(existing_empty.outcomes[0].kind, "Match");
+    assert_eq!(existing_empty.outcomes[0].sent, Some(empty_bag));
+    assert_eq!(existing_empty.outcomes[0].observed, None);
+    assert_eq!(existing_empty.targets_to_clear.len(), 1);
+    assert_eq!(
+        read_one(dir.path(), &dst)
+            .occurrences
+            .for_schema(&id)
+            .count(),
+        0,
+        "clearing an existing Bag must also accept ExifTool's absent readback"
+    );
+}
+
 // ── apply_edits delete round-trip ────────────────────────────────────────────
 
 #[test]

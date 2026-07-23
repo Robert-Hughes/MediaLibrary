@@ -107,11 +107,17 @@ files retain drafts. Verification rows retain their complete target and allow
 accepting current file state, keeping the draft, or discarding the exact pending
 draft where safe.
 
-New Property verification succeeds only for exactly one occurrence matching
-the intended exact schema and selector. Changed index, redirected destination,
-missing or duplicate result, silent ignore, and semantic mismatch preserve the
-draft. ExistingOccurrence apply validates the full occurrence, schema and
-write-target snapshot; it never locates an owner by schema.
+New Property verification normally succeeds only for exactly one occurrence
+matching the intended exact schema and selector. The sole absence exception is
+a requested semantic empty value: ExifTool represents `-TAG=` as deletion and
+does not reliably retain zero-item XMP containers, so empty and absent readback
+are intentionally equivalent. This rule is generic rather than property-specific
+and is documented in `METADATA_FORMATS_DESIGN.md`. Changed index, redirected
+destination, missing after a non-empty write, duplicate result, silent ignore,
+and semantic mismatch preserve the draft. ExistingOccurrence apply validates
+the full occurrence, schema and write-target snapshot; it never locates an
+owner by schema. If an empty Set removes that exact occurrence, the same
+empty/absent semantic rule clears the draft.
 
 Multi-field editors may use schema IDs to enumerate semantic fields, but every
 field resolves to a complete mutation target before the editor opens. A single

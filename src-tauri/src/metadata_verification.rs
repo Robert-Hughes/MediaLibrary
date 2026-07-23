@@ -14,6 +14,11 @@ pub(crate) fn verify_set_value(
         None => return ("Match".to_string(), None),
     };
 
+    // ExifTool's ordinary `-TAG=` assignment removes a property rather than
+    // retaining an empty scalar or zero-item XMP container. At the semantic
+    // apply boundary, a requested empty value is therefore equivalent to an
+    // empty or absent authoritative readback. The audit record still retains
+    // the requested value and the physical post-write state independently.
     if metadata_empty_value(expected) && metadata_empty_or_absent(observed) {
         return ("Match".to_string(), None);
     }

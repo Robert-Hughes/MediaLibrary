@@ -99,7 +99,8 @@ The active operation is:
    and produce stable UTF-8 numeric and textual argument passes.
 3. Write the file and read authoritative occurrences again.
 4. For New Property, require exactly one readback match for the intended exact
-   schema and selector.
+   schema and selector, except for the documented empty-value normalisation
+   below.
 5. Verify semantic results, including rational equivalence, GPS tolerance,
    list semantics, nested values, dates, times, offsets and the narrow IPTC
    country-code padding rule.
@@ -109,6 +110,32 @@ The active operation is:
 LangAlt `Set` has whole-value semantics. Rendering first clears the parent
 property and then recreates every language in the map, so removing a language
 from the semantic value removes it from the file.
+
+### Empty-value storage normalisation
+
+MediaLibrary deliberately treats a requested empty semantic value as equivalent
+to an empty or absent authoritative readback. This rule is schema-independent:
+it is not specific to AI metadata or to any individual property. It applies only
+when no occurrence remains. A candidate under another schema or selector,
+multiple candidates, or absence after a non-empty write remains a verification
+failure.
+
+This is a storage-boundary compromise required by ExifTool. Its
+[`-TAG[+-^]=[VALUE]` documentation](https://exiftool.org/exiftool_pod2.html)
+defines `-TAG=` with no value as deletion, while `^=` writes an empty scalar
+value rather than a zero-item array. ExifTool also ignores empty RDF Bag
+containers during XMP rewriting; see the official
+[empty `rdf:Bag` explanation](https://exiftool.org/forum/index.php?topic=13031.0).
+Consequently, an empty Bag or Seq cannot be retained reliably across ordinary
+ExifTool reads and later XMP writes.
+
+Verification preserves both sides of this normalisation. The audit record keeps
+the requested empty `sent` value, records `post_write` as `Missing`, reports the
+semantic verification as `Match`, and proposes `Clear` for the exact draft.
+Thus the physical state is never misreported even though the draft succeeds.
+For generated AI metadata, the independently stored model, prompt-version and
+generation-time properties provide evidence that analysis ran when an empty
+result property is normalised to absence.
 
 Clear results require no attention row. Keep, Replace, Blocked, unavailable
 readback, missing values, mismatches, coercions, lingering deletes and observed
