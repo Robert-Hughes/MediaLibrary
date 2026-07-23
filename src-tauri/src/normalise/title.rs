@@ -138,7 +138,8 @@ pub async fn normalise_title(
                         }
                         Err(e) => {
                             return TitleOutcome {
-                                ai_error: Some(NormaliseAiError::from_client_string(e)),
+                                ai_usage: e.usage.clone(),
+                                ai_error: Some(e),
                                 ..Default::default()
                             };
                         }
@@ -282,13 +283,13 @@ mod tests {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
             async fn generate_title(
                 &self,
                 p: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 assert_eq!(p.description, "Climbers descending Mont Blanc at sunset.");
                 assert_eq!(p.keywords, vec!["mountains".to_string()]);
                 Ok(("Climbers At Sunset".into(), AiCallUsage::default()))
@@ -313,13 +314,13 @@ mod tests {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 Err("rate limited".into())
             }
         }
@@ -341,13 +342,13 @@ mod tests {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 panic!("AI should not fire when description is empty")
             }
         }

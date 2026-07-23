@@ -239,7 +239,8 @@ pub async fn normalise_description(
                     }
                     Err(e) => {
                         return DescriptionOutcome {
-                            ai_error: Some(NormaliseAiError::from_client_string(e)),
+                            ai_usage: e.usage.clone(),
+                            ai_error: Some(e),
                             ..Default::default()
                         };
                     }
@@ -269,7 +270,8 @@ pub async fn normalise_description(
                     }
                     Err(e) => {
                         return DescriptionOutcome {
-                            ai_error: Some(NormaliseAiError::from_client_string(e)),
+                            ai_usage: e.usage.clone(),
+                            ai_error: Some(e),
                             ..Default::default()
                         };
                     }
@@ -453,13 +455,13 @@ mod tests {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 Ok(("Merged factual description.".into(), AiCallUsage::default()))
             }
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
         }
@@ -485,13 +487,13 @@ mod tests {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 Err("HTTP 429: too many requests".into())
             }
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
         }
@@ -579,7 +581,7 @@ mod tests {
             async fn merge_description(
                 &self,
                 _: DescriptionMergePrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 Ok((
                     "Generated factual description.".into(),
                     AiCallUsage::default(),
@@ -588,7 +590,7 @@ mod tests {
             async fn generate_title(
                 &self,
                 _: TitleGenPrompt,
-            ) -> Result<(String, AiCallUsage), String> {
+            ) -> Result<(String, AiCallUsage), NormaliseAiError> {
                 unreachable!()
             }
         }

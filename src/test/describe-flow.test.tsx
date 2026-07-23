@@ -196,7 +196,12 @@ describe("AI-description flow", () => {
     mockApiInstance.describeUsageSummary = {
       totalInputTokens: 1230,
       totalCachedTokens: 0,
+      totalCacheWriteTokens: 0,
       totalOutputTokens: 200,
+      totalReasoningTokens: 0,
+      totalNonReasoningOutputTokens: 200,
+      serviceTier: "default",
+      reasoningEffort: "",
       predictedCostUsd: 0.0042,
       actualCostUsd: 0.005,
     };
@@ -337,7 +342,12 @@ describe("AI-description flow", () => {
     mockApiInstance.describeUsageSummary = {
       totalInputTokens: 1200,
       totalCachedTokens: 0,
+      totalCacheWriteTokens: 0,
       totalOutputTokens: 300,
+      totalReasoningTokens: 100,
+      totalNonReasoningOutputTokens: 200,
+      serviceTier: "default",
+      reasoningEffort: "medium",
       predictedCostUsd: 0.005,
       actualCostUsd: 0.006,
     };
@@ -352,6 +362,12 @@ describe("AI-description flow", () => {
 
     expect(screen.getByTestId("describe-usage-summary")).toHaveTextContent(
       /50% vs estimate/,
+    );
+    expect(screen.getByTestId("describe-usage-summary")).toHaveTextContent(
+      /reasoning 100; visible 200/i,
+    );
+    expect(screen.getByTestId("describe-usage-summary")).toHaveTextContent(
+      /Service tier: default · Reasoning effort: medium/i,
     );
   });
 

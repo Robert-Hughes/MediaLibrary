@@ -63,7 +63,12 @@ struct DescribeEstimateErrorPayload {
 struct UsageSummary {
     total_input_tokens: u32,
     total_cached_tokens: u32,
+    total_cache_write_tokens: u32,
     total_output_tokens: u32,
+    total_reasoning_tokens: u32,
+    total_non_reasoning_output_tokens: u32,
+    service_tier: String,
+    reasoning_effort: String,
     predicted_cost_usd: f64,
     actual_cost_usd: f64,
 }
@@ -252,7 +257,7 @@ pub async fn describe_images_cmd(
     let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
     let mut log_errors: Vec<describe_log::DescribeLogError> = Vec::new();
     let mut aggregate = openai_describe::UsageStats::default();
-    let mut total_input_for_predicted: u64 = 0;
+    let mut dispatched_api_calls = 0usize;
     let mut current = 0usize;
 
     for rel in &rel_paths {
@@ -287,15 +292,16 @@ pub async fn describe_images_cmd(
                     relative_path: rel.clone(),
                     kind,
                     detail: e,
+                    usage: None,
                 });
                 continue;
             }
         };
 
+        dispatched_api_calls += 1;
         match openai_describe::describe_one(&client, &s.openai_model, &bytes).await {
             Ok((output, usage)) => {
                 aggregate.add(&usage);
-                total_input_for_predicted += usage.input_tokens as u64;
 
                 let edits = openai_describe::compose_metadata_draft_edits(
                     &s.openai_model,
@@ -303,28 +309,57 @@ pub async fn describe_images_cmd(
                     chrono::Utc::now(),
                 );
                 log::info!(
-                    "[describe] ({}/{}) ok {} input_tokens={} output_tokens={} tags={}",
+                    "[describe] ({}/{}) ok {} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={} tags={}",
                     current,
                     total,
                     rel,
                     usage.input_tokens,
+                    usage.cached_input_tokens,
+                    usage.cache_write_input_tokens,
                     usage.output_tokens,
+                    usage.reasoning_tokens,
+                    usage.non_reasoning_output_tokens(),
+                    usage.service_tier,
+                    usage.reasoning_effort,
                     edits.len()
                 );
                 emitter.progress_metadata(current, total, rel, "ok", None, Some(&edits));
                 succeeded.push(rel.clone());
             }
             Err(e) => {
+                let failure_usage = e.usage().cloned();
+                if let Some(usage) = &failure_usage {
+                    aggregate.add(usage);
+                }
                 let kind = e.kind();
                 let detail = e.detail();
-                log::warn!(
-                    "[describe] ({}/{}) failed {} kind={} detail={}",
-                    current,
-                    total,
-                    rel,
-                    kind,
-                    detail
-                );
+                if let Some(usage) = &failure_usage {
+                    log::warn!(
+                        "[describe] ({}/{}) failed {} kind={} detail={} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={}",
+                        current,
+                        total,
+                        rel,
+                        kind,
+                        detail,
+                        usage.input_tokens,
+                        usage.cached_input_tokens,
+                        usage.cache_write_input_tokens,
+                        usage.output_tokens,
+                        usage.reasoning_tokens,
+                        usage.non_reasoning_output_tokens(),
+                        usage.service_tier,
+                        usage.reasoning_effort
+                    );
+                } else {
+                    log::warn!(
+                        "[describe] ({}/{}) failed {} kind={} detail={} usage=unavailable",
+                        current,
+                        total,
+                        rel,
+                        kind,
+                        detail
+                    );
+                }
                 emitter.progress_metadata(current, total, rel, kind.as_wire(), Some(&detail), None);
                 failed.push(batch_job::BatchFailureRow {
                     relative_path: rel.clone(),
@@ -335,30 +370,42 @@ pub async fn describe_images_cmd(
                     relative_path: rel.clone(),
                     kind,
                     detail,
+                    usage: failure_usage,
                 });
             }
         }
     }
 
     log::info!(
-        "[describe] finished succeeded={} failed={} total_input_tokens={} total_output_tokens={}",
+        "[describe] finished succeeded={} failed={} total_input_tokens={} cached_tokens={} cache_write_tokens={} total_output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={}",
         succeeded.len(),
         failed.len(),
         aggregate.input_tokens,
-        aggregate.output_tokens
+        aggregate.cached_input_tokens,
+        aggregate.cache_write_input_tokens,
+        aggregate.output_tokens,
+        aggregate.reasoning_tokens,
+        aggregate.non_reasoning_output_tokens(),
+        aggregate.service_tier,
+        aggregate.reasoning_effort
     );
 
     let (predicted, _) = openai_describe::estimate_describe_cost_from_input_tokens(
         &s.openai_model,
-        total_input_for_predicted,
-        succeeded.len(),
+        aggregate.input_tokens as u64,
+        dispatched_api_calls,
     )?;
     let actual = aggregate.cost(&pricing);
 
     let usage_summary = UsageSummary {
         total_input_tokens: aggregate.input_tokens,
         total_cached_tokens: aggregate.cached_input_tokens,
+        total_cache_write_tokens: aggregate.cache_write_input_tokens,
         total_output_tokens: aggregate.output_tokens,
+        total_reasoning_tokens: aggregate.reasoning_tokens,
+        total_non_reasoning_output_tokens: aggregate.non_reasoning_output_tokens(),
+        service_tier: aggregate.service_tier.clone(),
+        reasoning_effort: aggregate.reasoning_effort.clone(),
         predicted_cost_usd: predicted,
         actual_cost_usd: actual,
     };
@@ -374,7 +421,12 @@ pub async fn describe_images_cmd(
             n_failed: failed.len(),
             total_input_tokens: aggregate.input_tokens,
             total_cached_tokens: aggregate.cached_input_tokens,
+            total_cache_write_tokens: aggregate.cache_write_input_tokens,
             total_output_tokens: aggregate.output_tokens,
+            total_reasoning_tokens: aggregate.reasoning_tokens,
+            total_non_reasoning_output_tokens: aggregate.non_reasoning_output_tokens(),
+            service_tier: aggregate.service_tier.clone(),
+            reasoning_effort: aggregate.reasoning_effort.clone(),
             predicted_cost_usd: predicted,
             actual_cost_usd: actual,
             errors: log_errors,
