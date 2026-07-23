@@ -170,6 +170,10 @@ pub(crate) enum TargetApplyError {
         occurrence_id: Box<MetadataOccurrenceId>,
     },
     ExistingOccurrenceMissing(Box<MetadataDraftTarget>),
+    ExistingOccurrenceAmbiguousCopyRebind {
+        target: Box<MetadataDraftTarget>,
+        occurrences: Vec<MetadataOccurrenceId>,
+    },
     ExistingTargetValidationFailure {
         target: Box<MetadataDraftTarget>,
         reason: String,
@@ -226,6 +230,13 @@ impl std::fmt::Display for TargetApplyError {
             Self::ExistingOccurrenceMissing(target) => write!(
                 formatter,
                 "Existing target {target:?} is absent from authoritative pre-write metadata"
+            ),
+            Self::ExistingOccurrenceAmbiguousCopyRebind {
+                target,
+                occurrences,
+            } => write!(
+                formatter,
+                "Existing target {target:?} cannot be rebound because its stable destination resolved to multiple Copy-number candidates: {occurrences:?}"
             ),
             Self::ExistingTargetValidationFailure { target, reason } => write!(
                 formatter,
@@ -432,12 +443,50 @@ where
 
     for entry in edits {
         let plan = match &entry.target {
-            MetadataDraftTarget::ExistingOccurrence { occurrence_id, .. } => {
-                let occurrence = occurrences.get(occurrence_id).copied().ok_or_else(|| {
-                    TargetApplyError::ExistingOccurrenceMissing(Box::new(entry.target.clone()))
-                })?;
-                entry
-                    .target
+            MetadataDraftTarget::ExistingOccurrence {
+                occurrence_id,
+                schema_id,
+                write_target,
+            } => {
+                let exact = occurrences.get(occurrence_id).copied();
+                let stable_matches = occurrences
+                    .values()
+                    .copied()
+                    .filter(|occurrence| {
+                        existing_occurrence_matches_except_copy(
+                            occurrence,
+                            occurrence_id,
+                            schema_id,
+                            write_target,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let occurrence = match stable_matches.as_slice() {
+                    [] => exact.ok_or_else(|| {
+                        TargetApplyError::ExistingOccurrenceMissing(Box::new(entry.target.clone()))
+                    })?,
+                    [occurrence] => *occurrence,
+                    many => {
+                        return Err(TargetApplyError::ExistingOccurrenceAmbiguousCopyRebind {
+                            target: Box::new(entry.target.clone()),
+                            occurrences: many
+                                .iter()
+                                .map(|occurrence| occurrence.id.clone())
+                                .collect(),
+                        });
+                    }
+                };
+                let effective_target = if occurrence.id == *occurrence_id {
+                    entry.target.clone()
+                } else {
+                    MetadataDraftTarget::from_existing_occurrence(occurrence).map_err(|error| {
+                        TargetApplyError::ExistingTargetValidationFailure {
+                            target: Box::new(entry.target.clone()),
+                            reason: error.to_string(),
+                        }
+                    })?
+                };
+                effective_target
                     .validate_existing_occurrence(occurrence)
                     .map_err(|error| TargetApplyError::ExistingTargetValidationFailure {
                         target: Box::new(entry.target.clone()),
@@ -449,7 +498,7 @@ where
                     .as_ref()
                     .expect("validated selector");
                 let args = crate::write_args::build_existing_occurrence_args(
-                    &entry.target,
+                    &effective_target,
                     occurrence,
                     &entry.edit,
                 )
@@ -1573,6 +1622,139 @@ mod tests {
                 Err(TargetApplyError::ExistingTargetValidationFailure { .. })
             ));
         }
+    }
+
+    #[test]
+    fn prewrite_exact_existing_target_still_plans_without_rebinding() {
+        let info = schema("1", "IFD0", "Name", true, TagKind::Text);
+        let fresh = occurrence(
+            occurrence_id("P", "1", 1),
+            MetadataValue::Text("before".into()),
+            Some(info),
+            Some("IFD0"),
+            "Name",
+        );
+        let entry = existing_entry(
+            &fresh,
+            edit(EditIntent::Set, Some(MetadataValue::Text("after".into()))),
+        );
+
+        let planned = plan_batch(
+            Path::new("photo.jpg"),
+            std::slice::from_ref(&entry),
+            &image(vec![fresh]),
+            |_| None,
+        )
+        .unwrap();
+
+        assert_eq!(planned.targets.len(), 1);
+        assert_eq!(planned.targets[0].target, entry.target);
+        assert_eq!(
+            planned.targets[0].args.text,
+            vec!["-1IFD0:7ID-1:Name=after"]
+        );
+    }
+
+    #[test]
+    fn prewrite_rebinds_unique_stale_copy_and_clears_original_draft() {
+        let info = schema("City", "XMP-photoshop", "City", true, TagKind::Text);
+        let original = occurrence(
+            occurrence_id("JPEG-APP1-XMP", "City", 1),
+            MetadataValue::Text("South Yorkshire".into()),
+            Some(info.clone()),
+            Some("XMP-photoshop"),
+            "City",
+        );
+        let entry = existing_entry(
+            &original,
+            edit(
+                EditIntent::Set,
+                Some(MetadataValue::Text("Doncaster".into())),
+            ),
+        );
+        let rebound = occurrence(
+            occurrence_id("JPEG-APP1-XMP", "City", 0),
+            MetadataValue::Text("Doncaster".into()),
+            Some(info),
+            Some("XMP-photoshop"),
+            "City",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![rebound.clone()])),
+            Ok(image(vec![rebound.clone()])),
+        ]);
+
+        let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
+
+        assert!(outcome.error.is_none(), "{:?}", outcome.error);
+        assert_eq!(outcome.outcomes[0].kind, "Match");
+        assert_eq!(outcome.outcomes[0].target, entry.target);
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(outcome.targets_to_clear, vec![entry.target.clone()]);
+        assert_eq!(client.writes.borrow().len(), 1);
+        assert!(client.writes.borrow()[0]
+            .1
+            .contains("-1XMP-photoshop:7ID-City:City=Doncaster"));
+        let TargetApplyPostWriteState::Unique { occurrence } = &outcome.audit_records[0].post_write
+        else {
+            panic!("rebound write must retain the current occurrence")
+        };
+        assert_eq!(occurrence.occurrence_id, rebound.id);
+        assert_eq!(outcome.audit_records[0].target, entry.target);
+    }
+
+    #[test]
+    fn prewrite_blocks_ambiguous_copy_rebind_even_when_exact_copy_remains() {
+        let info = schema("1", "IFD0", "Name", true, TagKind::Text);
+        let original = occurrence(
+            occurrence_id("P", "1", 1),
+            MetadataValue::Text("before".into()),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Name",
+        );
+        let entry = existing_entry(
+            &original,
+            edit(EditIntent::Set, Some(MetadataValue::Text("after".into()))),
+        );
+        let exact = occurrence(
+            original.id.clone(),
+            MetadataValue::Text("first".into()),
+            Some(info.clone()),
+            Some("IFD0"),
+            "Name",
+        );
+        let another = occurrence(
+            occurrence_id("P", "1", 2),
+            MetadataValue::Text("second".into()),
+            Some(info),
+            Some("IFD0"),
+            "Name",
+        );
+
+        let error = plan_batch(
+            Path::new("photo.jpg"),
+            std::slice::from_ref(&entry),
+            &image(vec![exact.clone(), another.clone()]),
+            |_| None,
+        )
+        .err()
+        .unwrap();
+
+        assert!(matches!(
+            &error,
+            TargetApplyError::ExistingOccurrenceAmbiguousCopyRebind {
+                target,
+                occurrences,
+            } if target.as_ref() == &entry.target
+                && occurrences.as_slice() == [exact.id, another.id]
+        ));
+        assert!(error
+            .to_string()
+            .contains("multiple Copy-number candidates"));
     }
 
     #[test]
