@@ -135,6 +135,14 @@ describe("metadataEditCapabilities", () => {
     });
     expect(metadataEditCapabilities(info())).toEqual({
       groupedEditor: null,
+      mergeMode: "string-concat",
+    });
+    expect(
+      metadataEditCapabilities(
+        info({ kind: "Integer", data: { min: null, max: null } }),
+      ),
+    ).toEqual({
+      groupedEditor: null,
       mergeMode: null,
     });
   });
@@ -164,6 +172,32 @@ describe("mergeMetadataValueExactly", () => {
         kind: "LangAlt",
         value: { en: "Kitten", fr: "Chat", de: "Kätzchen" },
       },
+    });
+  });
+
+  it("concatenates Text values directly", () => {
+    expect(
+      mergeMetadataValueExactly(
+        { kind: "Text" },
+        text("Hello "),
+        text("World"),
+      ),
+    ).toEqual({
+      kind: "merged",
+      value: text("Hello World"),
+    });
+  });
+
+  it("uses the patch Text value as-is when current is undefined", () => {
+    expect(
+      mergeMetadataValueExactly(
+        { kind: "Text" },
+        undefined,
+        text("New string"),
+      ),
+    ).toEqual({
+      kind: "merged",
+      value: text("New string"),
     });
   });
 });
