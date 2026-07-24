@@ -94,6 +94,10 @@ impl MetadataSingleFileOutcome {
             audit_records: Vec::new(),
         }
     }
+
+    pub(crate) fn pre_write_read_failure(error: String) -> Self {
+        Self::hard_failure(TargetApplyError::PreWriteReadFailure(error))
+    }
 }
 
 pub(crate) trait MetadataTargetWriteClient {
@@ -306,6 +310,21 @@ struct PlannedBatch {
     targets: Vec<TargetPlan>,
     numeric_argfile: Option<String>,
     text_argfile: Option<String>,
+}
+
+pub(crate) struct PreparedMetadataWrite {
+    rel_path: String,
+    abs_path: std::path::PathBuf,
+    planned: PlannedBatch,
+    file_started: Instant,
+}
+
+pub(crate) struct ExecutedMetadataWrite {
+    prepared: PreparedMetadataWrite,
+    numeric_attempted: bool,
+    numeric_result: Result<(), String>,
+    text_attempted: bool,
+    text_result: Result<(), String>,
 }
 
 fn target_pass_status(
@@ -697,6 +716,42 @@ where
         phase_started.elapsed().as_millis()
     );
 
+    let prepared = match prepare_single_file_metadata_with_schema(
+        rel_path,
+        abs_path,
+        edits,
+        before,
+        schema_lookup,
+        file_started,
+    ) {
+        Ok(prepared) => prepared,
+        Err(outcome) => return *outcome,
+    };
+    let executed = execute_prepared_metadata_write_with_client(prepared, client);
+    let rel_path = executed.prepared.rel_path.clone();
+    let abs_path = executed.prepared.abs_path.clone();
+    let phase_started = Instant::now();
+    let fresh = client.read_image_metadata(&rel_path, &abs_path);
+    log::info!(
+        "[apply_perf] file={} phase=post_read duration_ms={} status={}",
+        rel_path,
+        phase_started.elapsed().as_millis(),
+        if fresh.is_ok() { "ok" } else { "failed" }
+    );
+    finalize_executed_metadata_write(executed, fresh)
+}
+
+fn prepare_single_file_metadata_with_schema<F>(
+    rel_path: &str,
+    abs_path: std::path::PathBuf,
+    edits: &[MetadataTargetDraftEntry],
+    before: scanner::ImageMetadata,
+    schema_lookup: F,
+    file_started: Instant,
+) -> Result<PreparedMetadataWrite, Box<MetadataSingleFileOutcome>>
+where
+    F: Fn(&SchemaDefinitionId) -> Option<TagInfo>,
+{
     let phase_started = Instant::now();
     let planned = match plan_batch(&abs_path, edits, &before, schema_lookup) {
         Ok(planned) => planned,
@@ -706,7 +761,7 @@ where
                 rel_path,
                 phase_started.elapsed().as_millis()
             );
-            return MetadataSingleFileOutcome::hard_failure(error);
+            return Err(Box::new(MetadataSingleFileOutcome::hard_failure(error)));
         }
     };
     log::info!(
@@ -715,10 +770,62 @@ where
         phase_started.elapsed().as_millis(),
         planned.targets.len()
     );
+    Ok(PreparedMetadataWrite {
+        rel_path: rel_path.to_string(),
+        abs_path,
+        planned,
+        file_started,
+    })
+}
 
+pub(crate) fn prepare_single_file_metadata(
+    folder_path: &str,
+    rel_path: &str,
+    edits: &[MetadataTargetDraftEntry],
+    before: scanner::ImageMetadata,
+) -> Result<PreparedMetadataWrite, Box<MetadataSingleFileOutcome>> {
+    let file_started = Instant::now();
+    log::info!(
+        "[apply_perf] file={} phase=start edits={}",
+        rel_path,
+        edits.len()
+    );
+    if edits.is_empty() {
+        return Err(Box::new(MetadataSingleFileOutcome::hard_failure(
+            TargetApplyError::NoEdits,
+        )));
+    }
+    let abs_path =
+        Path::new(folder_path).join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if !abs_path.exists() {
+        return Err(Box::new(MetadataSingleFileOutcome::hard_failure(
+            TargetApplyError::FileMissing(abs_path.display().to_string()),
+        )));
+    }
+    let registry = crate::tag_schema::get_registry().ok();
+    prepare_single_file_metadata_with_schema(
+        rel_path,
+        abs_path,
+        edits,
+        before,
+        |id| registry.and_then(|value| value.lookup(id)).cloned(),
+        file_started,
+    )
+}
+
+fn execute_prepared_metadata_write_with_client<C>(
+    prepared: PreparedMetadataWrite,
+    client: &C,
+) -> ExecutedMetadataWrite
+where
+    C: MetadataTargetWriteClient,
+{
+    let rel_path = &prepared.rel_path;
+    let write_started = Instant::now();
+    log::info!("[apply_perf] file={} phase=write_worker_start", rel_path);
     let mut numeric_attempted = false;
     let mut numeric_result = Ok(());
-    if let Some(contents) = &planned.numeric_argfile {
+    if let Some(contents) = &prepared.planned.numeric_argfile {
         numeric_attempted = true;
         let phase_started = Instant::now();
         numeric_result = client.write_metadata(true, contents);
@@ -737,7 +844,7 @@ where
     let mut text_attempted = false;
     let mut text_result = Ok(());
     if numeric_result.is_ok() {
-        if let Some(contents) = &planned.text_argfile {
+        if let Some(contents) = &prepared.planned.text_argfile {
             text_attempted = true;
             let phase_started = Instant::now();
             text_result = client.write_metadata(false, contents);
@@ -750,6 +857,52 @@ where
         }
     }
 
+    log::info!(
+        "[apply_perf] file={} phase=write_worker_complete duration_ms={} status={}",
+        rel_path,
+        write_started.elapsed().as_millis(),
+        if numeric_result.is_ok() && text_result.is_ok() {
+            "ok"
+        } else {
+            "failed"
+        }
+    );
+    ExecutedMetadataWrite {
+        prepared,
+        numeric_attempted,
+        numeric_result,
+        text_attempted,
+        text_result,
+    }
+}
+
+pub(crate) fn execute_prepared_metadata_write(
+    prepared: PreparedMetadataWrite,
+) -> ExecutedMetadataWrite {
+    execute_prepared_metadata_write_with_client(prepared, &RealMetadataTargetWriteClient)
+}
+
+pub(crate) fn executed_relative_path(executed: &ExecutedMetadataWrite) -> &str {
+    &executed.prepared.rel_path
+}
+
+pub(crate) fn finalize_executed_metadata_write(
+    executed: ExecutedMetadataWrite,
+    fresh: Result<scanner::ImageMetadata, String>,
+) -> MetadataSingleFileOutcome {
+    let ExecutedMetadataWrite {
+        prepared,
+        numeric_attempted,
+        numeric_result,
+        text_attempted,
+        text_result,
+    } = executed;
+    let PreparedMetadataWrite {
+        rel_path,
+        planned,
+        file_started,
+        ..
+    } = prepared;
     let write_failure = match (
         numeric_attempted,
         &numeric_result,
@@ -761,14 +914,12 @@ where
         _ => None,
     };
 
-    let phase_started = Instant::now();
-    let fresh = match client.read_image_metadata(rel_path, &abs_path) {
+    let fresh = match fresh {
         Ok(metadata) => metadata,
         Err(read_error) => {
             log::info!(
-                "[apply_perf] file={} phase=post_read duration_ms={} status=failed total_ms={}",
+                "[apply_perf] file={} phase=verify status=post_read_failed total_ms={}",
                 rel_path,
-                phase_started.elapsed().as_millis(),
                 file_started.elapsed().as_millis()
             );
             let error = match &write_failure {
@@ -822,12 +973,6 @@ where
             };
         }
     };
-    log::info!(
-        "[apply_perf] file={} phase=post_read duration_ms={} status=ok",
-        rel_path,
-        phase_started.elapsed().as_millis()
-    );
-
     let verification_started = Instant::now();
     let post_by_id = match build_strict_post_write_occurrence_index(&fresh) {
         Ok(index) => index,

@@ -65,6 +65,14 @@ pub fn default_metadata_scan_batch_size() -> u16 {
     20
 }
 
+pub fn default_metadata_apply_batch_size() -> u16 {
+    8
+}
+
+pub fn default_metadata_apply_concurrency() -> u16 {
+    4
+}
+
 pub fn default_thumbnail_concurrency() -> u16 {
     available_parallelism_capped(8)
 }
@@ -108,6 +116,12 @@ pub struct Settings {
     /// Maximum files included in one metadata scanner ExifTool read.
     #[serde(default = "default_metadata_scan_batch_size")]
     pub metadata_scan_batch_size: u16,
+    /// Maximum files included in one metadata apply read/write/read chunk.
+    #[serde(default = "default_metadata_apply_batch_size")]
+    pub metadata_apply_batch_size: u16,
+    /// Maximum number of metadata file writes in flight.
+    #[serde(default = "default_metadata_apply_concurrency")]
+    pub metadata_apply_concurrency: u16,
     /// Number of thumbnail generation workers.
     #[serde(default = "default_thumbnail_concurrency")]
     pub thumbnail_concurrency: u16,
@@ -123,6 +137,8 @@ impl Default for Settings {
             describe_concurrency: default_describe_concurrency(),
             metadata_scan_concurrency: default_metadata_scan_concurrency(),
             metadata_scan_batch_size: default_metadata_scan_batch_size(),
+            metadata_apply_batch_size: default_metadata_apply_batch_size(),
+            metadata_apply_concurrency: default_metadata_apply_concurrency(),
             thumbnail_concurrency: default_thumbnail_concurrency(),
         }
     }
@@ -163,6 +179,14 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
     clamp_loaded_batch_size(
         "metadata_scan_batch_size",
         &mut parsed.metadata_scan_batch_size,
+    );
+    clamp_loaded_batch_size(
+        "metadata_apply_batch_size",
+        &mut parsed.metadata_apply_batch_size,
+    );
+    clamp_loaded_concurrency(
+        "metadata_apply_concurrency",
+        &mut parsed.metadata_apply_concurrency,
     );
     clamp_loaded_concurrency("thumbnail_concurrency", &mut parsed.thumbnail_concurrency);
     Ok(parsed)
@@ -206,6 +230,10 @@ fn validate_settings(settings: &Settings) -> Result<(), String> {
             settings.metadata_scan_concurrency,
         ),
         ("thumbnail_concurrency", settings.thumbnail_concurrency),
+        (
+            "metadata_apply_concurrency",
+            settings.metadata_apply_concurrency,
+        ),
     ] {
         if !(MIN_CONCURRENCY..=MAX_CONCURRENCY).contains(&value) {
             return Err(format!(
@@ -216,6 +244,11 @@ fn validate_settings(settings: &Settings) -> Result<(), String> {
     if !(MIN_BATCH_SIZE..=MAX_BATCH_SIZE).contains(&settings.metadata_scan_batch_size) {
         return Err(format!(
             "metadata_scan_batch_size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}"
+        ));
+    }
+    if !(MIN_BATCH_SIZE..=MAX_BATCH_SIZE).contains(&settings.metadata_apply_batch_size) {
+        return Err(format!(
+            "metadata_apply_batch_size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}"
         ));
     }
     Ok(())
@@ -347,6 +380,14 @@ mod tests {
             default_metadata_scan_batch_size()
         );
         assert_eq!(
+            loaded.metadata_apply_batch_size,
+            default_metadata_apply_batch_size()
+        );
+        assert_eq!(
+            loaded.metadata_apply_concurrency,
+            default_metadata_apply_concurrency()
+        );
+        assert_eq!(
             loaded.thumbnail_concurrency,
             default_thumbnail_concurrency()
         );
@@ -395,6 +436,8 @@ mod tests {
                 "describe_concurrency": 0,
                 "metadata_scan_concurrency": 99,
                 "metadata_scan_batch_size": 999,
+                "metadata_apply_batch_size": 0,
+                "metadata_apply_concurrency": 99,
                 "thumbnail_concurrency": 0
             }"#,
         )
@@ -404,6 +447,8 @@ mod tests {
         assert_eq!(loaded.describe_concurrency, MIN_CONCURRENCY);
         assert_eq!(loaded.metadata_scan_concurrency, MAX_CONCURRENCY);
         assert_eq!(loaded.metadata_scan_batch_size, MAX_BATCH_SIZE);
+        assert_eq!(loaded.metadata_apply_batch_size, MIN_BATCH_SIZE);
+        assert_eq!(loaded.metadata_apply_concurrency, MAX_CONCURRENCY);
         assert_eq!(loaded.thumbnail_concurrency, MIN_CONCURRENCY);
     }
 

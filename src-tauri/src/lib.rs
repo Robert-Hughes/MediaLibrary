@@ -825,6 +825,15 @@ async fn apply_metadata_draft_edits_cmd(
     app: AppHandle,
     apply_state: State<'_, apply_batch::ApplyEditsState>,
 ) -> Result<apply_batch::MetadataApplyResult, String> {
+    let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
+    let batch_size = usize::from(app_settings.metadata_apply_batch_size);
+    let write_concurrency = usize::from(app_settings.metadata_apply_concurrency);
+    log::info!(
+        "[apply_edits] starting batch_size={} write_concurrency={} requested={}",
+        batch_size,
+        write_concurrency,
+        rel_paths.len()
+    );
     apply_batch::run_apply_edits_command(&apply_state, move |cancel_flag| {
         tauri::async_runtime::spawn_blocking(move || {
             apply_batch::run_apply_metadata_draft_edits_blocking(
@@ -832,6 +841,8 @@ async fn apply_metadata_draft_edits_cmd(
                 rel_paths,
                 app,
                 cancel_flag,
+                batch_size,
+                write_concurrency,
             )
         })
     })

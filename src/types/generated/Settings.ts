@@ -38,6 +38,14 @@ metadata_scan_concurrency: number,
  */
 metadata_scan_batch_size: number, 
 /**
+ * Maximum files included in one metadata apply read/write/read chunk.
+ */
+metadata_apply_batch_size: number, 
+/**
+ * Maximum number of metadata file writes in flight.
+ */
+metadata_apply_concurrency: number, 
+/**
  * Number of thumbnail generation workers.
  */
 thumbnail_concurrency: number, };
