@@ -30,6 +30,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::{future::Future, num::NonZeroUsize};
 
 use serde::{Deserialize, Serialize};
@@ -274,6 +275,87 @@ pub struct BatchFailureRow {
     pub detail: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchMetadataProgress {
+    pub current: usize,
+    pub total: usize,
+    pub relative_path: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edits: Option<Vec<crate::draft_edits::SchemaMetadataEdit>>,
+}
+
+impl BatchMetadataProgress {
+    pub fn new(
+        current: usize,
+        total: usize,
+        relative_path: String,
+        status: String,
+        error: Option<String>,
+        edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
+    ) -> Self {
+        Self {
+            current,
+            total,
+            relative_path,
+            status,
+            error,
+            edits: edits
+                .cloned()
+                .map(crate::draft_edits::schema_metadata_edit_entries),
+        }
+    }
+}
+
+/// Count/age bounded event buffer for sequential batch jobs.
+pub struct EventBatch<T> {
+    items: Vec<T>,
+    max_items: usize,
+    max_age: Duration,
+    last_flush: std::time::Instant,
+    emit_first: bool,
+}
+
+impl<T> EventBatch<T> {
+    pub fn new(max_items: usize, max_age: Duration, emit_first: bool) -> Self {
+        assert!(max_items > 0);
+        Self {
+            items: Vec::new(),
+            max_items,
+            max_age,
+            last_flush: std::time::Instant::now(),
+            emit_first,
+        }
+    }
+
+    pub fn push(&mut self, item: T) -> Option<Vec<T>> {
+        self.items.push(item);
+        if self.emit_first {
+            self.emit_first = false;
+            return self.take();
+        }
+        if self.items.len() >= self.max_items || self.last_flush.elapsed() >= self.max_age {
+            return self.take();
+        }
+        None
+    }
+
+    pub fn flush(&mut self) -> Option<Vec<T>> {
+        self.take()
+    }
+
+    fn take(&mut self) -> Option<Vec<T>> {
+        if self.items.is_empty() {
+            return None;
+        }
+        self.last_flush = std::time::Instant::now();
+        Some(std::mem::take(&mut self.items))
+    }
+}
+
 /// Helper for emitting the three standard events of a batch job with
 /// the right prefix.
 ///
@@ -339,6 +421,18 @@ impl<'a> BatchProgressEmitter<'a> {
         );
     }
 
+    /// Emit `${prefix}_progress_batch` using the scanner-style `results` envelope.
+    pub fn progress_metadata_batch(&self, results: &[BatchMetadataProgress]) {
+        #[derive(Clone, Serialize)]
+        struct Payload<'a> {
+            results: &'a [BatchMetadataProgress],
+        }
+        let _ = self.app.emit(
+            &format!("{}_progress_batch", self.prefix),
+            Payload { results },
+        );
+    }
+
     /// Emit `${prefix}_complete` with the per-job summary payload.
     ///
     /// `summary` is whatever shape the caller chose (token totals for
@@ -375,6 +469,25 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::time::Duration;
+
+    #[test]
+    fn event_batch_emits_first_then_count_bounded_batches() {
+        let mut batch = EventBatch::new(3, Duration::from_secs(60), true);
+        assert_eq!(batch.push(1), Some(vec![1]));
+        assert_eq!(batch.push(2), None);
+        assert_eq!(batch.push(3), None);
+        assert_eq!(batch.push(4), Some(vec![2, 3, 4]));
+        assert_eq!(batch.flush(), None);
+    }
+
+    #[test]
+    fn event_batch_flushes_partial_tail() {
+        let mut batch = EventBatch::new(10, Duration::from_secs(60), false);
+        assert_eq!(batch.push("a"), None);
+        assert_eq!(batch.push("b"), None);
+        assert_eq!(batch.flush(), Some(vec!["a", "b"]));
+        assert_eq!(batch.flush(), None);
+    }
 
     #[test]
     fn install_returns_unset_flag_each_time() {

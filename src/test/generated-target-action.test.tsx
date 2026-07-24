@@ -304,6 +304,49 @@ describe("generated target-aware production action", () => {
     ).toBe(1);
   });
 
+  it("stages multiple files with one store notification and autosave", async () => {
+    const { mock, result } = await loadedFile();
+    await act(async () => {
+      mock.emitPhotoFound(makePhoto({ relative_path: "second.jpg" }));
+      mock.emitImageMetadataReady("second.jpg", {}, undefined, []);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("Expected loaded state");
+    let notifications = 0;
+    const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
+      notifications += 1;
+    });
+    const savesBefore = saveCount(mock, "save_metadata_draft_edits");
+
+    let stageResults;
+    act(() => {
+      stageResults = result.current[1].applyGeneratedMetadataDraftBatches([
+        {
+          relativePath: "photo.jpg",
+          producer: { kind: "describe" },
+          edits: [generated(ID.mlibAiDescription, "first")],
+        },
+        {
+          relativePath: "second.jpg",
+          producer: { kind: "describe" },
+          edits: [generated(ID.mlibAiDescription, "second")],
+        },
+      ]);
+    });
+    unsubscribe();
+
+    expect(stageResults).toEqual([
+      { kind: "success", changed: true },
+      { kind: "success", changed: true },
+    ]);
+    expect(notifications).toBe(1);
+    expect(saveCount(mock, "save_metadata_draft_edits") - savesBefore).toBe(1);
+    expect(Object.keys(state.targetDraftEditsStore.getAllMetadata())).toEqual(
+      expect.arrayContaining(["photo.jpg", "second.jpg"]),
+    );
+  });
+
   it("stages a unique existing occurrence through its full runtime target", async () => {
     const item = occurrence(ID.mlibAiDescription);
     const { result } = await loadedFile({ occurrences: [item] });

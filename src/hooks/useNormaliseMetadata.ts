@@ -64,6 +64,13 @@ export interface UseNormaliseMetadataOptions {
     edits: SchemaMetadataEdit[],
     confirmedEnabledGroups: readonly NormaliseGroup[],
   ) => GeneratedDraftStageResult;
+  onApplyEditsBatch?: (
+    items: readonly {
+      relativePath: string;
+      edits: SchemaMetadataEdit[];
+    }[],
+    confirmedEnabledGroups: readonly NormaliseGroup[],
+  ) => readonly GeneratedDraftStageResult[];
 }
 
 interface StartArgs {
@@ -116,6 +123,7 @@ export function useNormaliseMetadata(
   >(
     () => ({
       eventPrefix: "normalise",
+      batchedProgress: true,
       commands: {
         estimate: "estimate_normalise_cost_cmd",
         run: "normalise_metadata_cmd",
@@ -218,6 +226,13 @@ export function useNormaliseMetadata(
             options.onApplyEdits!(
               relativePath,
               edits,
+              structuredClone(stash.confirmedEnabledGroups),
+            )
+        : undefined,
+      onApplyEditsBatch: options.onApplyEditsBatch
+        ? (items) =>
+            options.onApplyEditsBatch!(
+              items,
               structuredClone(stash.confirmedEnabledGroups),
             )
         : undefined,

@@ -44,6 +44,20 @@ export interface BatchJobFailure {
   detail: string;
 }
 
+export interface BatchJobProgress {
+  current: number;
+  total: number;
+  relativePath: string;
+  status: string;
+  error: string | null;
+  edits?: import("../types").SchemaMetadataEdit[];
+}
+
+export interface BatchDraftEdits {
+  relativePath: string;
+  edits: import("../types").SchemaMetadataEdit[];
+}
+
 /**
  * Generic state shape for any batch job phase machine.
  *
@@ -119,6 +133,8 @@ export interface BatchJobActions<StartArgs> {
  */
 export interface BatchJobConfig<StartArgs, EstimatePayload, SummaryPayload> {
   eventPrefix: string;
+  /** Listen for `${prefix}_progress_batch` with a `{ results }` payload. */
+  batchedProgress?: boolean;
   commands: {
     estimate?: string;
     run: string;
@@ -180,6 +196,10 @@ export interface UseBatchImageJobOptions {
     relativePath: string,
     edits: import("../types").SchemaMetadataEdit[],
   ) => GeneratedDraftStageResult;
+  /** Batch equivalent used by high-volume jobs to stage one store mutation. */
+  onApplyEditsBatch?: (
+    items: readonly BatchDraftEdits[],
+  ) => readonly GeneratedDraftStageResult[];
 }
 
 /**
@@ -201,6 +221,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   // closure don't force the event subscription effect to rebind.
   const onApplyEditsRef = useRef(options.onApplyEdits);
   onApplyEditsRef.current = options.onApplyEdits;
+  const onApplyEditsBatchRef = useRef(options.onApplyEditsBatch);
+  onApplyEditsBatchRef.current = options.onApplyEditsBatch;
 
   const [open, setOpen] = useState(false);
   const [state, setState] =
@@ -254,84 +276,130 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           currentFile: null,
         }));
       });
-      await sub<{
-        current: number;
-        total: number;
-        relativePath: string;
-        status: string;
-        error: string | null;
-        edits?: import("../types").SchemaMetadataEdit[];
-      }>(`${config.eventPrefix}_progress`, (p) => {
-        let stagingFailure: BatchJobFailure | null = null;
-        if (p.status === "ok" && p.edits) {
+      const handleProgress = (progress: readonly BatchJobProgress[]) => {
+        if (progress.length === 0) return;
+        const stagingFailures = new Map<number, BatchJobFailure>();
+        const candidates = progress
+          .map((item, index) => ({ item, index }))
+          .filter(({ item }) => item.status === "ok" && item.edits);
+
+        if (candidates.length > 0) {
           try {
-            const result = onApplyEditsRef.current?.(p.relativePath, p.edits);
-            if (result?.kind === "failure") {
-              stagingFailure = {
-                relativePath: p.relativePath,
-                kind: "draft_stage_failed",
-                detail: result.reason,
-              };
+            const batchStage = onApplyEditsBatchRef.current;
+            if (batchStage) {
+              const results = batchStage(
+                candidates.map(({ item }) => ({
+                  relativePath: item.relativePath,
+                  edits: item.edits!,
+                })),
+              );
+              if (results.length !== candidates.length) {
+                throw new Error(
+                  "Batch draft staging returned an unexpected result count",
+                );
+              }
+              results.forEach((result, resultIndex) => {
+                if (result.kind !== "failure") return;
+                const candidate = candidates[resultIndex];
+                stagingFailures.set(candidate.index, {
+                  relativePath: candidate.item.relativePath,
+                  kind: "draft_stage_failed",
+                  detail: result.reason,
+                });
+              });
+            } else {
+              candidates.forEach(({ item, index }) => {
+                const result = onApplyEditsRef.current?.(
+                  item.relativePath,
+                  item.edits!,
+                );
+                if (result?.kind === "failure") {
+                  stagingFailures.set(index, {
+                    relativePath: item.relativePath,
+                    kind: "draft_stage_failed",
+                    detail: result.reason,
+                  });
+                }
+              });
             }
           } catch (error) {
-            stagingFailure = {
-              relativePath: p.relativePath,
-              kind: "draft_stage_failed",
-              detail: error instanceof Error ? error.message : String(error),
-            };
+            const detail =
+              error instanceof Error ? error.message : String(error);
+            for (const { item, index } of candidates) {
+              stagingFailures.set(index, {
+                relativePath: item.relativePath,
+                kind: "draft_stage_failed",
+                detail,
+              });
+            }
           }
         }
 
-        if (stagingFailure !== null) {
+        for (const failure of stagingFailures.values()) {
           const duplicate = frontendStagingFailuresRef.current.some(
-            (failure) =>
-              failure.relativePath === stagingFailure!.relativePath &&
-              failure.kind === stagingFailure!.kind &&
-              failure.detail === stagingFailure!.detail,
+            (existing) =>
+              existing.relativePath === failure.relativePath &&
+              existing.kind === failure.kind &&
+              existing.detail === failure.detail,
           );
           if (!duplicate) {
             frontendStagingFailuresRef.current = [
               ...frontendStagingFailuresRef.current,
-              stagingFailure,
+              failure,
             ];
           }
         }
 
         safeSetState((s) => {
-          let failures = s.failures;
-          if (p.status !== "ok") {
-            failures = [
-              ...failures,
-              {
-                relativePath: p.relativePath,
-                kind: p.status as BatchFailureKind,
-                detail: p.error ?? "",
-              },
-            ];
-          } else if (stagingFailure !== null) {
-            const exists = failures.some(
-              (failure) =>
-                failure.relativePath === stagingFailure!.relativePath &&
-                failure.kind === stagingFailure!.kind &&
-                failure.detail === stagingFailure!.detail,
-            );
-            if (!exists) failures = [...failures, stagingFailure];
-          }
-          const succeeded =
-            p.status === "ok" && stagingFailure === null
-              ? [...s.succeeded, p.relativePath]
-              : s.succeeded;
+          const failures = [...s.failures];
+          const succeeded = [...s.succeeded];
+          progress.forEach((item, index) => {
+            const stagingFailure = stagingFailures.get(index);
+            const failure =
+              item.status !== "ok"
+                ? {
+                    relativePath: item.relativePath,
+                    kind: item.status as BatchFailureKind,
+                    detail: item.error ?? "",
+                  }
+                : stagingFailure;
+            if (
+              failure &&
+              !failures.some(
+                (existing) =>
+                  existing.relativePath === failure.relativePath &&
+                  existing.kind === failure.kind &&
+                  existing.detail === failure.detail,
+              )
+            ) {
+              failures.push(failure);
+            } else if (!failure) {
+              succeeded.push(item.relativePath);
+            }
+          });
+          const latest = progress[progress.length - 1];
           return {
             ...s,
             phase: "running",
-            current: p.current,
-            total: p.total,
-            currentFile: p.relativePath,
+            current: latest.current,
+            total: latest.total,
+            currentFile: latest.relativePath,
             failures,
             succeeded,
           };
         });
-      });
+      };
+      if (config.batchedProgress) {
+        await sub<{ results: BatchJobProgress[] }>(
+          `${config.eventPrefix}_progress_batch`,
+          (payload) => handleProgress(payload.results),
+        );
+      } else {
+        await sub<BatchJobProgress>(
+          `${config.eventPrefix}_progress`,
+          (payload) => handleProgress([payload]),
+        );
+      }
       await sub<{
         succeeded: string[];
         failed: Array<{

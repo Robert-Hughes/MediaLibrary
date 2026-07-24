@@ -85,6 +85,50 @@ afterEach(() => {
 });
 
 describe("Metadata-normalisation flow", () => {
+  it("stages one backend progress batch through the batch callback", async () => {
+    const edits = mockGeneratedDraftEntries({
+      "XMP-dc:Title": {
+        intent: "Set",
+        value: { kind: "Text", value: "normalised" },
+      },
+    });
+    mockApiInstance.normaliseSchedule = [
+      { relativePath: "one.jpg", status: "ok", edits },
+      { relativePath: "two.jpg", status: "ok", edits },
+    ];
+    const stageBatch = vi.fn(
+      (
+        items: readonly {
+          relativePath: string;
+          edits: SchemaMetadataEdit[];
+        }[],
+      ) => items.map(() => ({ kind: "success" as const, changed: true })),
+    );
+    const { result } = renderHook(() =>
+      useNormaliseMetadata({ onApplyEditsBatch: stageBatch }),
+    );
+    const items = ["one.jpg", "two.jpg"].map(
+      (relPath) => ({ relPath }) as NormaliseRequestItem,
+    );
+
+    act(() => result.current.actions.start("/photos", items, ["title"]));
+    await waitFor(() =>
+      expect(result.current.state.phase).toBe("awaiting-confirm"),
+    );
+    act(() => result.current.actions.confirm());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+
+    expect(stageBatch).toHaveBeenCalledOnce();
+    expect(stageBatch).toHaveBeenCalledWith(
+      [
+        { relativePath: "one.jpg", edits },
+        { relativePath: "two.jpg", edits },
+      ],
+      ["title"],
+    );
+    expect(result.current.state.succeeded).toEqual(["one.jpg", "two.jpg"]);
+  });
+
   it("stages delayed results against the immutable confirmed group snapshot", async () => {
     let releaseProgress!: () => void;
     mockApiInstance.beforeNormaliseProgress = () =>

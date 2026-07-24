@@ -595,10 +595,31 @@ export default function App() {
       ),
     [actions],
   );
+  const stageNormaliseEditsBatch = useCallback(
+    (
+      items: readonly {
+        relativePath: string;
+        edits: import("./types").SchemaMetadataEdit[];
+      }[],
+      confirmedEnabledGroups: readonly import("./types").NormaliseGroup[],
+    ) =>
+      actions.applyGeneratedMetadataDraftBatches(
+        items.map(({ relativePath, edits }) => ({
+          relativePath,
+          producer: {
+            kind: "normalise" as const,
+            enabledGroups: structuredClone(confirmedEnabledGroups),
+          },
+          edits,
+        })),
+      ),
+    [actions],
+  );
   const describe = useDescribeImages({ onApplyEdits: stageDescribeEdits });
   const geocode = useGeocodeImages({ onApplyEdits: stageGeocodeEdits });
   const normalise = useNormaliseMetadata({
     onApplyEdits: stageNormaliseEdits,
+    onApplyEditsBatch: stageNormaliseEditsBatch,
   });
   const confirmDescribe = () => {
     if (!actions.canStageGeneratedMetadata(describe.state.relPaths)) return;
