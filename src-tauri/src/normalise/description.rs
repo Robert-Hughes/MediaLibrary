@@ -77,6 +77,32 @@ fn project_caption_abstract(canonical: &str, charset_is_utf8: bool) -> String {
     truncate_at_word(&body, IPTC_CAPTION_ABSTRACT_LIMIT)
 }
 
+/// Resolve a deterministic canonical when every populated target is already
+/// an allowed projection of the same description. Returns `None` for both the
+/// all-empty case and genuine conflicts that require an AI merge.
+pub(super) fn derive_description_canonical_without_ai(input: &DescriptionInput) -> Option<String> {
+    let primary = normalise_description_text(input.description.as_deref().unwrap_or(""));
+    let image_desc = normalise_description_text(input.image_description.as_deref().unwrap_or(""));
+    let caption = normalise_description_text(input.caption_abstract.as_deref().unwrap_or(""));
+
+    for candidate in [&primary, &image_desc, &caption] {
+        if candidate.is_empty() {
+            continue;
+        }
+        let compatible = (primary.is_empty() || primary == candidate.as_str())
+            && (image_desc.is_empty()
+                || image_desc == candidate.as_str()
+                || image_desc == ascii_fold(candidate))
+            && (caption.is_empty()
+                || caption == candidate.as_str()
+                || caption == project_caption_abstract(candidate, input.iptc_charset_is_utf8));
+        if compatible {
+            return Some(candidate.clone());
+        }
+    }
+    None
+}
+
 /// Build the prompt body sent to the AI merge call. Pure function so
 /// tests can pin the wire shape.
 pub fn build_description_merge_prompt(input: &DescriptionInput) -> DescriptionMergePrompt {
@@ -256,10 +282,8 @@ pub async fn normalise_description(
             return DescriptionOutcome::default();
         }
     } else {
-        let distinct: std::collections::BTreeSet<&str> =
-            non_empty.iter().map(|(_, v)| v.as_str()).collect();
-        if distinct.len() == 1 {
-            (non_empty[0].1.clone(), false)
+        if let Some(canonical) = derive_description_canonical_without_ai(input) {
+            (canonical, false)
         } else {
             let prompt = build_description_merge_prompt(input);
             match ai {
@@ -561,6 +585,85 @@ mod tests {
         };
         let second = normalise_description(&post, None).await;
         assert!(second.output.is_none());
+    }
+
+    #[tokio::test]
+    async fn smart_quote_projections_are_idempotent() {
+        let canonical = "A sign reading “CYCLE ROUTE” points left.";
+        let input = DescriptionInput {
+            description: Some(canonical.into()),
+            image_description: Some(ascii_fold(canonical)),
+            caption_abstract: Some(canonical.into()),
+            iptc_charset_is_utf8: true,
+            ..Default::default()
+        };
+
+        let out = normalise_description(&input, None).await;
+
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+        assert!(out.ai_error.is_none());
+        assert_eq!(out.canonical.as_deref(), Some(canonical));
+    }
+
+    #[tokio::test]
+    async fn non_utf8_ascii_projections_are_idempotent() {
+        let canonical = "André Müller’s café";
+        let projected = ascii_fold(canonical);
+        let input = DescriptionInput {
+            description: Some(canonical.into()),
+            image_description: Some(projected.clone()),
+            caption_abstract: Some(projected),
+            iptc_charset_is_utf8: false,
+            ..Default::default()
+        };
+
+        let out = normalise_description(&input, None).await;
+
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+        assert!(out.ai_error.is_none());
+        assert_eq!(out.canonical.as_deref(), Some(canonical));
+    }
+
+    #[tokio::test]
+    async fn equal_non_ascii_sources_are_reprojected_without_ai() {
+        let canonical = "André Müller’s café";
+        let input = DescriptionInput {
+            description: Some(canonical.into()),
+            image_description: Some(canonical.into()),
+            caption_abstract: Some(canonical.into()),
+            iptc_charset_is_utf8: true,
+            ..Default::default()
+        };
+
+        let out = normalise_description(&input, None).await;
+
+        assert!(!out.ai_fired);
+        assert!(out.ai_error.is_none());
+        assert_eq!(
+            text(&out.output.unwrap(), "IFD0:ImageDescription"),
+            ascii_fold(canonical)
+        );
+    }
+
+    #[tokio::test]
+    async fn truncated_caption_projection_is_idempotent() {
+        let canonical = "word ".repeat(500).trim_end().to_string();
+        let input = DescriptionInput {
+            description: Some(canonical.clone()),
+            image_description: Some(ascii_fold(&canonical)),
+            caption_abstract: Some(project_caption_abstract(&canonical, true)),
+            iptc_charset_is_utf8: true,
+            ..Default::default()
+        };
+
+        let out = normalise_description(&input, None).await;
+
+        assert!(out.output.is_none());
+        assert!(!out.ai_fired);
+        assert!(out.ai_error.is_none());
+        assert_eq!(out.canonical.as_deref(), Some(canonical.as_str()));
     }
 
     #[tokio::test]
