@@ -141,16 +141,20 @@ pub fn normalize_static_tag_id(id: &str) -> String {
     id.to_string()
 }
 
-pub fn normalize_runtime_tag_id(value: &serde_json::Value) -> Result<String, String> {
-    match value {
-        serde_json::Value::Number(number) if number.is_i64() || number.is_u64() => {
-            Ok(number.to_string())
-        }
-        serde_json::Value::String(value) => Ok(value.clone()),
-        other => Err(format!(
-            "ExifTool runtime tag id must be an integer or string, got {other}"
-        )),
+pub fn normalize_runtime_tag_id(value: &serde_json::value::RawValue) -> Result<String, String> {
+    let token = value.get().trim();
+    if token.starts_with('"') {
+        return serde_json::from_str::<String>(token)
+            .map_err(|error| format!("invalid string ExifTool runtime tag id: {error}"));
     }
+    // RawValue already guarantees valid JSON, so the first byte is enough to
+    // distinguish a number without parsing it through any bounded numeric type.
+    if matches!(token.as_bytes().first(), Some(b'-' | b'0'..=b'9')) {
+        return Ok(token.to_string());
+    }
+    Err(format!(
+        "ExifTool runtime tag id must be a number or string, got {token}"
+    ))
 }
 
 /// Schema info for a single tag.

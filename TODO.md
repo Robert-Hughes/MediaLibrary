@@ -13,6 +13,9 @@ Bugs/quirks/tweaks/improvements
 
 - Some image thumbnails are rotated
 - clicking the number of photos at the bottom of the big list could select all?
+- If order of photos changes whilst in the gallery (e.g. metadata finishes loading), it can change which photo you're looking at!
+- Clarify behaviour when metadata fails to load for a photo. Currently we show no metadata for the photo at all, but potentially we could show just the ones that loaded successfully etc.
+  - What about if you make a draft edit and try to apply it when the metadata has failed? Is that safe?
 
 Features
 ========

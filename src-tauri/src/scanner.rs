@@ -6,6 +6,7 @@
 ///  - `read_image_metadata` — reads metadata for a single file using ExifTool.
 ///  - `thumbnail_for` — generates a thumbnail.
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -387,6 +388,19 @@ struct ExifToolRuntimeValue {
     pub value: serde_json::Value,
 }
 
+#[derive(Debug, Deserialize)]
+struct ExifToolRuntimeValueWire {
+    pub table: String,
+    /// ExifTool has legitimate non-integer tag IDs (for example `0.1` in
+    /// `MPF::MPImage`). Keep the original JSON token so exact schema identity
+    /// never round-trips through `f64`; ExifTool's JSONQ mode is unsuitable
+    /// because it also quotes every metadata value.
+    pub id: Box<RawValue>,
+    pub index: Option<u32>,
+    pub lang: Option<String>,
+    pub val: serde_json::Value,
+}
+
 #[derive(Debug, Clone)]
 struct RuntimeProperty {
     pub occurrence_id: MetadataOccurrenceId,
@@ -398,6 +412,7 @@ struct RuntimeProperty {
 }
 
 type RuntimeMap = BTreeMap<MetadataOccurrenceId, RuntimeProperty>;
+type RawExifToolObject = BTreeMap<String, Box<RawValue>>;
 
 #[derive(Debug, Clone, Default)]
 struct ExifToolPassOutput {
@@ -483,40 +498,22 @@ fn parse_runtime_property_key(key: &str) -> Result<ParsedRuntimePropertyKey, Str
     })
 }
 
-fn parse_runtime_value(value: serde_json::Value) -> Result<ExifToolRuntimeValue, String> {
-    let mut object = value
-        .as_object()
-        .cloned()
-        .ok_or_else(|| format!("expected wrapped ExifTool runtime value, got {value}"))?;
-    let table = object
-        .remove("table")
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .ok_or_else(|| "runtime value is missing string field `table`".to_string())?;
-    let id = object
-        .remove("id")
-        .ok_or_else(|| "runtime value is missing field `id`".to_string())?;
-    let tag_id = normalize_runtime_tag_id(&id)?;
-    let index = object
-        .remove("index")
-        .filter(|value| !value.is_null())
-        .map(|value| serde_json::from_value::<u32>(value).map_err(|e| e.to_string()))
-        .transpose()?;
-    let language = object
-        .remove("lang")
-        .filter(|value| !value.is_null())
-        .map(|value| serde_json::from_value::<String>(value).map_err(|e| e.to_string()))
-        .transpose()?;
-    let value = object
-        .remove("val")
-        .ok_or_else(|| "runtime value is missing field `val`".to_string())?;
+fn parse_runtime_value(value: &RawValue) -> Result<ExifToolRuntimeValue, String> {
+    let wire: ExifToolRuntimeValueWire = serde_json::from_str(value.get()).map_err(|error| {
+        format!(
+            "expected wrapped ExifTool runtime value, got {}: {error}",
+            value.get()
+        )
+    })?;
+    let tag_id = normalize_runtime_tag_id(&wire.id)?;
     Ok(ExifToolRuntimeValue {
         tag_id_scope: RuntimeTagIdScope {
-            table,
+            table: wire.table,
             tag_id,
-            index,
+            index: wire.index,
         },
-        language,
-        value,
+        language: wire.lang,
+        value: wire.val,
     })
 }
 
@@ -525,7 +522,15 @@ fn parse_single_source_object(
     obj: serde_json::Map<String, serde_json::Value>,
     registry: Option<&crate::tag_schema::TagRegistry>,
 ) -> Result<RuntimeMap, String> {
-    parse_single_source_object_with_context(obj, registry, "<direct source object>", None)
+    let raw_obj = obj
+        .into_iter()
+        .map(|(key, value)| {
+            serde_json::value::to_raw_value(&value)
+                .map(|raw| (key, raw))
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<RawExifToolObject, String>>()?;
+    parse_single_source_object_with_context(raw_obj, registry, "<direct source object>", None)
 }
 
 fn safe_value_diagnostic(value: &serde_json::Value) -> String {
@@ -584,7 +589,7 @@ fn safe_value_diagnostic(value: &serde_json::Value) -> String {
 }
 
 fn parse_single_source_object_with_context(
-    obj: serde_json::Map<String, serde_json::Value>,
+    obj: RawExifToolObject,
     registry: Option<&crate::tag_schema::TagRegistry>,
     source_context: &str,
     pass_context: Option<&str>,
@@ -597,7 +602,7 @@ fn parse_single_source_object_with_context(
         let parsed_key =
             parse_runtime_property_key(&key).map_err(|error| format!("property {key}: {error}"))?;
         let friendly_name = parsed_key.friendly_name();
-        let runtime = parse_runtime_value(val)
+        let runtime = parse_runtime_value(&val)
             .map_err(|error| format!("property {friendly_name}: {error}"))?;
         let occurrence_id = MetadataOccurrenceId {
             document: parsed_key.document,
@@ -668,7 +673,7 @@ fn try_parse_exiftool_pass_json_raw_with_registry_and_context(
     registry: Option<&crate::tag_schema::TagRegistry>,
     pass_context: Option<&str>,
 ) -> Result<ExifToolPassOutput, String> {
-    let raw_entries: Vec<serde_json::Value> = match serde_json::from_str(json) {
+    let raw_entries: Vec<Box<RawValue>> = match serde_json::from_str(json) {
         Ok(v) => v,
         Err(e) => {
             let preview: String = json.chars().take(200).collect();
@@ -685,23 +690,20 @@ fn try_parse_exiftool_pass_json_raw_with_registry_and_context(
     let mut failures_by_source = HashMap::new();
 
     for (idx, raw) in raw_entries.into_iter().enumerate() {
-        let source = raw
-            .get("SourceFile")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        let obj = match raw {
-            serde_json::Value::Object(o) => o,
-            other => {
+        let mut obj: RawExifToolObject = match serde_json::from_str(raw.get()) {
+            Ok(obj) => obj,
+            Err(_) => {
                 log::warn!(
-                    "[parse_exiftool] Skipping entry {} ({}): expected JSON object, got {:?}",
-                    idx,
-                    source.as_deref().unwrap_or("<no SourceFile>"),
-                    other
-                );
+                        "[parse_exiftool] Skipping entry {} (<no SourceFile>): expected JSON object, got {}",
+                        idx,
+                        raw.get()
+                    );
                 continue;
             }
         };
+        let source = obj
+            .remove("SourceFile")
+            .and_then(|value| serde_json::from_str::<String>(value.get()).ok());
 
         let Some(s) = source else {
             log::warn!(
@@ -2170,6 +2172,88 @@ mod tests {
         assert!(outcome.failures.is_empty());
         assert_eq!(outcome.results.len(), 1);
         assert_eq!(outcome.results[0].occurrences.len(), 2);
+    }
+
+    #[test]
+    fn runtime_schema_ids_preserve_original_json_number_tokens() {
+        let source = "D:/path/mpf.jpg";
+        let json = r#"[
+            {
+                "SourceFile": "D:/path/mpf.jpg",
+                "MPImage1:Main:Copy1:JPEG-APP2-MPF0-MPF:ID-02e1:MPImageFlags": {
+                    "table": "MPF::MPImage",
+                    "id": 0.1,
+                    "val": 20
+                },
+                "Fixture:Main::Fixture-Metadata:ID-precise:PreciseId": {
+                    "table": "TestFixture::Unknown",
+                    "id": 0.10000000000000000000000000000000000001,
+                    "val": 1
+                },
+                "Fixture:Main::Fixture-Metadata:ID-exponent:ExponentId": {
+                    "table": "TestFixture::Unknown",
+                    "id": 1e-10000,
+                    "val": 2
+                },
+                "Fixture:Main::Fixture-Metadata:ID-text:TextId": {
+                    "table": "TestFixture::Unknown",
+                    "id": "MadeUp\u003aThing",
+                    "val": 3
+                }
+            }
+        ]"#;
+
+        let parsed = try_parse_exiftool_pass_json_raw_with_registry(json, None).unwrap();
+        assert!(parsed.failures_by_source.is_empty());
+        let properties = &parsed.values_by_source[source];
+        assert_eq!(properties.len(), 4);
+        assert_eq!(
+            properties
+                .keys()
+                .map(|id| id.tag_id_scope.tag_id.as_str())
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([
+                "0.1",
+                "0.10000000000000000000000000000000000001",
+                "1e-10000",
+                "MadeUp:Thing",
+            ])
+        );
+
+        let flags = properties
+            .values()
+            .find(|property| property.tag_name == "MPImageFlags")
+            .unwrap();
+        assert_eq!(flags.value, serde_json::json!(20));
+    }
+
+    #[test]
+    fn invalid_runtime_schema_id_is_source_specific() {
+        let json = r#"[
+            {
+                "SourceFile": "D:/path/good.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution": {
+                    "table": "Exif::Main",
+                    "id": 282,
+                    "val": 300
+                }
+            },
+            {
+                "SourceFile": "D:/path/bad.jpg",
+                "IFD0:Main::JPEG-APP1-IFD0:ID-282:XResolution": {
+                    "table": "Exif::Main",
+                    "id": true,
+                    "val": 300
+                }
+            }
+        ]"#;
+
+        let parsed = try_parse_exiftool_pass_json_raw_with_registry(json, None).unwrap();
+        assert!(parsed.values_by_source.contains_key("D:/path/good.jpg"));
+        assert_eq!(
+            parsed.failures_by_source["D:/path/bad.jpg"],
+            "property IFD0:XResolution: ExifTool runtime tag id must be a number or string, got true"
+        );
     }
 
     #[test]
