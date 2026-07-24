@@ -698,13 +698,21 @@ export function createMockTauriApi(): MockTauriApi {
           kind: string;
           detail: string;
         }> = [];
+        const results: Array<{
+          current: number;
+          total: number;
+          relativePath: string;
+          status: string;
+          error: string | null;
+          edits?: SchemaMetadataEdit[];
+        }> = [];
         for (let i = 0; i < total; i++) {
           const rp = items[i].relPath;
           const sched = mock.normaliseSchedule[i] ?? {
             relativePath: rp,
             status: "ok",
           };
-          emit("normalise_progress", {
+          results.push({
             current: i + 1,
             total,
             relativePath: rp,
@@ -719,6 +727,9 @@ export function createMockTauriApi(): MockTauriApi {
               kind: sched.status,
               detail: sched.error ?? "",
             });
+        }
+        if (results.length > 0) {
+          emit("normalise_progress_batch", { results });
         }
         emit("normalise_complete", {
           succeeded,

@@ -124,6 +124,13 @@ export interface MediaLibraryActions {
     producer: GeneratedMetadataProducer,
     edits: SchemaMetadataEdit[],
   ) => GeneratedDraftStageResult;
+  applyGeneratedMetadataDraftBatches: (
+    items: readonly {
+      relativePath: string;
+      producer: GeneratedMetadataProducer;
+      edits: SchemaMetadataEdit[];
+    }[],
+  ) => GeneratedDraftStageResult[];
   previewBulkMetadataDraftBatch: (
     relativePaths: string[],
     request: BulkMetadataDraftRequest,
@@ -1125,54 +1132,116 @@ export function useMediaLibrary(
     [requireAuthoritativeMetadataReady],
   );
 
-  const applyGeneratedMetadataDraftBatch = useCallback(
+  const applyGeneratedMetadataDraftBatches = useCallback(
     (
-      relativePath: string,
-      producer: GeneratedMetadataProducer,
-      edits: SchemaMetadataEdit[],
-    ): GeneratedDraftStageResult => {
-      if (edits.length === 0) {
-        return { kind: "success", changed: false };
-      }
-
-      if (!requireTargetDraftPersistenceReady([relativePath])) {
+      items: readonly {
+        relativePath: string;
+        producer: GeneratedMetadataProducer;
+        edits: SchemaMetadataEdit[];
+      }[],
+    ): GeneratedDraftStageResult[] => {
+      if (items.length === 0) return [];
+      const results: GeneratedDraftStageResult[] = items.map(() => ({
+        kind: "success",
+        changed: false,
+      }));
+      const activeItems = items
+        .map((item, resultIndex) => ({ item, resultIndex }))
+        .filter(({ item }) => item.edits.length > 0);
+      if (activeItems.length === 0) return results;
+      const paths = activeItems.map(({ item }) => item.relativePath);
+      if (!requireTargetDraftPersistenceReady(paths)) {
         const persistence = targetDraftPersistenceRef.current;
-        return {
+        const failure: GeneratedDraftStageResult = {
           kind: "failure",
           reason:
             persistence.status === "load-failed"
               ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`
               : TARGET_DRAFT_LOAD_BLOCKED_MESSAGE,
         };
+        for (const { resultIndex } of activeItems) {
+          results[resultIndex] = failure;
+        }
+        return results;
       }
 
+      const planned: Array<{
+        resultIndex: number;
+        mutation: {
+          path: string;
+          upserts: ReturnType<typeof planGeneratedTargetDraftBatch>["upserts"];
+          deletes: ReturnType<typeof planGeneratedTargetDraftBatch>["deletes"];
+        };
+      }> = [];
+      activeItems.forEach(
+        ({ item: { relativePath, producer, edits }, resultIndex }) => {
+          try {
+            const plan = planGeneratedTargetDraftBatch({
+              producer,
+              edits,
+              occurrences:
+                imageMetadataOccurrencesStoreRef.current.get(relativePath),
+              targetDrafts:
+                targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
+            });
+            planned.push({
+              resultIndex,
+              mutation: {
+                path: relativePath,
+                upserts: plan.upserts,
+                deletes: plan.deletes,
+              },
+            });
+          } catch (error) {
+            const reason =
+              error instanceof Error ? error.message : String(error);
+            logApplicationIssue(
+              "error",
+              "metadata-target-generated-stage",
+              error,
+              [relativePath],
+            );
+            results[resultIndex] = { kind: "failure", reason };
+          }
+        },
+      );
+
+      if (planned.length === 0) return results;
       try {
-        const plan = planGeneratedTargetDraftBatch({
-          producer,
-          edits,
-          occurrences:
-            imageMetadataOccurrencesStoreRef.current.get(relativePath),
-          targetDrafts:
-            targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
-        });
         const changed =
-          targetDraftEditsStoreRef.current.applyExactMutationBatch([
-            {
-              path: relativePath,
-              upserts: plan.upserts,
-              deletes: plan.deletes,
-            },
-          ]);
-        return { kind: "success", changed };
+          targetDraftEditsStoreRef.current.applyExactMutationBatch(
+            planned.map(({ mutation }) => mutation),
+          );
+        for (const { resultIndex } of planned) {
+          results[resultIndex] = { kind: "success", changed };
+        }
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
-        logApplicationIssue("error", "metadata-target-generated-stage", error, [
-          relativePath,
-        ]);
-        return { kind: "failure", reason };
+        logApplicationIssue(
+          "error",
+          "metadata-target-generated-stage",
+          error,
+          planned.map(({ mutation }) => mutation.path),
+        );
+        for (const { resultIndex } of planned) {
+          results[resultIndex] = { kind: "failure", reason };
+        }
       }
+      return results;
     },
     [requireTargetDraftPersistenceReady],
+  );
+
+  const applyGeneratedMetadataDraftBatch = useCallback(
+    (
+      relativePath: string,
+      producer: GeneratedMetadataProducer,
+      edits: SchemaMetadataEdit[],
+    ): GeneratedDraftStageResult =>
+      applyGeneratedMetadataDraftBatches([
+        { relativePath, producer, edits },
+      ])[0] ?? { kind: "success", changed: false },
+    [applyGeneratedMetadataDraftBatches],
   );
 
   const buildBulkMetadataDraftPlan = useCallback(
@@ -2010,6 +2079,7 @@ export function useMediaLibrary(
       canOpenBulkMetadataEditor,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
+      applyGeneratedMetadataDraftBatches,
       previewBulkMetadataDraftBatch,
       stageBulkMetadataDraftBatch,
       removeMetadataTargets,
@@ -2047,6 +2117,7 @@ export function useMediaLibrary(
       canOpenBulkMetadataEditor,
       canStageGeneratedMetadata,
       applyGeneratedMetadataDraftBatch,
+      applyGeneratedMetadataDraftBatches,
       previewBulkMetadataDraftBatch,
       stageBulkMetadataDraftBatch,
       removeMetadataTargets,

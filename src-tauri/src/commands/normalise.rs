@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -643,6 +644,7 @@ pub async fn normalise_metadata_cmd(
     let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
     let mut summary = normalise::NormaliseSummary::default();
     let mut current = 0usize;
+    let mut progress_batch = batch_job::EventBatch::new(20, Duration::from_millis(100), true);
 
     for item in &items {
         if cancel_flag.load(Ordering::Relaxed) {
@@ -787,24 +789,16 @@ pub async fn normalise_metadata_cmd(
                 rel,
                 detail
             );
-            if all_noop {
-                emitter.progress_metadata(
-                    current,
-                    total,
-                    &rel,
-                    kind.as_wire(),
-                    Some(&detail),
-                    None,
-                );
-            } else {
-                emitter.progress_metadata(
-                    current,
-                    total,
-                    &rel,
-                    kind.as_wire(),
-                    Some(&detail),
-                    Some(&edits),
-                );
+            let progress = batch_job::BatchMetadataProgress::new(
+                current,
+                total,
+                rel.clone(),
+                kind.as_wire().to_string(),
+                Some(detail.clone()),
+                if all_noop { None } else { Some(&edits) },
+            );
+            if let Some(results) = progress_batch.push(progress) {
+                emitter.progress_metadata_batch(&results);
             }
             failed.push(batch_job::BatchFailureRow {
                 relative_path: rel.clone(),
@@ -816,11 +810,22 @@ pub async fn normalise_metadata_cmd(
 
         if all_noop {
             summary.n_skipped_all_normalised += 1;
-            emitter.progress_metadata(current, total, &rel, "ok", None, None);
-        } else {
-            emitter.progress_metadata(current, total, &rel, "ok", None, Some(&edits));
+        }
+        let progress = batch_job::BatchMetadataProgress::new(
+            current,
+            total,
+            rel.clone(),
+            "ok".to_string(),
+            None,
+            if all_noop { None } else { Some(&edits) },
+        );
+        if let Some(results) = progress_batch.push(progress) {
+            emitter.progress_metadata_batch(&results);
         }
         succeeded.push(rel);
+    }
+    if let Some(results) = progress_batch.flush() {
+        emitter.progress_metadata_batch(&results);
     }
     summary.n_succeeded = succeeded.len() as u32;
     summary.n_failed = failed.len() as u32;
