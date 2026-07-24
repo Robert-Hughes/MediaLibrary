@@ -13,6 +13,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::time::Instant;
 
 use crate::apply_log::{
     TargetApplyArguments, TargetApplyAuditRecord, TargetApplyObservedOccurrence,
@@ -658,6 +659,12 @@ where
     C: MetadataTargetWriteClient,
     F: Fn(&SchemaDefinitionId) -> Option<TagInfo>,
 {
+    let file_started = Instant::now();
+    log::info!(
+        "[apply_perf] file={} phase=start edits={}",
+        rel_path,
+        edits.len()
+    );
     if edits.is_empty() {
         return MetadataSingleFileOutcome::hard_failure(TargetApplyError::NoEdits);
     }
@@ -670,25 +677,61 @@ where
         ));
     }
 
+    let phase_started = Instant::now();
     let before = match client.read_image_metadata(rel_path, &abs_path) {
         Ok(metadata) => metadata,
         Err(error) => {
+            log::info!(
+                "[apply_perf] file={} phase=pre_read duration_ms={} status=failed",
+                rel_path,
+                phase_started.elapsed().as_millis()
+            );
             return MetadataSingleFileOutcome::hard_failure(TargetApplyError::PreWriteReadFailure(
                 error,
             ));
         }
     };
+    log::info!(
+        "[apply_perf] file={} phase=pre_read duration_ms={} status=ok",
+        rel_path,
+        phase_started.elapsed().as_millis()
+    );
 
+    let phase_started = Instant::now();
     let planned = match plan_batch(&abs_path, edits, &before, schema_lookup) {
         Ok(planned) => planned,
-        Err(error) => return MetadataSingleFileOutcome::hard_failure(error),
+        Err(error) => {
+            log::info!(
+                "[apply_perf] file={} phase=plan duration_ms={} status=failed",
+                rel_path,
+                phase_started.elapsed().as_millis()
+            );
+            return MetadataSingleFileOutcome::hard_failure(error);
+        }
     };
+    log::info!(
+        "[apply_perf] file={} phase=plan duration_ms={} status=ok targets={}",
+        rel_path,
+        phase_started.elapsed().as_millis(),
+        planned.targets.len()
+    );
 
     let mut numeric_attempted = false;
     let mut numeric_result = Ok(());
     if let Some(contents) = &planned.numeric_argfile {
         numeric_attempted = true;
+        let phase_started = Instant::now();
         numeric_result = client.write_metadata(true, contents);
+        log::info!(
+            "[apply_perf] file={} phase=write_numeric duration_ms={} status={}",
+            rel_path,
+            phase_started.elapsed().as_millis(),
+            if numeric_result.is_ok() {
+                "ok"
+            } else {
+                "failed"
+            }
+        );
     }
 
     let mut text_attempted = false;
@@ -696,7 +739,14 @@ where
     if numeric_result.is_ok() {
         if let Some(contents) = &planned.text_argfile {
             text_attempted = true;
+            let phase_started = Instant::now();
             text_result = client.write_metadata(false, contents);
+            log::info!(
+                "[apply_perf] file={} phase=write_text duration_ms={} status={}",
+                rel_path,
+                phase_started.elapsed().as_millis(),
+                if text_result.is_ok() { "ok" } else { "failed" }
+            );
         }
     }
 
@@ -711,9 +761,16 @@ where
         _ => None,
     };
 
+    let phase_started = Instant::now();
     let fresh = match client.read_image_metadata(rel_path, &abs_path) {
         Ok(metadata) => metadata,
         Err(read_error) => {
+            log::info!(
+                "[apply_perf] file={} phase=post_read duration_ms={} status=failed total_ms={}",
+                rel_path,
+                phase_started.elapsed().as_millis(),
+                file_started.elapsed().as_millis()
+            );
             let error = match &write_failure {
                 Some(write_error) => format!(
                     "ExifTool write failed ({write_error}) and authoritative post-write readback failed ({read_error}); file contents could not be verified."
@@ -765,10 +822,22 @@ where
             };
         }
     };
+    log::info!(
+        "[apply_perf] file={} phase=post_read duration_ms={} status=ok",
+        rel_path,
+        phase_started.elapsed().as_millis()
+    );
 
+    let verification_started = Instant::now();
     let post_by_id = match build_strict_post_write_occurrence_index(&fresh) {
         Ok(index) => index,
         Err(invariant_error) => {
+            log::info!(
+                "[apply_perf] file={} phase=verify duration_ms={} status=failed total_ms={}",
+                rel_path,
+                verification_started.elapsed().as_millis(),
+                file_started.elapsed().as_millis()
+            );
             let invariant_message = invariant_error.to_string();
             let error = match &write_failure {
                 Some(write_error) => format!(
@@ -895,14 +964,22 @@ where
 
     // The batch coordinator appends this evidence to the independent
     // target-aware log after draft reconciliation and any persistence attempt.
-    MetadataSingleFileOutcome {
+    let result = MetadataSingleFileOutcome {
         fresh_image_metadata: Some(fresh),
         error: diagnostics.error.or(first_mismatch),
         warning: diagnostics.warning,
         outcomes,
         targets_to_clear,
         audit_records,
-    }
+    };
+    log::info!(
+        "[apply_perf] file={} phase=verify duration_ms={} status=ok targets={} total_ms={}",
+        rel_path,
+        verification_started.elapsed().as_millis(),
+        result.outcomes.len(),
+        file_started.elapsed().as_millis()
+    );
+    result
 }
 
 fn targets_to_clear_from_reconciliation(
