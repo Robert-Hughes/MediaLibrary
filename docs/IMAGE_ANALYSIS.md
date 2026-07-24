@@ -14,8 +14,8 @@ inputs for a follow-up metadata-normalization feature.
 - Settings screen: API key, model selector (auto-saves on change).
 - Manual single-image trigger from `DetailsPane` ("Generate AI Description"
   button next to "+ Add Property").
-- Backend command accepts `Vec<rel_path>` (multi-image ready) but processes
-  **sequentially** (no semaphore, no parallelism).
+- Backend command processes `Vec<rel_path>` with bounded concurrency (six
+  image requests in flight at most).
 - Single unified progress dialog covers: cost-estimation phase →
   confirmation → execution → result summary.
 - Results land as typed draft edits under custom `XMP-mlib:*` namespace.
@@ -46,13 +46,14 @@ adaptations:
 - `pub async fn describe_one(...)` — single-image: load → resize-to-1024
   JPEG q85 → base64 → `/responses` call → parse strict-JSON → return
   `DescribeOutcome { fields, usage, raw_json }`.
-- Sequential `for` loop over `Vec<rel_path>` in the command handler. No
-  `JoinSet`, no semaphore.
+- Shared bounded async runner over `Vec<rel_path>`, with completion-order
+  progress and a concurrency limit of six.
 - `reqwest-retry` middleware: exp-backoff on 429/5xx, max 3 attempts,
   honour `Retry-After`. Each retry attempt emits a `describe_retry` event
   so the dialog can surface "rate-limited, retrying…".
 - Cancellation flag in new `DescribeState` (mirrors `ApplyEditsState`).
-  Checked at each loop iteration boundary (never mid-request).
+  Once set, the runner schedules no new images and lets already-dispatched
+  requests finish.
 - On successful image: merge fields into typed draft store via
   `draft_edits::save_typed_draft_edits` immediately, before next image
   starts → crash-safe partial progress.
@@ -284,8 +285,8 @@ src/
 - Reverse-geocoded landmark hint into describe prompt — opt-in toggle
   later; would improve long-tail recognition per MODEL_CHOICE.
 - Per-org rate-limit headroom — revisit if 429s become common.
-- Parallel processing — add semaphore-bounded concurrency once measured
-  throughput is the bottleneck.
+- Adaptive concurrency — tune the fixed limit of six if rate-limit or
+  service-latency measurements justify it.
 - Batch API "queue overnight" mode — separate menu item later.
 
 ## Current generated-draft staging boundary

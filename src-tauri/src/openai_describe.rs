@@ -11,9 +11,10 @@
 //! - On success, structured fields land in the typed-draft store under the
 //!   `XMP-mlib:*` namespace so the existing apply pipeline can write them.
 //!
-//! V1 is deliberately sequential — no semaphore, no batch API.  The HTTP
-//! base URL and retry-policy ceiling are injected so tests can point at a
-//! wiremock and run a deterministic retry sequence without real network.
+//! Image requests are dispatched through the command layer's bounded async
+//! runner. The HTTP base URL and retry-policy ceiling are injected so tests
+//! can point at a wiremock and run deterministic retry sequences without a
+//! real network.
 
 use std::path::Path;
 
