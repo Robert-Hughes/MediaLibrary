@@ -262,6 +262,41 @@ where
     Ok(dispatched)
 }
 
+/// Synchronous counterpart to [`run_bounded`] for blocking workloads such as
+/// ExifTool processes. Workers claim items from one queue, stop claiming when
+/// cancellation is observed, and let already-claimed work finish.
+pub fn run_bounded_blocking<T, O, Work>(
+    items: Vec<(usize, T)>,
+    max_in_flight: NonZeroUsize,
+    cancel_flag: &Arc<AtomicBool>,
+    work: Work,
+) -> Vec<(usize, O)>
+where
+    T: Send,
+    O: Send,
+    Work: Fn(T) -> O + Sync,
+{
+    let pending = Mutex::new(std::collections::VecDeque::from(items));
+    let completed = Mutex::new(Vec::new());
+    std::thread::scope(|scope| {
+        for _ in 0..max_in_flight.get() {
+            let work = &work;
+            scope.spawn(|| loop {
+                if cancel_flag.load(Ordering::Relaxed) {
+                    break;
+                }
+                let next = pending.lock().unwrap().pop_front();
+                let Some((index, item)) = next else {
+                    break;
+                };
+                let outcome = work(item);
+                completed.lock().unwrap().push((index, outcome));
+            });
+        }
+    });
+    completed.into_inner().unwrap()
+}
+
 /// Per-item failure entry on the `${prefix}_complete` payload.
 ///
 /// The frontend renders these uniformly across jobs — only the `kind`

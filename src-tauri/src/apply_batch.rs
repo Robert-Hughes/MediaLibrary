@@ -9,15 +9,19 @@
 //! to the independent `MediaLibraryTargetApplyLog.jsonl` file.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::num::NonZeroUsize;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 use crate::apply_edits::{
-    apply_single_file_metadata, MetadataSingleFileOutcome, MetadataTargetOutcome,
+    apply_single_file_metadata, execute_prepared_metadata_write, executed_relative_path,
+    finalize_executed_metadata_write, prepare_single_file_metadata, MetadataSingleFileOutcome,
+    MetadataTargetOutcome,
 };
 use crate::apply_log::{
     append_target_metadata_entries, TargetApplyAuditRecord, TargetDraftPersistenceOutcome,
@@ -165,6 +169,24 @@ pub trait SingleFileApply {
         relative_path: &str,
         edits: &[MetadataTargetDraftEntry],
     ) -> MetadataSingleFileOutcome;
+
+    fn apply_batch(
+        &self,
+        folder_path: &str,
+        jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
+        _write_concurrency: usize,
+        cancel_flag: &Arc<AtomicBool>,
+    ) -> Vec<(String, MetadataSingleFileOutcome)> {
+        jobs.iter()
+            .take_while(|_| !cancel_flag.load(Ordering::Relaxed))
+            .map(|(relative_path, edits)| {
+                (
+                    relative_path.clone(),
+                    self.apply(folder_path, relative_path, edits),
+                )
+            })
+            .collect()
+    }
 }
 
 pub(crate) trait DraftReconciler {
@@ -214,6 +236,143 @@ impl SingleFileApply for RealSingleFileApply {
     ) -> MetadataSingleFileOutcome {
         apply_single_file_metadata(folder_path, relative_path, edits)
     }
+
+    fn apply_batch(
+        &self,
+        folder_path: &str,
+        jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
+        write_concurrency: usize,
+        cancel_flag: &Arc<AtomicBool>,
+    ) -> Vec<(String, MetadataSingleFileOutcome)> {
+        apply_real_metadata_batch(folder_path, jobs, write_concurrency, cancel_flag)
+    }
+}
+
+fn read_metadata_for_jobs(
+    folder_path: &str,
+    relative_paths: &[String],
+) -> HashMap<String, Result<scanner::ImageMetadata, String>> {
+    let absolute_paths = relative_paths
+        .iter()
+        .map(|relative_path| {
+            Path::new(folder_path).join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR))
+        })
+        .collect::<Vec<_>>();
+    let mut by_path = HashMap::with_capacity(relative_paths.len());
+    match scanner::read_image_metadata_batch(relative_paths, &absolute_paths) {
+        Ok(outcome) => {
+            for metadata in outcome.results {
+                by_path.insert(metadata.relative_path.clone(), Ok(metadata));
+            }
+            for failure in outcome.failures {
+                by_path.insert(failure.relative_path, Err(failure.error_message));
+            }
+            for relative_path in relative_paths {
+                by_path.entry(relative_path.clone()).or_insert_with(|| {
+                    Err(format!(
+                        "authoritative metadata batch read returned neither a result nor a failure for {relative_path}"
+                    ))
+                });
+            }
+        }
+        Err(error) => {
+            for relative_path in relative_paths {
+                by_path.insert(
+                    relative_path.clone(),
+                    Err(format!("authoritative metadata batch read failed: {error}")),
+                );
+            }
+        }
+    }
+    by_path
+}
+
+fn apply_real_metadata_batch(
+    folder_path: &str,
+    jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
+    write_concurrency: usize,
+    cancel_flag: &Arc<AtomicBool>,
+) -> Vec<(String, MetadataSingleFileOutcome)> {
+    let phase_started = Instant::now();
+    let relative_paths = jobs
+        .iter()
+        .map(|(relative_path, _)| relative_path.clone())
+        .collect::<Vec<_>>();
+    let mut before_by_path = read_metadata_for_jobs(folder_path, &relative_paths);
+    log::info!(
+        "[apply_perf] phase=chunk_pre_read duration_ms={} files={}",
+        phase_started.elapsed().as_millis(),
+        jobs.len()
+    );
+
+    if cancel_flag.load(Ordering::Relaxed) {
+        return Vec::new();
+    }
+
+    let mut immediate = HashMap::new();
+    let mut prepared = Vec::new();
+    for (index, (relative_path, edits)) in jobs.iter().enumerate() {
+        match before_by_path
+            .remove(relative_path)
+            .expect("batch reader returns one entry per requested path")
+        {
+            Ok(before) => {
+                match prepare_single_file_metadata(folder_path, relative_path, edits, before) {
+                    Ok(item) => prepared.push((index, item)),
+                    Err(outcome) => {
+                        immediate.insert(index, *outcome);
+                    }
+                }
+            }
+            Err(error) => {
+                immediate.insert(
+                    index,
+                    MetadataSingleFileOutcome::pre_write_read_failure(error),
+                );
+            }
+        }
+    }
+
+    let phase_started = Instant::now();
+    let executed = crate::batch_job::run_bounded_blocking(
+        prepared,
+        NonZeroUsize::new(write_concurrency).unwrap_or(NonZeroUsize::MIN),
+        cancel_flag,
+        execute_prepared_metadata_write,
+    );
+    log::info!(
+        "[apply_perf] phase=chunk_writes duration_ms={} completed={} concurrency={}",
+        phase_started.elapsed().as_millis(),
+        executed.len(),
+        write_concurrency
+    );
+
+    let post_relative_paths = executed
+        .iter()
+        .map(|(_, item)| executed_relative_path(item).to_string())
+        .collect::<Vec<_>>();
+    let phase_started = Instant::now();
+    let mut fresh_by_path = read_metadata_for_jobs(folder_path, &post_relative_paths);
+    log::info!(
+        "[apply_perf] phase=chunk_post_read duration_ms={} files={}",
+        phase_started.elapsed().as_millis(),
+        post_relative_paths.len()
+    );
+
+    for (index, item) in executed {
+        let relative_path = executed_relative_path(&item).to_string();
+        let fresh = fresh_by_path
+            .remove(&relative_path)
+            .expect("batch reader returns one entry per written path");
+        immediate.insert(index, finalize_executed_metadata_write(item, fresh));
+    }
+
+    let mut ordered = immediate.into_iter().collect::<Vec<_>>();
+    ordered.sort_by_key(|(index, _)| *index);
+    ordered
+        .into_iter()
+        .map(|(index, outcome)| (jobs[index].0.clone(), outcome))
+        .collect()
 }
 
 struct RealDraftReconciler;
@@ -267,8 +426,10 @@ pub fn run_apply_metadata_draft_edits_blocking(
     relative_paths: Vec<String>,
     app: AppHandle,
     cancel_flag: Arc<AtomicBool>,
+    batch_size: usize,
+    write_concurrency: usize,
 ) -> Result<MetadataApplyResult, String> {
-    run_apply_metadata_draft_edits_with(
+    run_apply_metadata_draft_edits_with_limits(
         &folder_path,
         &relative_paths,
         &RealDraftPersistence,
@@ -277,6 +438,8 @@ pub fn run_apply_metadata_draft_edits_blocking(
         &RealTargetApplyLogger,
         &TauriApplyEvents { app },
         cancel_flag,
+        batch_size,
+        write_concurrency,
     )
 }
 
@@ -288,6 +451,7 @@ fn combine_errors(original: Option<String>, additional: String) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 fn run_apply_metadata_draft_edits_with<P, A, R, L, E>(
     folder_path: &str,
     relative_paths: &[String],
@@ -297,6 +461,40 @@ fn run_apply_metadata_draft_edits_with<P, A, R, L, E>(
     target_logger: &L,
     events: &E,
     cancel_flag: Arc<AtomicBool>,
+) -> Result<MetadataApplyResult, String>
+where
+    P: DraftPersistence,
+    A: SingleFileApply,
+    R: DraftReconciler,
+    L: TargetApplyLogger,
+    E: ApplyEvents,
+{
+    run_apply_metadata_draft_edits_with_limits(
+        folder_path,
+        relative_paths,
+        persistence,
+        single_file_apply,
+        reconciler,
+        target_logger,
+        events,
+        cancel_flag,
+        1,
+        1,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_apply_metadata_draft_edits_with_limits<P, A, R, L, E>(
+    folder_path: &str,
+    relative_paths: &[String],
+    persistence: &P,
+    single_file_apply: &A,
+    reconciler: &R,
+    target_logger: &L,
+    events: &E,
+    cancel_flag: Arc<AtomicBool>,
+    batch_size: usize,
+    write_concurrency: usize,
 ) -> Result<MetadataApplyResult, String>
 where
     P: DraftPersistence,
@@ -343,9 +541,11 @@ where
         .collect();
     let total = selected.len();
     log::info!(
-        "[apply_perf] phase=batch_start requested={} selected={}",
+        "[apply_perf] phase=batch_start requested={} selected={} batch_size={} write_concurrency={}",
         relative_paths.len(),
-        total
+        total,
+        batch_size,
+        write_concurrency
     );
 
     if let Err(error) = events.started(MetadataApplyStartedPayload { total }) {
@@ -357,141 +557,155 @@ where
     let mut aborted = false;
     let mut abort_reason = None;
 
-    for relative_path in selected {
+    for chunk in selected.chunks(batch_size) {
         if cancel_flag.load(Ordering::Relaxed) {
             cancelled = true;
             break;
         }
 
-        let coordinator_file_started = Instant::now();
-        let original_entries = current_drafts
-            .get(relative_path.as_str())
-            .expect("selected target-aware draft remains present until its own operation")
-            .clone();
-        let phase_started = Instant::now();
-        let outcome = single_file_apply.apply(folder_path, &relative_path, &original_entries);
+        let jobs = chunk
+            .iter()
+            .map(|relative_path| {
+                (
+                    relative_path.clone(),
+                    current_drafts
+                        .get(relative_path.as_str())
+                        .expect("selected target-aware draft remains present until its operation")
+                        .clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let chunk_started = Instant::now();
+        let chunk_outcomes =
+            single_file_apply.apply_batch(folder_path, &jobs, write_concurrency, &cancel_flag);
         log::info!(
-            "[apply_perf] file={} phase=file_pipeline duration_ms={} status={}",
-            relative_path,
-            phase_started.elapsed().as_millis(),
-            if outcome.error.is_none() {
-                "ok"
-            } else {
-                "failed"
-            }
+            "[apply_perf] phase=chunk_pipeline duration_ms={} requested={} completed={}",
+            chunk_started.elapsed().as_millis(),
+            jobs.len(),
+            chunk_outcomes.len()
         );
-        let mut final_error = outcome.error.clone();
-        let mut persisted_draft_entries = None;
-        let mut fatal_reason = None;
-        let mut draft_persistence = TargetDraftPersistenceOutcome::Unchanged;
+        if chunk_outcomes.len() < jobs.len() {
+            cancelled = cancel_flag.load(Ordering::Relaxed);
+        }
 
-        let phase_started = Instant::now();
-        if !outcome.outcomes.is_empty() {
-            match reconciler.reconcile(&current_drafts, &relative_path, &outcome.outcomes) {
-                Ok(candidate) if candidate != current_drafts => {
-                    let persist_started = Instant::now();
-                    if let Err(error) = persistence.save(folder_path, &candidate) {
-                        log::info!(
+        for (relative_path, outcome) in chunk_outcomes {
+            let coordinator_file_started = Instant::now();
+            let mut final_error = outcome.error.clone();
+            let mut persisted_draft_entries = None;
+            let mut fatal_reason = None;
+            let mut draft_persistence = TargetDraftPersistenceOutcome::Unchanged;
+
+            let phase_started = Instant::now();
+            if !outcome.outcomes.is_empty() {
+                match reconciler.reconcile(&current_drafts, &relative_path, &outcome.outcomes) {
+                    Ok(candidate) if candidate != current_drafts => {
+                        let persist_started = Instant::now();
+                        if let Err(error) = persistence.save(folder_path, &candidate) {
+                            log::info!(
                             "[apply_perf] file={} phase=draft_persist duration_ms={} status=failed",
                             relative_path,
                             persist_started.elapsed().as_millis()
                         );
-                        let reason = format!(
+                            let reason = format!(
                             "target-aware draft persistence failed for {relative_path}: {error}"
+                        );
+                            final_error = Some(combine_errors(final_error, reason.clone()));
+                            fatal_reason = Some(reason.clone());
+                            draft_persistence =
+                                TargetDraftPersistenceOutcome::PersistenceFailed { error: reason };
+                        } else {
+                            log::info!(
+                                "[apply_perf] file={} phase=draft_persist duration_ms={} status=ok",
+                                relative_path,
+                                persist_started.elapsed().as_millis()
+                            );
+                            current_drafts = candidate;
+                            draft_persistence = TargetDraftPersistenceOutcome::Persisted;
+                            persisted_draft_entries = Some(
+                                current_drafts
+                                    .get(relative_path.as_str())
+                                    .cloned()
+                                    .unwrap_or_default(),
+                            );
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        let reason = format!(
+                            "target-aware draft reconciliation failed for {relative_path}: {error}"
                         );
                         final_error = Some(combine_errors(final_error, reason.clone()));
                         fatal_reason = Some(reason.clone());
                         draft_persistence =
-                            TargetDraftPersistenceOutcome::PersistenceFailed { error: reason };
-                    } else {
-                        log::info!(
-                            "[apply_perf] file={} phase=draft_persist duration_ms={} status=ok",
-                            relative_path,
-                            persist_started.elapsed().as_millis()
-                        );
-                        current_drafts = candidate;
-                        draft_persistence = TargetDraftPersistenceOutcome::Persisted;
-                        persisted_draft_entries = Some(
-                            current_drafts
-                                .get(relative_path.as_str())
-                                .cloned()
-                                .unwrap_or_default(),
-                        );
+                            TargetDraftPersistenceOutcome::ReconciliationFailed { error: reason };
                     }
                 }
-                Ok(_) => {}
-                Err(error) => {
-                    let reason = format!(
-                        "target-aware draft reconciliation failed for {relative_path}: {error}"
-                    );
-                    final_error = Some(combine_errors(final_error, reason.clone()));
-                    fatal_reason = Some(reason.clone());
-                    draft_persistence =
-                        TargetDraftPersistenceOutcome::ReconciliationFailed { error: reason };
-                }
             }
-        }
-        log::info!(
-            "[apply_perf] file={} phase=reconcile duration_ms={}",
-            relative_path,
-            phase_started.elapsed().as_millis()
-        );
+            log::info!(
+                "[apply_perf] file={} phase=reconcile duration_ms={}",
+                relative_path,
+                phase_started.elapsed().as_millis()
+            );
 
-        let phase_started = Instant::now();
-        if !outcome.audit_records.is_empty() {
-            if let Err(error) = target_logger.append(
-                folder_path,
-                &relative_path,
-                &outcome.audit_records,
-                &draft_persistence,
-            ) {
-                log::warn!(
+            let phase_started = Instant::now();
+            if !outcome.audit_records.is_empty() {
+                if let Err(error) = target_logger.append(
+                    folder_path,
+                    &relative_path,
+                    &outcome.audit_records,
+                    &draft_persistence,
+                ) {
+                    log::warn!(
                     "[apply_batch] Failed to append target apply log for {relative_path}: {error}"
                 );
+                }
+            }
+            log::info!(
+                "[apply_perf] file={} phase=audit duration_ms={} records={}",
+                relative_path,
+                phase_started.elapsed().as_millis(),
+                outcome.audit_records.len()
+            );
+
+            let result = MetadataApplyFileResult {
+                relative_path,
+                applied: final_error.is_none(),
+                error: final_error,
+                warning: outcome.warning,
+                fresh_image_metadata: outcome.fresh_image_metadata,
+                target_outcomes: outcome.outcomes,
+                persisted_draft_entries,
+            };
+            let current = files.len() + 1;
+            if let Err(error) = events.progress(MetadataApplyProgressPayload {
+                current,
+                total,
+                result: result.clone(),
+            }) {
+                log::warn!(
+                    "[apply_batch] Failed to emit progress event for {}: {error}",
+                    result.relative_path
+                );
+            }
+            files.push(result);
+            log::info!(
+                "[apply_perf] file={} phase=coordinator_total duration_ms={} current={} total={}",
+                files
+                    .last()
+                    .map(|file| file.relative_path.as_str())
+                    .unwrap_or(""),
+                coordinator_file_started.elapsed().as_millis(),
+                current,
+                total
+            );
+
+            if let Some(reason) = fatal_reason {
+                aborted = true;
+                abort_reason.get_or_insert(reason);
             }
         }
-        log::info!(
-            "[apply_perf] file={} phase=audit duration_ms={} records={}",
-            relative_path,
-            phase_started.elapsed().as_millis(),
-            outcome.audit_records.len()
-        );
 
-        let result = MetadataApplyFileResult {
-            relative_path,
-            applied: final_error.is_none(),
-            error: final_error,
-            warning: outcome.warning,
-            fresh_image_metadata: outcome.fresh_image_metadata,
-            target_outcomes: outcome.outcomes,
-            persisted_draft_entries,
-        };
-        let current = files.len() + 1;
-        if let Err(error) = events.progress(MetadataApplyProgressPayload {
-            current,
-            total,
-            result: result.clone(),
-        }) {
-            log::warn!(
-                "[apply_batch] Failed to emit progress event for {}: {error}",
-                result.relative_path
-            );
-        }
-        files.push(result);
-        log::info!(
-            "[apply_perf] file={} phase=coordinator_total duration_ms={} current={} total={}",
-            files
-                .last()
-                .map(|file| file.relative_path.as_str())
-                .unwrap_or(""),
-            coordinator_file_started.elapsed().as_millis(),
-            current,
-            total
-        );
-
-        if let Some(reason) = fatal_reason {
-            aborted = true;
-            abort_reason = Some(reason);
+        if aborted || cancelled {
             break;
         }
     }
@@ -1735,5 +1949,185 @@ mod tests {
         assert!(!json.to_string().contains("draft_persistence"));
         assert!(!json.to_string().contains("post_write"));
         assert!(!json.to_string().contains("identity_model"));
+    }
+
+    #[test]
+    fn bounded_executor_runs_multiple_items_concurrently_without_exceeding_limit() {
+        use std::sync::atomic::AtomicUsize;
+        use std::time::Duration;
+
+        let active = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        let first_wave = std::sync::Barrier::new(3);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let items = (0..8).map(|index| (index, index)).collect();
+
+        let mut completed = crate::batch_job::run_bounded_blocking(
+            items,
+            NonZeroUsize::new(3).unwrap(),
+            &cancel,
+            |value| {
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                if value < 3 {
+                    first_wave.wait();
+                }
+                std::thread::sleep(Duration::from_millis(15));
+                active.fetch_sub(1, Ordering::SeqCst);
+                value
+            },
+        );
+        completed.sort_by_key(|(index, _)| *index);
+
+        assert_eq!(
+            completed,
+            (0..8).map(|index| (index, index)).collect::<Vec<_>>()
+        );
+        assert!(peak.load(Ordering::SeqCst) >= 2);
+        assert!(peak.load(Ordering::SeqCst) <= 3);
+    }
+
+    #[test]
+    fn configured_apply_batch_size_and_concurrency_reach_batch_executor() {
+        #[derive(Default)]
+        struct RecordingBatchApply {
+            calls: Mutex<Vec<(Vec<String>, usize)>>,
+        }
+
+        impl SingleFileApply for RecordingBatchApply {
+            fn apply(
+                &self,
+                _folder_path: &str,
+                _relative_path: &str,
+                _edits: &[MetadataTargetDraftEntry],
+            ) -> MetadataSingleFileOutcome {
+                panic!("configured batches must use apply_batch")
+            }
+
+            fn apply_batch(
+                &self,
+                _folder_path: &str,
+                jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
+                write_concurrency: usize,
+                _cancel_flag: &Arc<AtomicBool>,
+            ) -> Vec<(String, MetadataSingleFileOutcome)> {
+                self.calls.lock().unwrap().push((
+                    jobs.iter().map(|(path, _)| path.clone()).collect(),
+                    write_concurrency,
+                ));
+                jobs.iter()
+                    .map(|(path, _)| {
+                        (
+                            path.clone(),
+                            MetadataSingleFileOutcome {
+                                fresh_image_metadata: None,
+                                error: None,
+                                warning: None,
+                                outcomes: Vec::new(),
+                                targets_to_clear: Vec::new(),
+                                audit_records: Vec::new(),
+                            },
+                        )
+                    })
+                    .collect()
+            }
+        }
+
+        let paths = (0..5)
+            .map(|index| format!("{index}.jpg"))
+            .collect::<Vec<_>>();
+        let target = new_target("1");
+        let draft_items = paths
+            .iter()
+            .map(|path| (path.as_str(), entry(target.clone(), "x")))
+            .collect::<Vec<_>>();
+        let apply = RecordingBatchApply::default();
+
+        let result = run_apply_metadata_draft_edits_with_limits(
+            "folder",
+            &paths,
+            &FakePersistence::new(Ok(drafts(&draft_items))),
+            &apply,
+            &RealDraftReconciler,
+            &FakeTargetLogger::default(),
+            &FakeEvents::default(),
+            Arc::new(AtomicBool::new(false)),
+            2,
+            3,
+        )
+        .unwrap();
+
+        assert_eq!(result.files.len(), 5);
+        assert_eq!(
+            *apply.calls.lock().unwrap(),
+            vec![
+                (vec!["0.jpg".into(), "1.jpg".into()], 3),
+                (vec!["2.jpg".into(), "3.jpg".into()], 3),
+                (vec!["4.jpg".into()], 3),
+            ]
+        );
+    }
+
+    #[cfg(feature = "integration")]
+    #[test]
+    fn real_batch_pipeline_round_trips_multiple_files() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("test_images")
+            .join("rating_3.jpg");
+        let temp = tempfile::tempdir().unwrap();
+        let rating_id = crate::known_ids::xmp_rating();
+        let paths = (0..4)
+            .map(|index| {
+                let relative_path = format!("rating-{index}.jpg");
+                fs::copy(&source, temp.path().join(&relative_path)).unwrap();
+                relative_path
+            })
+            .collect::<Vec<_>>();
+        let mut before = read_metadata_for_jobs(temp.path().to_str().unwrap(), &paths);
+        let jobs = paths
+            .iter()
+            .map(|relative_path| {
+                let metadata = before.remove(relative_path).unwrap().unwrap();
+                let occurrence = metadata
+                    .occurrences
+                    .iter()
+                    .find(|occurrence| occurrence.schema_id == rating_id)
+                    .expect("rating occurrence");
+                let target = MetadataDraftTarget::ExistingOccurrence {
+                    occurrence_id: occurrence.id.clone(),
+                    schema_id: rating_id.clone(),
+                    write_target: occurrence.write_target.clone().expect("writable rating"),
+                };
+                (
+                    relative_path.clone(),
+                    vec![MetadataTargetDraftEntry {
+                        target,
+                        edit: MetadataDraftEdit {
+                            value: Some(MetadataValue::Integer(5)),
+                            intent: EditIntent::Set,
+                        },
+                    }],
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let outcomes = apply_real_metadata_batch(
+            temp.path().to_str().unwrap(),
+            &jobs,
+            2,
+            &Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(outcomes.len(), jobs.len());
+        for (index, (relative_path, outcome)) in outcomes.iter().enumerate() {
+            assert_eq!(relative_path, &paths[index]);
+            assert!(outcome.fresh_image_metadata.is_some());
+            assert_eq!(outcome.outcomes.len(), 1);
+            assert!(matches!(
+                outcome.outcomes[0].kind.as_str(),
+                "Match" | "Coerced"
+            ));
+        }
     }
 }
