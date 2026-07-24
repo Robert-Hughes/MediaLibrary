@@ -24,4 +24,16 @@ normalise_metadata_model: string,
  * local-only and fast; Exact preserves the OpenAI `/responses/input_tokens`
  * preflight.
  */
-ai_cost_estimate_mode: AiCostEstimateMode, };
+ai_cost_estimate_mode: AiCostEstimateMode, 
+/**
+ * Maximum number of image-description requests in flight.
+ */
+describe_concurrency: number, 
+/**
+ * Number of metadata scanner workers. Each worker may spawn ExifTool.
+ */
+metadata_scan_concurrency: number, 
+/**
+ * Number of thumbnail generation workers.
+ */
+thumbnail_concurrency: number, };

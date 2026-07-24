@@ -11,11 +11,12 @@ inputs for a follow-up metadata-normalization feature.
 
 ## Scope (V1)
 
-- Settings screen: API key, model selector (auto-saves on change).
+- Settings screen: API key, model selector, and concurrency limit (auto-saves
+  on change).
 - Manual single-image trigger from `DetailsPane` ("Generate AI Description"
   button next to "+ Add Property").
-- Backend command processes `Vec<rel_path>` with bounded concurrency (six
-  image requests in flight at most).
+- Backend command processes `Vec<rel_path>` with bounded, user-configurable
+  concurrency (12 image requests in flight by default; range 1–16).
 - Single unified progress dialog covers: cost-estimation phase →
   confirmation → execution → result summary.
 - Results land as typed draft edits under custom `XMP-mlib:*` namespace.
@@ -23,7 +24,6 @@ inputs for a follow-up metadata-normalization feature.
 
 ## Explicitly out of scope (V1)
 
-- Parallel / semaphore-bounded processing.
 - Batch API, Flex tier.
 - Reverse-geocoding hint into image prompt.
 - HEIC / RAW decoding (rely on `image` crate; report decode failures).
@@ -47,7 +47,7 @@ adaptations:
   JPEG q85 → base64 → `/responses` call → parse strict-JSON → return
   `DescribeOutcome { fields, usage, raw_json }`.
 - Shared bounded async runner over `Vec<rel_path>`, with completion-order
-  progress and a concurrency limit of six.
+  progress and the concurrency limit loaded at the start of each run.
 - `reqwest-retry` middleware: exp-backoff on 429/5xx, max 3 attempts,
   honour `Retry-After`. Each retry attempt emits a `describe_retry` event
   so the dialog can surface "rate-limited, retrying…".
@@ -98,9 +98,12 @@ atomic write (same pattern as `draft_edits.rs`).
 
 ```rust
 struct Settings {
-    openai_api_key: String,   // plaintext, V1
-    openai_model: String,     // default "gpt-4o"
+    openai_api_key: String,   // plaintext
+    openai_model: String,
     ai_cost_estimate_mode: AiCostEstimateMode, // default Heuristic
+    describe_concurrency: u16, // default 12; range 1–16
+    metadata_scan_concurrency: u16,
+    thumbnail_concurrency: u16,
 }
 ```
 
@@ -285,8 +288,8 @@ src/
 - Reverse-geocoded landmark hint into describe prompt — opt-in toggle
   later; would improve long-tail recognition per MODEL_CHOICE.
 - Per-org rate-limit headroom — revisit if 429s become common.
-- Adaptive concurrency — tune the fixed limit of six if rate-limit or
-  service-latency measurements justify it.
+- Adaptive concurrency — automatically tune the user-selected limit if
+  rate-limit or service-latency measurements justify it.
 - Batch API "queue overnight" mode — separate menu item later.
 
 ## Current generated-draft staging boundary

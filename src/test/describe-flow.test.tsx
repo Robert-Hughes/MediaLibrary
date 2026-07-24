@@ -12,6 +12,7 @@ import {
   act,
   waitFor,
   fireEvent,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
@@ -75,6 +76,9 @@ describe("SettingsDialog", () => {
       openai_model: "gpt-5.4",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "exact",
+      describe_concurrency: 6,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     };
     const { user } = await openFolderWithPhoto();
 
@@ -93,6 +97,23 @@ describe("SettingsDialog", () => {
       "settings-ai-cost-estimate-mode-select",
     ) as HTMLSelectElement;
     expect(estimateModeSelect.value).toBe("exact");
+    const describeConcurrencySelect = screen.getByTestId(
+      "settings-describe-concurrency-select",
+    ) as HTMLSelectElement;
+    const metadataConcurrencySelect = screen.getByTestId(
+      "settings-metadata-scan-concurrency-select",
+    ) as HTMLSelectElement;
+    const thumbnailConcurrencySelect = screen.getByTestId(
+      "settings-thumbnail-concurrency-select",
+    ) as HTMLSelectElement;
+    expect(describeConcurrencySelect.value).toBe("6");
+    expect(
+      within(describeConcurrencySelect).getByRole("option", {
+        name: "12 (recommended)",
+      }),
+    ).toHaveValue("12");
+    expect(metadataConcurrencySelect.value).toBe("4");
+    expect(thumbnailConcurrencySelect.value).toBe("8");
 
     // Type into the API key input and tab away to commit the save.
     await user.clear(apiKeyInput);
@@ -116,6 +137,19 @@ describe("SettingsDialog", () => {
       await new Promise((r) => setTimeout(r, 10));
     });
     expect(mockApiInstance.settings.ai_cost_estimate_mode).toBe("heuristic");
+
+    await user.selectOptions(describeConcurrencySelect, "9");
+    await waitFor(() =>
+      expect(mockApiInstance.settings.describe_concurrency).toBe(9),
+    );
+    await user.selectOptions(metadataConcurrencySelect, "3");
+    await waitFor(() =>
+      expect(mockApiInstance.settings.metadata_scan_concurrency).toBe(3),
+    );
+    await user.selectOptions(thumbnailConcurrencySelect, "12");
+    await waitFor(() =>
+      expect(mockApiInstance.settings.thumbnail_concurrency).toBe(12),
+    );
   });
 
   it("renders per-image cost beside each model in the dropdown", async () => {
@@ -185,6 +219,9 @@ describe("AI-description flow", () => {
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 6,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     };
     mockApiInstance.describeEstimateComplete = {
       totalInputTokens: 1234,
@@ -277,6 +314,9 @@ describe("AI-description flow", () => {
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 6,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     };
     mockApiInstance.describeSchedule = [
       {
@@ -377,6 +417,9 @@ describe("AI-description flow", () => {
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 6,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     };
     mockApiInstance.describeSchedule = [
       {
@@ -418,6 +461,9 @@ describe("AI-description flow", () => {
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 6,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     };
     mockApiInstance.describeEstimateComplete = {
       totalInputTokens: 100,
@@ -466,6 +512,9 @@ describe("AI-description flow", () => {
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 6,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     };
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);
@@ -488,6 +537,9 @@ describe("AI-description flow", () => {
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 6,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     };
     const { user, aiBtn } = await startAiDescription();
     await user.click(aiBtn);

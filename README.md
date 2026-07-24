@@ -132,3 +132,16 @@ The AI Describe audit log is stored separately at:
 ```text
 %APPDATA%\com.xman2.medialibrary\describe_log.jsonl
 ```
+
+## Performance tuning
+
+The app Settings dialog exposes concurrency controls for AI Describe,
+metadata scanning, and thumbnail generation. Values range from 1–16 and apply
+to the next Describe run or folder scan without restarting the app.
+
+The runtime log records the effective values at operation start:
+
+```text
+[describe] starting describe ... concurrency=12
+[scan] starting ... metadata_concurrency=4 thumbnail_concurrency=8
+```
