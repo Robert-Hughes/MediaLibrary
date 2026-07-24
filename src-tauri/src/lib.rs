@@ -1,6 +1,8 @@
 pub mod apply_batch;
 pub mod apply_edits;
 pub mod apply_log;
+#[cfg(all(test, feature = "integration"))]
+mod apply_perf_experiment;
 pub mod batch_audit_log;
 pub mod batch_job;
 pub mod commands;
