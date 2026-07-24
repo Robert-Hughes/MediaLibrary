@@ -290,6 +290,7 @@ fn start_scan(
     let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
     let configured_metadata_workers = usize::from(app_settings.metadata_scan_concurrency);
     let configured_thumbnail_workers = usize::from(app_settings.thumbnail_concurrency);
+    let metadata_batch_size = usize::from(app_settings.metadata_scan_batch_size);
 
     if !scan_state.wait_until_finished(Duration::from_secs(1)) {
         log::error!("[start_scan] Previous scan did not finish in time");
@@ -330,9 +331,10 @@ fn start_scan(
             slow_mode,
         );
         log::info!(
-            "[scan] starting scan_id={} metadata_concurrency={} thumbnail_concurrency={} configured_metadata_concurrency={} configured_thumbnail_concurrency={} slow_mode={}",
+            "[scan] starting scan_id={} metadata_concurrency={} metadata_batch_size={} thumbnail_concurrency={} configured_metadata_concurrency={} configured_thumbnail_concurrency={} slow_mode={}",
             scan_id,
             metadata_workers,
+            metadata_batch_size,
             thumbnail_workers,
             configured_metadata_workers,
             configured_thumbnail_workers,
@@ -355,13 +357,14 @@ fn start_scan(
                 let app = app_clone.clone();
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
+                let batch_size = metadata_batch_size;
                 std::thread::spawn(move || {
                     let mut batch_results = Vec::new();
                     let mut last_emit = std::time::Instant::now();
                     let emit_interval = std::time::Duration::from_millis(500);
 
                     while !cancelled.load(Ordering::Relaxed) {
-                        let rel_paths = match queue.pop_batch_timeout(20, emit_interval) {
+                        let rel_paths = match queue.pop_batch_timeout(batch_size, emit_interval) {
                             crate::work_queue::PopResult::Items(items) => items,
                             crate::work_queue::PopResult::Timeout => {
                                 if !batch_results.is_empty() {

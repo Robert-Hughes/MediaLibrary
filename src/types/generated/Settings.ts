@@ -34,6 +34,10 @@ describe_concurrency: number,
  */
 metadata_scan_concurrency: number, 
 /**
+ * Maximum files included in one metadata scanner ExifTool read.
+ */
+metadata_scan_batch_size: number, 
+/**
  * Number of thumbnail generation workers.
  */
 thumbnail_concurrency: number, };

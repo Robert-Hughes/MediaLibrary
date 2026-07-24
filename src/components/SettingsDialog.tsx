@@ -29,6 +29,7 @@ function formatPerImageCost(usd: number): string {
 }
 
 const CONCURRENCY_OPTIONS = Array.from({ length: 16 }, (_, index) => index + 1);
+const BATCH_SIZE_OPTIONS = [1, 5, 10, 20, 30, 50, 100];
 
 export function SettingsDialog({ onClose }: Props) {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -370,6 +371,44 @@ export function SettingsDialog({ onClose }: Props) {
                 >
                   Metadata workers run ExifTool processes. Applies to the next
                   folder scan.
+                </div>
+
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    marginTop: 12,
+                    marginBottom: 4,
+                  }}
+                >
+                  Metadata scanner batch size
+                </label>
+                <select
+                  data-testid="settings-metadata-scan-batch-size-select"
+                  value={settings.metadata_scan_batch_size}
+                  onChange={(e) =>
+                    persist({
+                      ...settings,
+                      metadata_scan_batch_size: Number(e.target.value),
+                    })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  {BATCH_SIZE_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Maximum files passed to each metadata ExifTool read. Applies
+                  to the next folder scan.
                 </div>
 
                 <label

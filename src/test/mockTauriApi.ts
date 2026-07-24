@@ -107,6 +107,7 @@ export interface MockTauriApi {
     ai_cost_estimate_mode: "heuristic" | "exact";
     describe_concurrency: number;
     metadata_scan_concurrency: number;
+    metadata_scan_batch_size: number;
     thumbnail_concurrency: number;
   };
   /** Recommended-models list returned by list_recommended_models. */
@@ -315,6 +316,7 @@ export function createMockTauriApi(): MockTauriApi {
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 12,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     },
     recommendedModels: [
