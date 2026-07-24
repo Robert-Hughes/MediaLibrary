@@ -39,6 +39,7 @@ import { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 import { TargetApplyController } from "./targetApplyController";
 import { loadTargetDraftEdits, saveTargetDraftEdits } from "./targetDraftTauri";
 import { CoalescingAsyncQueue } from "./coalescingAsyncQueue";
+import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
 import type { MetadataDraftTarget } from "./types";
 import {
   schemaDefinitionIdEquals,
@@ -291,8 +292,13 @@ export function useMediaLibrary(
 
   if (targetDraftSaveQueueRef.current === null) {
     targetDraftSaveQueueRef.current = new CoalescingAsyncQueue(
-      ({ folder, drafts }) =>
-        saveTargetDraftEdits(apiRef.current, folder, drafts),
+      async ({ folder, drafts }) => {
+        const startedAt = frontendNow();
+        await saveTargetDraftEdits(apiRef.current, folder, drafts);
+        logSlowFrontendOperation("draft-autosave", startedAt, {
+          files: Object.keys(drafts).length,
+        });
+      },
       (error) => pushApplicationError("metadata-target-save", error),
     );
   }
@@ -515,6 +521,7 @@ export function useMediaLibrary(
     let cancelled = false;
 
     const flushBatch = () => {
+      const startedAt = frontendNow();
       const batch = [...photoBufferRef.current];
       photoBufferRef.current = [];
       console.debug(
@@ -567,10 +574,14 @@ export function useMediaLibrary(
         }
         return prev;
       });
+      logSlowFrontendOperation("scan-photo-flush", startedAt, {
+        items: batch.length,
+      });
     };
 
     // Flush authoritative occurrences.
     const flushMetadataBatch = () => {
+      const startedAt = frontendNow();
       const batch = [...metadataBufferRef.current];
       metadataBufferRef.current = [];
 
@@ -598,11 +609,15 @@ export function useMediaLibrary(
           return prev;
         return { ...prev, metadataVersion: prev.metadataVersion + 1 };
       });
+      logSlowFrontendOperation("scan-metadata-flush", startedAt, {
+        items: batch.length,
+      });
     };
 
     // Flush thumbnail batch - updates ThumbnailStore without triggering
     // unnecessary React state updates (the store handles per-row reactivity)
     const flushThumbnailBatch = () => {
+      const startedAt = frontendNow();
       const batch = [...thumbnailBufferRef.current];
       thumbnailBufferRef.current = [];
       if (batch.length > 0)
@@ -615,6 +630,9 @@ export function useMediaLibrary(
         );
       }
       // No React state update needed - useSyncExternalStore handles per-row updates
+      logSlowFrontendOperation("scan-thumbnail-flush", startedAt, {
+        items: batch.length,
+      });
     };
 
     const setup = async () => {
@@ -1149,6 +1167,7 @@ export function useMediaLibrary(
         .map((item, resultIndex) => ({ item, resultIndex }))
         .filter(({ item }) => item.edits.length > 0);
       if (activeItems.length === 0) return results;
+      const startedAt = frontendNow();
       const paths = activeItems.map(({ item }) => item.relativePath);
       if (!requireTargetDraftPersistenceReady(paths)) {
         const persistence = targetDraftPersistenceRef.current;
@@ -1227,6 +1246,9 @@ export function useMediaLibrary(
           results[resultIndex] = { kind: "failure", reason };
         }
       }
+      logSlowFrontendOperation("draft-store-batch", startedAt, {
+        files: planned.length,
+      });
       return results;
     },
     [requireTargetDraftPersistenceReady],
