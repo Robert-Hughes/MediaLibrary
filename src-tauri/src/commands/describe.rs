@@ -75,8 +75,6 @@ struct UsageSummary {
     actual_cost_usd: f64,
 }
 
-const DESCRIBE_CONCURRENCY: usize = 6;
-
 #[derive(Clone)]
 struct DescribeWorkItem {
     input_index: usize,
@@ -525,12 +523,13 @@ pub async fn describe_images_cmd(
     let cancel_flag = describe_state.install();
 
     let total = rel_paths.len();
+    let describe_concurrency = usize::from(s.describe_concurrency);
     log::info!(
         "[describe] starting describe model={} prompt_version={} total={} concurrency={}",
         s.openai_model,
         openai_describe::PROMPT_VERSION,
         total,
-        DESCRIBE_CONCURRENCY
+        describe_concurrency
     );
     let emitter = batch_job::BatchProgressEmitter::new(&app, "describe");
     let folder_path = Arc::new(folder_path);
@@ -556,7 +555,8 @@ pub async fn describe_images_cmd(
     };
     let batch = match run_describe_batch(
         items,
-        NonZeroUsize::new(DESCRIBE_CONCURRENCY).expect("non-zero describe concurrency"),
+        NonZeroUsize::new(describe_concurrency)
+            .expect("settings validation guarantees non-zero describe concurrency"),
         cancel_flag.clone(),
         processor,
         &emitter,

@@ -262,6 +262,21 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
 ///  Phase 3 — thumbnail generation (thread pool, starts alongside phase 1):
 ///    Generates thumbnails and emits `thumbnail_ready`.
 ///    Supports priority reordering via `prioritize_queues`.
+fn effective_scan_concurrency(
+    configured_metadata: u16,
+    configured_thumbnails: u16,
+    slow_mode: bool,
+) -> (usize, usize) {
+    if slow_mode {
+        (1, 1)
+    } else {
+        (
+            usize::from(configured_metadata),
+            usize::from(configured_thumbnails),
+        )
+    }
+}
+
 #[tauri::command]
 fn start_scan(
     scan_id: u64,
@@ -270,6 +285,10 @@ fn start_scan(
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<(), String> {
+    let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
+    let configured_metadata_workers = usize::from(app_settings.metadata_scan_concurrency);
+    let configured_thumbnail_workers = usize::from(app_settings.thumbnail_concurrency);
+
     if !scan_state.wait_until_finished(Duration::from_secs(1)) {
         log::error!("[start_scan] Previous scan did not finish in time");
         return Err("A scan is already in progress and could not be stopped".into());
@@ -303,17 +322,20 @@ fn start_scan(
         // In slow-mode (MEDIA_LIBRARY_SLOW_MODE=1) use a single worker per pool
         // so the artificial per-file delays in scanner.rs are clearly visible.
         let slow_mode = std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok();
-        let num_workers = if slow_mode {
-            1
-        } else {
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4)
-                .min(8)
-        };
-
-        // We cap metadata workers even more strictly because they spawn processes.
-        let metadata_workers = num_workers.min(4);
+        let (metadata_workers, thumbnail_workers) = effective_scan_concurrency(
+            app_settings.metadata_scan_concurrency,
+            app_settings.thumbnail_concurrency,
+            slow_mode,
+        );
+        log::info!(
+            "[scan] starting scan_id={} metadata_concurrency={} thumbnail_concurrency={} configured_metadata_concurrency={} configured_thumbnail_concurrency={} slow_mode={}",
+            scan_id,
+            metadata_workers,
+            thumbnail_workers,
+            configured_metadata_workers,
+            configured_thumbnail_workers,
+            slow_mode
+        );
 
         // Shared queues fed by the walk, drained by worker pools.
         let thumb_queue = Arc::new(WorkQueue::new(vec![]));
@@ -460,7 +482,7 @@ fn start_scan(
 
         // ── Phase 3: thumbnail workers ────────────────────────────────────
         // Batch thumbnails by time (emit every 500ms) to keep UI responsive
-        let thumb_handles: Vec<_> = (0..num_workers)
+        let thumb_handles: Vec<_> = (0..thumbnail_workers)
             .map(|_| {
                 let queue = thumb_queue.clone();
                 let app = app_clone.clone();
@@ -827,6 +849,16 @@ fn clear_running(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scan_concurrency_uses_configured_worker_counts() {
+        assert_eq!(effective_scan_concurrency(3, 12, false), (3, 12));
+    }
+
+    #[test]
+    fn slow_mode_overrides_configured_scan_concurrency() {
+        assert_eq!(effective_scan_concurrency(16, 16, true), (1, 1));
+    }
 
     fn command_target_schema() -> tag_schema::SchemaDefinitionId {
         tag_schema::SchemaDefinitionId {

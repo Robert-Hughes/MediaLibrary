@@ -32,7 +32,7 @@ All three backend phases now use consistent 500ms time-based batching with autom
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌────────────────────────────────────────────────────┐         │
-│  │ Worker Thread (4 threads)                          │         │
+│  │ Worker Threads (configured 1–16; default ≤4)       │         │
 │  │                                                     │         │
 │  │  loop {                                            │         │
 │  │    match queue.pop_batch_timeout(20, 500ms) {     │         │
@@ -56,7 +56,7 @@ All three backend phases now use consistent 500ms time-based batching with autom
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                   │
 │  ┌────────────────────────────────────────────────────┐         │
-│  │ Worker Thread (8 threads)                          │         │
+│  │ Worker Threads (configured 1–16; default ≤8)       │         │
 │  │                                                     │         │
 │  │  loop {                                            │         │
 │  │    match queue.pop_timeout(500ms) {               │         │
@@ -181,8 +181,10 @@ With these delays, you can observe the 500ms batching in action.
 
 ### CPU Usage
 
-- **Metadata workers**: Limited to 4 threads (ExifTool process spawning)
-- **Thumbnail workers**: Up to 8 threads (CPU-bound image decoding)
+- **Metadata workers**: User-configurable from 1–16; defaults to
+  `min(logical CPU count, 4)` because each worker may spawn ExifTool
+- **Thumbnail workers**: User-configurable from 1–16; defaults to
+  `min(logical CPU count, 8)` for CPU-bound image decoding
 - **File discovery**: Single thread (I/O bound)
 
 ### Latency

@@ -105,6 +105,9 @@ export interface MockTauriApi {
     openai_model: string;
     normalise_metadata_model: string;
     ai_cost_estimate_mode: "heuristic" | "exact";
+    describe_concurrency: number;
+    metadata_scan_concurrency: number;
+    thumbnail_concurrency: number;
   };
   /** Recommended-models list returned by list_recommended_models. */
   recommendedModels: string[];
@@ -310,6 +313,9 @@ export function createMockTauriApi(): MockTauriApi {
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 12,
+      metadata_scan_concurrency: 4,
+      thumbnail_concurrency: 8,
     },
     recommendedModels: [
       "gpt-4o",

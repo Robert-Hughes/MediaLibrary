@@ -1,9 +1,6 @@
 //! User-facing application settings.
 //!
-//! Persisted as plain JSON in `<app_data_dir>/settings.json`. V1 contains
-//! only the OpenAI API key and the chosen model — additional fields will
-//! land here as the AI-description feature grows (detail level, batch
-//! toggle, etc.).
+//! Persisted as plain JSON in `<app_data_dir>/settings.json`.
 //!
 //! Plaintext storage is deliberate for V1; OS-keyring hardening is on the
 //! deferred list in `docs/IMAGE_ANALYSIS.md`. The settings file lives only
@@ -25,6 +22,9 @@ pub const RECOMMENDED_MODELS: &[&str] = &[
     "gpt-5.4-mini", // cheap with globally-iconic landmarks
     "gpt-5.6-sol",  // flagship reasoning model
 ];
+
+pub const MIN_CONCURRENCY: u16 = 1;
+pub const MAX_CONCURRENCY: u16 = 16;
 
 pub fn default_model() -> String {
     RECOMMENDED_MODELS[0].to_string()
@@ -51,6 +51,25 @@ pub fn default_ai_cost_estimate_mode() -> AiCostEstimateMode {
     AiCostEstimateMode::Heuristic
 }
 
+pub fn default_describe_concurrency() -> u16 {
+    12
+}
+
+pub fn default_metadata_scan_concurrency() -> u16 {
+    available_parallelism_capped(4)
+}
+
+pub fn default_thumbnail_concurrency() -> u16 {
+    available_parallelism_capped(8)
+}
+
+fn available_parallelism_capped(cap: u16) -> u16 {
+    std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(4)
+        .min(usize::from(cap)) as u16
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -74,6 +93,15 @@ pub struct Settings {
     /// preflight.
     #[serde(default = "default_ai_cost_estimate_mode")]
     pub ai_cost_estimate_mode: AiCostEstimateMode,
+    /// Maximum number of image-description requests in flight.
+    #[serde(default = "default_describe_concurrency")]
+    pub describe_concurrency: u16,
+    /// Number of metadata scanner workers. Each worker may spawn ExifTool.
+    #[serde(default = "default_metadata_scan_concurrency")]
+    pub metadata_scan_concurrency: u16,
+    /// Number of thumbnail generation workers.
+    #[serde(default = "default_thumbnail_concurrency")]
+    pub thumbnail_concurrency: u16,
 }
 
 impl Default for Settings {
@@ -83,6 +111,9 @@ impl Default for Settings {
             openai_model: default_model(),
             normalise_metadata_model: default_normalise_model(),
             ai_cost_estimate_mode: default_ai_cost_estimate_mode(),
+            describe_concurrency: default_describe_concurrency(),
+            metadata_scan_concurrency: default_metadata_scan_concurrency(),
+            thumbnail_concurrency: default_thumbnail_concurrency(),
         }
     }
 }
@@ -114,13 +145,53 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
         );
         parsed.openai_model = default_model();
     }
+    clamp_loaded_concurrency("describe_concurrency", &mut parsed.describe_concurrency);
+    clamp_loaded_concurrency(
+        "metadata_scan_concurrency",
+        &mut parsed.metadata_scan_concurrency,
+    );
+    clamp_loaded_concurrency("thumbnail_concurrency", &mut parsed.thumbnail_concurrency);
     Ok(parsed)
+}
+
+fn clamp_loaded_concurrency(name: &str, value: &mut u16) {
+    let clamped = (*value).clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+    if clamped != *value {
+        log::warn!(
+            "[settings] Saved {}={} outside supported range {}..={}; using {}",
+            name,
+            *value,
+            MIN_CONCURRENCY,
+            MAX_CONCURRENCY,
+            clamped
+        );
+        *value = clamped;
+    }
+}
+
+fn validate_settings(settings: &Settings) -> Result<(), String> {
+    for (name, value) in [
+        ("describe_concurrency", settings.describe_concurrency),
+        (
+            "metadata_scan_concurrency",
+            settings.metadata_scan_concurrency,
+        ),
+        ("thumbnail_concurrency", settings.thumbnail_concurrency),
+    ] {
+        if !(MIN_CONCURRENCY..=MAX_CONCURRENCY).contains(&value) {
+            return Err(format!(
+                "{name} must be between {MIN_CONCURRENCY} and {MAX_CONCURRENCY}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Atomically write settings.  Writes to `<file>.tmp` and renames, so a
 /// crash mid-write can't leave a half-written settings file that breaks
 /// the next startup.
 pub fn save_settings(app_data_dir: &Path, settings: &Settings) -> Result<(), String> {
+    validate_settings(settings)?;
     fs::create_dir_all(app_data_dir)
         .map_err(|e| format!("create_dir_all({}): {}", app_data_dir.display(), e))?;
     let path = settings_file_path(app_data_dir);
@@ -150,6 +221,7 @@ mod tests {
         let s = load_settings(dir.path()).expect("missing-file load should succeed");
         assert_eq!(s, Settings::default());
         assert_eq!(s.openai_model, default_model());
+        assert_eq!(s.describe_concurrency, 12);
         assert!(s.openai_api_key.is_empty());
     }
 
@@ -161,6 +233,7 @@ mod tests {
             openai_model: "gpt-4o".into(),
             normalise_metadata_model: "gpt-5.4-nano".into(),
             ai_cost_estimate_mode: AiCostEstimateMode::Exact,
+            ..Settings::default()
         };
         save_settings(dir.path(), &s).unwrap();
         let loaded = load_settings(dir.path()).unwrap();
@@ -179,6 +252,7 @@ mod tests {
                 openai_model: default_model(),
                 normalise_metadata_model: default_normalise_model(),
                 ai_cost_estimate_mode: AiCostEstimateMode::Heuristic,
+                ..Settings::default()
             },
         )
         .unwrap();
@@ -189,6 +263,7 @@ mod tests {
                 openai_model: default_model(),
                 normalise_metadata_model: default_normalise_model(),
                 ai_cost_estimate_mode: AiCostEstimateMode::Heuristic,
+                ..Settings::default()
             },
         )
         .unwrap();
@@ -228,6 +303,15 @@ mod tests {
         .unwrap();
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.ai_cost_estimate_mode, AiCostEstimateMode::Heuristic);
+        assert_eq!(loaded.describe_concurrency, default_describe_concurrency());
+        assert_eq!(
+            loaded.metadata_scan_concurrency,
+            default_metadata_scan_concurrency()
+        );
+        assert_eq!(
+            loaded.thumbnail_concurrency,
+            default_thumbnail_concurrency()
+        );
     }
 
     #[test]
@@ -261,5 +345,38 @@ mod tests {
         let dir = tempdir().unwrap();
         std::fs::write(settings_file_path(dir.path()), b"not json").unwrap();
         assert!(load_settings(dir.path()).is_err());
+    }
+
+    #[test]
+    fn out_of_range_loaded_concurrency_is_clamped() {
+        let dir = tempdir().unwrap();
+        let path = settings_file_path(dir.path());
+        std::fs::write(
+            path,
+            br#"{
+                "describe_concurrency": 0,
+                "metadata_scan_concurrency": 99,
+                "thumbnail_concurrency": 0
+            }"#,
+        )
+        .unwrap();
+
+        let loaded = load_settings(dir.path()).unwrap();
+        assert_eq!(loaded.describe_concurrency, MIN_CONCURRENCY);
+        assert_eq!(loaded.metadata_scan_concurrency, MAX_CONCURRENCY);
+        assert_eq!(loaded.thumbnail_concurrency, MIN_CONCURRENCY);
+    }
+
+    #[test]
+    fn save_rejects_out_of_range_concurrency() {
+        let dir = tempdir().unwrap();
+        let settings = Settings {
+            describe_concurrency: MAX_CONCURRENCY + 1,
+            ..Settings::default()
+        };
+
+        let error = save_settings(dir.path(), &settings).unwrap_err();
+        assert!(error.contains("describe_concurrency must be between 1 and 16"));
+        assert!(!settings_file_path(dir.path()).exists());
     }
 }

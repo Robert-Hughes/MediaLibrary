@@ -28,6 +28,8 @@ function formatPerImageCost(usd: number): string {
   return `~$${usd.toFixed(3)}`;
 }
 
+const CONCURRENCY_OPTIONS = Array.from({ length: 16 }, (_, index) => index + 1);
+
 export function SettingsDialog({ onClose }: Props) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [models, setModels] = useState<string[]>([]);
@@ -294,6 +296,118 @@ export function SettingsDialog({ onClose }: Props) {
                   or a title has to be generated from the description. Text-only
                   — image bytes are never sent. See
                   docs/NORMALISE_METADATA_PLAN.md §6.
+                </div>
+              </section>
+
+              <section style={{ marginBottom: 16 }}>
+                <h3 style={{ marginBottom: 6 }}>Performance</h3>
+                <label
+                  style={{ display: "block", fontSize: 12, marginBottom: 4 }}
+                >
+                  AI Describe concurrency
+                </label>
+                <select
+                  data-testid="settings-describe-concurrency-select"
+                  value={settings.describe_concurrency}
+                  onChange={(e) =>
+                    persist({
+                      ...settings,
+                      describe_concurrency: Number(e.target.value),
+                    })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  {CONCURRENCY_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value === 12 ? `${value} (recommended)` : value}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Maximum OpenAI image-description requests in flight. Applies
+                  to the next Describe run.
+                </div>
+
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    marginTop: 12,
+                    marginBottom: 4,
+                  }}
+                >
+                  Metadata scanner concurrency
+                </label>
+                <select
+                  data-testid="settings-metadata-scan-concurrency-select"
+                  value={settings.metadata_scan_concurrency}
+                  onChange={(e) =>
+                    persist({
+                      ...settings,
+                      metadata_scan_concurrency: Number(e.target.value),
+                    })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  {CONCURRENCY_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Metadata workers run ExifTool processes. Applies to the next
+                  folder scan.
+                </div>
+
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    marginTop: 12,
+                    marginBottom: 4,
+                  }}
+                >
+                  Thumbnail generation concurrency
+                </label>
+                <select
+                  data-testid="settings-thumbnail-concurrency-select"
+                  value={settings.thumbnail_concurrency}
+                  onChange={(e) =>
+                    persist({
+                      ...settings,
+                      thumbnail_concurrency: Number(e.target.value),
+                    })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  {CONCURRENCY_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Number of images decoded and resized for thumbnails at once.
+                  Applies to the next folder scan.
                 </div>
               </section>
 
