@@ -23,13 +23,34 @@ fn parse_artist(s: &str) -> Vec<String> {
 
 /// Derive the canonical Group E ordered Seq of names.
 pub fn derive_creator_canonical(input: &CreatorInput) -> Vec<String> {
+    // Artist is a lossy `"; "` projection of the structured list fields. If
+    // it already exactly represents their union, feeding it back through
+    // `parse_artist` would split a legitimate semicolon inside one name.
+    let mut structured_seen: HashSet<String> = HashSet::new();
+    let mut structured: Vec<String> = Vec::new();
+    for raw in input.creator.iter().chain(&input.byline) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() && structured_seen.insert(trimmed.to_string()) {
+            structured.push(trimmed.to_string());
+        }
+    }
+    let artist_is_structured_projection = !structured.is_empty()
+        && input
+            .artist
+            .as_deref()
+            .is_some_and(|artist| artist.trim() == structured.join(ARTIST_SEPARATOR));
+
     let mut seen: HashSet<String> = HashSet::new();
     let mut canonical: Vec<String> = Vec::new();
-    let artist_split = input
-        .artist
-        .as_deref()
-        .map(parse_artist)
-        .unwrap_or_default();
+    let artist_split = if artist_is_structured_projection {
+        Vec::new()
+    } else {
+        input
+            .artist
+            .as_deref()
+            .map(parse_artist)
+            .unwrap_or_default()
+    };
     let sources: [&[String]; 3] = [&input.creator, &artist_split, &input.byline];
     for src in sources {
         for raw in src {
@@ -186,6 +207,38 @@ mod tests {
             artist: Some(canonical.join(ARTIST_SEPARATOR)),
             byline: canonical,
         };
+        assert!(normalise_creator(&post).is_none());
+    }
+
+    #[test]
+    fn semicolon_in_structured_creator_is_not_reparsed_from_artist_projection() {
+        let input = CreatorInput {
+            creator: vec!["Smith; John".into()],
+            artist: Some("Smith; John".into()),
+            byline: vec!["Smith; John".into()],
+        };
+
+        assert!(normalise_creator(&input).is_none());
+        assert_eq!(
+            derive_creator_canonical(&input),
+            vec!["Smith; John".to_string()]
+        );
+    }
+
+    #[test]
+    fn semicolon_in_structured_creator_is_idempotent_after_one_pass() {
+        let initial = CreatorInput {
+            creator: vec!["Smith; John".into()],
+            ..Default::default()
+        };
+        let first = normalise_creator(&initial).unwrap();
+        let canonical = list(&first, "XMP-dc:Creator");
+        let post = CreatorInput {
+            creator: canonical.clone(),
+            artist: Some(string(&first, "IFD0:Artist")),
+            byline: canonical,
+        };
+
         assert!(normalise_creator(&post).is_none());
     }
 

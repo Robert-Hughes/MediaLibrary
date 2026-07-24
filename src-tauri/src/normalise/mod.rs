@@ -795,28 +795,6 @@ fn derive_date_context(input: &DatesInput) -> Option<String> {
         .and_then(date_context)
 }
 
-fn derive_description_canonical_without_ai(input: &DescriptionInput) -> Option<String> {
-    let target_sources = [
-        input.description.as_deref().unwrap_or(""),
-        input.image_description.as_deref().unwrap_or(""),
-        input.caption_abstract.as_deref().unwrap_or(""),
-    ];
-    let non_empty: Vec<String> = target_sources
-        .iter()
-        .map(|s| collapse_whitespace_single_line(s))
-        .filter(|s| !s.is_empty())
-        .collect();
-    if non_empty.is_empty() {
-        return None;
-    }
-    let distinct: std::collections::BTreeSet<&str> = non_empty.iter().map(String::as_str).collect();
-    if distinct.len() == 1 {
-        Some(non_empty[0].clone())
-    } else {
-        None
-    }
-}
-
 pub async fn process_image(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
@@ -979,7 +957,7 @@ pub async fn process_image(
             item.group_inputs
                 .description
                 .as_ref()
-                .and_then(derive_description_canonical_without_ai)
+                .and_then(description::derive_description_canonical_without_ai)
         } else {
             None
         };
