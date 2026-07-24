@@ -78,6 +78,7 @@ describe("SettingsDialog", () => {
       ai_cost_estimate_mode: "exact",
       describe_concurrency: 6,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     };
     const { user } = await openFolderWithPhoto();
@@ -103,6 +104,9 @@ describe("SettingsDialog", () => {
     const metadataConcurrencySelect = screen.getByTestId(
       "settings-metadata-scan-concurrency-select",
     ) as HTMLSelectElement;
+    const metadataBatchSizeSelect = screen.getByTestId(
+      "settings-metadata-scan-batch-size-select",
+    ) as HTMLSelectElement;
     const thumbnailConcurrencySelect = screen.getByTestId(
       "settings-thumbnail-concurrency-select",
     ) as HTMLSelectElement;
@@ -113,6 +117,7 @@ describe("SettingsDialog", () => {
       }),
     ).toHaveValue("12");
     expect(metadataConcurrencySelect.value).toBe("4");
+    expect(metadataBatchSizeSelect.value).toBe("20");
     expect(thumbnailConcurrencySelect.value).toBe("8");
 
     // Type into the API key input and tab away to commit the save.
@@ -145,6 +150,10 @@ describe("SettingsDialog", () => {
     await user.selectOptions(metadataConcurrencySelect, "3");
     await waitFor(() =>
       expect(mockApiInstance.settings.metadata_scan_concurrency).toBe(3),
+    );
+    await user.selectOptions(metadataBatchSizeSelect, "50");
+    await waitFor(() =>
+      expect(mockApiInstance.settings.metadata_scan_batch_size).toBe(50),
     );
     await user.selectOptions(thumbnailConcurrencySelect, "12");
     await waitFor(() =>
@@ -221,6 +230,7 @@ describe("AI-description flow", () => {
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     };
     mockApiInstance.describeEstimateComplete = {
@@ -316,6 +326,7 @@ describe("AI-description flow", () => {
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     };
     mockApiInstance.describeSchedule = [
@@ -419,6 +430,7 @@ describe("AI-description flow", () => {
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     };
     mockApiInstance.describeSchedule = [
@@ -463,6 +475,7 @@ describe("AI-description flow", () => {
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     };
     mockApiInstance.describeEstimateComplete = {
@@ -514,6 +527,7 @@ describe("AI-description flow", () => {
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     };
     const { user, aiBtn } = await startAiDescription();
@@ -539,6 +553,7 @@ describe("AI-description flow", () => {
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
       thumbnail_concurrency: 8,
     };
     const { user, aiBtn } = await startAiDescription();

@@ -25,6 +25,8 @@ pub const RECOMMENDED_MODELS: &[&str] = &[
 
 pub const MIN_CONCURRENCY: u16 = 1;
 pub const MAX_CONCURRENCY: u16 = 16;
+pub const MIN_BATCH_SIZE: u16 = 1;
+pub const MAX_BATCH_SIZE: u16 = 100;
 
 pub fn default_model() -> String {
     RECOMMENDED_MODELS[0].to_string()
@@ -57,6 +59,10 @@ pub fn default_describe_concurrency() -> u16 {
 
 pub fn default_metadata_scan_concurrency() -> u16 {
     available_parallelism_capped(4)
+}
+
+pub fn default_metadata_scan_batch_size() -> u16 {
+    20
 }
 
 pub fn default_thumbnail_concurrency() -> u16 {
@@ -99,6 +105,9 @@ pub struct Settings {
     /// Number of metadata scanner workers. Each worker may spawn ExifTool.
     #[serde(default = "default_metadata_scan_concurrency")]
     pub metadata_scan_concurrency: u16,
+    /// Maximum files included in one metadata scanner ExifTool read.
+    #[serde(default = "default_metadata_scan_batch_size")]
+    pub metadata_scan_batch_size: u16,
     /// Number of thumbnail generation workers.
     #[serde(default = "default_thumbnail_concurrency")]
     pub thumbnail_concurrency: u16,
@@ -113,6 +122,7 @@ impl Default for Settings {
             ai_cost_estimate_mode: default_ai_cost_estimate_mode(),
             describe_concurrency: default_describe_concurrency(),
             metadata_scan_concurrency: default_metadata_scan_concurrency(),
+            metadata_scan_batch_size: default_metadata_scan_batch_size(),
             thumbnail_concurrency: default_thumbnail_concurrency(),
         }
     }
@@ -150,6 +160,10 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
         "metadata_scan_concurrency",
         &mut parsed.metadata_scan_concurrency,
     );
+    clamp_loaded_batch_size(
+        "metadata_scan_batch_size",
+        &mut parsed.metadata_scan_batch_size,
+    );
     clamp_loaded_concurrency("thumbnail_concurrency", &mut parsed.thumbnail_concurrency);
     Ok(parsed)
 }
@@ -163,6 +177,21 @@ fn clamp_loaded_concurrency(name: &str, value: &mut u16) {
             *value,
             MIN_CONCURRENCY,
             MAX_CONCURRENCY,
+            clamped
+        );
+        *value = clamped;
+    }
+}
+
+fn clamp_loaded_batch_size(name: &str, value: &mut u16) {
+    let clamped = (*value).clamp(MIN_BATCH_SIZE, MAX_BATCH_SIZE);
+    if clamped != *value {
+        log::warn!(
+            "[settings] Saved {}={} outside supported range {}..={}; using {}",
+            name,
+            *value,
+            MIN_BATCH_SIZE,
+            MAX_BATCH_SIZE,
             clamped
         );
         *value = clamped;
@@ -183,6 +212,11 @@ fn validate_settings(settings: &Settings) -> Result<(), String> {
                 "{name} must be between {MIN_CONCURRENCY} and {MAX_CONCURRENCY}"
             ));
         }
+    }
+    if !(MIN_BATCH_SIZE..=MAX_BATCH_SIZE).contains(&settings.metadata_scan_batch_size) {
+        return Err(format!(
+            "metadata_scan_batch_size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}"
+        ));
     }
     Ok(())
 }
@@ -309,6 +343,10 @@ mod tests {
             default_metadata_scan_concurrency()
         );
         assert_eq!(
+            loaded.metadata_scan_batch_size,
+            default_metadata_scan_batch_size()
+        );
+        assert_eq!(
             loaded.thumbnail_concurrency,
             default_thumbnail_concurrency()
         );
@@ -356,6 +394,7 @@ mod tests {
             br#"{
                 "describe_concurrency": 0,
                 "metadata_scan_concurrency": 99,
+                "metadata_scan_batch_size": 999,
                 "thumbnail_concurrency": 0
             }"#,
         )
@@ -364,6 +403,7 @@ mod tests {
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.describe_concurrency, MIN_CONCURRENCY);
         assert_eq!(loaded.metadata_scan_concurrency, MAX_CONCURRENCY);
+        assert_eq!(loaded.metadata_scan_batch_size, MAX_BATCH_SIZE);
         assert_eq!(loaded.thumbnail_concurrency, MIN_CONCURRENCY);
     }
 
@@ -377,6 +417,19 @@ mod tests {
 
         let error = save_settings(dir.path(), &settings).unwrap_err();
         assert!(error.contains("describe_concurrency must be between 1 and 16"));
+        assert!(!settings_file_path(dir.path()).exists());
+    }
+
+    #[test]
+    fn save_rejects_out_of_range_batch_size() {
+        let dir = tempdir().unwrap();
+        let settings = Settings {
+            metadata_scan_batch_size: MAX_BATCH_SIZE + 1,
+            ..Settings::default()
+        };
+
+        let error = save_settings(dir.path(), &settings).unwrap_err();
+        assert!(error.contains("metadata_scan_batch_size must be between 1 and 100"));
         assert!(!settings_file_path(dir.path()).exists());
     }
 }
