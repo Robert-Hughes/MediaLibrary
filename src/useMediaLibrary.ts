@@ -33,10 +33,12 @@ import { useRecentFolders } from "./hooks/useRecentFolders";
 import {
   metadataTargetDraftEntryEqualsExact,
   TargetDraftEditsStore,
+  type TargetDraftEditsByFile,
 } from "./targetDraftEdits";
 import { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 import { TargetApplyController } from "./targetApplyController";
 import { loadTargetDraftEdits, saveTargetDraftEdits } from "./targetDraftTauri";
+import { CoalescingAsyncQueue } from "./coalescingAsyncQueue";
 import type { MetadataDraftTarget } from "./types";
 import {
   schemaDefinitionIdEquals,
@@ -220,6 +222,10 @@ export function useMediaLibrary(
   const targetDraftAutosaveGateRef = useRef<TargetDraftAutosaveGate>(
     new TargetDraftAutosaveGate(),
   );
+  const targetDraftSaveQueueRef = useRef<CoalescingAsyncQueue<{
+    folder: string;
+    drafts: TargetDraftEditsByFile;
+  }> | null>(null);
   const targetApplyControllerRef = useRef<TargetApplyController | null>(null);
   const apiRef = useRef(api);
   apiRef.current = api;
@@ -275,6 +281,14 @@ export function useMediaLibrary(
       pushApplicationIssue("warning", errorType, warning, affectedFiles),
     [pushApplicationIssue],
   );
+
+  if (targetDraftSaveQueueRef.current === null) {
+    targetDraftSaveQueueRef.current = new CoalescingAsyncQueue(
+      ({ folder, drafts }) =>
+        saveTargetDraftEdits(apiRef.current, folder, drafts),
+      (error) => pushApplicationError("metadata-target-save", error),
+    );
+  }
 
   useEffect(() => {
     targetDraftEditsStoreRef.current.setCurrentValueResolver((path, target) =>
@@ -408,6 +422,7 @@ export function useMediaLibrary(
       // photo_found / scan_complete events are never missed.  The latch is a
       // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
       await listenersReadyRef.current;
+      await targetDraftSaveQueueRef.current?.flush();
 
       // Finish cancellation before
       // clearing stable stores so late controller events cannot cross folders.
@@ -858,9 +873,7 @@ export function useMediaLibrary(
       ) {
         return;
       }
-      void saveTargetDraftEdits(apiRef.current, folder, next).catch((error) =>
-        pushApplicationError("metadata-target-save", error),
-      );
+      targetDraftSaveQueueRef.current?.schedule({ folder, drafts: next });
     });
   }, [pushApplicationError]);
 
@@ -1929,6 +1942,7 @@ export function useMediaLibrary(
           };
         }
 
+        await targetDraftSaveQueueRef.current?.flush();
         const controller = targetApplyControllerRef.current;
         if (!controller) throw new Error("Target-aware apply is not ready");
         applyActiveRef.current = true;

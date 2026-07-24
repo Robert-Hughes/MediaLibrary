@@ -35,6 +35,12 @@ async function expectConsoleErrorMessages(
   }
 }
 
+async function settleAutosaves(): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < 5; index += 1) await Promise.resolve();
+  });
+}
+
 function targetDraftResult(
   path: string,
   id: SchemaDefinitionId,
@@ -2461,11 +2467,13 @@ describe("useMediaLibrary", () => {
     act(() => {
       store().setMetadataTarget("owned-race.jpg", ownedTarget, edit);
     });
+    await settleAutosaves();
     const ownedSaves = saveCount();
     await act(async () => {
       owned.deferred.resolve(tagInfoFor(ownedId));
       await owned.request;
     });
+    await settleAutosaves();
     expect(saveCount()).toBe(ownedSaves + 1);
     expect(
       Object.values(store().getMetadataFile("owned-race.jpg") ?? {}).map(
@@ -2506,11 +2514,13 @@ describe("useMediaLibrary", () => {
         );
       }
     });
+    await settleAutosaves();
     const ambiguousSaves = saveCount();
     await act(async () => {
       ambiguous.deferred.resolve(tagInfoFor(ambiguousId));
       await ambiguous.request;
     });
+    await settleAutosaves();
     expect(saveCount()).toBe(ambiguousSaves + 1);
     expect(
       Object.values(store().getMetadataFile("ambiguous-race.jpg") ?? {}),
@@ -2611,6 +2621,7 @@ describe("useMediaLibrary", () => {
       message: "coerced",
     })!;
     act(() => targetVerificationStore.replaceFile("replace.jpg", [entry]));
+    await settleAutosaves();
     mock.invocations.length = 0;
 
     act(() =>
@@ -2632,6 +2643,7 @@ describe("useMediaLibrary", () => {
     expect(
       mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(1);
+    await settleAutosaves();
 
     act(() => {
       targetDraftStore.setMetadataTarget("replace.jpg", replacement, edit);
@@ -2661,6 +2673,7 @@ describe("useMediaLibrary", () => {
         replacement,
       ),
     );
+    await settleAutosaves();
     expect(
       mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
     ).toHaveLength(1);
