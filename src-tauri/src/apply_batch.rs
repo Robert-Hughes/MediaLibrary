@@ -13,6 +13,7 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
 use crate::apply_edits::{
@@ -304,7 +305,23 @@ where
     L: TargetApplyLogger,
     E: ApplyEvents,
 {
-    let mut current_drafts = persistence.load(folder_path)?;
+    let batch_started = Instant::now();
+    let phase_started = Instant::now();
+    let mut current_drafts = match persistence.load(folder_path) {
+        Ok(drafts) => drafts,
+        Err(error) => {
+            log::info!(
+                "[apply_perf] phase=draft_load duration_ms={} status=failed",
+                phase_started.elapsed().as_millis()
+            );
+            return Err(error);
+        }
+    };
+    log::info!(
+        "[apply_perf] phase=draft_load duration_ms={} status=ok files={}",
+        phase_started.elapsed().as_millis(),
+        current_drafts.len()
+    );
 
     let mut seen = HashSet::new();
     for relative_path in relative_paths {
@@ -325,6 +342,11 @@ where
         .cloned()
         .collect();
     let total = selected.len();
+    log::info!(
+        "[apply_perf] phase=batch_start requested={} selected={}",
+        relative_paths.len(),
+        total
+    );
 
     if let Err(error) = events.started(MetadataApplyStartedPayload { total }) {
         log::warn!("[apply_batch] Failed to emit started event: {error}");
@@ -341,20 +363,39 @@ where
             break;
         }
 
+        let coordinator_file_started = Instant::now();
         let original_entries = current_drafts
             .get(relative_path.as_str())
             .expect("selected target-aware draft remains present until its own operation")
             .clone();
+        let phase_started = Instant::now();
         let outcome = single_file_apply.apply(folder_path, &relative_path, &original_entries);
+        log::info!(
+            "[apply_perf] file={} phase=file_pipeline duration_ms={} status={}",
+            relative_path,
+            phase_started.elapsed().as_millis(),
+            if outcome.error.is_none() {
+                "ok"
+            } else {
+                "failed"
+            }
+        );
         let mut final_error = outcome.error.clone();
         let mut persisted_draft_entries = None;
         let mut fatal_reason = None;
         let mut draft_persistence = TargetDraftPersistenceOutcome::Unchanged;
 
+        let phase_started = Instant::now();
         if !outcome.outcomes.is_empty() {
             match reconciler.reconcile(&current_drafts, &relative_path, &outcome.outcomes) {
                 Ok(candidate) if candidate != current_drafts => {
+                    let persist_started = Instant::now();
                     if let Err(error) = persistence.save(folder_path, &candidate) {
+                        log::info!(
+                            "[apply_perf] file={} phase=draft_persist duration_ms={} status=failed",
+                            relative_path,
+                            persist_started.elapsed().as_millis()
+                        );
                         let reason = format!(
                             "target-aware draft persistence failed for {relative_path}: {error}"
                         );
@@ -363,6 +404,11 @@ where
                         draft_persistence =
                             TargetDraftPersistenceOutcome::PersistenceFailed { error: reason };
                     } else {
+                        log::info!(
+                            "[apply_perf] file={} phase=draft_persist duration_ms={} status=ok",
+                            relative_path,
+                            persist_started.elapsed().as_millis()
+                        );
                         current_drafts = candidate;
                         draft_persistence = TargetDraftPersistenceOutcome::Persisted;
                         persisted_draft_entries = Some(
@@ -385,7 +431,13 @@ where
                 }
             }
         }
+        log::info!(
+            "[apply_perf] file={} phase=reconcile duration_ms={}",
+            relative_path,
+            phase_started.elapsed().as_millis()
+        );
 
+        let phase_started = Instant::now();
         if !outcome.audit_records.is_empty() {
             if let Err(error) = target_logger.append(
                 folder_path,
@@ -398,6 +450,12 @@ where
                 );
             }
         }
+        log::info!(
+            "[apply_perf] file={} phase=audit duration_ms={} records={}",
+            relative_path,
+            phase_started.elapsed().as_millis(),
+            outcome.audit_records.len()
+        );
 
         let result = MetadataApplyFileResult {
             relative_path,
@@ -420,6 +478,16 @@ where
             );
         }
         files.push(result);
+        log::info!(
+            "[apply_perf] file={} phase=coordinator_total duration_ms={} current={} total={}",
+            files
+                .last()
+                .map(|file| file.relative_path.as_str())
+                .unwrap_or(""),
+            coordinator_file_started.elapsed().as_millis(),
+            current,
+            total
+        );
 
         if let Some(reason) = fatal_reason {
             aborted = true;
@@ -428,6 +496,14 @@ where
         }
     }
 
+    log::info!(
+        "[apply_perf] phase=batch_complete duration_ms={} completed={} total={} cancelled={} aborted={}",
+        batch_started.elapsed().as_millis(),
+        files.len(),
+        total,
+        cancelled,
+        aborted
+    );
     Ok(MetadataApplyResult {
         files,
         cancelled,
