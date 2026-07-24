@@ -19,6 +19,7 @@ import type {
   TargetDraftCollection,
   TargetDraftEditsStore,
 } from "../targetDraftEdits";
+import { frontendNow, logSlowFrontendOperation } from "../frontendPerformance";
 
 const INITIAL_REPLAY_RETRY_DELAYS_MS = [250, 1_000, 5_000] as const;
 
@@ -348,12 +349,13 @@ export function useSearchWorker(
       },
     );
     const unsubDrafts = targetDraftEditsStore.subscribe((changes) => {
-      for (const c of changes) {
+      const startedAt = frontendNow();
+      const updates = changes.map(async (c) => {
         const revision = (draftRevisionsRef.current.get(c.path) ?? 0) + 1;
         draftRevisionsRef.current.set(c.path, revision);
         const edits = toSearchDraftEntries(c.edits);
         const ids = edits?.map(({ id }) => id) ?? [];
-        void resolveTagInfosExact(ids)
+        await resolveTagInfosExact(ids)
           .then((resolved) => {
             if (
               !isCurrentWorker() ||
@@ -371,7 +373,12 @@ export function useSearchWorker(
           .catch(() => {
             // A later update retries.
           });
-      }
+      });
+      void Promise.all(updates).then(() => {
+        logSlowFrontendOperation("search-draft-refresh", startedAt, {
+          files: changes.length,
+        });
+      });
     });
     return () => {
       active = false;
