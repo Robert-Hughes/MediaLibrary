@@ -83,6 +83,67 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe("useBatchImageJob generated staging failures", () => {
+  it("associates out-of-order progress with the completed file", async () => {
+    const staged: string[] = [];
+    const hook = await startRun(
+      (relativePath) => {
+        staged.push(relativePath);
+        return { kind: "success", changed: true };
+      },
+      ["a.jpg", "b.jpg", "c.jpg"],
+    );
+
+    act(() => {
+      emit("stage_started", { total: 3 });
+      emit("stage_progress", {
+        current: 1,
+        total: 3,
+        relativePath: "b.jpg",
+        status: "ok",
+        error: null,
+        edits,
+      });
+      emit("stage_progress", {
+        current: 2,
+        total: 3,
+        relativePath: "a.jpg",
+        status: "ok",
+        error: null,
+        edits,
+      });
+      emit("stage_progress", {
+        current: 3,
+        total: 3,
+        relativePath: "c.jpg",
+        status: "network",
+        error: "offline",
+      });
+      emit("stage_complete", {
+        succeeded: ["b.jpg", "a.jpg"],
+        failed: [
+          {
+            relativePath: "c.jpg",
+            kind: "network",
+            detail: "offline",
+          },
+        ],
+        usageSummary: { count: 3 },
+      });
+    });
+
+    expect(staged).toEqual(["b.jpg", "a.jpg"]);
+    expect(hook.result.current.state.current).toBe(3);
+    expect(hook.result.current.state.currentFile).toBe("c.jpg");
+    expect(hook.result.current.state.succeeded).toEqual(["b.jpg", "a.jpg"]);
+    expect(hook.result.current.state.failures).toEqual([
+      {
+        relativePath: "c.jpg",
+        kind: "network",
+        detail: "offline",
+      },
+    ]);
+  });
+
   it("records frontend failure, continues later files, and preserves it at completion", async () => {
     const staged: string[] = [];
     const hook = await startRun((relativePath) => {

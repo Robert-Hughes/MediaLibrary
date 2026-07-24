@@ -2,7 +2,7 @@
  * Drives the AI-description flow end-to-end.
  *
  * Thin adapter around `useBatchImageJob` (the shared phase machine for
- * any sequential per-image batch job). This file owns only the
+ * any per-image batch job). This file owns only the
  * describe-specific bits: the four `describe_*` command names, the
  * `describe_estimate_*` event subscriptions, and the typed shapes of
  * the estimate + summary payloads.

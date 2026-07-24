@@ -542,18 +542,19 @@ export function createMockTauriApi(): MockTauriApi {
             relativePath: rp,
             status: "ok",
           };
+          const completedPath = sched.relativePath;
           emit("describe_progress", {
             current: i + 1,
             total,
-            relativePath: rp,
+            relativePath: completedPath,
             status: sched.status,
             error: sched.error ?? null,
             edits: sched.status === "ok" ? (sched.edits ?? []) : undefined,
           });
-          if (sched.status === "ok") succeeded.push(rp);
+          if (sched.status === "ok") succeeded.push(completedPath);
           else
             failed.push({
-              relativePath: rp,
+              relativePath: completedPath,
               kind: sched.status,
               detail: sched.error ?? "",
             });

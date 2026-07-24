@@ -6,7 +6,9 @@
 //! complete events; only the per-job `UsageSummary` and the estimate
 //! events are describe-specific.
 
+use std::num::NonZeroUsize;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
@@ -71,6 +73,286 @@ struct UsageSummary {
     reasoning_effort: String,
     predicted_cost_usd: f64,
     actual_cost_usd: f64,
+}
+
+const DESCRIBE_CONCURRENCY: usize = 6;
+
+#[derive(Clone)]
+struct DescribeWorkItem {
+    input_index: usize,
+    total: usize,
+    relative_path: String,
+}
+
+struct DescribeItemSuccess {
+    edits: crate::draft_edits::SchemaMetadataEditMap,
+    usage: openai_describe::UsageStats,
+}
+
+struct DescribeItemFailure {
+    kind: batch_job::BatchFailureKind,
+    detail: String,
+    usage: Option<openai_describe::UsageStats>,
+}
+
+struct DescribeItemOutcome {
+    item: DescribeWorkItem,
+    api_dispatched: bool,
+    result: Result<DescribeItemSuccess, DescribeItemFailure>,
+}
+
+#[derive(Default)]
+struct DescribeBatchOutcome {
+    succeeded: Vec<String>,
+    failed: Vec<batch_job::BatchFailureRow>,
+    log_errors: Vec<describe_log::DescribeLogError>,
+    aggregate: openai_describe::UsageStats,
+    dispatched_api_calls: usize,
+}
+
+trait DescribeEventSink {
+    fn started(&self, total: usize);
+    fn progress(
+        &self,
+        current: usize,
+        total: usize,
+        relative_path: &str,
+        status: &str,
+        error: Option<&str>,
+        edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
+    );
+}
+
+impl DescribeEventSink for batch_job::BatchProgressEmitter<'_> {
+    fn started(&self, total: usize) {
+        batch_job::BatchProgressEmitter::started(self, total);
+    }
+
+    fn progress(
+        &self,
+        current: usize,
+        total: usize,
+        relative_path: &str,
+        status: &str,
+        error: Option<&str>,
+        edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
+    ) {
+        self.progress_metadata(current, total, relative_path, status, error, edits);
+    }
+}
+
+async fn process_describe_item(
+    folder_path: Arc<String>,
+    client: openai_describe::OpenAiClient,
+    model: Arc<String>,
+    batch_started_at: std::time::Instant,
+    item: DescribeWorkItem,
+) -> DescribeItemOutcome {
+    let preprocess_started_at = std::time::Instant::now();
+    log::info!(
+        "[describe] stage=preprocess_start input={}/{} elapsed_ms={} file={}",
+        item.input_index,
+        item.total,
+        batch_started_at.elapsed().as_millis(),
+        item.relative_path
+    );
+    let abs = resolve_rel(folder_path.as_str(), &item.relative_path);
+    let bytes =
+        match tokio::task::spawn_blocking(move || openai_describe::load_and_downscale_image(&abs))
+            .await
+        {
+            Ok(Ok(bytes)) => bytes,
+            Ok(Err(detail)) => {
+                return DescribeItemOutcome {
+                    item,
+                    api_dispatched: false,
+                    result: Err(DescribeItemFailure {
+                        kind: batch_job::BatchFailureKind::Decode,
+                        detail,
+                        usage: None,
+                    }),
+                };
+            }
+            Err(error) => {
+                return DescribeItemOutcome {
+                    item,
+                    api_dispatched: false,
+                    result: Err(DescribeItemFailure {
+                        kind: batch_job::BatchFailureKind::Decode,
+                        detail: format!("image preprocessing worker failed: {error}"),
+                        usage: None,
+                    }),
+                };
+            }
+        };
+    log::info!(
+        "[describe] stage=preprocess_complete input={}/{} elapsed_ms={} stage_ms={} jpeg_bytes={} file={}",
+        item.input_index,
+        item.total,
+        batch_started_at.elapsed().as_millis(),
+        preprocess_started_at.elapsed().as_millis(),
+        bytes.len(),
+        item.relative_path
+    );
+
+    let api_started_at = std::time::Instant::now();
+    log::info!(
+        "[describe] stage=api_dispatch input={}/{} elapsed_ms={} file={}",
+        item.input_index,
+        item.total,
+        batch_started_at.elapsed().as_millis(),
+        item.relative_path
+    );
+    let result = match openai_describe::describe_one(&client, model.as_str(), &bytes).await {
+        Ok((output, usage)) => Ok(DescribeItemSuccess {
+            edits: openai_describe::compose_metadata_draft_edits(
+                model.as_str(),
+                &output,
+                chrono::Utc::now(),
+            ),
+            usage,
+        }),
+        Err(error) => Err(DescribeItemFailure {
+            kind: error.kind(),
+            detail: error.detail(),
+            usage: error.usage().cloned(),
+        }),
+    };
+    log::info!(
+        "[describe] stage=api_complete input={}/{} elapsed_ms={} stage_ms={} file={}",
+        item.input_index,
+        item.total,
+        batch_started_at.elapsed().as_millis(),
+        api_started_at.elapsed().as_millis(),
+        item.relative_path
+    );
+
+    DescribeItemOutcome {
+        item,
+        api_dispatched: true,
+        result,
+    }
+}
+
+async fn run_describe_batch<P, ProcessFuture, S>(
+    items: Vec<DescribeWorkItem>,
+    concurrency: NonZeroUsize,
+    cancel_flag: Arc<std::sync::atomic::AtomicBool>,
+    processor: P,
+    sink: &S,
+) -> Result<DescribeBatchOutcome, String>
+where
+    P: Fn(DescribeWorkItem) -> ProcessFuture + Send + Sync + 'static,
+    ProcessFuture: std::future::Future<Output = DescribeItemOutcome> + Send + 'static,
+    S: DescribeEventSink + ?Sized,
+{
+    let total = items.len();
+    sink.started(total);
+    let mut completed = 0usize;
+    let mut batch = DescribeBatchOutcome::default();
+
+    batch_job::run_bounded(
+        items,
+        concurrency,
+        cancel_flag,
+        processor,
+        |outcome| {
+            completed += 1;
+            if outcome.api_dispatched {
+                batch.dispatched_api_calls += 1;
+            }
+            let input_index = outcome.item.input_index;
+            let relative_path = outcome.item.relative_path;
+
+            match outcome.result {
+                Ok(success) => {
+                    batch.aggregate.add(&success.usage);
+                    log::info!(
+                        "[describe] completion={}/{} input={}/{} ok {} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={} tags={}",
+                        completed,
+                        total,
+                        input_index,
+                        total,
+                        relative_path,
+                        success.usage.input_tokens,
+                        success.usage.cached_input_tokens,
+                        success.usage.cache_write_input_tokens,
+                        success.usage.output_tokens,
+                        success.usage.reasoning_tokens,
+                        success.usage.non_reasoning_output_tokens(),
+                        success.usage.service_tier,
+                        success.usage.reasoning_effort,
+                        success.edits.len()
+                    );
+                    sink.progress(
+                        completed,
+                        total,
+                        &relative_path,
+                        "ok",
+                        None,
+                        Some(&success.edits),
+                    );
+                    batch.succeeded.push(relative_path);
+                }
+                Err(failure) => {
+                    if let Some(usage) = &failure.usage {
+                        batch.aggregate.add(usage);
+                        log::warn!(
+                            "[describe] completion={}/{} input={}/{} failed {} kind={} detail={} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={}",
+                            completed,
+                            total,
+                            input_index,
+                            total,
+                            relative_path,
+                            failure.kind,
+                            failure.detail,
+                            usage.input_tokens,
+                            usage.cached_input_tokens,
+                            usage.cache_write_input_tokens,
+                            usage.output_tokens,
+                            usage.reasoning_tokens,
+                            usage.non_reasoning_output_tokens(),
+                            usage.service_tier,
+                            usage.reasoning_effort
+                        );
+                    } else {
+                        log::warn!(
+                            "[describe] completion={}/{} input={}/{} failed {} kind={} detail={} usage=unavailable",
+                            completed,
+                            total,
+                            input_index,
+                            total,
+                            relative_path,
+                            failure.kind,
+                            failure.detail
+                        );
+                    }
+                    sink.progress(
+                        completed,
+                        total,
+                        &relative_path,
+                        failure.kind.as_wire(),
+                        Some(&failure.detail),
+                        None,
+                    );
+                    batch.failed.push(batch_job::BatchFailureRow {
+                        relative_path: relative_path.clone(),
+                        kind: failure.kind,
+                        detail: failure.detail.clone(),
+                    });
+                    batch.log_errors.push(describe_log::DescribeLogError {
+                        relative_path,
+                        kind: failure.kind,
+                        detail: failure.detail,
+                        usage: failure.usage,
+                    });
+                }
+            }
+        },
+    )
+    .await?;
+
+    Ok(batch)
 }
 
 /// Preflight cost estimation phase. Heuristic mode is local-only and emits
@@ -227,10 +509,9 @@ pub async fn estimate_describe_cost_cmd(
     Ok(())
 }
 
-/// Main describe loop.  Sequential, per-image draft persistence,
-/// cancellable between images.  Emits `describe_started`, per-image
-/// `describe_progress`, optional `describe_retry`, then
-/// `describe_complete` with the aggregate usage summary.
+/// Main describe loop. Runs a bounded number of image requests concurrently,
+/// emits progress in completion order, and finishes with the aggregate usage
+/// summary.
 #[tauri::command]
 pub async fn describe_images_cmd(
     folder_path: String,
@@ -238,142 +519,70 @@ pub async fn describe_images_cmd(
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
-    let cancel_flag = describe_state.install();
     let (client, s) = make_openai_client(&app)?;
     let pricing = openai_describe::pricing_for(&s.openai_model)
         .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
+    let cancel_flag = describe_state.install();
 
     let total = rel_paths.len();
     log::info!(
-        "[describe] starting describe model={} prompt_version={} total={}",
+        "[describe] starting describe model={} prompt_version={} total={} concurrency={}",
         s.openai_model,
         openai_describe::PROMPT_VERSION,
-        total
+        total,
+        DESCRIBE_CONCURRENCY
     );
     let emitter = batch_job::BatchProgressEmitter::new(&app, "describe");
-    emitter.started(total);
-
-    let mut succeeded: Vec<String> = Vec::new();
-    let mut failed: Vec<batch_job::BatchFailureRow> = Vec::new();
-    let mut log_errors: Vec<describe_log::DescribeLogError> = Vec::new();
-    let mut aggregate = openai_describe::UsageStats::default();
-    let mut dispatched_api_calls = 0usize;
-    let mut current = 0usize;
-
-    for rel in &rel_paths {
-        if cancel_flag.load(Ordering::Relaxed) {
-            log::info!("[describe] Cancelled at {}/{}", current, total);
-            break;
+    let folder_path = Arc::new(folder_path);
+    let model = Arc::new(s.openai_model.clone());
+    let batch_started_at = std::time::Instant::now();
+    let items = rel_paths
+        .into_iter()
+        .enumerate()
+        .map(|(index, relative_path)| DescribeWorkItem {
+            input_index: index + 1,
+            total,
+            relative_path,
+        })
+        .collect();
+    let processor = move |item| {
+        process_describe_item(
+            folder_path.clone(),
+            client.clone(),
+            model.clone(),
+            batch_started_at,
+            item,
+        )
+    };
+    let batch = match run_describe_batch(
+        items,
+        NonZeroUsize::new(DESCRIBE_CONCURRENCY).expect("non-zero describe concurrency"),
+        cancel_flag.clone(),
+        processor,
+        &emitter,
+    )
+    .await
+    {
+        Ok(batch) => batch,
+        Err(error) => {
+            describe_state.clear();
+            return Err(error);
         }
-        current += 1;
-        log::info!("[describe] ({}/{}) starting {}", current, total, rel);
+    };
+    let DescribeBatchOutcome {
+        succeeded,
+        failed,
+        log_errors,
+        aggregate,
+        dispatched_api_calls,
+    } = batch;
 
-        // Decode locally first so a corrupt file is reported without
-        // incurring an API call.
-        let abs = resolve_rel(&folder_path, rel);
-        let bytes = match openai_describe::load_and_downscale_image(&abs) {
-            Ok(b) => b,
-            Err(e) => {
-                log::warn!(
-                    "[describe] ({}/{}) decode failed for {}: {}",
-                    current,
-                    total,
-                    rel,
-                    e
-                );
-                let kind = batch_job::BatchFailureKind::Decode;
-                emitter.progress_metadata(current, total, rel, kind.as_wire(), Some(&e), None);
-                failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel.clone(),
-                    kind,
-                    detail: e.clone(),
-                });
-                log_errors.push(describe_log::DescribeLogError {
-                    relative_path: rel.clone(),
-                    kind,
-                    detail: e,
-                    usage: None,
-                });
-                continue;
-            }
-        };
-
-        dispatched_api_calls += 1;
-        match openai_describe::describe_one(&client, &s.openai_model, &bytes).await {
-            Ok((output, usage)) => {
-                aggregate.add(&usage);
-
-                let edits = openai_describe::compose_metadata_draft_edits(
-                    &s.openai_model,
-                    &output,
-                    chrono::Utc::now(),
-                );
-                log::info!(
-                    "[describe] ({}/{}) ok {} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={} tags={}",
-                    current,
-                    total,
-                    rel,
-                    usage.input_tokens,
-                    usage.cached_input_tokens,
-                    usage.cache_write_input_tokens,
-                    usage.output_tokens,
-                    usage.reasoning_tokens,
-                    usage.non_reasoning_output_tokens(),
-                    usage.service_tier,
-                    usage.reasoning_effort,
-                    edits.len()
-                );
-                emitter.progress_metadata(current, total, rel, "ok", None, Some(&edits));
-                succeeded.push(rel.clone());
-            }
-            Err(e) => {
-                let failure_usage = e.usage().cloned();
-                if let Some(usage) = &failure_usage {
-                    aggregate.add(usage);
-                }
-                let kind = e.kind();
-                let detail = e.detail();
-                if let Some(usage) = &failure_usage {
-                    log::warn!(
-                        "[describe] ({}/{}) failed {} kind={} detail={} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={}",
-                        current,
-                        total,
-                        rel,
-                        kind,
-                        detail,
-                        usage.input_tokens,
-                        usage.cached_input_tokens,
-                        usage.cache_write_input_tokens,
-                        usage.output_tokens,
-                        usage.reasoning_tokens,
-                        usage.non_reasoning_output_tokens(),
-                        usage.service_tier,
-                        usage.reasoning_effort
-                    );
-                } else {
-                    log::warn!(
-                        "[describe] ({}/{}) failed {} kind={} detail={} usage=unavailable",
-                        current,
-                        total,
-                        rel,
-                        kind,
-                        detail
-                    );
-                }
-                emitter.progress_metadata(current, total, rel, kind.as_wire(), Some(&detail), None);
-                failed.push(batch_job::BatchFailureRow {
-                    relative_path: rel.clone(),
-                    kind,
-                    detail: detail.clone(),
-                });
-                log_errors.push(describe_log::DescribeLogError {
-                    relative_path: rel.clone(),
-                    kind,
-                    detail,
-                    usage: failure_usage,
-                });
-            }
-        }
+    if cancel_flag.load(Ordering::Relaxed) {
+        log::info!(
+            "[describe] cancelled after completing {}/{}",
+            succeeded.len() + failed.len(),
+            total
+        );
     }
 
     log::info!(
@@ -447,4 +656,179 @@ pub fn cancel_describe_cmd(
 ) -> Result<(), String> {
     describe_state.signal_cancel();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    #[derive(Default)]
+    struct RecordingSink {
+        started: Mutex<Vec<usize>>,
+        progress: Mutex<Vec<(usize, String, String)>>,
+    }
+
+    impl DescribeEventSink for RecordingSink {
+        fn started(&self, total: usize) {
+            self.started.lock().unwrap().push(total);
+        }
+
+        fn progress(
+            &self,
+            current: usize,
+            _total: usize,
+            relative_path: &str,
+            status: &str,
+            _error: Option<&str>,
+            _edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
+        ) {
+            self.progress.lock().unwrap().push((
+                current,
+                relative_path.to_string(),
+                status.to_string(),
+            ));
+        }
+    }
+
+    fn work_items(count: usize) -> Vec<DescribeWorkItem> {
+        (0..count)
+            .map(|index| DescribeWorkItem {
+                input_index: index + 1,
+                total: count,
+                relative_path: format!("{index}.jpg"),
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn concurrent_batch_is_bounded_and_aggregates_out_of_order_results() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let invocations = Arc::new(Mutex::new(Vec::new()));
+        let active_for_processor = active.clone();
+        let peak_for_processor = peak.clone();
+        let invocations_for_processor = invocations.clone();
+        let sink = RecordingSink::default();
+
+        let outcome = run_describe_batch(
+            work_items(5),
+            NonZeroUsize::new(3).unwrap(),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            move |item| {
+                let active = active_for_processor.clone();
+                let peak = peak_for_processor.clone();
+                let invocations = invocations_for_processor.clone();
+                async move {
+                    invocations.lock().unwrap().push(item.relative_path.clone());
+                    let now_active = active.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                    peak.fetch_max(now_active, AtomicOrdering::SeqCst);
+                    let delay_ms = match item.input_index {
+                        1 => 80,
+                        2 => 10,
+                        3 => 40,
+                        _ => 5,
+                    };
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    active.fetch_sub(1, AtomicOrdering::SeqCst);
+
+                    let result = if item.input_index == 3 {
+                        Err(DescribeItemFailure {
+                            kind: batch_job::BatchFailureKind::Network,
+                            detail: "simulated network failure".into(),
+                            usage: Some(openai_describe::UsageStats {
+                                input_tokens: 30,
+                                output_tokens: 3,
+                                ..Default::default()
+                            }),
+                        })
+                    } else {
+                        Ok(DescribeItemSuccess {
+                            edits: Default::default(),
+                            usage: openai_describe::UsageStats {
+                                input_tokens: item.input_index as u32 * 10,
+                                output_tokens: item.input_index as u32,
+                                ..Default::default()
+                            },
+                        })
+                    };
+                    DescribeItemOutcome {
+                        item,
+                        api_dispatched: true,
+                        result,
+                    }
+                }
+            },
+            &sink,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(peak.load(AtomicOrdering::SeqCst), 3);
+        assert_eq!(sink.started.lock().unwrap().as_slice(), &[5]);
+        let progress = sink.progress.lock().unwrap().clone();
+        assert_eq!(
+            progress.iter().map(|row| row.0).collect::<Vec<_>>(),
+            vec![1, 2, 3, 4, 5]
+        );
+        assert_ne!(
+            progress
+                .iter()
+                .map(|row| row.1.as_str())
+                .collect::<Vec<_>>(),
+            vec!["0.jpg", "1.jpg", "2.jpg", "3.jpg", "4.jpg"]
+        );
+        assert_eq!(
+            invocations
+                .lock()
+                .unwrap()
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>(),
+            (0..5).map(|index| format!("{index}.jpg")).collect()
+        );
+        assert_eq!(outcome.dispatched_api_calls, 5);
+        assert_eq!(outcome.succeeded.len(), 4);
+        assert_eq!(outcome.failed.len(), 1);
+        assert_eq!(outcome.failed[0].relative_path, "2.jpg");
+        assert_eq!(outcome.aggregate.input_tokens, 150);
+        assert_eq!(outcome.aggregate.output_tokens, 15);
+    }
+
+    #[tokio::test]
+    async fn concurrency_one_preserves_input_order() {
+        let sink = RecordingSink::default();
+        let outcome = run_describe_batch(
+            work_items(3),
+            NonZeroUsize::new(1).unwrap(),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            |item| async move {
+                DescribeItemOutcome {
+                    item,
+                    api_dispatched: true,
+                    result: Ok(DescribeItemSuccess {
+                        edits: Default::default(),
+                        usage: Default::default(),
+                    }),
+                }
+            },
+            &sink,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            sink.progress
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|row| row.1.clone())
+                .collect::<Vec<_>>(),
+            vec!["0.jpg", "1.jpg", "2.jpg"]
+        );
+        assert_eq!(outcome.succeeded, vec!["0.jpg", "1.jpg", "2.jpg"]);
+    }
 }

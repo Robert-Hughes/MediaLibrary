@@ -1,4 +1,4 @@
-//! Shared primitives for sequential per-image batch jobs.
+//! Shared primitives for per-image batch jobs.
 //!
 //! Several Media Library features run the same shape of operation:
 //! iterate a list of relative paths, process each one (network call,
@@ -30,6 +30,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::{future::Future, num::NonZeroUsize};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
@@ -208,6 +209,58 @@ impl BatchJobCancelState {
     }
 }
 
+/// Run a fixed collection with at most `max_in_flight` asynchronous items
+/// active at once.
+///
+/// Results are passed to `on_complete` as soon as each task finishes, so the
+/// caller can emit progress in completion order without sharing aggregate
+/// state between workers. Once cancellation is observed, no new items are
+/// scheduled; tasks already in flight are allowed to finish.
+pub async fn run_bounded<T, O, Work, WorkFuture, Complete>(
+    items: Vec<T>,
+    max_in_flight: NonZeroUsize,
+    cancel_flag: Arc<AtomicBool>,
+    work: Work,
+    mut on_complete: Complete,
+) -> Result<usize, String>
+where
+    T: Send + 'static,
+    O: Send + 'static,
+    Work: Fn(T) -> WorkFuture + Send + Sync + 'static,
+    WorkFuture: Future<Output = O> + Send + 'static,
+    Complete: FnMut(O),
+{
+    let mut pending = items.into_iter();
+    let mut tasks = tokio::task::JoinSet::new();
+    let work = Arc::new(work);
+    let mut dispatched = 0usize;
+
+    loop {
+        while tasks.len() < max_in_flight.get() && !cancel_flag.load(Ordering::Relaxed) {
+            let Some(item) = pending.next() else {
+                break;
+            };
+            let work = work.clone();
+            tasks.spawn(async move { work(item).await });
+            dispatched += 1;
+        }
+
+        let Some(joined) = tasks.join_next().await else {
+            break;
+        };
+        match joined {
+            Ok(outcome) => on_complete(outcome),
+            Err(error) => {
+                tasks.abort_all();
+                while tasks.join_next().await.is_some() {}
+                return Err(format!("batch worker failed: {error}"));
+            }
+        }
+    }
+
+    Ok(dispatched)
+}
+
 /// Per-item failure entry on the `${prefix}_complete` payload.
 ///
 /// The frontend renders these uniformly across jobs — only the `kind`
@@ -319,6 +372,9 @@ impl<'a> BatchProgressEmitter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    use std::time::Duration;
 
     #[test]
     fn install_returns_unset_flag_each_time() {
@@ -396,5 +452,96 @@ mod tests {
         s.clear();
         assert!(!s.signal_cancel());
         assert!(!flag.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn bounded_runner_limits_parallelism_and_reports_completion_order() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(Mutex::new(Vec::new()));
+        let active_for_work = active.clone();
+        let peak_for_work = peak.clone();
+        let completed_for_callback = completed.clone();
+
+        let dispatched = run_bounded(
+            vec![(0usize, 80u64), (1, 10), (2, 40), (3, 5), (4, 5)],
+            NonZeroUsize::new(3).unwrap(),
+            Arc::new(AtomicBool::new(false)),
+            move |(id, delay_ms)| {
+                let active = active_for_work.clone();
+                let peak = peak_for_work.clone();
+                async move {
+                    let now_active = active.fetch_add(1, AtomicOrdering::SeqCst) + 1;
+                    peak.fetch_max(now_active, AtomicOrdering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    active.fetch_sub(1, AtomicOrdering::SeqCst);
+                    id
+                }
+            },
+            move |id| completed_for_callback.lock().unwrap().push(id),
+        )
+        .await
+        .unwrap();
+
+        let completed = completed.lock().unwrap().clone();
+        assert_eq!(dispatched, 5);
+        assert_eq!(peak.load(AtomicOrdering::SeqCst), 3);
+        assert_eq!(completed.len(), 5);
+        assert_eq!(
+            completed.iter().copied().collect::<HashSet<_>>(),
+            HashSet::from([0, 1, 2, 3, 4])
+        );
+        assert_ne!(completed, vec![0, 1, 2, 3, 4]);
+    }
+
+    #[tokio::test]
+    async fn bounded_runner_cancellation_stops_new_work_and_drains_in_flight() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(tokio::sync::Semaphore::new(0));
+        let started = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(AtomicUsize::new(0));
+
+        let cancel_for_callback = cancel.clone();
+        let release_for_work = release.clone();
+        let started_for_work = started.clone();
+        let completed_for_callback = completed.clone();
+        let release_after_cancel = release.clone();
+        let cancel_after_start = cancel.clone();
+        let started_to_watch = started.clone();
+
+        let canceller = tokio::spawn(async move {
+            while started_to_watch.load(AtomicOrdering::SeqCst) < 3 {
+                tokio::task::yield_now().await;
+            }
+            cancel_after_start.store(true, AtomicOrdering::Relaxed);
+            release_after_cancel.add_permits(3);
+        });
+
+        let dispatched = run_bounded(
+            (0usize..10).collect(),
+            NonZeroUsize::new(3).unwrap(),
+            cancel,
+            move |id| {
+                let release = release_for_work.clone();
+                let started = started_for_work.clone();
+                async move {
+                    started.fetch_add(1, AtomicOrdering::SeqCst);
+                    let permit = release.acquire().await.unwrap();
+                    permit.forget();
+                    id
+                }
+            },
+            move |_| {
+                completed_for_callback.fetch_add(1, AtomicOrdering::SeqCst);
+                assert!(cancel_for_callback.load(AtomicOrdering::Relaxed));
+            },
+        )
+        .await
+        .unwrap();
+        canceller.await.unwrap();
+
+        assert_eq!(dispatched, 3);
+        assert_eq!(started.load(AtomicOrdering::SeqCst), 3);
+        assert_eq!(completed.load(AtomicOrdering::SeqCst), 3);
     }
 }

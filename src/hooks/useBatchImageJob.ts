@@ -1,6 +1,7 @@
 /**
- * Generic phase-machine + Tauri-event glue for sequential per-image
- * batch jobs (AI description, reverse geocoding, …).
+ * Generic phase-machine + Tauri-event glue for per-image batch jobs
+ * (AI description, reverse geocoding, …). Progress may arrive in input
+ * order or completion order depending on the backend runner.
  *
  * Every such flow shares the same shape:
  *
