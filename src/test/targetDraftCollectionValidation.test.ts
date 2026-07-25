@@ -46,24 +46,22 @@ const collection = (
 describe("target-aware collection validation", () => {
   it("accepts correctly keyed collections", () => {
     expect(() =>
-      validateTargetDraftCollection("photo.jpg", collection(entry())),
+      validateTargetDraftCollection("file.jpg", collection(entry())),
     ).not.toThrow();
   });
 
   it("rejects an incorrect record key with full context", () => {
     const value = entry();
     expect(() =>
-      validateTargetDraftCollection("folder/photo.jpg", { wrong: value }),
-    ).toThrow(
-      /folder\/photo\.jpg.*wrong.*expected slot token.*complete target/,
-    );
+      validateTargetDraftCollection("folder/file.jpg", { wrong: value }),
+    ).toThrow(/folder\/file\.jpg.*wrong.*expected slot token.*complete target/);
   });
 
   it("rejects duplicate logical slots under different malformed keys", () => {
     const first = entry();
     const second = entry(structuredClone(first.target));
     expect(() =>
-      validateTargetDraftCollection("photo.jpg", { first, second }),
+      validateTargetDraftCollection("file.jpg", { first, second }),
     ).toThrow(
       /supplied record key.*expected slot token.*complete target.*duplicate target/,
     );
@@ -99,13 +97,13 @@ describe("target-aware collection validation", () => {
     const listener = vi.fn();
     store.subscribe(listener);
     const value = entry();
-    const initial = { "photo.jpg": collection(value) };
+    const initial = { "file.jpg": collection(value) };
     store.resetMetadata(initial);
 
     expect(listener).not.toHaveBeenCalled();
     expect(store.getAllMetadata()).not.toBe(initial);
     expect(
-      Object.values(store.getMetadataFile("photo.jpg")!)[0].target,
+      Object.values(store.getMetadataFile("file.jpg")!)[0].target,
     ).not.toBe(value.target);
   });
 
@@ -113,7 +111,7 @@ describe("target-aware collection validation", () => {
     const value = entry();
     expect(() =>
       targetDraftsFromWire({
-        "photo.jpg": [
+        "file.jpg": [
           value,
           { ...value, target: structuredClone(value.target) },
         ],

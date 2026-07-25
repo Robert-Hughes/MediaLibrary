@@ -1647,7 +1647,7 @@ mod tests {
 
     fn image(occurrences: Vec<MetadataOccurrence>) -> scanner::ImageMetadata {
         scanner::ImageMetadata {
-            relative_path: "photo.jpg".to_string(),
+            relative_path: "file.jpg".to_string(),
             occurrences: MetadataOccurrences(occurrences),
         }
     }
@@ -1675,8 +1675,8 @@ mod tests {
 
     fn with_temp_file<T>(run: impl FnOnce(&Path, &str) -> T) -> T {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::File::create(dir.path().join("photo.jpg")).unwrap();
-        run(dir.path(), "photo.jpg")
+        std::fs::File::create(dir.path().join("file.jpg")).unwrap();
+        run(dir.path(), "file.jpg")
     }
 
     fn apply_fake(
@@ -1757,7 +1757,7 @@ mod tests {
         }
         for second in [first.clone(), changed_schema, changed_selector] {
             let error = plan_batch(
-                Path::new("photo.jpg"),
+                Path::new("file.jpg"),
                 &[first.clone(), second],
                 &image(vec![original.clone()]),
                 |_| None,
@@ -1774,7 +1774,7 @@ mod tests {
         );
         assert!(matches!(
             plan_batch(
-                Path::new("photo.jpg"),
+                Path::new("file.jpg"),
                 &[new.clone(), new],
                 &image(vec![]),
                 |_| Some(info.clone())
@@ -1862,7 +1862,7 @@ mod tests {
         );
 
         let planned = plan_batch(
-            Path::new("photo.jpg"),
+            Path::new("file.jpg"),
             std::slice::from_ref(&entry),
             &image(vec![fresh]),
             |_| None,
@@ -1879,12 +1879,12 @@ mod tests {
 
     #[test]
     fn prewrite_rebinds_unique_stale_copy_and_clears_original_draft() {
-        let info = schema("City", "XMP-photoshop", "City", true, TagKind::Text);
+        let info = schema("City", "XMP-fileshop", "City", true, TagKind::Text);
         let original = occurrence(
             occurrence_id("JPEG-APP1-XMP", "City", 1),
             MetadataValue::Text("South Yorkshire".into()),
             Some(info.clone()),
-            Some("XMP-photoshop"),
+            Some("XMP-fileshop"),
             "City",
         );
         let entry = existing_entry(
@@ -1898,7 +1898,7 @@ mod tests {
             occurrence_id("JPEG-APP1-XMP", "City", 0),
             MetadataValue::Text("Doncaster".into()),
             Some(info),
-            Some("XMP-photoshop"),
+            Some("XMP-fileshop"),
             "City",
         );
         let client = FakeClient::new(vec![
@@ -1919,7 +1919,7 @@ mod tests {
         assert_eq!(client.writes.borrow().len(), 1);
         assert!(client.writes.borrow()[0]
             .1
-            .contains("-1XMP-photoshop:7ID-City:City=Doncaster"));
+            .contains("-1XMP-fileshop:7ID-City:City=Doncaster"));
         let TargetApplyPostWriteState::Unique { occurrence } = &outcome.audit_records[0].post_write
         else {
             panic!("rebound write must retain the current occurrence")
@@ -1958,7 +1958,7 @@ mod tests {
         );
 
         let error = plan_batch(
-            Path::new("photo.jpg"),
+            Path::new("file.jpg"),
             std::slice::from_ref(&entry),
             &image(vec![exact.clone(), another.clone()]),
             |_| None,

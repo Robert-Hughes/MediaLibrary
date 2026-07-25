@@ -14,7 +14,7 @@ import {
   createApplyEditsProgressGate,
   createMockTauriApi,
 } from "./mockTauriApi";
-import { makePhoto } from "./factories";
+import { makeFile } from "./factories";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -53,7 +53,7 @@ function seedTargetDrafts(paths: string[]): MetadataTargetDraftEntry[] {
     store.setMetadataTarget(path, target, edit);
     entries.push({ target, edit });
   }
-  mockApiInstance.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
+  mockApiInstance.targetDraftEditsByFolder["/files"] = store.getAllMetadata();
   return entries;
 }
 
@@ -73,25 +73,25 @@ function fileResult(
   };
 }
 
-async function openFolderWithPhotos(photos: ReturnType<typeof makePhoto>[]) {
+async function openFolderWithFiles(files: ReturnType<typeof makeFile>[]) {
   const user = userEvent.setup();
-  mockApiInstance.pickFolderResolves("/photos");
+  mockApiInstance.pickFolderResolves("/files");
   render(<App />);
   await act(async () => void (await new Promise((r) => setTimeout(r, 30))));
   await user.click(screen.getByTestId("open-folder-btn"));
   act(() => {
-    for (const photo of photos) mockApiInstance.emitPhotoFound(photo);
+    for (const file of files) mockApiInstance.emitFileFound(file);
     mockApiInstance.emitScanComplete();
   });
   await act(async () => void (await new Promise((r) => setTimeout(r, 120))));
   return { user };
 }
 
-async function openFolderWithPhoto(
-  photo = makePhoto({ relative_path: "test.jpg" }),
+async function openFolderWithFile(
+  file = makeFile({ relative_path: "test.jpg" }),
 ) {
-  const { user } = await openFolderWithPhotos([photo]);
-  return { user, photo };
+  const { user } = await openFolderWithFiles([file]);
+  return { user, file };
 }
 
 beforeEach(() => {
@@ -105,15 +105,15 @@ afterEach(() => {
 
 describe("target-aware Apply All", () => {
   it("is hidden without drafts and visible with target drafts", async () => {
-    await openFolderWithPhoto();
+    await openFolderWithFile();
     expect(screen.queryByTestId("status-bar-apply-all-btn")).toBeNull();
   });
 
   it("confirms and invokes only the target-aware command", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
-    const photo = makePhoto({ relative_path: "test.jpg" });
-    seedTargetDrafts([photo.relative_path]);
-    const { user } = await openFolderWithPhoto(photo);
+    const file = makeFile({ relative_path: "test.jpg" });
+    seedTargetDrafts([file.relative_path]);
+    const { user } = await openFolderWithFile(file);
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await waitFor(() =>
       expect(
@@ -130,14 +130,14 @@ describe("target-aware Apply All", () => {
       mockApiInstance.invocations.find(
         ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       )?.args?.relPaths,
-    ).toEqual([photo.relative_path]);
+    ).toEqual([file.relative_path]);
   });
 
   it("leaves drafts available when confirmation is cancelled", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     vi.mocked(ask).mockResolvedValueOnce(false);
     seedTargetDrafts(["test.jpg"]);
-    const { user } = await openFolderWithPhoto();
+    const { user } = await openFolderWithFile();
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeVisible();
     expect(
@@ -150,13 +150,13 @@ describe("target-aware Apply All", () => {
 
 describe("single-file target apply", () => {
   it("applies only the row selected from the list context menu", async () => {
-    const photos = ["a.jpg", "b.jpg"].map((relative_path) =>
-      makePhoto({ relative_path }),
+    const files = ["a.jpg", "b.jpg"].map((relative_path) =>
+      makeFile({ relative_path }),
     );
-    seedTargetDrafts(photos.map((photo) => photo.relative_path));
-    const { user } = await openFolderWithPhotos(photos);
+    seedTargetDrafts(files.map((file) => file.relative_path));
+    const { user } = await openFolderWithFiles(files);
     await user.pointer({
-      target: screen.getAllByTestId("photo-row")[0],
+      target: screen.getAllByTestId("file-row")[0],
       keys: "[MouseRight]",
     });
     await user.click(screen.getByText("Apply edits…"));
@@ -170,10 +170,10 @@ describe("single-file target apply", () => {
   });
 
   it("shows and uses Apply in the Details Pane", async () => {
-    const photo = makePhoto({ relative_path: "test.jpg" });
-    seedTargetDrafts([photo.relative_path]);
-    const { user } = await openFolderWithPhoto(photo);
-    await user.dblClick(screen.getByTestId("photo-row"));
+    const file = makeFile({ relative_path: "test.jpg" });
+    seedTargetDrafts([file.relative_path]);
+    const { user } = await openFolderWithFile(file);
+    await user.dblClick(screen.getByTestId("file-row"));
     await user.click(screen.getByTestId("gallery-info-toggle"));
     const apply = await screen.findByTestId("details-pane-apply-btn");
     await user.click(apply);
@@ -182,7 +182,7 @@ describe("single-file target apply", () => {
         mockApiInstance.invocations.find(
           ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
         )?.args?.relPaths,
-      ).toEqual([photo.relative_path]),
+      ).toEqual([file.relative_path]),
     );
   });
 });
@@ -193,8 +193,8 @@ describe("target-aware progress and results", () => {
     seedTargetDrafts(paths);
     const gate = createApplyEditsProgressGate();
     mockApiInstance.applyEditsProgressGate = gate;
-    const { user } = await openFolderWithPhotos(
-      paths.map((relative_path) => makePhoto({ relative_path })),
+    const { user } = await openFolderWithFiles(
+      paths.map((relative_path) => makeFile({ relative_path })),
     );
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await waitFor(() =>
@@ -226,7 +226,7 @@ describe("target-aware progress and results", () => {
         },
       },
     );
-    const { user } = await openFolderWithPhoto();
+    const { user } = await openFolderWithFile();
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await waitFor(() =>
       expect(screen.queryByTestId("status-bar-apply-all-btn")).toBeNull(),
@@ -252,8 +252,8 @@ describe("target-aware progress and results", () => {
     );
     const gate = createApplyEditsProgressGate();
     mockApiInstance.applyEditsProgressGate = gate;
-    const { user } = await openFolderWithPhotos(
-      paths.map((relative_path) => makePhoto({ relative_path })),
+    const { user } = await openFolderWithFiles(
+      paths.map((relative_path) => makeFile({ relative_path })),
     );
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     await waitFor(() =>
@@ -314,7 +314,7 @@ describe("target-aware progress and results", () => {
         persisted_draft_entries: [entry],
       },
     );
-    const { user } = await openFolderWithPhoto();
+    const { user } = await openFolderWithFile();
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
     expect(
       await screen.findByTestId("target-verify-outcome-dialog"),

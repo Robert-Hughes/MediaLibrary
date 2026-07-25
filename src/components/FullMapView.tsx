@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
 import type {
   ImageMetadataOccurrencesStore,
-  PhotoInfo,
+  FileInfo,
   ThumbnailStore,
 } from "../types";
 import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { isValidCoordinate } from "../utils/gpsUtils";
 import { ModalDialog } from "./ModalDialog";
-import { PhotoMap, type PhotoMapItem } from "./PhotoMap";
+import { FileMap, type FileMapItem } from "./FileMap";
 
 interface FullMapViewProps {
   relativePaths: string[];
-  photos: PhotoInfo[];
+  files: FileInfo[];
   thumbnails: ThumbnailStore;
   imageMetadataOccurrences: ImageMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftEditsByFile;
@@ -21,7 +21,7 @@ interface FullMapViewProps {
 
 export function FullMapView({
   relativePaths,
-  photos,
+  files,
   thumbnails,
   imageMetadataOccurrences,
   targetDraftEdits,
@@ -38,18 +38,18 @@ export function FullMapView({
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
   }, [imageMetadataOccurrences, relativePaths, thumbnails]);
 
-  const selectedPhotos = useMemo(() => {
-    const byPath = new Map(photos.map((photo) => [photo.relative_path, photo]));
+  const selectedFiles = useMemo(() => {
+    const byPath = new Map(files.map((file) => [file.relative_path, file]));
     return relativePaths
       .map((path) => byPath.get(path))
-      .filter((photo): photo is PhotoInfo => photo !== undefined);
-  }, [photos, relativePaths]);
+      .filter((file): file is FileInfo => file !== undefined);
+  }, [files, relativePaths]);
 
-  const mapItems: PhotoMapItem[] = [];
-  for (const photo of selectedPhotos) {
+  const mapItems: FileMapItem[] = [];
+  for (const file of selectedFiles) {
     const position = resolveEffectiveGpsForFile({
-      occurrences: imageMetadataOccurrences.get(photo.relative_path),
-      targetDrafts: targetDraftEdits[photo.relative_path],
+      occurrences: imageMetadataOccurrences.get(file.relative_path),
+      targetDrafts: targetDraftEdits[file.relative_path],
     });
     if (
       position.lat === null ||
@@ -59,14 +59,14 @@ export function FullMapView({
       continue;
     }
     mapItems.push({
-      relativePath: photo.relative_path,
+      relativePath: file.relative_path,
       lat: position.lat,
       lon: position.lon,
-      thumbnail: thumbnails.get(photo.relative_path),
+      thumbnail: thumbnails.get(file.relative_path),
     });
   }
 
-  const missingCount = selectedPhotos.length - mapItems.length;
+  const missingCount = selectedFiles.length - mapItems.length;
 
   return (
     <ModalDialog
@@ -74,14 +74,14 @@ export function FullMapView({
       onDismiss={onClose}
       className="full-map-dialog"
       testId="full-map-overlay"
-      aria-label="Photo map"
+      aria-label="File map"
     >
       <div className="full-map-content">
         <header className="full-map-header">
           <div>
-            <h2 className="full-map-title">Photo map</h2>
+            <h2 className="full-map-title">File map</h2>
             <div className="full-map-summary" data-testid="full-map-summary">
-              {mapItems.length} of {selectedPhotos.length} photos mapped
+              {mapItems.length} of {selectedFiles.length} files mapped
               {missingCount > 0
                 ? ` · ${missingCount} without GPS or still loading`
                 : ""}
@@ -101,7 +101,7 @@ export function FullMapView({
               className="full-map-close"
               data-testid="full-map-close-btn"
               onClick={onClose}
-              aria-label="Close photo map"
+              aria-label="Close file map"
               autoFocus
             >
               ✕
@@ -110,10 +110,10 @@ export function FullMapView({
         </header>
 
         <div className="full-map-canvas">
-          <PhotoMap items={mapItems} fitRequest={fitRequest} />
+          <FileMap items={mapItems} fitRequest={fitRequest} />
           {mapItems.length === 0 && (
             <div className="full-map-empty" data-testid="full-map-empty">
-              None of the selected photos currently has a GPS location.
+              None of the selected files currently has a GPS location.
             </div>
           )}
         </div>

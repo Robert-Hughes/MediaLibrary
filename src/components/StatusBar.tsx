@@ -4,9 +4,9 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import type { MetadataProgressStore } from "../types";
 
 interface Props {
-  photoCount: number;
-  /** When set and different from `photoCount`, count label shows "n of total" (filtered list). */
-  photoCountTotal?: number;
+  fileCount: number;
+  /** When set and different from `fileCount`, count label shows "n of total" (filtered list). */
+  fileCountTotal?: number;
   scanning: boolean;
   metadataProgress: MetadataProgressStore | null;
   selectedCount: number;
@@ -17,8 +17,8 @@ interface Props {
 }
 
 export function StatusBar({
-  photoCount,
-  photoCountTotal,
+  fileCount,
+  fileCountTotal,
   scanning,
   metadataProgress,
   selectedCount,
@@ -42,9 +42,9 @@ export function StatusBar({
   const metadataLoaded = metadataTotal - metadataRemaining;
 
   const countLabel =
-    photoCountTotal != null && photoCountTotal !== photoCount
-      ? `${photoCount} of ${photoCountTotal} photo${photoCountTotal === 1 ? "" : "s"}`
-      : `${photoCount} photo${photoCount === 1 ? "" : "s"}`;
+    fileCountTotal != null && fileCountTotal !== fileCount
+      ? `${fileCount} of ${fileCountTotal} file${fileCountTotal === 1 ? "" : "s"}`
+      : `${fileCount} file${fileCount === 1 ? "" : "s"}`;
 
   return (
     <div className="status-bar" data-testid="status-bar">
@@ -92,7 +92,7 @@ export function StatusBar({
             onClick={onClickDraftSummary}
             style={{ cursor: onClickDraftSummary ? "pointer" : "default" }}
             title={
-              onClickDraftSummary ? "Show only photos with edits" : undefined
+              onClickDraftSummary ? "Show only files with edits" : undefined
             }
             data-testid="status-bar-draft-summary"
           >

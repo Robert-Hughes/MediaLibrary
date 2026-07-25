@@ -1,6 +1,6 @@
 import type {
   ImageMetadataOccurrencesStore,
-  PhotoInfo,
+  FileInfo,
   SchemaDefinitionId,
 } from "../types";
 import type { TargetDraftEditsByFile } from "../targetDraftEdits";
@@ -13,26 +13,26 @@ export interface MetadataIdFrequency {
 }
 
 export function computeEffectiveMetadataKeyFrequency(
-  photos: PhotoInfo[],
+  files: FileInfo[],
   occurrencesStore: ImageMetadataOccurrencesStore,
   draftEdits: TargetDraftEditsByFile,
 ): MetadataIdFrequency[] {
   const counts = new Map<string, MetadataIdFrequency>();
 
-  for (const photo of photos) {
-    const keysForPhoto = new Set<string>();
-    const idsForPhoto = new Map<string, SchemaDefinitionId>();
-    const occurrences = occurrencesStore.get(photo.relative_path);
+  for (const file of files) {
+    const keysForFile = new Set<string>();
+    const idsForFile = new Map<string, SchemaDefinitionId>();
+    const occurrences = occurrencesStore.get(file.relative_path);
 
     if (occurrences !== "loading") {
       for (const occurrence of occurrences) {
         const token = schemaDefinitionIdToken(occurrence.schema_id);
-        keysForPhoto.add(token);
-        idsForPhoto.set(token, occurrence.schema_id);
+        keysForFile.add(token);
+        idsForFile.set(token, occurrence.schema_id);
       }
     }
 
-    const drafts = draftEdits[photo.relative_path];
+    const drafts = draftEdits[file.relative_path];
     if (drafts) {
       const schemaIds = new Map<string, SchemaDefinitionId>();
       for (const { target } of Object.values(drafts)) {
@@ -42,7 +42,7 @@ export function computeEffectiveMetadataKeyFrequency(
         );
       }
       for (const [token, id] of schemaIds) {
-        idsForPhoto.set(token, id);
+        idsForFile.set(token, id);
         const sameSchema = Object.values(drafts).filter(
           (entry) => schemaDefinitionIdToken(entry.target.schema_id) === token,
         );
@@ -53,7 +53,7 @@ export function computeEffectiveMetadataKeyFrequency(
               entry.edit.intent === "Set",
           )
         ) {
-          keysForPhoto.add(token);
+          keysForFile.add(token);
           continue;
         }
         const resolution = resolveSchemaDraftForPresentation({
@@ -63,18 +63,18 @@ export function computeEffectiveMetadataKeyFrequency(
         });
         if (resolution.kind !== "target") {
           if (sameSchema.some((entry) => entry.edit.intent !== "Delete")) {
-            keysForPhoto.add(token);
+            keysForFile.add(token);
           }
           continue;
         }
         if (resolution.entry.edit.intent === "Delete")
-          keysForPhoto.delete(token);
-        else keysForPhoto.add(token);
+          keysForFile.delete(token);
+        else keysForFile.add(token);
       }
     }
 
-    for (const token of keysForPhoto) {
-      const id = idsForPhoto.get(token);
+    for (const token of keysForFile) {
+      const id = idsForFile.get(token);
       if (!id) continue;
       const current = counts.get(token) ?? {
         id: structuredClone(id),

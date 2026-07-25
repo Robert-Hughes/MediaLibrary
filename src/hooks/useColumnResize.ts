@@ -1,5 +1,5 @@
 /**
- * Owns the column-resize pointer drag for the photo-list grid.
+ * Owns the column-resize pointer drag for the file-list grid.
  *
  * - `liveWidths` captures the in-flight width mid-drag (overrides the
  *   persisted `columnWidths` until pointer-up).
@@ -109,7 +109,7 @@ export function useColumnResize(
         cellPadding = cssPixels(s.paddingLeft) + cssPixels(s.paddingRight);
       }
       cells.forEach((cell) => {
-        const textSpan = cell.querySelector(".photo-cell-text");
+        const textSpan = cell.querySelector(".file-cell-text");
         const badge = cell.querySelector(".row-draft-badge");
         let w = 0;
         if (textSpan || badge) {

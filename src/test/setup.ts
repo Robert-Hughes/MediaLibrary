@@ -172,10 +172,10 @@ if (typeof Worker === "undefined") {
           this.index.clear();
           return;
         case "INIT_PHOTOS":
-          for (const photo of msg.photos as Parameters<
-            InstanceType<typeof SearchIndex>["setPhoto"]
+          for (const file of msg.files as Parameters<
+            InstanceType<typeof SearchIndex>["setFile"]
           >[0][]) {
-            this.index.setPhoto(photo);
+            this.index.setFile(file);
           }
           return;
         case "INIT_OCCURRENCES":
@@ -207,9 +207,9 @@ if (typeof Worker === "undefined") {
           }
           return;
         case "UPSERT_PHOTO":
-          this.index.setPhoto(
-            msg.photo as Parameters<
-              InstanceType<typeof SearchIndex>["setPhoto"]
+          this.index.setFile(
+            msg.file as Parameters<
+              InstanceType<typeof SearchIndex>["setFile"]
             >[0],
           );
           return;

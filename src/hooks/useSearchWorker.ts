@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
-  PhotoInfo,
+  FileInfo,
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
@@ -85,7 +85,7 @@ export interface SearchWorkerLike {
 }
 
 export interface UseSearchWorkerArgs {
-  photos: PhotoInfo[];
+  files: FileInfo[];
   imageMetadataOccurrencesStore: ImageMetadataOccurrencesStore;
   targetDraftEditsStore: TargetDraftEditsStore;
   query: string;
@@ -99,23 +99,23 @@ export interface UseSearchWorkerResult {
   /**
    * Set of matched relative_paths from the most recent completed query, or
    * null when no result has been received yet (during initial spin-up).
-   * `displayPhotos` should fall back to the unfiltered list while null.
+   * `displayFiles` should fall back to the unfiltered list while null.
    */
   matched: Set<string> | null;
   /** True between a submitted query and its (non-stale) result. */
   pending: boolean;
 }
 
-function diffPhotoPaths(
-  prev: PhotoInfo[],
-  next: PhotoInfo[],
+function diffFilePaths(
+  prev: FileInfo[],
+  next: FileInfo[],
 ): {
-  upserts: PhotoInfo[];
+  upserts: FileInfo[];
   deletions: string[];
 } {
   const prevByPath = new Map(prev.map((p) => [p.relative_path, p]));
   const nextPaths = new Set<string>();
-  const upserts: PhotoInfo[] = [];
+  const upserts: FileInfo[] = [];
   for (const p of next) {
     nextPaths.add(p.relative_path);
     const before = prevByPath.get(p.relative_path);
@@ -135,7 +135,7 @@ function diffPhotoPaths(
   return { upserts, deletions };
 }
 
-function photoToFields(p: PhotoInfo) {
+function fileToFields(p: FileInfo) {
   return {
     relative_path: p.relative_path,
     filename: p.filename,
@@ -150,9 +150,9 @@ function photoToFields(p: PhotoInfo) {
  *  - one worker instance for the hook's lifetime;
  *  - subscriptions to authoritative metadata and target-draft stores that forward
  *    every mutation as an `UPSERT_*` message;
- *  - photo-list diffing that posts `UPSERT_PHOTO` / `DELETE_PATH` and then
+ *  - file-list diffing that posts `UPSERT_PHOTO` / `DELETE_PATH` and then
  *    re-submits the current query so the displayed results stay in sync
- *    when photos arrive mid-search (the user sees a brief "pending" spin
+ *    when files arrive mid-search (the user sees a brief "pending" spin
  *    while results refresh);
  *  - a request-id ratchet that drops stale `RESULT` messages.
  *
@@ -163,7 +163,7 @@ export function useSearchWorker(
   args: UseSearchWorkerArgs,
 ): UseSearchWorkerResult {
   const {
-    photos,
+    files,
     imageMetadataOccurrencesStore,
     targetDraftEditsStore,
     query,
@@ -176,7 +176,7 @@ export function useSearchWorker(
   const reqIdRef = useRef(0);
   const queryRef = useRef(query);
   queryRef.current = query;
-  const prevPhotosRef = useRef<PhotoInfo[]>([]);
+  const prevFilesRef = useRef<FileInfo[]>([]);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const occurrenceRevisionsRef = useRef(new Map<string, number>());
   const draftRevisionsRef = useRef(new Map<string, number>());
@@ -236,7 +236,7 @@ export function useSearchWorker(
     w.postMessage({ type: "CLEAR" });
     w.postMessage({
       type: "INIT_PHOTOS",
-      photos: prevPhotosRef.current.map(photoToFields),
+      files: prevFilesRef.current.map(fileToFields),
     });
     // Exact IDs cross the worker boundary. The existing main-thread cache
     // resolves labels first, then sends entries and search-only labels atomically;
@@ -391,29 +391,26 @@ export function useSearchWorker(
     };
   }, [imageMetadataOccurrencesStore, targetDraftEditsStore]);
 
-  // ── Photo list sync + re-submit ─────────────────────────────────────
+  // ── File list sync + re-submit ─────────────────────────────────────
   useEffect(() => {
     const w = workerRef.current;
     if (!w) {
-      prevPhotosRef.current = photos;
+      prevFilesRef.current = files;
       return;
     }
-    const { upserts, deletions } = diffPhotoPaths(
-      prevPhotosRef.current,
-      photos,
-    );
-    prevPhotosRef.current = photos;
+    const { upserts, deletions } = diffFilePaths(prevFilesRef.current, files);
+    prevFilesRef.current = files;
     if (upserts.length === 0 && deletions.length === 0) return;
     for (const p of upserts) {
-      w.postMessage({ type: "UPSERT_PHOTO", photo: photoToFields(p) });
+      w.postMessage({ type: "UPSERT_PHOTO", file: fileToFields(p) });
     }
     for (const path of deletions) {
       w.postMessage({ type: "DELETE_PATH", path });
     }
     // Re-submit current query so the user sees results refresh (and the
-    // pending indicator) when photos arrive mid-search.
+    // pending indicator) when files arrive mid-search.
     submitNow(queryRef.current);
-  }, [photos]);
+  }, [files]);
 
   // ── Debounced query submit on user typing ───────────────────────────
   useEffect(() => {

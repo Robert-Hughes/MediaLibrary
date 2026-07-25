@@ -536,7 +536,7 @@ fn normalise_dates_inner(
         subsec_h1.clone(),
     );
     let xmp_h1 = datetime_from_value(
-        input.photoshop_date_created.as_ref(),
+        input.fileshop_date_created.as_ref(),
         None,
         subsec_h1.clone(),
     );
@@ -549,7 +549,7 @@ fn normalise_dates_inner(
     if has_non_empty_value(input.date_time_original.as_ref()) && exif_h1.is_none() {
         n_unparseable += 1;
     }
-    if has_non_empty_value(input.photoshop_date_created.as_ref()) && xmp_h1.is_none() {
+    if has_non_empty_value(input.fileshop_date_created.as_ref()) && xmp_h1.is_none() {
         n_unparseable += 1;
     }
     if has_non_empty_value(input.iptc_date_created.as_ref()) && iptc_h1.is_none() {
@@ -736,7 +736,7 @@ mod tests {
             .edits
             .contains_key(&crate::known_ids::date_time_original()));
         assert_eq!(
-            display(edit_value(&out, "XMP-photoshop:DateCreated")),
+            display(edit_value(&out, "XMP-fileshop:DateCreated")),
             "2024-06-15T14:30:45"
         );
         assert_eq!(display(edit_value(&out, "IPTC:DateCreated")), "2024-06-15");
@@ -747,7 +747,7 @@ mod tests {
     fn exif_offsetless_and_iptc_offset_wall_clock_match_is_noop() {
         let input = DatesInput {
             date_time_original: Some(dt(2007, 7, 23, 10, 56, 5, None)),
-            photoshop_date_created: Some(dt(2007, 7, 23, 10, 56, 5, None)),
+            fileshop_date_created: Some(dt(2007, 7, 23, 10, 56, 5, None)),
             iptc_date_created: Some(date(2007, 7, 23)),
             iptc_time_created: Some(time(10, 56, 5, Some(off(1)))),
             ..Default::default()
@@ -761,7 +761,7 @@ mod tests {
     fn normaliser_does_not_rewrite_solely_to_add_or_remove_iptc_offset() {
         let input = DatesInput {
             date_time_original: Some(dt(2007, 7, 23, 10, 56, 5, None)),
-            photoshop_date_created: Some(dt(2007, 7, 23, 10, 56, 5, None)),
+            fileshop_date_created: Some(dt(2007, 7, 23, 10, 56, 5, None)),
             iptc_date_created: Some(date(2007, 7, 23)),
             iptc_time_created: Some(time(10, 56, 5, Some(off(1)))),
             ..Default::default()
@@ -794,7 +794,7 @@ mod tests {
             .output
             .unwrap();
         assert_eq!(
-            display(edit_value(&out, "XMP-photoshop:DateCreated")),
+            display(edit_value(&out, "XMP-fileshop:DateCreated")),
             "2024-06-15T14:30:45+01:00"
         );
         assert_eq!(
@@ -947,14 +947,14 @@ mod tests {
     fn both_sources_with_different_offsets_conflict() {
         let input = DatesInput {
             date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, Some(off(1)))),
-            photoshop_date_created: Some(dt(2024, 6, 15, 14, 30, 45, Some(off(2)))),
+            fileshop_date_created: Some(dt(2024, 6, 15, 14, 30, 45, Some(off(2)))),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, None);
         assert_eq!(out.n_date_conflict, 1);
         let g = out.output.unwrap();
         assert_eq!(
-            display(edit_value(&g, "XMP-photoshop:DateCreated")),
+            display(edit_value(&g, "XMP-fileshop:DateCreated")),
             "2024-06-15T14:30:45+01:00"
         );
     }
@@ -963,14 +963,14 @@ mod tests {
     fn differing_wall_clock_time_conflicts_and_primary_wins() {
         let input = DatesInput {
             date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
-            photoshop_date_created: Some(dt(2024, 6, 15, 15, 0, 0, None)),
+            fileshop_date_created: Some(dt(2024, 6, 15, 15, 0, 0, None)),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, None);
         assert_eq!(out.n_date_conflict, 1);
         let g = out.output.unwrap();
         assert_eq!(
-            display(edit_value(&g, "XMP-photoshop:DateCreated")),
+            display(edit_value(&g, "XMP-fileshop:DateCreated")),
             "2024-06-15T14:30:45"
         );
     }
@@ -1059,7 +1059,7 @@ mod tests {
         assert_eq!(out.n_dto_from_filename, 0);
         let g = out.output.unwrap();
         assert_eq!(
-            display(edit_value(&g, "XMP-photoshop:DateCreated")),
+            display(edit_value(&g, "XMP-fileshop:DateCreated")),
             "2020-01-01T00:00:00"
         );
     }
@@ -1077,7 +1077,7 @@ mod tests {
             .output
             .unwrap();
         // EXIF/XMP should carry subsecond through.
-        let xmp = edit_value(&out, "XMP-photoshop:DateCreated");
+        let xmp = edit_value(&out, "XMP-fileshop:DateCreated");
         assert_eq!(display(xmp), "2024-06-15T14:30:45.123");
         // IPTC time must have subsecond stripped (projection).
         let iptc = edit_value(&out, "IPTC:TimeCreated");
@@ -1098,7 +1098,7 @@ mod tests {
                 date_value(2024, 6, 15),
                 time_value(14, 30, 45, Some("456".into()), None),
             ))),
-            photoshop_date_created: Some(MetadataValue::DateTime(dt_value(
+            fileshop_date_created: Some(MetadataValue::DateTime(dt_value(
                 date_value(2024, 6, 15),
                 time_value(14, 30, 45, Some("456".into()), None),
             ))),
@@ -1121,7 +1121,7 @@ mod tests {
                 date_value(2024, 6, 15),
                 time_value(14, 30, 45, Some("456".into()), None),
             ))),
-            photoshop_date_created: Some(MetadataValue::DateTime(dt_value(
+            fileshop_date_created: Some(MetadataValue::DateTime(dt_value(
                 date_value(2024, 6, 15),
                 time_value(14, 30, 45, Some("456".into()), None),
             ))),
@@ -1155,7 +1155,7 @@ mod tests {
     fn iptc_split_fields_are_compared_independently() {
         let input = DatesInput {
             date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
-            photoshop_date_created: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            fileshop_date_created: Some(dt(2024, 6, 15, 14, 30, 45, None)),
             iptc_date_created: Some(date(2024, 6, 14)),
             iptc_time_created: Some(time(14, 30, 45, None)),
             ..Default::default()

@@ -63,10 +63,10 @@ const drafts = (
 describe("loadTargetDraftEdits", () => {
   it("uses the exact command and camel-case folder argument", async () => {
     const invoke = vi.fn().mockResolvedValue({});
-    await loadTargetDraftEdits({ invoke }, "C:/photos");
+    await loadTargetDraftEdits({ invoke }, "C:/files");
     expect(invoke).toHaveBeenCalledOnce();
     expect(invoke).toHaveBeenCalledWith("load_metadata_draft_edits", {
-      folderPath: "C:/photos",
+      folderPath: "C:/files",
     });
   });
 
@@ -75,15 +75,15 @@ describe("loadTargetDraftEdits", () => {
     const newTarget = created(schema("XMP::Main", "title"));
     const invoke = vi
       .fn()
-      .mockResolvedValue({ "photo.jpg": [entry(oldTarget), entry(newTarget)] });
+      .mockResolvedValue({ "file.jpg": [entry(oldTarget), entry(newTarget)] });
 
     const loaded = await loadTargetDraftEdits({ invoke }, "folder");
 
     expect(
-      loaded["photo.jpg"][metadataDraftTargetSlotToken(oldTarget)].target,
+      loaded["file.jpg"][metadataDraftTargetSlotToken(oldTarget)].target,
     ).toEqual(oldTarget);
     expect(
-      loaded["photo.jpg"][metadataDraftTargetSlotToken(newTarget)].target,
+      loaded["file.jpg"][metadataDraftTargetSlotToken(newTarget)].target,
     ).toEqual(newTarget);
   });
 
@@ -149,7 +149,7 @@ describe("saveTargetDraftEdits", () => {
     });
     const before = structuredClone(source);
 
-    await saveTargetDraftEdits({ invoke }, "C:/photos", source);
+    await saveTargetDraftEdits({ invoke }, "C:/files", source);
 
     expect(invoke).toHaveBeenCalledOnce();
     const [command, args] = invoke.mock.calls[0] as [
@@ -157,7 +157,7 @@ describe("saveTargetDraftEdits", () => {
       { folderPath: string; data: Record<string, MetadataTargetDraftEntry[]> },
     ];
     expect(command).toBe("save_metadata_draft_edits");
-    expect(args.folderPath).toBe("C:/photos");
+    expect(args.folderPath).toBe("C:/files");
     expect(Object.keys(args.data)).toEqual(["a.jpg", "z.jpg"]);
     expect(args.data["z.jpg"].map(({ target }) => target)).toEqual([
       oldA,
@@ -200,7 +200,7 @@ describe("saveTargetDraftEdits", () => {
     const invoke = vi.fn().mockResolvedValue(undefined);
     await expect(
       saveTargetDraftEdits({ invoke }, "folder", {
-        "photo.jpg": { wrong: entry(existing()) },
+        "file.jpg": { wrong: entry(existing()) },
       }),
     ).rejects.toThrow(/supplied record key 'wrong'/);
     expect(invoke).not.toHaveBeenCalled();
@@ -212,7 +212,7 @@ describe("saveTargetDraftEdits", () => {
     const second = entry(structuredClone(first.target));
     await expect(
       saveTargetDraftEdits({ invoke }, "folder", {
-        "photo.jpg": { first, second },
+        "file.jpg": { first, second },
       }),
     ).rejects.toThrow(/duplicate target/i);
     expect(invoke).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe("saveTargetDraftEdits", () => {
     const promise = saveTargetDraftEdits(
       { invoke: vi.fn().mockRejectedValue(rejection) },
       "folder",
-      drafts({ "photo.jpg": [entry(existing())] }),
+      drafts({ "file.jpg": [entry(existing())] }),
     );
     await expect(promise).rejects.toBe(rejection);
   });
@@ -248,9 +248,9 @@ describe("target draft frontend/Tauri contract round-trip", () => {
     const ifd1 = existing("JPEG-APP1-IFD1", "IFD1");
     const newTarget = created(ifd0.schema_id);
     const store = new TargetDraftEditsStore();
-    store.setMetadataTarget("photo.jpg", ifd0, setEdit("ifd0"));
-    store.setMetadataTarget("photo.jpg", ifd1, setEdit("ifd1"));
-    store.setMetadataTarget("photo.jpg", newTarget, setEdit("new"));
+    store.setMetadataTarget("file.jpg", ifd0, setEdit("ifd0"));
+    store.setMetadataTarget("file.jpg", ifd1, setEdit("ifd1"));
+    store.setMetadataTarget("file.jpg", newTarget, setEdit("new"));
 
     const changedSnapshot = {
       ...ifd0,
@@ -261,22 +261,22 @@ describe("target draft frontend/Tauri contract round-trip", () => {
         tag_name: "ChangedName",
       },
     };
-    store.setMetadataTarget("photo.jpg", changedSnapshot, setEdit("changed"));
+    store.setMetadataTarget("file.jpg", changedSnapshot, setEdit("changed"));
     const source = store.getAllMetadata();
 
     await saveTargetDraftEdits(api, "folder", source);
     const loaded = await loadTargetDraftEdits(api, "folder");
 
     expect(loaded).toEqual(source);
-    expect(Object.keys(loaded["photo.jpg"])).toHaveLength(3);
+    expect(Object.keys(loaded["file.jpg"])).toHaveLength(3);
     expect(
-      loaded["photo.jpg"][metadataDraftTargetSlotToken(ifd0)].target,
+      loaded["file.jpg"][metadataDraftTargetSlotToken(ifd0)].target,
     ).toEqual(changedSnapshot);
     expect(
-      loaded["photo.jpg"][metadataDraftTargetSlotToken(ifd1)].target,
+      loaded["file.jpg"][metadataDraftTargetSlotToken(ifd1)].target,
     ).toEqual(ifd1);
     expect(
-      loaded["photo.jpg"][metadataDraftTargetSlotToken(newTarget)].target,
+      loaded["file.jpg"][metadataDraftTargetSlotToken(newTarget)].target,
     ).toEqual(newTarget);
   });
 
@@ -299,18 +299,18 @@ describe("target draft frontend/Tauri contract round-trip", () => {
     const source = drafts(
       Object.fromEntries([
         ["__proto__", [reserved]],
-        ["ordinary/photo.jpg", [ordinary]],
+        ["ordinary/file.jpg", [ordinary]],
       ]),
     );
 
     await saveTargetDraftEdits(api, "folder", source);
     const loaded = await loadTargetDraftEdits(api, "folder");
 
-    expect(Object.keys(loaded)).toEqual(["__proto__", "ordinary/photo.jpg"]);
+    expect(Object.keys(loaded)).toEqual(["__proto__", "ordinary/file.jpg"]);
     expect(Object.prototype.hasOwnProperty.call(loaded, "__proto__")).toBe(
       true,
     );
     expect(loaded.__proto__).toEqual(source.__proto__);
-    expect(loaded["ordinary/photo.jpg"]).toEqual(source["ordinary/photo.jpg"]);
+    expect(loaded["ordinary/file.jpg"]).toEqual(source["ordinary/file.jpg"]);
   });
 });

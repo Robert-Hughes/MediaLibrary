@@ -8,7 +8,7 @@ import {
   occurrenceFromSchemaValue,
   occurrenceStore,
 } from "./occurrenceFixtures";
-import { makePhotos } from "./factories";
+import { makeFiles } from "./factories";
 import {
   _resetWritableSchemaDefinitionsCache,
   _setWritableSchemaDefinitionsCache,
@@ -72,7 +72,7 @@ describe("BulkMetadataEditorDialog", () => {
 
     render(
       <BulkMetadataEditorDialog
-        photos={makePhotos(["one.jpg"])}
+        files={makeFiles(["one.jpg"])}
         imageMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
         targetDraftEdits={{}}
         onPreview={vi.fn()}
@@ -95,7 +95,7 @@ describe("BulkMetadataEditorDialog", () => {
 
     expect(
       screen.getByRole("button", { name: /XMP-dc:Description/ }),
-    ).toHaveTextContent("0 of 1 photos");
+    ).toHaveTextContent("0 of 1 files");
   });
 
   it("keeps an occurring unsupported property visible but disables its operations", async () => {
@@ -123,7 +123,7 @@ describe("BulkMetadataEditorDialog", () => {
 
     render(
       <BulkMetadataEditorDialog
-        photos={makePhotos(["thumbnail.jpg"])}
+        files={makeFiles(["thumbnail.jpg"])}
         imageMetadataOccurrences={occurrenceStore({
           "thumbnail.jpg": [thumbnail],
         })}
@@ -162,7 +162,7 @@ describe("BulkMetadataEditorDialog", () => {
 
     render(
       <BulkMetadataEditorDialog
-        photos={makePhotos(["one.jpg"])}
+        files={makeFiles(["one.jpg"])}
         imageMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
         targetDraftEdits={{}}
         onPreview={() => ({
@@ -198,9 +198,9 @@ describe("BulkMetadataEditorDialog", () => {
         plan: {
           mutations: [],
           preview: {
-            photoCount: 2,
-            affectedPhotoCount: 2,
-            noOpPhotoCount: 0,
+            fileCount: 2,
+            affectedFileCount: 2,
+            noOpFileCount: 0,
             existingOccurrencesSet: 1,
             newPropertiesSet: 1,
             existingOccurrencesDeleted: 0,
@@ -221,7 +221,7 @@ describe("BulkMetadataEditorDialog", () => {
 
     render(
       <BulkMetadataEditorDialog
-        photos={makePhotos(["one.jpg", "two.jpg"])}
+        files={makeFiles(["one.jpg", "two.jpg"])}
         imageMetadataOccurrences={occurrenceStore({
           "one.jpg": [existing],
           "two.jpg": [],
@@ -239,7 +239,7 @@ describe("BulkMetadataEditorDialog", () => {
     );
 
     expect(
-      screen.getByText(/replace this property on all 2 selected photos/i),
+      screen.getByText(/replace this property on all 2 selected files/i),
     ).toBeInTheDocument();
     const input = screen.getByTestId("value-edit-input");
     await userEvent.clear(input);
@@ -270,9 +270,9 @@ describe("BulkMetadataEditorDialog", () => {
       plan: {
         mutations: [],
         preview: {
-          photoCount: 1,
-          affectedPhotoCount: 0,
-          noOpPhotoCount: 1,
+          fileCount: 1,
+          affectedFileCount: 0,
+          noOpFileCount: 1,
           existingOccurrencesSet: 0,
           newPropertiesSet: 0,
           existingOccurrencesDeleted: 0,
@@ -284,7 +284,7 @@ describe("BulkMetadataEditorDialog", () => {
 
     render(
       <BulkMetadataEditorDialog
-        photos={makePhotos(["gps.jpg"])}
+        files={makeFiles(["gps.jpg"])}
         imageMetadataOccurrences={occurrenceStore({ "gps.jpg": [] })}
         targetDraftEdits={{}}
         onPreview={onPreview}
@@ -327,7 +327,7 @@ describe("BulkMetadataEditorDialog", () => {
 
     render(
       <BulkMetadataEditorDialog
-        photos={makePhotos(["gps.jpg"])}
+        files={makeFiles(["gps.jpg"])}
         imageMetadataOccurrences={occurrenceStore({
           "gps.jpg": [latitude, longitude],
         })}

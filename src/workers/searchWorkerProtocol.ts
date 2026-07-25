@@ -9,7 +9,7 @@ import type {
   SchemaDefinitionId,
   TagKind,
 } from "../types";
-import type { SearchPhotoFields } from "../search/searchIndex";
+import type { SearchFileFields } from "../search/searchIndex";
 
 export interface SearchSchemaLabel {
   id: SchemaDefinitionId;
@@ -34,7 +34,7 @@ export interface SearchDraftEntry {
 
 export type SearchWorkerInbound =
   | { type: "CLEAR" }
-  | { type: "INIT_PHOTOS"; photos: SearchPhotoFields[] }
+  | { type: "INIT_PHOTOS"; files: SearchFileFields[] }
   | {
       type: "INIT_OCCURRENCES";
       entries: Array<{
@@ -51,7 +51,7 @@ export type SearchWorkerInbound =
       }>;
       schemaLabels: SearchSchemaLabel[];
     }
-  | { type: "UPSERT_PHOTO"; photo: SearchPhotoFields }
+  | { type: "UPSERT_PHOTO"; file: SearchFileFields }
   | {
       type: "UPSERT_OCCURRENCES";
       path: string;

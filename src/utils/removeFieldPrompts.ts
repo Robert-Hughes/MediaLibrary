@@ -7,18 +7,18 @@ export interface ConfirmRemoveFieldArgs {
   scope: "selection" | "all";
 }
 
-export async function confirmRemoveFieldFromPhotos({
+export async function confirmRemoveFieldFromFiles({
   tag,
   preview,
   scope,
 }: ConfirmRemoveFieldArgs): Promise<boolean> {
   const {
-    photoCount,
+    fileCount,
     existingFieldsToDelete,
     stagedCreationsToCancel,
-    noOpPhotoCount,
+    noOpFileCount,
   } = preview;
-  const photoNoun = photoCount === 1 ? "photo" : "photos";
+  const fileNoun = fileCount === 1 ? "file" : "files";
   const lines: string[] = [];
   if (existingFieldsToDelete > 0) {
     const fieldNoun = existingFieldsToDelete === 1 ? "field" : "fields";
@@ -34,18 +34,18 @@ export async function confirmRemoveFieldFromPhotos({
       `${stagedCreationsToCancel} staged new-property ${additionNoun} will be cancelled.`,
     );
   }
-  if (noOpPhotoCount > 0) {
-    const noOpPhotoNoun = noOpPhotoCount === 1 ? "photo" : "photos";
-    const noOpVerb = noOpPhotoCount === 1 ? "requires" : "require";
-    lines.push(`${noOpPhotoCount} ${noOpPhotoNoun} ${noOpVerb} no change.`);
+  if (noOpFileCount > 0) {
+    const noOpFileNoun = noOpFileCount === 1 ? "file" : "files";
+    const noOpVerb = noOpFileCount === 1 ? "requires" : "require";
+    lines.push(`${noOpFileCount} ${noOpFileNoun} ${noOpVerb} no change.`);
   }
 
   const prompt =
     scope === "all"
-      ? `Stage removal of ${tag} from all ${photoCount} ${photoNoun} in the current list?\n\n` +
+      ? `Stage removal of ${tag} from all ${fileCount} ${fileNoun} in the current list?\n\n` +
         `${lines.join("\n")}\n\n` +
         `Nothing will be written to the image files until edits are applied.`
-      : `Stage removal of ${tag} from ${photoCount} selected ${photoNoun}?\n\n` +
+      : `Stage removal of ${tag} from ${fileCount} selected ${fileNoun}?\n\n` +
         `${lines.join("\n")}\n\n` +
         `Nothing will be written to the image files until edits are applied.`;
 

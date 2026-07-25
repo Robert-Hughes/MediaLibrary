@@ -1,7 +1,7 @@
 import type {
   ImageMetadataOccurrencesStore,
   MetadataValue,
-  PhotoInfo,
+  FileInfo,
   SchemaDefinitionId,
   SortConfig,
   SortKey,
@@ -38,7 +38,7 @@ function activeImageSortIds(sortConfig: SortConfig): SchemaDefinitionId[] {
 }
 
 function precomputeImageSortValues(
-  photos: readonly PhotoInfo[],
+  files: readonly FileInfo[],
   sortConfig: SortConfig,
   occurrencesStore: ImageMetadataOccurrencesStore,
 ): PrecomputedImageSortValues {
@@ -46,8 +46,8 @@ function precomputeImageSortValues(
   const values: PrecomputedImageSortValues = new Map();
   if (ids.length === 0) return values;
 
-  for (const photo of photos) {
-    const occurrences = occurrencesStore.get(photo.relative_path);
+  for (const file of files) {
+    const occurrences = occurrencesStore.get(file.relative_path);
     const fileValues = new Map<string, string>();
     if (occurrences !== "loading") {
       const projection = buildSchemaValueResolutionIndex(occurrences);
@@ -59,14 +59,14 @@ function precomputeImageSortValues(
         }
       }
     }
-    values.set(photo.relative_path, fileValues);
+    values.set(file.relative_path, fileValues);
   }
   return values;
 }
 
 function compareByKey(
-  a: PhotoInfo,
-  b: PhotoInfo,
+  a: FileInfo,
+  b: FileInfo,
   key: SortKey,
   imageValues: PrecomputedImageSortValues,
 ): number {
@@ -104,19 +104,19 @@ function compareByKey(
   return key.direction === "asc" ? cmp : -cmp;
 }
 
-export function sortPhotos(
-  photos: PhotoInfo[],
+export function sortFiles(
+  files: FileInfo[],
   sortConfig: SortConfig,
   occurrencesStore: ImageMetadataOccurrencesStore,
-): PhotoInfo[] {
-  if (!sortConfig.primary) return photos;
+): FileInfo[] {
+  if (!sortConfig.primary) return files;
   const imageValues = precomputeImageSortValues(
-    photos,
+    files,
     sortConfig,
     occurrencesStore,
   );
 
-  return [...photos].sort((a, b) => {
+  return [...files].sort((a, b) => {
     const primary = compareByKey(a, b, sortConfig.primary!, imageValues);
     if (primary !== 0 || !sortConfig.secondary) return primary;
     return compareByKey(a, b, sortConfig.secondary, imageValues);

@@ -11,9 +11,9 @@
  */
 
 export interface OverwriteWarningInput {
-  /** How many selected photos already have data the batch would overwrite. */
+  /** How many selected files already have data the batch would overwrite. */
   existingCount: number;
-  /** Total number of selected photos. */
+  /** Total number of selected files. */
   totalCount: number;
   /** Heading displayed above the notice body. */
   title: string;
@@ -28,7 +28,7 @@ export interface OverwriteWarningInput {
    */
   dataPhrase: string;
   /**
-   * Sentence describing what the action will do when exactly one photo
+   * Sentence describing what the action will do when exactly one file
    * is involved.
    */
   actionSingle: string;

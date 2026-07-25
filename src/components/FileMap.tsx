@@ -5,15 +5,15 @@ import "leaflet.markercluster";
 import "leaflet.markercluster/dist/MarkerCluster.css";
 import { getCompactDisplayLongitudes } from "../utils/gpsUtils";
 
-export interface PhotoMapItem {
+export interface FileMapItem {
   relativePath: string;
   lat: number;
   lon: number;
   thumbnail: "loading" | "failed" | string;
 }
 
-interface PhotoMapProps {
-  items: PhotoMapItem[];
+interface FileMapProps {
+  items: FileMapItem[];
   fitRequest: number;
 }
 
@@ -21,7 +21,7 @@ const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const CLUSTER_RADIUS_PX = 56;
 const CLUSTER_BADGE_SIZE_PX = 36;
 const CROSSFADE_DURATION_MS = 160;
-const PHOTO_ICON_SELECTOR = ".photo-map-cluster, .photo-map-marker";
+const PHOTO_ICON_SELECTOR = ".file-map-cluster, .file-map-marker";
 
 function escapeHtmlAttribute(value: string): string {
   return value.replace(
@@ -38,18 +38,18 @@ function escapeHtmlAttribute(value: string): string {
 }
 
 function markerIcon(
-  thumbnail: PhotoMapItem["thumbnail"],
+  thumbnail: FileMapItem["thumbnail"],
   identifier: string,
 ): L.DivIcon {
   const content =
     thumbnail === "loading" || thumbnail === "failed"
-      ? '<span class="photo-map-marker__fallback" aria-hidden="true">▧</span>'
-      : `<img class="photo-map-marker__image" src="data:image/jpeg;base64,${thumbnail}" alt="" />`;
+      ? '<span class="file-map-marker__fallback" aria-hidden="true">▧</span>'
+      : `<img class="file-map-marker__image" src="data:image/jpeg;base64,${thumbnail}" alt="" />`;
   const escapedIdentifier = escapeHtmlAttribute(identifier);
 
   return L.divIcon({
-    className: "photo-map-marker",
-    html: `<span class="photo-map-marker__frame" title="${escapedIdentifier}" aria-label="${escapedIdentifier}">${content}</span><span class="photo-map-marker__tip"></span>`,
+    className: "file-map-marker",
+    html: `<span class="file-map-marker__frame" title="${escapedIdentifier}" aria-label="${escapedIdentifier}">${content}</span><span class="file-map-marker__tip"></span>`,
     iconSize: [48, 58],
     iconAnchor: [24, 58],
   });
@@ -74,7 +74,7 @@ function clusterIcon(
   );
 
   // MarkerCluster temporarily moves cluster markers while animating between
-  // zoom levels. Calculate its final weighted centre from the immutable photo
+  // zoom levels. Calculate its final weighted centre from the immutable file
   // coordinates instead of cluster.getLatLng(), which can expose that transient
   // position and leave the cached footprint permanently mis-sized.
   const centreLatLng = L.latLng(
@@ -91,17 +91,17 @@ function clusterIcon(
   );
   const footprintSize = Math.ceil(radius * 2);
   const iconSize = Math.max(CLUSTER_BADGE_SIZE_PX, footprintSize);
-  const label = `${count.toLocaleString()} ${count === 1 ? "photo" : "photos"}${hasIdenticalCoordinates ? " at identical coordinates" : ""}`;
+  const label = `${count.toLocaleString()} ${count === 1 ? "file" : "files"}${hasIdenticalCoordinates ? " at identical coordinates" : ""}`;
 
   return L.divIcon({
-    className: `photo-map-cluster${hasIdenticalCoordinates ? " photo-map-cluster--identical" : ""}`,
-    html: `<span class="photo-map-cluster__footprint" style="width:${footprintSize}px;height:${footprintSize}px"></span><span class="photo-map-cluster__badge" aria-label="${label}" title="${label}">${count.toLocaleString()}</span>`,
+    className: `file-map-cluster${hasIdenticalCoordinates ? " file-map-cluster--identical" : ""}`,
+    html: `<span class="file-map-cluster__footprint" style="width:${footprintSize}px;height:${footprintSize}px"></span><span class="file-map-cluster__badge" aria-label="${label}" title="${label}">${count.toLocaleString()}</span>`,
     iconSize: [iconSize, iconSize],
     iconAnchor: [iconSize / 2, iconSize / 2],
   });
 }
 
-export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
+export function FileMap({ items, fitRequest }: FileMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
@@ -158,36 +158,36 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
     };
     let crossfadeSnapshot: CrossfadeSnapshot | null = null;
     const crossfadeTimeouts = new Set<number>();
-    const currentPhotoIcons = () =>
+    const currentFileIcons = () =>
       Array.from(
         containerRef.current?.querySelectorAll<HTMLElement>(
           PHOTO_ICON_SELECTOR,
         ) ?? [],
       ).filter(
         (icon) =>
-          !icon.classList.contains("photo-map-icon--snapshot") &&
-          !icon.classList.contains("photo-map-icon--departing"),
+          !icon.classList.contains("file-map-icon--snapshot") &&
+          !icon.classList.contains("file-map-icon--departing"),
       );
     const clearCrossfadeArtifacts = () => {
       for (const timeout of crossfadeTimeouts) window.clearTimeout(timeout);
       crossfadeTimeouts.clear();
       containerRef.current
         ?.querySelectorAll<HTMLElement>(
-          ".photo-map-icon--snapshot, .photo-map-icon--departing",
+          ".file-map-icon--snapshot, .file-map-icon--departing",
         )
         .forEach((icon) => icon.remove());
       containerRef.current
-        ?.querySelectorAll<HTMLElement>(".photo-map-icon--entering")
-        .forEach((icon) => icon.classList.remove("photo-map-icon--entering"));
+        ?.querySelectorAll<HTMLElement>(".file-map-icon--entering")
+        .forEach((icon) => icon.classList.remove("file-map-icon--entering"));
       crossfadeSnapshot = null;
     };
     const captureCrossfade = () => {
       clearCrossfadeArtifacts();
-      const originals = currentPhotoIcons();
+      const originals = currentFileIcons();
       const clones = new Map<HTMLElement, HTMLElement>();
       for (const original of originals) {
         const clone = original.cloneNode(true) as HTMLElement;
-        clone.classList.add("photo-map-icon--snapshot");
+        clone.classList.add("file-map-icon--snapshot");
         clone.setAttribute("aria-hidden", "true");
         original.parentElement?.append(clone);
         clones.set(original, clone);
@@ -224,8 +224,8 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
           clone.remove();
           continue;
         }
-        clone.classList.remove("photo-map-icon--snapshot");
-        clone.classList.add("photo-map-icon--departing");
+        clone.classList.remove("file-map-icon--snapshot");
+        clone.classList.add("file-map-icon--departing");
         const timeout = window.setTimeout(() => {
           clone.remove();
           crossfadeTimeouts.delete(timeout);
@@ -233,11 +233,11 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
         crossfadeTimeouts.add(timeout);
       }
 
-      for (const icon of currentPhotoIcons()) {
+      for (const icon of currentFileIcons()) {
         if (retained.has(icon)) continue;
-        icon.classList.add("photo-map-icon--entering");
+        icon.classList.add("file-map-icon--entering");
         const timeout = window.setTimeout(() => {
-          icon.classList.remove("photo-map-icon--entering");
+          icon.classList.remove("file-map-icon--entering");
           crossfadeTimeouts.delete(timeout);
         }, CROSSFADE_DURATION_MS);
         crossfadeTimeouts.add(timeout);
@@ -336,9 +336,9 @@ export function PhotoMap({ items, fitRequest }: PhotoMapProps) {
   return (
     <div
       ref={containerRef}
-      className="photo-map"
-      data-testid="photo-map"
-      aria-label={`Interactive map showing ${items.length} photo ${items.length === 1 ? "location" : "locations"}`}
+      className="file-map"
+      data-testid="file-map"
+      aria-label={`Interactive map showing ${items.length} file ${items.length === 1 ? "location" : "locations"}`}
     />
   );
 }

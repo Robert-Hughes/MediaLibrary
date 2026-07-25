@@ -28,9 +28,9 @@ offsetTimeOriginal: MetadataValue | null,
  */
 subSecTimeOriginal: MetadataValue | null, 
 /**
- * `XMP-photoshop:DateCreated` — full ISO datetime mirror.
+ * `XMP-fileshop:DateCreated` — full ISO datetime mirror.
  */
-photoshopDateCreated: MetadataValue | null, 
+fileshopDateCreated: MetadataValue | null, 
 /**
  * `IPTC:DateCreated` — `"YYYY-MM-DD"` portion of the H1 mirror.
  */

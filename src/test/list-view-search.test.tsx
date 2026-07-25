@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
-import { makePhoto, testId } from "./factories";
+import { makeFile, testId } from "./factories";
 import { createMockTauriApi } from "./mockTauriApi";
 
 let mockApi: ReturnType<typeof createMockTauriApi>;
@@ -24,15 +24,15 @@ describe("list search target-draft projection", () => {
   });
 
   it("finds a draft-only value by value, exact schema, friendly name, description, and has:edits", async () => {
-    const cityId = testId("XMP-photoshop:City");
+    const cityId = testId("XMP-fileshop:City");
     mockApi.tagInfos = [
       {
         id: cityId,
-        group: "XMP-photoshop",
+        group: "XMP-fileshop",
         name: "City",
         writable: true,
         kind: { kind: "Text" },
-        description: "City shown in the photograph",
+        description: "City shown in the filegraph",
       },
     ];
     const drafts = new TargetDraftEditsStore();
@@ -49,34 +49,34 @@ describe("list search target-draft projection", () => {
       },
       { intent: "Set", value: { kind: "Text", value: "Reykjavik draft" } },
     );
-    mockApi.targetDraftEditsByFolder["/photos"] = drafts.getAllMetadata();
-    mockApi.pickFolderResolves("/photos");
+    mockApi.targetDraftEditsByFolder["/files"] = drafts.getAllMetadata();
+    mockApi.pickFolderResolves("/files");
 
     const user = userEvent.setup();
     render(<App />);
     await screen.findByTestId("open-folder-btn");
     await user.click(screen.getByTestId("open-folder-btn"));
     act(() => {
-      mockApi.emitPhotoFound(makePhoto({ relative_path: "draft.jpg" }));
-      mockApi.emitPhotoFound(makePhoto({ relative_path: "plain.jpg" }));
+      mockApi.emitFileFound(makeFile({ relative_path: "draft.jpg" }));
+      mockApi.emitFileFound(makeFile({ relative_path: "plain.jpg" }));
       mockApi.emitScanComplete();
     });
     await waitFor(() =>
-      expect(screen.getAllByTestId("photo-row")).toHaveLength(2),
+      expect(screen.getAllByTestId("file-row")).toHaveLength(2),
     );
 
     const search = screen.getByTestId("list-search-input");
     for (const query of [
       "Reykjavik draft",
-      "XMP::photoshop",
-      "XMP-photoshop:City",
-      "City shown in the photograph",
+      "XMP::fileshop",
+      "XMP-fileshop:City",
+      "City shown in the filegraph",
       "has:edits",
     ]) {
       await user.clear(search);
       await user.type(search, query);
       await waitFor(() => {
-        const rows = screen.getAllByTestId("photo-row");
+        const rows = screen.getAllByTestId("file-row");
         expect(rows).toHaveLength(1);
         expect(rows[0]).toHaveTextContent("draft.jpg");
       });

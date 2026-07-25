@@ -1,7 +1,7 @@
 /**
  * Inline notice rendered in the awaiting-confirm panel of every batch
  * dialog (Describe, Geocode, Normalise) when the selection includes
- * photos whose data the run would overwrite. Replaces the per-flow
+ * files whose data the run would overwrite. Replaces the per-flow
  * pre-dialog `ask()` warnings — the cost/preview info and the overwrite
  * notice now live in one place.
  */

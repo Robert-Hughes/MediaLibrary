@@ -214,9 +214,9 @@ pub struct CopyrightInput {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct HeadlineInput {
-    /// `XMP-photoshop:Headline` (primary).
+    /// `XMP-fileshop:Headline` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub photoshop_headline: Option<String>,
+    pub fileshop_headline: Option<String>,
     /// `IPTC:Headline` (derivative; 256-char IIM limit applied on
     /// write).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -267,19 +267,19 @@ pub struct LocationInput {
     /// `IPTC:Sub-location` (derivative).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location_iptc: Option<String>,
-    /// `XMP-photoshop:City` (primary).
+    /// `XMP-fileshop:City` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub city_xmp: Option<String>,
     /// `IPTC:City` (derivative).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub city_iptc: Option<String>,
-    /// `XMP-photoshop:State` (primary).
+    /// `XMP-fileshop:State` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_xmp: Option<String>,
     /// `IPTC:Province-State` (derivative).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state_iptc: Option<String>,
-    /// `XMP-photoshop:Country` (primary).
+    /// `XMP-fileshop:Country` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub country_xmp: Option<String>,
     /// `IPTC:Country-PrimaryLocationName` (derivative).
@@ -320,9 +320,9 @@ pub struct DatesInput {
     /// `"123"` meaning `.123`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sub_sec_time_original: Option<MetadataValue>,
-    /// `XMP-photoshop:DateCreated` — full ISO datetime mirror.
+    /// `XMP-fileshop:DateCreated` — full ISO datetime mirror.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub photoshop_date_created: Option<MetadataValue>,
+    pub fileshop_date_created: Option<MetadataValue>,
     /// `IPTC:DateCreated` — `"YYYY-MM-DD"` portion of the H1 mirror.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iptc_date_created: Option<MetadataValue>,
@@ -790,7 +790,7 @@ fn derive_date_context(input: &DatesInput) -> Option<String> {
     input
         .date_time_original
         .as_ref()
-        .or(input.photoshop_date_created.as_ref())
+        .or(input.fileshop_date_created.as_ref())
         .or(input.iptc_date_created.as_ref())
         .and_then(date_context)
 }
@@ -1801,7 +1801,7 @@ mod tests_dispatcher {
         }
         let cancel = Arc::new(AtomicBool::new(false));
         let item = NormaliseRequestItem {
-            rel_path: "trip/photo.jpg".into(),
+            rel_path: "trip/file.jpg".into(),
             group_inputs: GroupInputs {
                 description: Some(DescriptionInput {
                     description: Some("Version A.".into()),
@@ -1898,7 +1898,7 @@ mod tests_dispatcher {
         assert_eq!(desc_row.model, "gpt-5.6-luna");
         assert_eq!(desc_row.prompt_version, "v1");
         assert_eq!(desc_row.ts, "2026-05-20T12:00:00Z");
-        assert_eq!(desc_row.relative_path, "trip/photo.jpg");
+        assert_eq!(desc_row.relative_path, "trip/file.jpg");
         assert!(desc_row.cost_usd > 0.0);
         assert!(desc_row.error.is_empty());
         let title_row = parsed.iter().find(|r| r.group == "title").unwrap();

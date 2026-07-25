@@ -49,7 +49,7 @@ async function startRun(
   paths = ["a.jpg", "b.jpg"],
 ) {
   const hook = renderHook(() => useBatchImageJob(config, { onApplyEdits }));
-  act(() => hook.result.current.actions.start("/photos", paths));
+  act(() => hook.result.current.actions.start("/files", paths));
   await waitFor(() => expect(hook.result.current.open).toBe(true));
   await waitFor(() =>
     expect(Object.keys(handlers)).toEqual(
@@ -252,19 +252,19 @@ describe("useBatchImageJob generated staging failures", () => {
         fail
           ? { kind: "failure", reason: "first run" }
           : { kind: "success", changed: true },
-      ["photo.jpg"],
+      ["file.jpg"],
     );
     act(() => {
       emit("stage_progress", {
         current: 1,
         total: 1,
-        relativePath: "photo.jpg",
+        relativePath: "file.jpg",
         status: "ok",
         error: null,
         edits,
       });
       emit("stage_complete", {
-        succeeded: ["photo.jpg"],
+        succeeded: ["file.jpg"],
         failed: [],
         usageSummary: { count: 1 },
       });
@@ -273,25 +273,25 @@ describe("useBatchImageJob generated staging failures", () => {
 
     act(() => hook.result.current.actions.close());
     fail = false;
-    act(() => hook.result.current.actions.start("/photos", ["photo.jpg"]));
+    act(() => hook.result.current.actions.start("/files", ["file.jpg"]));
     await waitFor(() => expect(hook.result.current.open).toBe(true));
     act(() => hook.result.current.actions.confirm());
     act(() => {
       emit("stage_progress", {
         current: 1,
         total: 1,
-        relativePath: "photo.jpg",
+        relativePath: "file.jpg",
         status: "ok",
         error: null,
         edits,
       });
       emit("stage_complete", {
-        succeeded: ["photo.jpg"],
+        succeeded: ["file.jpg"],
         failed: [],
         usageSummary: { count: 1 },
       });
     });
     expect(hook.result.current.state.failures).toEqual([]);
-    expect(hook.result.current.state.succeeded).toEqual(["photo.jpg"]);
+    expect(hook.result.current.state.succeeded).toEqual(["file.jpg"]);
   });
 });

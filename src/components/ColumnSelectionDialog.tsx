@@ -175,7 +175,7 @@ export function ColumnSelectionDialog({
 
         <div className="dialog-body column-list-area">
           <p className="dialog-hint">
-            Choose which columns to display in the photo list.
+            Choose which columns to display in the file list.
           </p>
 
           <div className="column-actions">

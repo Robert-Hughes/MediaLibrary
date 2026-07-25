@@ -1,5 +1,5 @@
 /**
- * Owns the drag-to-reorder gesture for the photo-list column headers.
+ * Owns the drag-to-reorder gesture for the file-list column headers.
  *
  * Tracks the source column in a ref, the hovered drop target + side in
  * React state (so the header can paint a drop indicator), and computes

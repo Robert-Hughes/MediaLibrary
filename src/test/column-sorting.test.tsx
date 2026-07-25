@@ -1,18 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { PhotoInfo, SortConfig } from "../types";
+import type { FileInfo, SortConfig } from "../types";
 import {
-  sortPhotos,
+  sortFiles,
   nextSortConfig,
   shouldSuspendSorting,
 } from "../utils/sorting";
 import {
   imageSort as imageSortKey,
   imgCol,
-  makePhoto,
+  makeFile,
   mockMetadata,
   osCol,
   osSort as osSortKey,
@@ -139,30 +139,30 @@ describe("nextSortConfig", () => {
   });
 });
 
-describe("sortPhotos", () => {
+describe("sortFiles", () => {
   const imageMetadata = new ImageMetadataOccurrencesStore();
 
   it("returns the same order when no sort is configured", () => {
-    const photos = [
-      makePhoto({ relative_path: "b.jpg" }),
-      makePhoto({ relative_path: "a.jpg" }),
+    const files = [
+      makeFile({ relative_path: "b.jpg" }),
+      makeFile({ relative_path: "a.jpg" }),
     ];
     const noSort: SortConfig = { primary: null, secondary: null };
-    const result = sortPhotos(photos, noSort, imageMetadata);
+    const result = sortFiles(files, noSort, imageMetadata);
     expect(result.map((p) => p.relative_path)).toEqual(["b.jpg", "a.jpg"]);
   });
 
   it("sorts by path ascending", () => {
-    const photos = [
-      makePhoto({ relative_path: "c.jpg" }),
-      makePhoto({ relative_path: "a.jpg" }),
-      makePhoto({ relative_path: "b.jpg" }),
+    const files = [
+      makeFile({ relative_path: "c.jpg" }),
+      makeFile({ relative_path: "a.jpg" }),
+      makeFile({ relative_path: "b.jpg" }),
     ];
     const sort: SortConfig = {
       primary: pathSortKey("asc"),
       secondary: null,
     };
-    const result = sortPhotos(photos, sort, imageMetadata);
+    const result = sortFiles(files, sort, imageMetadata);
     expect(result.map((p) => p.relative_path)).toEqual([
       "a.jpg",
       "b.jpg",
@@ -171,16 +171,16 @@ describe("sortPhotos", () => {
   });
 
   it("sorts by path descending", () => {
-    const photos = [
-      makePhoto({ relative_path: "a.jpg" }),
-      makePhoto({ relative_path: "c.jpg" }),
-      makePhoto({ relative_path: "b.jpg" }),
+    const files = [
+      makeFile({ relative_path: "a.jpg" }),
+      makeFile({ relative_path: "c.jpg" }),
+      makeFile({ relative_path: "b.jpg" }),
     ];
     const sort: SortConfig = {
       primary: pathSortKey("desc"),
       secondary: null,
     };
-    const result = sortPhotos(photos, sort, imageMetadata);
+    const result = sortFiles(files, sort, imageMetadata);
     expect(result.map((p) => p.relative_path)).toEqual([
       "c.jpg",
       "b.jpg",
@@ -189,16 +189,16 @@ describe("sortPhotos", () => {
   });
 
   it("sorts by OS date_modified ascending, nulls last", () => {
-    const photos = [
-      makePhoto({ relative_path: "c.jpg", date_modified: null }),
-      makePhoto({ relative_path: "a.jpg", date_modified: 100 }),
-      makePhoto({ relative_path: "b.jpg", date_modified: 50 }),
+    const files = [
+      makeFile({ relative_path: "c.jpg", date_modified: null }),
+      makeFile({ relative_path: "a.jpg", date_modified: 100 }),
+      makeFile({ relative_path: "b.jpg", date_modified: 50 }),
     ];
     const sort: SortConfig = {
       primary: osSortKey("date_modified", "asc"),
       secondary: null,
     };
-    const result = sortPhotos(photos, sort, imageMetadata);
+    const result = sortFiles(files, sort, imageMetadata);
     expect(result.map((p) => p.relative_path)).toEqual([
       "b.jpg",
       "a.jpg",
@@ -223,16 +223,16 @@ describe("sortPhotos", () => {
       ),
     );
     store.add("c.jpg"); // still loading → sorts to end
-    const photos = [
-      makePhoto({ relative_path: "b.jpg" }),
-      makePhoto({ relative_path: "a.jpg" }),
-      makePhoto({ relative_path: "c.jpg" }),
+    const files = [
+      makeFile({ relative_path: "b.jpg" }),
+      makeFile({ relative_path: "a.jpg" }),
+      makeFile({ relative_path: "c.jpg" }),
     ];
     const sort: SortConfig = {
       primary: imageSortKey("IFD0:Model", "asc"),
       secondary: null,
     };
-    const result = sortPhotos(photos, sort, store);
+    const result = sortFiles(files, sort, store);
     expect(result.map((p) => p.relative_path)).toEqual([
       "b.jpg",
       "a.jpg",
@@ -241,24 +241,24 @@ describe("sortPhotos", () => {
   });
 
   it("uses secondary sort to break ties in primary sort", () => {
-    const photos = [
-      makePhoto({
+    const files = [
+      makeFile({
         relative_path: "b.jpg",
         date_modified: 100,
         date_created: 2,
       }),
-      makePhoto({
+      makeFile({
         relative_path: "a.jpg",
         date_modified: 100,
         date_created: 1,
       }),
-      makePhoto({ relative_path: "c.jpg", date_modified: 50, date_created: 3 }),
+      makeFile({ relative_path: "c.jpg", date_modified: 50, date_created: 3 }),
     ];
     const sort: SortConfig = {
       primary: osSortKey("date_modified", "asc"),
       secondary: osSortKey("date_created", "asc"),
     };
-    const result = sortPhotos(photos, sort, imageMetadata);
+    const result = sortFiles(files, sort, imageMetadata);
     // c first (date_modified=50), then a (date_modified=100, date_created=1), then b
     expect(result.map((p) => p.relative_path)).toEqual([
       "c.jpg",
@@ -268,17 +268,17 @@ describe("sortPhotos", () => {
   });
 
   it("does not mutate the original array", () => {
-    const photos = [
-      makePhoto({ relative_path: "b.jpg" }),
-      makePhoto({ relative_path: "a.jpg" }),
+    const files = [
+      makeFile({ relative_path: "b.jpg" }),
+      makeFile({ relative_path: "a.jpg" }),
     ];
-    const original = [...photos];
+    const original = [...files];
     const sort: SortConfig = {
       primary: pathSortKey("asc"),
       secondary: null,
     };
-    sortPhotos(photos, sort, imageMetadata);
-    expect(photos).toEqual(original);
+    sortFiles(files, sort, imageMetadata);
+    expect(files).toEqual(original);
   });
   it("sorts identical same-schema occurrences and leaves conflicts last", () => {
     const id = testId("IFD0:Model");
@@ -304,19 +304,19 @@ describe("sortPhotos", () => {
     conflictSibling.value = { kind: "Text", value: "Sony" };
     store.set("c.jpg", [conflict, conflictSibling]);
 
-    const photos = ["c.jpg", "a.jpg", "b.jpg"].map((relative_path) =>
-      makePhoto({ relative_path }),
+    const files = ["c.jpg", "a.jpg", "b.jpg"].map((relative_path) =>
+      makeFile({ relative_path }),
     );
-    const ascending = sortPhotos(
-      photos,
+    const ascending = sortFiles(
+      files,
       {
         primary: imageSortKey("IFD0:Model", "asc"),
         secondary: null,
       },
       store,
     );
-    const descending = sortPhotos(
-      photos,
+    const descending = sortFiles(
+      files,
       {
         primary: imageSortKey("IFD0:Model", "desc"),
         secondary: null,
@@ -324,12 +324,12 @@ describe("sortPhotos", () => {
       store,
     );
 
-    expect(ascending.map((photo) => photo.relative_path)).toEqual([
+    expect(ascending.map((file) => file.relative_path)).toEqual([
       "b.jpg",
       "a.jpg",
       "c.jpg",
     ]);
-    expect(descending.map((photo) => photo.relative_path)).toEqual([
+    expect(descending.map((file) => file.relative_path)).toEqual([
       "a.jpg",
       "b.jpg",
       "c.jpg",
@@ -346,35 +346,35 @@ describe("sortPhotos", () => {
     store.set("zero.jpg", [
       occurrenceFromSchemaValue(zero, { kind: "Text", value: "B" }),
     ]);
-    const photos = ["zero.jpg", "absent.jpg"].map((relative_path) =>
-      makePhoto({ relative_path }),
+    const files = ["zero.jpg", "absent.jpg"].map((relative_path) =>
+      makeFile({ relative_path }),
     );
 
     expect(
-      sortPhotos(
-        photos,
+      sortFiles(
+        files,
         {
           primary: { kind: "image", id: absent, direction: "asc" },
           secondary: null,
         },
         store,
-      ).map((photo) => photo.relative_path),
+      ).map((file) => file.relative_path),
     ).toEqual(["absent.jpg", "zero.jpg"]);
     expect(
-      sortPhotos(
-        photos,
+      sortFiles(
+        files,
         {
           primary: { kind: "image", id: zero, direction: "asc" },
           secondary: null,
         },
         store,
-      ).map((photo) => photo.relative_path),
+      ).map((file) => file.relative_path),
     ).toEqual(["zero.jpg", "absent.jpg"]);
   });
 });
-// ── PhotoList sort indicator UI tests ─────────────────────────────────────────
+// ── FileList sort indicator UI tests ─────────────────────────────────────────
 
-const mockPhotos: PhotoInfo[] = [
+const mockFiles: FileInfo[] = [
   {
     relative_path: "b.jpg",
     filename: "b.jpg",
@@ -392,20 +392,20 @@ const mockPhotos: PhotoInfo[] = [
 function makeSortStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  mockPhotos.forEach((p) => {
+  mockFiles.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   });
   return { thumbnails, imageMetadata };
 }
 
-describe("PhotoList sort indicator", () => {
+describe("FileList sort indicator", () => {
   it("shows no sort indicator by default", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -415,7 +415,7 @@ describe("PhotoList sort indicator", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(document.querySelector(".sort-indicator")).toBeNull();
@@ -424,9 +424,9 @@ describe("PhotoList sort indicator", () => {
   it("shows primary sort indicator on sorted column", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -439,7 +439,7 @@ describe("PhotoList sort indicator", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     const indicator = document.querySelector(".sort-indicator--primary");
@@ -450,9 +450,9 @@ describe("PhotoList sort indicator", () => {
   it("shows desc indicator when sort direction is desc", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -465,7 +465,7 @@ describe("PhotoList sort indicator", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -477,9 +477,9 @@ describe("PhotoList sort indicator", () => {
     const onSortChange = vi.fn();
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -489,7 +489,7 @@ describe("PhotoList sort indicator", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     await userEvent.click(screen.getByText("Modified"));
@@ -503,9 +503,9 @@ describe("PhotoList sort indicator", () => {
     const onSortChange = vi.fn();
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -518,7 +518,7 @@ describe("PhotoList sort indicator", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     await userEvent.click(screen.getByText("Modified"));
@@ -531,9 +531,9 @@ describe("PhotoList sort indicator", () => {
   it("shows secondary sort indicator on secondary sorted column", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -549,7 +549,7 @@ describe("PhotoList sort indicator", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -561,7 +561,7 @@ describe("PhotoList sort indicator", () => {
   });
 });
 
-describe("PhotoList sortingDisabled", () => {
+describe("FileList sortingDisabled", () => {
   const sortConfig: SortConfig = {
     primary: osSortKey("date_modified", "asc"),
     secondary: null,
@@ -570,9 +570,9 @@ describe("PhotoList sortingDisabled", () => {
   it("hides ▲/▼ indicators when sortingDisabled is true", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -583,7 +583,7 @@ describe("PhotoList sortingDisabled", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(document.querySelector(".sort-indicator--primary")).toBeNull();
@@ -593,7 +593,7 @@ describe("PhotoList sortingDisabled", () => {
   it("shows the indicators again once sortingDisabled flips back to false", () => {
     const { thumbnails, imageMetadata } = makeSortStores();
     const props = {
-      photos: mockPhotos,
+      files: mockFiles,
       thumbnails,
       imageMetadataOccurrences: imageMetadata,
       visibleColumns: [osCol("date_modified")],
@@ -603,13 +603,13 @@ describe("PhotoList sortingDisabled", () => {
       onSelect: () => {},
       onShowInExplorer: () => {},
       onVisibilityChange: () => {},
-      onPhotoOpen: () => {},
+      onFileOpen: () => {},
       targetDraftEdits: {},
     };
-    const { rerender } = render(<PhotoList {...props} sortingDisabled />);
+    const { rerender } = render(<FileList {...props} sortingDisabled />);
     expect(document.querySelector(".sort-indicator--primary")).toBeNull();
 
-    rerender(<PhotoList {...props} sortingDisabled={false} />);
+    rerender(<FileList {...props} sortingDisabled={false} />);
     expect(
       document.querySelector(".sort-indicator--primary")?.textContent,
     ).toContain("▲");
@@ -627,9 +627,9 @@ describe("PhotoList sortingDisabled", () => {
       secondary: null,
     };
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -643,7 +643,7 @@ describe("PhotoList sortingDisabled", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     await userEvent.click(screen.getByText("Modified"));

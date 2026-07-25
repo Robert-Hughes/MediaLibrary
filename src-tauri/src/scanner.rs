@@ -31,15 +31,15 @@ pub(crate) fn find_exiftool() -> &'static str {
     }
 }
 
-/// File extensions recognised as photos.
+/// File extensions recognised as files.
 const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif"];
 
-/// A single photo entry from the directory walk.
+/// A single file entry from the directory walk.
 /// Contains only path and OS metadata — Image metadata arrives separately via `read_image_metadata`.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct PhotoInfo {
+pub struct FileInfo {
     pub relative_path: String,
     pub filename: String,
     #[cfg_attr(test, ts(type = "number | null"))]
@@ -57,7 +57,7 @@ pub struct WalkErrorInfo {
     pub message: String,
 }
 
-/// Image-level metadata for a single photo read by the backend scanner.
+/// Image-level metadata for a single file read by the backend scanner.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -83,7 +83,7 @@ fn metadata_occurrences_from_canonical(
     MetadataOccurrences(public_occurrences)
 }
 
-/// Walk `folder` and call `on_photo` for each image file found.
+/// Walk `folder` and call `on_file` for each image file found.
 /// Only reads OS metadata (a cheap `stat` call) — no image I/O.
 /// Checks `cancellation_flag` and stops early if set to true.
 ///
@@ -93,10 +93,10 @@ fn metadata_occurrences_from_canonical(
 pub fn scan_folder<P, E>(
     folder: &Path,
     cancellation_flag: Arc<AtomicBool>,
-    mut on_photo: P,
+    mut on_file: P,
     mut on_error: E,
 ) where
-    P: FnMut(PhotoInfo),
+    P: FnMut(FileInfo),
     E: FnMut(WalkErrorInfo),
 {
     for entry in WalkDir::new(folder).follow_links(false) {
@@ -147,7 +147,7 @@ pub fn scan_folder<P, E>(
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
 
-        on_photo(PhotoInfo {
+        on_file(FileInfo {
             relative_path: rel,
             filename,
             date_modified,
@@ -1894,16 +1894,16 @@ mod tests {
         }
     }
 
-    fn collect(folder: &Path) -> Vec<PhotoInfo> {
-        let mut photos = Vec::new();
+    fn collect(folder: &Path) -> Vec<FileInfo> {
+        let mut files = Vec::new();
         scan_folder(
             folder,
             Arc::new(AtomicBool::new(false)),
-            |p| photos.push(p),
+            |p| files.push(p),
             |_| {},
         );
-        photos.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
-        photos
+        files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
+        files
     }
 
     #[test]
@@ -2091,20 +2091,20 @@ mod tests {
         let source = "D:/batch/iptc-record-versions.jpg";
         let display_json = serde_json::json!([{
             "SourceFile": source,
-            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:EnvelopeRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:EnvelopeRecordVersion": {
                 "table": "IPTC::EnvelopeRecord", "id": 0, "val": "4"
             },
-            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:ApplicationRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:ApplicationRecordVersion": {
                 "table": "IPTC::ApplicationRecord", "id": 0, "val": "4"
             }
         }])
         .to_string();
         let raw_json = serde_json::json!([{
             "SourceFile": source,
-            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:EnvelopeRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:EnvelopeRecordVersion": {
                 "table": "IPTC::EnvelopeRecord", "id": 0, "val": 4
             },
-            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:ApplicationRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:ApplicationRecordVersion": {
                 "table": "IPTC::ApplicationRecord", "id": 0, "val": 4
             }
         }])
@@ -2130,7 +2130,7 @@ mod tests {
         assert_ne!(ids[0], ids[1]);
         assert!(ids.iter().all(|id| {
             id.document.is_none()
-                && id.path == "JPEG-APP13-Photoshop-IPTC"
+                && id.path == "JPEG-APP13-Fileshop-IPTC"
                 && id.runtime_tag_id == "0"
                 && id.tag_id_scope.tag_id == "0"
                 && id.tag_id_scope.index.is_none()
@@ -3536,7 +3536,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_folder_returns_no_photos() {
+    fn empty_folder_returns_no_files() {
         let dir = tempdir().unwrap();
         assert!(collect(dir.path()).is_empty());
     }
@@ -3576,15 +3576,15 @@ mod tests {
         fs::create_dir_all(&sub).unwrap();
         fs::write(sub.join("sunset.jpg"), b"x").unwrap();
         fs::write(dir.path().join("portrait.png"), b"x").unwrap();
-        let photos = collect(dir.path());
-        assert_eq!(photos.len(), 2);
-        for p in &photos {
+        let files = collect(dir.path());
+        assert_eq!(files.len(), 2);
+        for p in &files {
             assert!(!p.relative_path.starts_with('/'));
         }
     }
 
     #[test]
-    fn callback_is_called_for_each_photo() {
+    fn callback_is_called_for_each_file() {
         let dir = tempdir().unwrap();
         fs::write(dir.path().join("a.jpg"), b"x").unwrap();
         fs::write(dir.path().join("b.jpg"), b"x").unwrap();
@@ -3602,8 +3602,8 @@ mod tests {
     #[test]
     fn filename_field_is_populated() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("photo.jpg"), b"x").unwrap();
-        assert_eq!(collect(dir.path())[0].filename, "photo.jpg");
+        fs::write(dir.path().join("file.jpg"), b"x").unwrap();
+        assert_eq!(collect(dir.path())[0].filename, "file.jpg");
     }
 
     #[test]
@@ -3809,7 +3809,7 @@ mod tests {
     fn parse_batch_populates_semantic_occurrences() {
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IPTC:Main:Copy0:JPEG-APP13-Photoshop-IPTC:ID-60:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
+            "IPTC:Main:Copy0:JPEG-APP13-Fileshop-IPTC:ID-60:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
             "ExifIFD:Main:Copy0:JPEG-APP1-IFD0-ExifIFD:ID-36881:OffsetTimeOriginal": {"table": "Exif::Main", "id": "36881", "val": "+01:00"},
             "MadeUp:Main:Copy0:Fixture-Metadata:ID-MadeUpThing:Thing": {"table": "TestFixture::Unknown", "id": "MadeUp:Thing", "val": 5}
         }]"#;
@@ -4187,7 +4187,7 @@ mod tests {
             &raw,
             &display,
             Some(&reg),
-            "photo.jpg",
+            "file.jpg",
             None,
         );
 
@@ -4230,7 +4230,7 @@ mod tests {
             &raw,
             &display,
             Some(&reg),
-            "photo.jpg",
+            "file.jpg",
             None,
         );
 
@@ -4268,7 +4268,7 @@ mod tests {
             &raw,
             &display,
             Some(&reg),
-            "photo.jpg",
+            "file.jpg",
             Some(&mut warnings),
         );
 
@@ -4300,7 +4300,7 @@ mod tests {
             &raw,
             &display,
             Some(&reg),
-            "photo.jpg",
+            "file.jpg",
             None,
         );
 
@@ -4331,7 +4331,7 @@ mod tests {
             &raw,
             &display,
             Some(&reg),
-            "photo.jpg",
+            "file.jpg",
             None,
         );
 
@@ -4368,7 +4368,7 @@ mod tests {
             &raw,
             &display,
             Some(&reg),
-            "photo.jpg",
+            "file.jpg",
             None,
         );
 

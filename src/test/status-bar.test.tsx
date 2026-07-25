@@ -6,7 +6,7 @@ import { MetadataProgressStore } from "../types";
 
 const noop = () => {};
 const base = {
-  photoCount: 42,
+  fileCount: 42,
   scanning: false,
   metadataProgress: null,
   selectedCount: 0,
@@ -15,25 +15,25 @@ const base = {
 describe("StatusBar", () => {
   beforeEach(() => cleanup());
 
-  it("shows total photo count with no selection or filters", () => {
+  it("shows total file count with no selection or filters", () => {
     render(<StatusBar {...base} />);
     expect(screen.getByTestId("status-bar-count")).toHaveTextContent(
-      "42 photos",
+      "42 files",
     );
     expect(
       screen.queryByTestId("status-bar-selection"),
     ).not.toBeInTheDocument();
   });
 
-  it("uses singular 'photo' when total is exactly 1", () => {
-    render(<StatusBar {...base} photoCount={1} />);
-    expect(screen.getByTestId("status-bar-count")).toHaveTextContent("1 photo");
+  it("uses singular 'file' when total is exactly 1", () => {
+    render(<StatusBar {...base} fileCount={1} />);
+    expect(screen.getByTestId("status-bar-count")).toHaveTextContent("1 file");
   });
 
-  it("shows 'N of M photos' when filtered", () => {
-    render(<StatusBar {...base} photoCount={3} photoCountTotal={42} />);
+  it("shows 'N of M files' when filtered", () => {
+    render(<StatusBar {...base} fileCount={3} fileCountTotal={42} />);
     expect(screen.getByTestId("status-bar-count")).toHaveTextContent(
-      "3 of 42 photos",
+      "3 of 42 files",
     );
   });
 
@@ -43,7 +43,7 @@ describe("StatusBar", () => {
       "3 selected",
     );
     expect(screen.getByTestId("status-bar-count")).toHaveTextContent(
-      "42 photos",
+      "42 files",
     );
   });
 

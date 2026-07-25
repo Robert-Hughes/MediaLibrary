@@ -18,7 +18,7 @@ import {
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
 
-const path = "photo.jpg";
+const path = "file.jpg";
 const schema = { table: "Exif::Main", tag_id: "282" };
 const target = {
   kind: "ExistingOccurrence" as const,

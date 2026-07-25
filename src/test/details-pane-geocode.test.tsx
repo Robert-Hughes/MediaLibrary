@@ -20,7 +20,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
-import { makePhoto, mockMetadata } from "./factories";
+import { makeFile, mockMetadata } from "./factories";
 import type { MetadataDraftEdit } from "../types";
 import { KNOWN_METADATA_IDS } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
@@ -37,7 +37,7 @@ const setDraftEdit = (value: string): MetadataDraftEdit => ({
   intent: "Set",
 });
 
-const photo = makePhoto({
+const file = makeFile({
   relative_path: "p.jpg",
   filename: "p.jpg",
   date_modified: 0,
@@ -62,7 +62,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={[]}
         onGeocode={onGeocode}
       />,
@@ -75,7 +75,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={[]}
       />,
     );
@@ -89,7 +89,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={occurrencesFromMetadataCollection(
           mockMetadata({
             "GPS:GPSLatitude": 51.5,
@@ -116,7 +116,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={occurrencesFromMetadataCollection(
           mockMetadata({ "XMP-iptcCore:Location": "Existing Place" }),
         )}
@@ -134,7 +134,7 @@ describe("DetailsPane: Reverse Geocode button", () => {
     const user = userEvent.setup();
     const drafts = new TargetDraftEditsStore();
     drafts.setMetadataTarget(
-      photo.relative_path,
+      file.relative_path,
       {
         kind: "NewProperty",
         schema_id: KNOWN_METADATA_IDS.xmpCity,
@@ -150,9 +150,9 @@ describe("DetailsPane: Reverse Geocode button", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={[]}
-        targetDraftEdits={drafts.getMetadataFile(photo.relative_path)}
+        targetDraftEdits={drafts.getMetadataFile(file.relative_path)}
         onGeocode={onGeocode}
       />,
     );

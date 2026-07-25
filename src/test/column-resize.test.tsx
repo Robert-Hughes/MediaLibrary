@@ -1,13 +1,13 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { useState } from "react";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { imgCol, testId } from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { PhotoInfo } from "../types";
+import type { FileInfo } from "../types";
 
-const mockPhotos: PhotoInfo[] = [
+const mockFiles: FileInfo[] = [
   {
     relative_path: "a.jpg",
     filename: "a.jpg",
@@ -24,7 +24,7 @@ const defaultSortProps = {
 function makeStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  mockPhotos.forEach((p) => {
+  mockFiles.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   });
@@ -35,9 +35,9 @@ describe("column resize handles", () => {
   it("renders a resize handle for the Preview column", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -46,7 +46,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -57,9 +57,9 @@ describe("column resize handles", () => {
   it("renders a resize handle for the Path column", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -68,7 +68,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -79,9 +79,9 @@ describe("column resize handles", () => {
   it("renders resize handles for OS metadata columns", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -93,7 +93,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -107,9 +107,9 @@ describe("column resize handles", () => {
   it("renders resize handle for image metadata columns", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[imgCol("IFD0:Model")]}
@@ -118,7 +118,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -132,9 +132,9 @@ describe("column resize handles", () => {
     const onColumnWidthChange = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -145,7 +145,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
 
@@ -168,9 +168,9 @@ describe("column resize handles", () => {
     const onColumnWidthChange = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -181,7 +181,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
 
@@ -231,14 +231,14 @@ describe("column resize handles", () => {
         paddingRight: "8px",
       } as CSSStyleDeclaration);
 
-    function StatefulPhotoList() {
+    function StatefulFileList() {
       const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
         date_modified: 300,
       });
       return (
-        <PhotoList
+        <FileList
           targetDraftEdits={{}}
-          photos={mockPhotos}
+          files={mockFiles}
           thumbnails={thumbnails}
           imageMetadataOccurrences={imageMetadata}
           visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -252,12 +252,12 @@ describe("column resize handles", () => {
           onSelect={() => {}}
           onShowInExplorer={() => {}}
           onVisibilityChange={() => {}}
-          onPhotoOpen={() => {}}
+          onFileOpen={() => {}}
         />
       );
     }
 
-    render(<StatefulPhotoList />);
+    render(<StatefulFileList />);
 
     const handle = document.querySelector(
       '[data-testid="resize-handle-date_modified"]',
@@ -289,9 +289,9 @@ describe("column resize handles", () => {
     const onSortChange = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -301,7 +301,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
 
@@ -313,13 +313,13 @@ describe("column resize handles", () => {
     expect(onSortChange).not.toHaveBeenCalled();
   });
 
-  it("renders resize handles on empty-state (zero photos) headers too", () => {
+  it("renders resize handles on empty-state (zero files) headers too", () => {
     const thumbnails = new ThumbnailStore();
     const imageMetadata = new ImageMetadataOccurrencesStore();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={[]}
+        files={[]}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -328,7 +328,7 @@ describe("column resize handles", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -347,9 +347,9 @@ describe("buildGridTemplate (via rendered styles)", () => {
   it("applies saved column widths as pixel values in grid template", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -360,10 +360,10 @@ describe("buildGridTemplate (via rendered styles)", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
-    const grid = document.querySelector(".photo-grid") as HTMLElement;
+    const grid = document.querySelector(".file-grid") as HTMLElement;
     expect(grid.style.gridTemplateColumns).toContain("84px");
     expect(grid.style.gridTemplateColumns).toContain("350px");
     expect(grid.style.gridTemplateColumns).toContain("140px");
@@ -371,17 +371,17 @@ describe("buildGridTemplate (via rendered styles)", () => {
 
   it("scales row and thumbnail height from preview column width using 4:3", () => {
     const { thumbnails, imageMetadata } = makeStores();
-    const photos = [
-      mockPhotos[0],
-      { ...mockPhotos[0], relative_path: "b.jpg", filename: "b.jpg" },
+    const files = [
+      mockFiles[0],
+      { ...mockFiles[0], relative_path: "b.jpg", filename: "b.jpg" },
     ];
     thumbnails.add("b.jpg");
     imageMetadata.add("b.jpg");
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -392,15 +392,15 @@ describe("buildGridTemplate (via rendered styles)", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
 
-    // CSS custom properties are the authoritative contract between PhotoList
+    // CSS custom properties are the authoritative contract between FileList
     // and its CSS.  Exact translateY offsets and body height are internal to
     // the TanStack virtualizer (which can't measure real DOM in JSDOM) so we
     // don't assert on those.
-    const grid = document.querySelector(".photo-grid") as HTMLElement;
+    const grid = document.querySelector(".file-grid") as HTMLElement;
     expect(grid.style.getPropertyValue("--row-height")).toBe("65px");
     expect(grid.style.getPropertyValue("--thumb-height")).toBe("57px");
   });
@@ -408,9 +408,9 @@ describe("buildGridTemplate (via rendered styles)", () => {
   it("uses minmax defaults when no column widths are provided", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
@@ -419,10 +419,10 @@ describe("buildGridTemplate (via rendered styles)", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
-    const grid = document.querySelector(".photo-grid") as HTMLElement;
+    const grid = document.querySelector(".file-grid") as HTMLElement;
     expect(grid.style.gridTemplateColumns).toContain("minmax(");
   });
 });

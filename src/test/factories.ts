@@ -7,7 +7,7 @@ import type {
   MetadataValue,
   EditIntent,
   OsColumnKey,
-  PhotoInfo,
+  FileInfo,
   SchemaDefinitionId,
   SortDirection,
   SortKey,
@@ -40,8 +40,8 @@ export function makeColumns(
   });
 }
 
-export function makePhoto(overrides: Partial<PhotoInfo> = {}): PhotoInfo {
-  const relative_path = overrides.relative_path ?? "photo.jpg";
+export function makeFile(overrides: Partial<FileInfo> = {}): FileInfo {
+  const relative_path = overrides.relative_path ?? "file.jpg";
   return {
     relative_path,
     filename: relative_path.split("/").pop() ?? relative_path,
@@ -51,8 +51,8 @@ export function makePhoto(overrides: Partial<PhotoInfo> = {}): PhotoInfo {
   };
 }
 
-export function makePhotos(paths: string[]): PhotoInfo[] {
-  return paths.map((p) => makePhoto({ relative_path: p }));
+export function makeFiles(paths: string[]): FileInfo[] {
+  return paths.map((p) => makeFile({ relative_path: p }));
 }
 
 export function mockMetadata(raw: Record<string, unknown>): MetadataCollection {

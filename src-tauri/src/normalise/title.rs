@@ -265,7 +265,7 @@ mod tests {
     #[tokio::test]
     async fn empty_targets_no_ai_returns_key_missing_error() {
         let input = TitleInput {
-            description_canonical: Some("A photo of a cat.".into()),
+            description_canonical: Some("A file of a cat.".into()),
             ..Default::default()
         };
         let out = normalise_title(&input, None).await;
@@ -325,7 +325,7 @@ mod tests {
             }
         }
         let input = TitleInput {
-            description_canonical: Some("A photo.".into()),
+            description_canonical: Some("A file.".into()),
             ..Default::default()
         };
         let out = normalise_title(&input, Some(&FailingAi)).await;

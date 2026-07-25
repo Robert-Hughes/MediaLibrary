@@ -177,18 +177,18 @@ mod tests {
     #[test]
     fn numeric_and_textual_passes_have_stable_distinct_layouts() {
         let args = build_exiftool_write_argfile_args(
-            Path::new("photo.jpg"),
+            Path::new("file.jpg"),
             &["-IFD0:Orientation=6".to_string()],
             true,
         )
         .unwrap();
         assert_eq!(
             render_exiftool_argfile(&args).unwrap(),
-            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n-n\n-IFD0:Orientation=6\nphoto.jpg\n"
+            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n-n\n-IFD0:Orientation=6\nfile.jpg\n"
         );
 
         let text_args = build_exiftool_write_argfile_args(
-            Path::new("photo.jpg"),
+            Path::new("file.jpg"),
             &["-XMP-dc:Title=plain".to_string()],
             false,
         )
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn argfile_preserves_argument_order_physical_lines_and_deterministic_bytes() {
         let logical = build_exiftool_write_argfile_args(
-            Path::new("photo.jpg"),
+            Path::new("file.jpg"),
             &[
                 "-XMP-dc:Title= first ".to_string(),
                 "-XMP-dc:Description=line one\nline two".to_string(),
@@ -234,7 +234,7 @@ mod tests {
         assert_eq!(first.as_bytes(), second.as_bytes());
         assert_eq!(
             first,
-            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n#[CSTR]-XMP-dc:Title= first \n#[CSTR]-XMP-dc:Description=line one\\nline two\n-XMP-dc:Rights=#reserved\nphoto.jpg\n"
+            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n#[CSTR]-XMP-dc:Title= first \n#[CSTR]-XMP-dc:Description=line one\\nline two\n-XMP-dc:Rights=#reserved\nfile.jpg\n"
         );
         assert_eq!(first.lines().count(), logical.len());
         assert!(first.ends_with('\n'));

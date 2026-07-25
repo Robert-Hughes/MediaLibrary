@@ -13,7 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto } from "./factories";
+import { makeFile } from "./factories";
 import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 import {
   _resetWritableSchemaDefinitionsCache,
@@ -118,8 +118,8 @@ describe("Draft Metadata Editing Integration", () => {
   it("can edit and discard draft metadata values via DetailsPane context menu", async () => {
     const user = userEvent.setup();
 
-    // Given a folder with 1 photo
-    mockApiInstance.pickFolderResolves("/photos");
+    // Given a folder with 1 file
+    mockApiInstance.pickFolderResolves("/files");
     render(<App />);
 
     // Wait for App to load
@@ -131,16 +131,16 @@ describe("Draft Metadata Editing Integration", () => {
     const openBtn = screen.getByTestId("open-folder-btn");
     await user.click(openBtn);
 
-    const photo = makePhoto({ relative_path: "test.jpg" });
+    const file = makeFile({ relative_path: "test.jpg" });
     await act(async () => {
-      mockApiInstance.emitPhotoFound(photo);
+      mockApiInstance.emitFileFound(file);
     });
 
     // We also need some metadata so we have a column to edit
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(
-        photo.relative_path,
+        file.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
@@ -160,7 +160,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByText("Save Changes"));
 
     // Ensure list view renders the metadata
-    const rows = screen.getAllByTestId("photo-row");
+    const rows = screen.getAllByTestId("file-row");
     expect(rows[0]).toHaveTextContent("Canon");
 
     // Double click to open gallery
@@ -211,7 +211,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByTestId("gallery-close-btn"));
 
     // Check list view
-    const newRows = screen.getAllByTestId("photo-row");
+    const newRows = screen.getAllByTestId("file-row");
     // The list summary counts the exact target draft. Existing target values
     // are presented on their concrete Details Pane row, not schema-overlaid
     // into the compatibility list column.
@@ -223,7 +223,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.dblClick(newRows[0]);
 
     // Click "Discard All" button at the top of the details pane
-    const discardAllBtn = screen.getByTitle("Discard all edits for this photo");
+    const discardAllBtn = screen.getByTitle("Discard all edits for this file");
     await user.click(discardAllBtn);
 
     // Details pane should show Canon again, no draft
@@ -234,7 +234,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Close gallery and verify list view
     await user.click(screen.getByTestId("gallery-close-btn"));
-    const finalRows = screen.getAllByTestId("photo-row");
+    const finalRows = screen.getAllByTestId("file-row");
     expect(within(finalRows[0]).getByText("Canon")).toBeInTheDocument();
     expect(screen.queryByText("Sony")).toBeNull();
   });
@@ -242,7 +242,7 @@ describe("Draft Metadata Editing Integration", () => {
   it("removing a newly-added property drops the draft instead of leaving a delete-draft", async () => {
     const user = userEvent.setup();
 
-    mockApiInstance.pickFolderResolves("/photos");
+    mockApiInstance.pickFolderResolves("/files");
     render(<App />);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -250,15 +250,15 @@ describe("Draft Metadata Editing Integration", () => {
 
     await user.click(screen.getByTestId("open-folder-btn"));
 
-    const photo = makePhoto({ relative_path: "test.jpg" });
+    const file = makeFile({ relative_path: "test.jpg" });
     await act(async () => {
-      mockApiInstance.emitPhotoFound(photo);
+      mockApiInstance.emitFileFound(file);
     });
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(
-        photo.relative_path,
+        file.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
@@ -270,7 +270,7 @@ describe("Draft Metadata Editing Integration", () => {
     });
 
     // Open gallery + info pane
-    const rows = screen.getAllByTestId("photo-row");
+    const rows = screen.getAllByTestId("file-row");
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -295,7 +295,7 @@ describe("Draft Metadata Editing Integration", () => {
     await user.type(screen.getByTestId("value-edit-input"), "Hello");
     await user.click(screen.getByTestId("value-edit-save"));
 
-    // Draft badge present: 1 edit on this photo
+    // Draft badge present: 1 edit on this file
     await waitFor(() => {
       expect(screen.getByTitle("Show only edited fields")).toBeInTheDocument();
     });
@@ -313,14 +313,14 @@ describe("Draft Metadata Editing Integration", () => {
     // and the row itself should no longer be rendered.
     expect(screen.queryByTitle("Show only edited fields")).toBeNull();
     expect(screen.queryByTestId("details-pane-apply-btn")).toBeNull();
-    expect(screen.queryByTitle("Discard all edits for this photo")).toBeNull();
+    expect(screen.queryByTitle("Discard all edits for this file")).toBeNull();
     expect(screen.queryByText("Hello")).toBeNull();
   });
 
   it("can filter list view to has:edits via badge and discard all edits from context menu", async () => {
     const user = userEvent.setup();
 
-    mockApiInstance.pickFolderResolves("/photos");
+    mockApiInstance.pickFolderResolves("/files");
     render(<App />);
 
     // Wait for App to load
@@ -331,24 +331,24 @@ describe("Draft Metadata Editing Integration", () => {
     // Open folder
     await user.click(screen.getByTestId("open-folder-btn"));
 
-    // Emit two photos
-    const photo1 = makePhoto({ relative_path: "edited.jpg" });
-    const photo2 = makePhoto({ relative_path: "unedited.jpg" });
+    // Emit two files
+    const file1 = makeFile({ relative_path: "edited.jpg" });
+    const file2 = makeFile({ relative_path: "unedited.jpg" });
     await act(async () => {
-      mockApiInstance.emitPhotoFound(photo1);
-      mockApiInstance.emitPhotoFound(photo2);
+      mockApiInstance.emitFileFound(file1);
+      mockApiInstance.emitFileFound(file2);
     });
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(
-        photo1.relative_path,
+        file1.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
       );
       mockApiInstance.emitImageMetadataReady(
-        photo2.relative_path,
+        file2.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
@@ -359,10 +359,10 @@ describe("Draft Metadata Editing Integration", () => {
       await new Promise((r) => setTimeout(r, 250));
     });
 
-    let rows = screen.getAllByTestId("photo-row");
+    let rows = screen.getAllByTestId("file-row");
     expect(rows).toHaveLength(2);
 
-    // Edit the first photo via gallery
+    // Edit the first file via gallery
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -381,19 +381,19 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByTestId("gallery-close-btn"));
 
     // Both rows still visible
-    rows = screen.getAllByTestId("photo-row");
+    rows = screen.getAllByTestId("file-row");
     expect(rows).toHaveLength(2);
 
-    const draftBadge = screen.getByTitle("Show only photos with edits");
+    const draftBadge = screen.getByTitle("Show only files with edits");
     await user.click(draftBadge);
 
-    // List view should be filtered to just 1 photo.  Search runs off-thread
+    // List view should be filtered to just 1 file.  Search runs off-thread
     // through the worker so the row count change is asynchronous.
     await waitFor(() => {
-      const filtered = screen.getAllByTestId("photo-row");
+      const filtered = screen.getAllByTestId("file-row");
       expect(filtered).toHaveLength(1);
     });
-    rows = screen.getAllByTestId("photo-row");
+    rows = screen.getAllByTestId("file-row");
     expect(within(rows[0]).getByText("edited.jpg")).toBeInTheDocument();
 
     // The search input should have "has:edits"
@@ -405,7 +405,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     // The list is now empty because no edits exist but filter is still has:edits
     await waitFor(() => {
-      expect(screen.queryByTestId("photo-row")).toBeNull();
+      expect(screen.queryByTestId("file-row")).toBeNull();
     });
 
     // Clear filter
@@ -413,14 +413,14 @@ describe("Draft Metadata Editing Integration", () => {
 
     // Both rows back
     await waitFor(() => {
-      expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+      expect(screen.getAllByTestId("file-row")).toHaveLength(2);
     });
   });
 
   it("can search for draft edited values in both list view and details pane", async () => {
     const user = userEvent.setup();
 
-    mockApiInstance.pickFolderResolves("/photos");
+    mockApiInstance.pickFolderResolves("/files");
     render(<App />);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -428,15 +428,15 @@ describe("Draft Metadata Editing Integration", () => {
 
     await user.click(screen.getByTestId("open-folder-btn"));
 
-    const photo = makePhoto({ relative_path: "edited.jpg" });
+    const file = makeFile({ relative_path: "edited.jpg" });
     await act(async () => {
-      mockApiInstance.emitPhotoFound(photo);
+      mockApiInstance.emitFileFound(file);
     });
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(
-        photo.relative_path,
+        file.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
@@ -448,7 +448,7 @@ describe("Draft Metadata Editing Integration", () => {
     });
 
     // Open gallery and edit value
-    const rows = screen.getAllByTestId("photo-row");
+    const rows = screen.getAllByTestId("file-row");
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -480,24 +480,24 @@ describe("Draft Metadata Editing Integration", () => {
     await user.clear(listSearch);
     await user.type(listSearch, "Nikon");
 
-    // The photo should still be visible because it matches.  Search is
+    // The file should still be visible because it matches.  Search is
     // off-thread, so the row count assertion needs to wait.
     await waitFor(() => {
-      expect(screen.getAllByTestId("photo-row")).toHaveLength(1);
+      expect(screen.getAllByTestId("file-row")).toHaveLength(1);
     });
 
     // If we search for something unrelated, it should disappear
     await user.clear(listSearch);
     await user.type(listSearch, "Panasonic");
     await waitFor(() => {
-      expect(screen.queryByTestId("photo-row")).toBeNull();
+      expect(screen.queryByTestId("file-row")).toBeNull();
     });
   });
 
-  it("can discard all edits across all photos using the menu bar button", async () => {
+  it("can discard all edits across all files using the menu bar button", async () => {
     const user = userEvent.setup();
 
-    mockApiInstance.pickFolderResolves("/photos");
+    mockApiInstance.pickFolderResolves("/files");
     render(<App />);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -505,23 +505,23 @@ describe("Draft Metadata Editing Integration", () => {
 
     await user.click(screen.getByTestId("open-folder-btn"));
 
-    const photo1 = makePhoto({ relative_path: "pic1.jpg" });
-    const photo2 = makePhoto({ relative_path: "pic2.jpg" });
+    const file1 = makeFile({ relative_path: "pic1.jpg" });
+    const file2 = makeFile({ relative_path: "pic2.jpg" });
     await act(async () => {
-      mockApiInstance.emitPhotoFound(photo1);
-      mockApiInstance.emitPhotoFound(photo2);
+      mockApiInstance.emitFileFound(file1);
+      mockApiInstance.emitFileFound(file2);
     });
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
       mockApiInstance.emitImageMetadataReady(
-        photo1.relative_path,
+        file1.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
       );
       mockApiInstance.emitImageMetadataReady(
-        photo2.relative_path,
+        file2.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
@@ -532,9 +532,9 @@ describe("Draft Metadata Editing Integration", () => {
       await new Promise((r) => setTimeout(r, 250));
     });
 
-    let rows = screen.getAllByTestId("photo-row");
+    let rows = screen.getAllByTestId("file-row");
 
-    // Edit first photo
+    // Edit first file
     await user.dblClick(rows[0]);
     await user.click(screen.getByTestId("gallery-info-toggle"));
     let canonCell = within(screen.getByTestId("details-section-IFD0"))
@@ -548,9 +548,9 @@ describe("Draft Metadata Editing Integration", () => {
     await user.click(screen.getByText("Save"));
     await user.click(screen.getByTestId("gallery-close-btn"));
 
-    // Edit second photo.  Same reasoning as above: GalleryView persists
+    // Edit second file.  Same reasoning as above: GalleryView persists
     // detailsVisible across opens, so no second toggle click needed.
-    rows = screen.getAllByTestId("photo-row");
+    rows = screen.getAllByTestId("file-row");
     await user.dblClick(rows[1]);
     canonCell = within(screen.getByTestId("details-section-IFD0"))
       .getByText("Canon")
@@ -624,23 +624,22 @@ describe("Draft Metadata Editing Integration", () => {
       },
       { intent: "Set", value: { kind: "Text", value: "Pending" } },
     );
-    mockApiInstance.targetDraftEditsByFolder["/photos"] =
-      store.getAllMetadata();
-    mockApiInstance.pickFolderResolves("/photos");
+    mockApiInstance.targetDraftEditsByFolder["/files"] = store.getAllMetadata();
+    mockApiInstance.pickFolderResolves("/files");
     render(<App />);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     await user.click(screen.getByTestId("open-folder-btn"));
 
-    const photo = makePhoto({ relative_path: "test.jpg" });
-    act(() => mockApiInstance.emitPhotoFound(photo));
-    const row = await screen.findByTestId("photo-row");
+    const file = makeFile({ relative_path: "test.jpg" });
+    act(() => mockApiInstance.emitFileFound(file));
+    const row = await screen.findByTestId("file-row");
     expect(row.querySelector(".draft-new")).toBeNull();
 
     act(() => {
       mockApiInstance.emitImageMetadataReady(
-        photo.relative_path,
+        file.relative_path,
         { "XMP-dc:Description": { kind: "Text", value: "Committed" } },
         undefined,
         [item],
@@ -724,20 +723,19 @@ describe("Draft Metadata Editing Integration", () => {
       { intent: "Set", value: { kind: "Text", value: "Pending IFD1" } },
     );
 
-    mockApiInstance.targetDraftEditsByFolder["/photos"] =
-      store.getAllMetadata();
-    mockApiInstance.pickFolderResolves("/photos");
+    mockApiInstance.targetDraftEditsByFolder["/files"] = store.getAllMetadata();
+    mockApiInstance.pickFolderResolves("/files");
     render(<App />);
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     await user.click(screen.getByTestId("open-folder-btn"));
 
-    const photo = makePhoto({ relative_path: "test.jpg" });
+    const file = makeFile({ relative_path: "test.jpg" });
     act(() => {
-      mockApiInstance.emitPhotoFound(photo);
+      mockApiInstance.emitFileFound(file);
       mockApiInstance.emitImageMetadataReady(
-        photo.relative_path,
+        file.relative_path,
         {
           "XMP-dc:Description": {
             kind: "Text",
@@ -749,7 +747,7 @@ describe("Draft Metadata Editing Integration", () => {
       );
     });
 
-    const row = await screen.findByTestId("photo-row");
+    const row = await screen.findByTestId("file-row");
     await waitFor(() => {
       expect(within(row).getByText("2 draft edits")).toBeInTheDocument();
     });

@@ -29,7 +29,7 @@ interface Props {
   existingOccurrences?: readonly MetadataOccurrence[];
   initialTarget?: Extract<MetadataDraftTarget, { kind: "NewProperty" }>;
   pendingTargets?: readonly MetadataDraftTarget[];
-  /** Filename of the photo being edited. Drives file-type filtering of
+  /** Filename of the file being edited. Drives file-type filtering of
    * the suggestions so a JPEG doesn't surface Vorbis tags. */
   filename?: string;
 }

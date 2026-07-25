@@ -10,7 +10,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 
 import { GpsMapOverview } from "../components/GpsMapOverview";
-import { makePhoto, mockMetadata, testFriendlyName } from "./factories";
+import { makeFile, mockMetadata, testFriendlyName } from "./factories";
 import type {
   MetadataDraftEdit,
   MetadataTargetDraftEntry,
@@ -67,9 +67,9 @@ vi.mock("../components/GpsMap", () => ({
 }));
 
 describe("DetailsPane GPS Map integration", () => {
-  const photo = makePhoto({
-    relative_path: "gps-photo.jpg",
-    filename: "gps-photo.jpg",
+  const file = makeFile({
+    relative_path: "gps-file.jpg",
+    filename: "gps-file.jpg",
   });
 
   beforeEach(() => {
@@ -155,7 +155,7 @@ describe("DetailsPane GPS Map integration", () => {
   it("opens the grouped GPS editor from the shared GPS heading menu", async () => {
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrencesFor(validGpsMetadata())}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataTargets={vi.fn()}
@@ -180,7 +180,7 @@ describe("DetailsPane GPS Map integration", () => {
   it("opens identical ordered GPS group options from the overview grid and heading", () => {
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrencesFor(validGpsMetadata())}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataTargets={vi.fn()}
@@ -209,7 +209,7 @@ describe("DetailsPane GPS Map integration", () => {
     const onOpenFullMap = vi.fn();
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrencesFor(validGpsMetadata())}
         onOpenFullMap={onOpenFullMap}
       />,
@@ -217,7 +217,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Open full map for this photo",
+        name: "Open full map for this file",
       }),
     );
 
@@ -256,7 +256,7 @@ describe("DetailsPane GPS Map integration", () => {
     const longitudeTarget = targetFor("GPSLongitude");
     const makeTarget = targetFor("Make");
     const store = new TargetDraftEditsStore();
-    store.setMetadataBatch(photo.relative_path, [
+    store.setMetadataBatch(file.relative_path, [
       {
         target: latitudeTarget,
         edit: { intent: "Set", value: { kind: "Real", value: 52 } },
@@ -279,9 +279,9 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrences}
-        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+        targetDraftEdits={store.getMetadataFile(file.relative_path)}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn(() => true)}
@@ -344,7 +344,7 @@ describe("DetailsPane GPS Map integration", () => {
     });
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrencesFor(metadata)}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataTargets={vi.fn()}
@@ -364,7 +364,7 @@ describe("DetailsPane GPS Map integration", () => {
   it("keeps heading and map callback-unavailable menus in parity", () => {
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrencesFor(validGpsMetadata())}
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
@@ -409,7 +409,7 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrences}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataTargets={vi.fn()}
@@ -434,7 +434,7 @@ describe("DetailsPane GPS Map integration", () => {
   it("uses persistence safety before callback availability on every GPS menu", () => {
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrencesFor(validGpsMetadata())}
         targetDraftPersistence={{ status: "load-failed", error: "invalid" }}
         onRemoveMetadataTargets={vi.fn()}
@@ -498,7 +498,7 @@ describe("DetailsPane GPS Map integration", () => {
       throw new Error("test occurrences must be targetable");
     }
     const store = new TargetDraftEditsStore();
-    store.setMetadataBatch(photo.relative_path, [
+    store.setMetadataBatch(file.relative_path, [
       {
         target: latitudeTarget.target,
         edit: { intent: "Set", value: { kind: "Real", value: 52 } },
@@ -512,9 +512,9 @@ describe("DetailsPane GPS Map integration", () => {
 
     render(
       <DetailsPane
-        photo={photo}
+        file={file}
         occurrences={occurrences}
-        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+        targetDraftEdits={store.getMetadataFile(file.relative_path)}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
@@ -550,7 +550,7 @@ describe("DetailsPane GPS Map integration", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
@@ -575,7 +575,7 @@ describe("DetailsPane GPS Map integration", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
@@ -593,7 +593,7 @@ describe("DetailsPane GPS Map integration", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
@@ -624,7 +624,7 @@ describe("DetailsPane GPS Map integration", () => {
       throw new Error("test GPS occurrences must be targetable");
     }
     const store = new TargetDraftEditsStore();
-    store.setMetadataBatch(photo.relative_path, [
+    store.setMetadataBatch(file.relative_path, [
       {
         target: latitudeTarget.target,
         edit: { intent: "Set", value: { kind: "Real", value: 48.8584 } },
@@ -638,13 +638,13 @@ describe("DetailsPane GPS Map integration", () => {
       onRemoveMetadataTargets: vi.fn(),
       onApplyGpsTargetDraftBatch: vi.fn(() => true),
       onDiscardTargetDraftBatch: vi.fn(),
-      photo,
+      file,
       occurrences,
     };
     const rendered = render(
       <DetailsPane
         {...baseProps}
-        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+        targetDraftEdits={store.getMetadataFile(file.relative_path)}
       />,
     );
     for (const map of screen.getAllByTestId("gps-map")) {
@@ -652,14 +652,14 @@ describe("DetailsPane GPS Map integration", () => {
       expect(map).toHaveAttribute("data-lon", "-2.2945");
     }
 
-    store.setMetadataTarget(photo.relative_path, latitudeTarget.target, {
+    store.setMetadataTarget(file.relative_path, latitudeTarget.target, {
       intent: "Delete",
       value: null,
     });
     rendered.rerender(
       <DetailsPane
         {...baseProps}
-        targetDraftEdits={store.getMetadataFile(photo.relative_path)}
+        targetDraftEdits={store.getMetadataFile(file.relative_path)}
       />,
     );
     expect(screen.queryByTestId("gps-map-overview")).not.toBeInTheDocument();
@@ -850,12 +850,12 @@ describe("DetailsPane GPS Map integration", () => {
 
     for (const scenario of scenarios) {
       cleanup();
-      const item = buildGeocodeRequestItemForFile(photo.relative_path, {
+      const item = buildGeocodeRequestItemForFile(file.relative_path, {
         occurrences: scenario.occurrences,
         targetDrafts: scenario.targetDrafts,
       });
       expect(item, scenario.name).toEqual({
-        relPath: photo.relative_path,
+        relPath: file.relative_path,
         ...scenario.expected,
       });
 
@@ -864,7 +864,7 @@ describe("DetailsPane GPS Map integration", () => {
           onRemoveMetadataTargets={vi.fn()}
           onApplyGpsTargetDraftBatch={vi.fn(() => true)}
           onDiscardTargetDraftBatch={vi.fn()}
-          photo={photo}
+          file={file}
 
           occurrences={scenario.occurrences}
           targetDraftEdits={scenario.targetDrafts}
@@ -900,7 +900,7 @@ describe("DetailsPane GPS Map integration", () => {
       "GPS:GPSLongitudeRef": "W",
     });
     const occurrences = occurrencesFor(metadata);
-    const geocodeItem = buildGeocodeRequestItemForFile(photo.relative_path, {
+    const geocodeItem = buildGeocodeRequestItemForFile(file.relative_path, {
       occurrences,
       targetDrafts: undefined,
     });
@@ -913,7 +913,7 @@ describe("DetailsPane GPS Map integration", () => {
         onRemoveMetadataTargets={vi.fn()}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
 
         occurrences={occurrences}
       />,
@@ -949,7 +949,7 @@ describe("DetailsPane GPS Map integration", () => {
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photo={photo}
+        file={file}
         occurrences={occurrencesFromMetadataCollection(metadata)}
       />,
     );
@@ -1082,7 +1082,7 @@ describe("GpsMapOverview component", () => {
       />,
     );
     const grid = screen.getByRole("button", {
-      name: "Open full map for this photo",
+      name: "Open full map for this file",
     });
 
     fireEvent.click(grid);

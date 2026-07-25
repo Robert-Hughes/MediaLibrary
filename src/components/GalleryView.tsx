@@ -3,7 +3,7 @@ import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { DetailsPane } from "./DetailsPane";
 import type {
   MetadataDraftEdit,
-  PhotoInfo,
+  FileInfo,
   ImageMetadataOccurrencesState,
   ImageMetadataOccurrencesStore,
   MetadataDraftTarget,
@@ -76,7 +76,7 @@ interface DetailsResizeDrag {
 }
 
 interface Props {
-  photos: PhotoInfo[];
+  files: FileInfo[];
   currentIndex: number;
   folderPath: string;
   onClose: () => void;
@@ -121,20 +121,20 @@ interface Props {
   ) => boolean;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
-  /** Trigger the AI-description flow for the currently-displayed photo. */
+  /** Trigger the AI-description flow for the currently-displayed file. */
   onGenerateAiDescription?: (fileRelativePath: string) => void;
-  /** Trigger the reverse-geocoding flow for the currently-displayed photo. */
+  /** Trigger the reverse-geocoding flow for the currently-displayed file. */
   onGeocode?: (fileRelativePath: string) => void;
-  /** Trigger the metadata-normalisation flow for the currently-displayed photo. */
+  /** Trigger the metadata-normalisation flow for the currently-displayed file. */
   onNormalise?: (fileRelativePath: string) => void;
-  /** Reveal the current photo in the host file manager. Index resolved by the parent. */
+  /** Reveal the current file in the host file manager. Index resolved by the parent. */
   onShowInFileExplorer?: (fileRelativePath: string) => void;
-  /** Open the current photo in the app-level full map view. */
+  /** Open the current file in the app-level full map view. */
   onOpenFullMap?: (fileRelativePath: string) => void;
 }
 
 export function GalleryView({
-  photos,
+  files,
   currentIndex,
   folderPath,
   onClose,
@@ -158,7 +158,7 @@ export function GalleryView({
   onShowInFileExplorer,
   onOpenFullMap,
 }: Props) {
-  const photo = photos[currentIndex];
+  const file = files[currentIndex];
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailsVisible, setDetailsVisibleState] =
@@ -244,23 +244,23 @@ export function GalleryView({
   }, [currentIndex]);
 
   // This hook is unconditional so navigation changes the subscribed path and
-  // unsubscribes from the previously displayed photo.
+  // unsubscribes from the previously displayed file.
   const occurrencesState: ImageMetadataOccurrencesState = useSyncExternalStore(
-    (cb) => imageMetadataOccurrences.subscribe(photo?.relative_path ?? "", cb),
-    () => imageMetadataOccurrences.get(photo?.relative_path ?? ""),
+    (cb) => imageMetadataOccurrences.subscribe(file?.relative_path ?? "", cb),
+    () => imageMetadataOccurrences.get(file?.relative_path ?? ""),
   );
 
-  // Load the full image whenever the current photo changes.
+  // Load the full image whenever the current file changes.
   useEffect(() => {
-    if (!photo || !loadImage) return;
+    if (!file || !loadImage) return;
     setLoading(true);
     setImageSrc(null);
-    const absPath = `${folderPath}/${photo.relative_path}`.replace(/\\/g, "/");
+    const absPath = `${folderPath}/${file.relative_path}`.replace(/\\/g, "/");
     loadImage(absPath).then((src) => {
       setImageSrc(src);
       setLoading(false);
     });
-  }, [photo, folderPath, loadImage]);
+  }, [file, folderPath, loadImage]);
 
   const onKey = (e: React.KeyboardEvent<HTMLDialogElement>) => {
     const target = e.target as HTMLElement | null;
@@ -350,10 +350,10 @@ export function GalleryView({
     setIsDragging(false);
   };
 
-  if (!photo) return null;
+  if (!file) return null;
 
   const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex < photos.length - 1;
+  const hasNext = currentIndex < files.length - 1;
   const effectiveDetailsWidth = Math.min(detailsWidth, availableDetailsWidth());
 
   return (
@@ -362,7 +362,7 @@ export function GalleryView({
       onDismiss={onClose}
       className="gallery-dialog"
       testId="gallery-overlay"
-      aria-label="Photo gallery"
+      aria-label="File gallery"
       onKeyDown={onKey}
     >
       <div
@@ -393,7 +393,7 @@ export function GalleryView({
           data-testid="gallery-prev-btn"
           onClick={() => onNavigate(-1)}
           disabled={!hasPrev}
-          aria-label="Previous photo"
+          aria-label="Previous file"
         >
           ‹
         </button>
@@ -418,7 +418,7 @@ export function GalleryView({
           ) : imageSrc ? (
             <img
               src={imageSrc}
-              alt={photo.relative_path}
+              alt={file.relative_path}
               className="gallery-image"
               data-testid="gallery-image"
               style={{
@@ -441,7 +441,7 @@ export function GalleryView({
           data-testid="gallery-next-btn"
           onClick={() => onNavigate(1)}
           disabled={!hasNext}
-          aria-label="Next photo"
+          aria-label="Next file"
         >
           ›
         </button>
@@ -473,26 +473,22 @@ export function GalleryView({
               }
             />
             <DetailsPane
-              photo={photo}
+              file={file}
               occurrences={occurrencesState}
               targetDraftEdits={targetDraftEdits}
               targetDraftPersistence={targetDraftPersistence}
               onSetExistingOccurrenceDraft={(target, edit) =>
-                onSetExistingOccurrenceDraft?.(
-                  photo.relative_path,
-                  target,
-                  edit,
-                )
+                onSetExistingOccurrenceDraft?.(file.relative_path, target, edit)
               }
               onRemoveMetadataTargets={(targets) =>
-                onRemoveMetadataTargets?.(photo.relative_path, targets) ?? false
+                onRemoveMetadataTargets?.(file.relative_path, targets) ?? false
               }
               onApplyGpsTargetDraftBatch={(entries) =>
-                onApplyGpsTargetDraftBatch?.(photo.relative_path, entries) ??
+                onApplyGpsTargetDraftBatch?.(file.relative_path, entries) ??
                 false
               }
               onSetNewPropertyDraft={(target, edit) =>
-                onSetNewPropertyDraft?.(photo.relative_path, target, edit) ??
+                onSetNewPropertyDraft?.(file.relative_path, target, edit) ??
                 Promise.resolve(false)
               }
               onReplaceNewPropertyDraftTarget={(
@@ -501,40 +497,40 @@ export function GalleryView({
                 originalEdit,
               ) =>
                 onReplaceNewPropertyDraftTarget?.(
-                  photo.relative_path,
+                  file.relative_path,
                   originalTarget,
                   replacementTarget,
                   originalEdit,
                 ) ?? Promise.resolve(false)
               }
               onDiscardTargetPropertyDraft={(target) =>
-                onDiscardTargetPropertyDraft?.(photo.relative_path, target)
+                onDiscardTargetPropertyDraft?.(file.relative_path, target)
               }
               onDiscardTargetDraftBatch={(targets) =>
-                onDiscardTargetDraftBatch?.(photo.relative_path, targets) ??
+                onDiscardTargetDraftBatch?.(file.relative_path, targets) ??
                 false
               }
-              onDiscardAllEdits={() => onDiscardAllEdits?.(photo.relative_path)}
-              onApplyEdits={() => onApplyEdits?.(photo.relative_path)}
+              onDiscardAllEdits={() => onDiscardAllEdits?.(file.relative_path)}
+              onApplyEdits={() => onApplyEdits?.(file.relative_path)}
               onGenerateAiDescription={
                 onGenerateAiDescription
-                  ? () => onGenerateAiDescription(photo.relative_path)
+                  ? () => onGenerateAiDescription(file.relative_path)
                   : undefined
               }
               onGeocode={
-                onGeocode ? () => onGeocode(photo.relative_path) : undefined
+                onGeocode ? () => onGeocode(file.relative_path) : undefined
               }
               onNormalise={
-                onNormalise ? () => onNormalise(photo.relative_path) : undefined
+                onNormalise ? () => onNormalise(file.relative_path) : undefined
               }
               onShowInFileExplorer={
                 onShowInFileExplorer
-                  ? () => onShowInFileExplorer(photo.relative_path)
+                  ? () => onShowInFileExplorer(file.relative_path)
                   : undefined
               }
               onOpenFullMap={
                 onOpenFullMap
-                  ? () => onOpenFullMap(photo.relative_path)
+                  ? () => onOpenFullMap(file.relative_path)
                   : undefined
               }
             />
@@ -542,9 +538,9 @@ export function GalleryView({
         )}
 
         <div className="gallery-caption" data-testid="gallery-caption">
-          <span className="gallery-path">{photo.relative_path}</span>
+          <span className="gallery-path">{file.relative_path}</span>
           <span className="gallery-counter">
-            {currentIndex + 1} / {photos.length}
+            {currentIndex + 1} / {files.length}
           </span>
         </div>
       </div>

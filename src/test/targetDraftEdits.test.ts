@@ -150,15 +150,15 @@ describe("target draft target-aware wire conversion", () => {
     const newTarget = created(schema("XMP::Main", "title"));
 
     const result = targetDraftsFromWire({
-      "photo.jpg": [entry(existingTarget, nestedEdit), entry(newTarget)],
+      "file.jpg": [entry(existingTarget, nestedEdit), entry(newTarget)],
     });
 
-    expect(Object.values(result["photo.jpg"])).toEqual([
+    expect(Object.values(result["file.jpg"])).toEqual([
       entry(existingTarget, nestedEdit),
       entry(newTarget),
     ]);
     expect(
-      result["photo.jpg"][metadataDraftTargetSlotToken(existingTarget)],
+      result["file.jpg"][metadataDraftTargetSlotToken(existingTarget)],
     ).toEqual(entry(existingTarget, nestedEdit));
   });
 
@@ -201,13 +201,13 @@ describe("target draft target-aware wire conversion", () => {
     const first = existing({ path: "JPEG-APP1-IFD0" });
     const second = existing({ path: "JPEG-APP1-IFD1", group1: "IFD1" });
     const result = targetDraftsFromWire({
-      "photo.jpg": [
+      "file.jpg": [
         entry(first),
         entry(second),
         entry(created(first.schema_id)),
       ],
     });
-    expect(Object.keys(result["photo.jpg"])).toHaveLength(3);
+    expect(Object.keys(result["file.jpg"])).toHaveLength(3);
   });
 
   it("sorts files by Unicode scalar order", () => {
@@ -227,7 +227,7 @@ describe("target draft target-aware wire conversion", () => {
     const existingA = existing({ path: "IFD0", table: "Z" });
     const result = targetDraftsToWire(
       drafts({
-        "photo.jpg": [
+        "file.jpg": [
           entry(newB),
           entry(existingB),
           entry(newA),
@@ -236,7 +236,7 @@ describe("target draft target-aware wire conversion", () => {
       }),
     );
 
-    expect(result["photo.jpg"].map(({ target }) => target)).toEqual([
+    expect(result["file.jpg"].map(({ target }) => target)).toEqual([
       existingA,
       existingB,
       newA,
@@ -253,7 +253,7 @@ describe("target draft target-aware wire conversion", () => {
   });
 
   it("does not mutate source wire arrays or source collections", () => {
-    const wire = { "photo.jpg": [entry(created()), entry(existing())] };
+    const wire = { "file.jpg": [entry(created()), entry(existing())] };
     const wireBefore = structuredClone(wire);
     const collection = targetDraftsFromWire(wire);
     const collectionBefore = structuredClone(collection);
@@ -273,14 +273,14 @@ describe("target draft target-aware wire conversion", () => {
       created(schema("table", "tag", 0)),
     ];
     const result = targetDraftsFromWire({
-      "photo.jpg": targets.map((target) => entry(target)),
+      "file.jpg": targets.map((target) => entry(target)),
     });
-    expect(Object.keys(result["photo.jpg"])).toHaveLength(targets.length);
+    expect(Object.keys(result["file.jpg"])).toHaveLength(targets.length);
     expect(
-      result["photo.jpg"][metadataDraftTargetSlotToken(targets[3])],
+      result["file.jpg"][metadataDraftTargetSlotToken(targets[3])],
     ).toBeDefined();
     expect(
-      result["photo.jpg"][metadataDraftTargetSlotToken(targets[4])],
+      result["file.jpg"][metadataDraftTargetSlotToken(targets[4])],
     ).toBeDefined();
   });
 });
@@ -299,7 +299,7 @@ describe("target draft target-aware reserved-path wire conversion", () => {
       const siblingEntry = entry(existing(), setEdit("sibling"));
       const wire = Object.fromEntries([
         [path, [reservedEntry]],
-        ["ordinary/photo.jpg", [siblingEntry]],
+        ["ordinary/file.jpg", [siblingEntry]],
       ]) as Record<string, MetadataTargetDraftEntry[]>;
 
       const typed = targetDraftsFromWire(wire);
@@ -308,13 +308,13 @@ describe("target draft target-aware reserved-path wire conversion", () => {
       expect(
         typed[path][metadataDraftTargetSlotToken(reservedEntry.target)],
       ).toEqual(reservedEntry);
-      expect(hasOwn(typed, "ordinary/photo.jpg")).toBe(true);
+      expect(hasOwn(typed, "ordinary/file.jpg")).toBe(true);
       expect(Object.getPrototypeOf(typed)).toBe(Object.prototype);
 
       const outgoing = targetDraftsToWire(typed);
       expect(hasOwn(outgoing, path)).toBe(true);
       expect(outgoing[path]).toEqual([reservedEntry]);
-      expect(hasOwn(outgoing, "ordinary/photo.jpg")).toBe(true);
+      expect(hasOwn(outgoing, "ordinary/file.jpg")).toBe(true);
       expect(Object.getPrototypeOf(outgoing)).toBe(Object.prototype);
 
       const unknown = targetDraftsFromUnknownWire(
@@ -324,7 +324,7 @@ describe("target draft target-aware reserved-path wire conversion", () => {
       expect(
         unknown[path][metadataDraftTargetSlotToken(reservedEntry.target)],
       ).toEqual(reservedEntry);
-      expect(hasOwn(unknown, "ordinary/photo.jpg")).toBe(true);
+      expect(hasOwn(unknown, "ordinary/file.jpg")).toBe(true);
       expect(Object.getPrototypeOf(unknown)).toBe(Object.prototype);
       expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(
         prototypeBefore,
@@ -340,10 +340,10 @@ describe("TargetDraftEditsStore basic state", () => {
     store.subscribe(listener);
     expect(store.getAllMetadata()).toEqual({});
 
-    const initial = drafts({ "photo.jpg": [entry(existing())] });
+    const initial = drafts({ "file.jpg": [entry(existing())] });
     store.resetMetadata(initial);
 
-    expect(store.getMetadataFile("photo.jpg")).toEqual(initial["photo.jpg"]);
+    expect(store.getMetadataFile("file.jpg")).toEqual(initial["file.jpg"]);
     expect(listener).not.toHaveBeenCalled();
   });
 
@@ -351,13 +351,13 @@ describe("TargetDraftEditsStore basic state", () => {
     const store = new TargetDraftEditsStore();
     const oldTarget = existing();
     const newTarget = created();
-    expect(
-      store.setMetadataTarget("photo.jpg", oldTarget, setEdit("old")),
-    ).toBe("written");
-    expect(
-      store.setMetadataTarget("photo.jpg", newTarget, setEdit("new")),
-    ).toBe("written");
-    expect(Object.keys(store.getMetadataFile("photo.jpg")!)).toHaveLength(2);
+    expect(store.setMetadataTarget("file.jpg", oldTarget, setEdit("old"))).toBe(
+      "written",
+    );
+    expect(store.setMetadataTarget("file.jpg", newTarget, setEdit("new"))).toBe(
+      "written",
+    );
+    expect(Object.keys(store.getMetadataFile("file.jpg")!)).toHaveLength(2);
   });
 
   it("deletes one path, several paths, and clears", () => {
@@ -510,20 +510,20 @@ describe("TargetDraftEditsStore slot replacement", () => {
   it("replaces edit, schema snapshot, and selector snapshot in one occurrence slot", () => {
     const store = new TargetDraftEditsStore();
     const original = existing();
-    store.setMetadataTarget("photo.jpg", original, setEdit("one"));
+    store.setMetadataTarget("file.jpg", original, setEdit("one"));
 
     store.setMetadataTarget(
-      "photo.jpg",
+      "file.jpg",
       structuredClone(original),
       setEdit("same snapshot"),
     );
-    expect(Object.values(store.getMetadataFile("photo.jpg")!)).toEqual([
+    expect(Object.values(store.getMetadataFile("file.jpg")!)).toEqual([
       entry(original, setEdit("same snapshot")),
     ]);
 
     const changedSchema = existing({ table: "Other", schemaTag: "999" });
-    store.setMetadataTarget("photo.jpg", changedSchema, setEdit("two"));
-    let stored = Object.values(store.getMetadataFile("photo.jpg")!);
+    store.setMetadataTarget("file.jpg", changedSchema, setEdit("two"));
+    let stored = Object.values(store.getMetadataFile("file.jpg")!);
     expect(stored).toHaveLength(1);
     expect(stored[0]).toEqual(entry(changedSchema, setEdit("two")));
 
@@ -531,8 +531,8 @@ describe("TargetDraftEditsStore slot replacement", () => {
       group1: "IFD1",
       tagName: "YResolution",
     });
-    store.setMetadataTarget("photo.jpg", changedSelector, setEdit("three"));
-    stored = Object.values(store.getMetadataFile("photo.jpg")!);
+    store.setMetadataTarget("file.jpg", changedSelector, setEdit("three"));
+    stored = Object.values(store.getMetadataFile("file.jpg")!);
     expect(stored).toHaveLength(1);
     expect(stored[0]).toEqual(entry(changedSelector, setEdit("three")));
   });
@@ -541,21 +541,21 @@ describe("TargetDraftEditsStore slot replacement", () => {
     const store = new TargetDraftEditsStore();
     const ifd0 = existing({ path: "IFD0", group1: "IFD0" });
     const ifd1 = existing({ path: "IFD1", group1: "IFD1" });
-    store.setMetadataTarget("photo.jpg", ifd0, setEdit("ifd0"));
-    store.setMetadataTarget("photo.jpg", ifd1, setEdit("ifd1"));
+    store.setMetadataTarget("file.jpg", ifd0, setEdit("ifd0"));
+    store.setMetadataTarget("file.jpg", ifd1, setEdit("ifd1"));
     store.setMetadataTarget(
-      "photo.jpg",
+      "file.jpg",
       created(ifd0.schema_id),
       setEdit("new"),
     );
-    expect(Object.keys(store.getMetadataFile("photo.jpg")!)).toHaveLength(3);
+    expect(Object.keys(store.getMetadataFile("file.jpg")!)).toHaveLength(3);
   });
 
   it("replaces two new-property targets for the same schema", () => {
     const store = new TargetDraftEditsStore();
-    store.setMetadataTarget("photo.jpg", created(), setEdit("one"));
-    store.setMetadataTarget("photo.jpg", created(), setEdit("two"));
-    expect(Object.values(store.getMetadataFile("photo.jpg")!)).toEqual([
+    store.setMetadataTarget("file.jpg", created(), setEdit("one"));
+    store.setMetadataTarget("file.jpg", created(), setEdit("two"));
+    expect(Object.values(store.getMetadataFile("file.jpg")!)).toEqual([
       entry(created(), setEdit("two")),
     ]);
   });
@@ -582,11 +582,11 @@ describe("TargetDraftEditsStore redundant Set guard", () => {
     const ifd0 = existing({ path: "IFD0", group1: "IFD0" });
     const ifd1 = existing({ path: "IFD1", group1: "IFD1" });
 
-    expect(store.setMetadataTarget("photo.jpg", ifd0, setEdit("ifd0"))).toBe(
+    expect(store.setMetadataTarget("file.jpg", ifd0, setEdit("ifd0"))).toBe(
       "redundant",
     );
     expect(
-      store.setMetadataTarget("photo.jpg", ifd1, setEdit("different")),
+      store.setMetadataTarget("file.jpg", ifd1, setEdit("different")),
     ).toBe("written");
     expect(resolver.mock.calls[0][1]).toBe(ifd0);
     expect(resolver.mock.calls[1][1]).toBe(ifd1);
@@ -597,22 +597,22 @@ describe("TargetDraftEditsStore redundant Set guard", () => {
     const target = existing();
     store.setCurrentValueResolver(() => text("current"));
     expect(
-      store.setMetadataTarget("photo.jpg", target, setEdit("current")),
+      store.setMetadataTarget("file.jpg", target, setEdit("current")),
     ).toBe("redundant");
-    expect(store.setMetadataTarget("photo.jpg", target, setEdit("draft"))).toBe(
+    expect(store.setMetadataTarget("file.jpg", target, setEdit("draft"))).toBe(
       "written",
     );
     expect(
-      store.setMetadataTarget("photo.jpg", target, setEdit("current")),
+      store.setMetadataTarget("file.jpg", target, setEdit("current")),
     ).toBe("cleared");
-    expect(store.getMetadataFile("photo.jpg")).toBeUndefined();
+    expect(store.getMetadataFile("file.jpg")).toBeUndefined();
   });
 
   it("always writes Delete, ListAdd, and ListRemove", () => {
     for (const editValue of [deleteEdit, listAddEdit, listRemoveEdit]) {
       const store = new TargetDraftEditsStore();
       store.setCurrentValueResolver(() => editValue.value ?? undefined);
-      expect(store.setMetadataTarget("photo.jpg", existing(), editValue)).toBe(
+      expect(store.setMetadataTarget("file.jpg", existing(), editValue)).toBe(
         "written",
       );
     }
@@ -626,14 +626,14 @@ describe("TargetDraftEditsStore redundant Set guard", () => {
     );
     expect(
       store.setMetadataTarget(
-        "photo.jpg",
+        "file.jpg",
         target,
         setEdit(list("Seq", [text("one"), text("two")])),
       ),
     ).toBe("redundant");
     expect(
       store.setMetadataTarget(
-        "photo.jpg",
+        "file.jpg",
         target,
         setEdit(list("Seq", [text("two"), text("one")])),
       ),
@@ -643,14 +643,14 @@ describe("TargetDraftEditsStore redundant Set guard", () => {
     bags.setCurrentValueResolver(() => list("Bag", [text("one"), text("two")]));
     expect(
       bags.setMetadataTarget(
-        "photo.jpg",
+        "file.jpg",
         target,
         setEdit(list("Bag", [text("two"), text("one")])),
       ),
     ).toBe("redundant");
     expect(
       bags.setMetadataTarget(
-        "photo.jpg",
+        "file.jpg",
         target,
         setEdit(list("Bag", [text("one"), text("changed")])),
       ),
@@ -678,10 +678,10 @@ describe("TargetDraftEditsStore redundant Set guard", () => {
     const store = new TargetDraftEditsStore();
     store.setCurrentValueResolver(() => current);
     expect(
-      store.setMetadataTarget("photo.jpg", existing(), setEdit(reordered)),
+      store.setMetadataTarget("file.jpg", existing(), setEdit(reordered)),
     ).toBe("redundant");
     expect(
-      store.setMetadataTarget("photo.jpg", existing(), setEdit(changed)),
+      store.setMetadataTarget("file.jpg", existing(), setEdit(changed)),
     ).toBe("written");
   });
 });
@@ -699,7 +699,7 @@ describe("TargetDraftEditsStore batch atomicity", () => {
         ? text("disk")
         : text("other"),
     );
-    const results = store.setMetadataBatch("photo.jpg", [
+    const results = store.setMetadataBatch("file.jpg", [
       entry(redundant, setEdit("disk")),
       entry(written, setEdit("draft")),
     ]);
@@ -722,7 +722,7 @@ describe("TargetDraftEditsStore batch atomicity", () => {
     store.subscribe(listener);
     const first = existing({ path: "IFD1", group1: "IFD1" });
     const second = existing({ path: "IFD0", group1: "IFD0" });
-    const results = store.setMetadataBatch("photo.jpg", [
+    const results = store.setMetadataBatch("file.jpg", [
       entry(first, setEdit("one")),
       entry(second, setEdit("two")),
     ]);
@@ -749,7 +749,7 @@ describe("TargetDraftEditsStore batch atomicity", () => {
       store.subscribe(listener);
 
       expect(() =>
-        store.setMetadataBatch("photo.jpg", [
+        store.setMetadataBatch("file.jpg", [
           entry(existing()),
           entry(duplicate),
         ]),
@@ -765,7 +765,7 @@ describe("TargetDraftEditsStore batch atomicity", () => {
     const listener = vi.fn();
     store.subscribe(listener);
     expect(() =>
-      store.setMetadataBatch("photo.jpg", [entry(created()), entry(created())]),
+      store.setMetadataBatch("file.jpg", [entry(created()), entry(created())]),
     ).toThrow(/Duplicate target draft slot in batch/);
     expect(store.getAllMetadata()).toBe(before);
     expect(listener).not.toHaveBeenCalled();
@@ -773,11 +773,11 @@ describe("TargetDraftEditsStore batch atomicity", () => {
 
   it("accepts two shared-schema distinct occurrences", () => {
     const store = new TargetDraftEditsStore();
-    store.setMetadataBatch("photo.jpg", [
+    store.setMetadataBatch("file.jpg", [
       entry(existing({ path: "IFD0" })),
       entry(existing({ path: "IFD1", group1: "IFD1" })),
     ]);
-    expect(Object.keys(store.getMetadataFile("photo.jpg")!)).toHaveLength(2);
+    expect(Object.keys(store.getMetadataFile("file.jpg")!)).toHaveLength(2);
   });
 });
 
@@ -786,9 +786,9 @@ describe("TargetDraftEditsStore notifications and immutability", () => {
     const store = new TargetDraftEditsStore();
     const listener = vi.fn();
     store.subscribe(listener);
-    store.setMetadataTarget("photo.jpg", existing(), setEdit("one"));
+    store.setMetadataTarget("file.jpg", existing(), setEdit("one"));
     expect(listener).toHaveBeenCalledTimes(1);
-    store.deleteTarget("photo.jpg", existing({ path: "missing" }));
+    store.deleteTarget("file.jpg", existing({ path: "missing" }));
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
@@ -796,7 +796,7 @@ describe("TargetDraftEditsStore notifications and immutability", () => {
     const store = new TargetDraftEditsStore();
     const listener = vi.fn();
     const unsubscribe = store.subscribe(listener);
-    store.resetMetadata(drafts({ "photo.jpg": [entry(existing())] }));
+    store.resetMetadata(drafts({ "file.jpg": [entry(existing())] }));
     unsubscribe();
     store.clear();
     expect(listener).not.toHaveBeenCalled();
@@ -822,7 +822,7 @@ describe("TargetDraftEditsStore notifications and immutability", () => {
     const target = existing({ document: "Doc1", copy: 2, index: 3 });
     const before = structuredClone(target);
     const originalSlot = metadataDraftTargetSlotToken(before);
-    store.setMetadataTarget("photo.jpg", target, setEdit("one"));
+    store.setMetadataTarget("file.jpg", target, setEdit("one"));
     expect(target).toEqual(before);
 
     target.occurrence_id.document = "Doc2";
@@ -838,14 +838,14 @@ describe("TargetDraftEditsStore notifications and immutability", () => {
     target.write_target.group1 = "changed";
     target.write_target.tag_name = "changed";
 
-    const collection = store.getMetadataFile("photo.jpg")!;
+    const collection = store.getMetadataFile("file.jpg")!;
     expect(Object.keys(collection)).toEqual([originalSlot]);
     expect(collection[originalSlot].target).toEqual(before);
     expect(() =>
-      validateTargetDraftCollection("photo.jpg", collection),
+      validateTargetDraftCollection("file.jpg", collection),
     ).not.toThrow();
     expect(targetDraftsToWire(store.getAllMetadata())).toEqual({
-      "photo.jpg": [entry(before, setEdit("one"))],
+      "file.jpg": [entry(before, setEdit("one"))],
     });
   });
 
@@ -867,26 +867,26 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
     const store = new TargetDraftEditsStore();
     const listener = vi.fn();
     store.subscribe(listener);
-    expect(store.replaceMetadataFile("photo.jpg", [])).toBe(false);
+    expect(store.replaceMetadataFile("file.jpg", [])).toBe(false);
 
     const first = entry(existing(), setEdit("one"));
-    expect(store.replaceMetadataFile("photo.jpg", [first])).toBe(true);
+    expect(store.replaceMetadataFile("file.jpg", [first])).toBe(true);
     const snapshot = store.getAllMetadata();
-    const collection = store.getMetadataFile("photo.jpg");
+    const collection = store.getMetadataFile("file.jpg");
     expect(listener).toHaveBeenCalledTimes(1);
     expect(
-      store.replaceMetadataFile("photo.jpg", [structuredClone(first)]),
+      store.replaceMetadataFile("file.jpg", [structuredClone(first)]),
     ).toBe(false);
     expect(store.getAllMetadata()).toBe(snapshot);
-    expect(store.getMetadataFile("photo.jpg")).toBe(collection);
+    expect(store.getMetadataFile("file.jpg")).toBe(collection);
 
     const replacement = entry(created(), setEdit("two"));
-    expect(store.replaceMetadataFile("photo.jpg", [replacement])).toBe(true);
-    expect(Object.values(store.getMetadataFile("photo.jpg")!)).toEqual([
+    expect(store.replaceMetadataFile("file.jpg", [replacement])).toBe(true);
+    expect(Object.values(store.getMetadataFile("file.jpg")!)).toEqual([
       replacement,
     ]);
-    expect(store.replaceMetadataFile("photo.jpg", [])).toBe(true);
-    expect(store.getMetadataFile("photo.jpg")).toBeUndefined();
+    expect(store.replaceMetadataFile("file.jpg", [])).toBe(true);
+    expect(store.getMetadataFile("file.jpg")).toBeUndefined();
   });
 
   it("uses complete target and exact edit equality", () => {
@@ -926,11 +926,11 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
       }),
     );
     const expected = structuredClone(source);
-    store.replaceMetadataFile("photo.jpg", [source]);
+    store.replaceMetadataFile("file.jpg", [source]);
     source.target.schema_id.table = "mutated";
     if (source.edit.value?.kind === "Unknown")
       source.edit.value.value.raw = { changed: true };
-    expect(Object.values(store.getMetadataFile("photo.jpg")!)[0]).toEqual(
+    expect(Object.values(store.getMetadataFile("file.jpg")!)[0]).toEqual(
       expected,
     );
     expect(resolver).not.toHaveBeenCalled();
@@ -943,13 +943,13 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
     const listener = vi.fn();
     store.subscribe(listener);
     expect(() =>
-      store.replaceMetadataFile("photo.jpg", [
+      store.replaceMetadataFile("file.jpg", [
         entry(existing()),
         entry(existing({ table: "Other" })),
       ]),
     ).toThrow(/Duplicate/);
     expect(() =>
-      store.replaceMetadataFile("photo.jpg", [
+      store.replaceMetadataFile("file.jpg", [
         {
           target: existing(),
           edit: { intent: "Set", value: { kind: "Real", value: Number.NaN } },
@@ -981,9 +981,9 @@ describe("TargetDraftEditsStore slot-based deletion and pruning", () => {
       existing({ table: "Other", schemaTag: "999" }),
     ]) {
       const store = new TargetDraftEditsStore();
-      store.setMetadataTarget("photo.jpg", existing(), setEdit("one"));
-      store.deleteTarget("photo.jpg", stale);
-      expect(store.getMetadataFile("photo.jpg")).toBeUndefined();
+      store.setMetadataTarget("file.jpg", existing(), setEdit("one"));
+      store.deleteTarget("file.jpg", stale);
+      expect(store.getMetadataFile("file.jpg")).toBeUndefined();
     }
   });
 
@@ -991,10 +991,10 @@ describe("TargetDraftEditsStore slot-based deletion and pruning", () => {
     const store = new TargetDraftEditsStore();
     const oldTarget = existing();
     const newTarget = created(oldTarget.schema_id);
-    store.setMetadataTarget("photo.jpg", oldTarget, setEdit("old"));
-    store.setMetadataTarget("photo.jpg", newTarget, setEdit("new"));
-    store.deleteTarget("photo.jpg", newTarget);
-    const remaining = Object.values(store.getMetadataFile("photo.jpg")!);
+    store.setMetadataTarget("file.jpg", oldTarget, setEdit("old"));
+    store.setMetadataTarget("file.jpg", newTarget, setEdit("new"));
+    store.deleteTarget("file.jpg", newTarget);
+    const remaining = Object.values(store.getMetadataFile("file.jpg")!);
     expect(remaining).toHaveLength(1);
     expect(metadataDraftTargetToken(remaining[0].target)).toBe(
       metadataDraftTargetToken(oldTarget),
@@ -1003,26 +1003,26 @@ describe("TargetDraftEditsStore slot-based deletion and pruning", () => {
 
   it("deletes several targets by their logical slots with one notification", () => {
     const store = new TargetDraftEditsStore();
-    store.setMetadataBatch("photo.jpg", [
+    store.setMetadataBatch("file.jpg", [
       entry(existing({ path: "IFD0" })),
       entry(existing({ path: "IFD1", group1: "IFD1" })),
       entry(created()),
     ]);
     const listener = vi.fn();
     store.subscribe(listener);
-    store.deleteTargets("photo.jpg", [
+    store.deleteTargets("file.jpg", [
       existing({ path: "IFD0", group1: "stale" }),
       created(),
     ]);
 
-    expect(Object.keys(store.getMetadataFile("photo.jpg")!)).toHaveLength(1);
+    expect(Object.keys(store.getMetadataFile("file.jpg")!)).toHaveLength(1);
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("prunes by logical slot identity", () => {
     const store = new TargetDraftEditsStore();
-    store.setMetadataTarget("photo.jpg", existing(), setEdit("one"));
-    store.pruneTargets("photo.jpg", [existing({ group1: "IFD1" })]);
-    expect(store.getMetadataFile("photo.jpg")).toBeUndefined();
+    store.setMetadataTarget("file.jpg", existing(), setEdit("one"));
+    store.pruneTargets("file.jpg", [existing({ group1: "IFD1" })]);
+    expect(store.getMetadataFile("file.jpg")).toBeUndefined();
   });
 });

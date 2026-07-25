@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type { MetadataOccurrence, SchemaDefinitionId, TagInfo } from "../types";
-import { makePhoto } from "./factories";
+import { makeFile } from "./factories";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -18,7 +18,7 @@ import {
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
-const photo = makePhoto({ relative_path: "tag-info.jpg" });
+const file = makeFile({ relative_path: "tag-info.jpg" });
 const id: SchemaDefinitionId = { table: "XMP::dc", tag_id: "title" };
 const embedded: TagInfo = {
   id,
@@ -63,7 +63,7 @@ function renderPane(
 ) {
   render(
     <DetailsPane
-      photo={photo}
+      file={file}
       occurrences={occurrences}
       targetDraftEdits={targetDraftEdits}
       targetDraftPersistence={{ status: "ready" }}
@@ -126,11 +126,11 @@ describe("DetailsPane embedded TagInfo", () => {
       },
     };
     const store = new TargetDraftEditsStore();
-    store.setMetadataTarget(photo.relative_path, target, {
+    store.setMetadataTarget(file.relative_path, target, {
       intent: "Set",
       value: { kind: "Text", value: "draft" },
     });
-    renderPane([occurrence()], store.getMetadataFile(photo.relative_path));
+    renderPane([occurrence()], store.getMetadataFile(file.relative_path));
 
     const newRow = screen
       .getAllByTestId("details-row")

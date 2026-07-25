@@ -281,7 +281,7 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_location(&input).output.unwrap();
-        assert_eq!(s(&out, "XMP-photoshop:City"), "Paris");
+        assert_eq!(s(&out, "XMP-fileshop:City"), "Paris");
         assert!(!out.edits.contains_key(&crate::known_ids::iptc_city()));
     }
 

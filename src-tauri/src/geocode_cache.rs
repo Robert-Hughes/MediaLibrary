@@ -1,7 +1,7 @@
 //! Persistent app-wide reverse-geocoding cache.
 //!
 //! Reverse-geocoding hits a public Nominatim endpoint that is rate-limited
-//! to 1 request per second. A typical photo library has photos clustered
+//! to 1 request per second. A typical file library has files clustered
 //! around a handful of common locations (home, workplace, regular travel
 //! destinations), so most batches resolve to a small number of unique
 //! coordinates. Caching turns a 5-minute batch into a few seconds for the
@@ -16,7 +16,7 @@
 //! Lookup: linear scan with haversine distance < 50 m. The 50 m threshold
 //! is inherited from the original `Update Metadata Scripts/geocode_batch.py`
 //! and was chosen because Nominatim returns the *feature's* coordinates,
-//! not the query's — two photos taken from a few metres apart at the same
+//! not the query's — two files taken from a few metres apart at the same
 //! venue should share a cache entry.
 
 use std::fs;

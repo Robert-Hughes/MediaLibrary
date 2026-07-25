@@ -7,7 +7,7 @@ import {
 } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
-import { makePhoto, mockOccurrences } from "./factories";
+import { makeFile, mockOccurrences } from "./factories";
 import type { MetadataOccurrence } from "../types";
 
 // Mock Tauri API
@@ -127,7 +127,7 @@ describe("App CLI folder argument", () => {
     // Mock get_cli_folder to return a folder path
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_cli_folder") {
-        return Promise.resolve("D:\\Photos\\2024");
+        return Promise.resolve("D:\\Files\\2024");
       }
       if (cmd === "start_scan") {
         return Promise.resolve();
@@ -149,7 +149,7 @@ describe("App CLI folder argument", () => {
       expect(mockInvoke).toHaveBeenCalledWith(
         "start_scan",
         expect.objectContaining({
-          folderPath: "D:\\Photos\\2024",
+          folderPath: "D:\\Files\\2024",
         }),
       );
     });
@@ -232,7 +232,7 @@ describe("App CLI folder argument", () => {
 
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "get_cli_folder") {
-        return Promise.resolve("D:\\Photos\\2024");
+        return Promise.resolve("D:\\Files\\2024");
       }
       if (cmd === "start_scan") {
         return Promise.resolve();
@@ -299,7 +299,7 @@ describe("App Select Columns metadata counts", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
-      if (cmd === "pick_folder") return Promise.resolve("/photos");
+      if (cmd === "pick_folder") return Promise.resolve("/files");
       if (cmd === "load_metadata_draft_edits") {
         return Promise.resolve({
           "b.jpg": [
@@ -373,17 +373,17 @@ describe("App Select Columns metadata counts", () => {
     });
 
     act(() => {
-      emit("photo_found", {
+      emit("file_found", {
         scan_id: scanId,
-        photos: [
-          makePhoto({ relative_path: "a.jpg" }),
-          makePhoto({ relative_path: "b.jpg" }),
+        files: [
+          makeFile({ relative_path: "a.jpg" }),
+          makeFile({ relative_path: "b.jpg" }),
         ],
       });
     });
 
     await waitFor(() => {
-      expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+      expect(screen.getAllByTestId("file-row")).toHaveLength(2);
       expect(screen.getByTestId("status-bar-draft-summary")).toHaveTextContent(
         "1 file",
       );
@@ -441,7 +441,7 @@ describe("App Select Columns metadata counts", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
-      if (cmd === "pick_folder") return Promise.resolve("/photos");
+      if (cmd === "pick_folder") return Promise.resolve("/files");
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
       if (cmd === "get_tag_info") {
         const id = (args as { id: { table: string; tag_id: string } }).id;
@@ -494,20 +494,20 @@ describe("App Select Columns metadata counts", () => {
       scanId = (startCall?.[1] as { scanId: number }).scanId;
     });
 
-    // 1. Load/open a folder with two photos.
+    // 1. Load/open a folder with two files.
     act(() => {
-      emit("photo_found", {
+      emit("file_found", {
         scan_id: scanId,
-        photos: [
-          makePhoto({ relative_path: "a.jpg" }),
-          makePhoto({ relative_path: "b.jpg" }),
+        files: [
+          makeFile({ relative_path: "a.jpg" }),
+          makeFile({ relative_path: "b.jpg" }),
         ],
       });
     });
 
     await waitFor(
       () => {
-        expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+        expect(screen.getAllByTestId("file-row")).toHaveLength(2);
       },
       { timeout: 10000 },
     );
@@ -526,7 +526,7 @@ describe("App Select Columns metadata counts", () => {
     );
     expect(screen.queryByText("XMP-dc:Title")).not.toBeInTheDocument();
 
-    // 4. Emit an `image_metadata_ready` event for one photo containing `XMP-dc:Title`.
+    // 4. Emit an `image_metadata_ready` event for one file containing `XMP-dc:Title`.
     act(() => {
       emit("image_metadata_ready", {
         scan_id: scanId,
@@ -550,7 +550,7 @@ describe("App Select Columns metadata counts", () => {
       { timeout: 10000 },
     );
 
-    // 7. Emit another `image_metadata_ready` event or batch for the second photo also containing `XMP-dc:Title`.
+    // 7. Emit another `image_metadata_ready` event or batch for the second file also containing `XMP-dc:Title`.
     act(() => {
       emit("image_metadata_ready", {
         scan_id: scanId,
@@ -605,7 +605,7 @@ describe("App occurrence wiring regression", () => {
     mockInvoke.mockImplementation((cmd: string) => {
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
-      if (cmd === "pick_folder") return Promise.resolve("/photos");
+      if (cmd === "pick_folder") return Promise.resolve("/files");
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
       if (cmd === "get_tag_infos") return Promise.resolve([]);
       if (cmd === "get_tag_info") return Promise.resolve(null);
@@ -632,11 +632,11 @@ describe("App occurrence wiring regression", () => {
       scanId = (call?.[1] as { scanId: number }).scanId;
     });
     act(() => {
-      emit("photo_found", {
+      emit("file_found", {
         scan_id: scanId,
-        photos: [
-          makePhoto({ relative_path: "unique.jpg" }),
-          makePhoto({ relative_path: "duplicate.jpg" }),
+        files: [
+          makeFile({ relative_path: "unique.jpg" }),
+          makeFile({ relative_path: "duplicate.jpg" }),
         ],
       });
     });
@@ -644,7 +644,7 @@ describe("App occurrence wiring regression", () => {
       await new Promise((resolve) => setTimeout(resolve, 150));
     });
     await waitFor(() => {
-      expect(screen.getAllByTestId("photo-row")).toHaveLength(2);
+      expect(screen.getAllByTestId("file-row")).toHaveLength(2);
     });
 
     const info = {
@@ -758,7 +758,7 @@ describe("App occurrence wiring regression", () => {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
     });
-    fireEvent.doubleClick(screen.getAllByTestId("photo-row")[0]);
+    fireEvent.doubleClick(screen.getAllByTestId("file-row")[0]);
 
     await waitFor(() => {
       expect(screen.getByText("301")).toBeInTheDocument();

@@ -1,5 +1,5 @@
 /**
- * Owns the photo-list multi-selection state and its keyboard nav.
+ * Owns the file-list multi-selection state and its keyboard nav.
  *
  * The parent's `selectedIndex` is the *anchor*; `selectedIndices`
  * captures additional rows added via Ctrl/Shift-click. Plain clicks
@@ -10,10 +10,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface RowSelectionConfig {
-  photosLength: number;
+  filesLength: number;
   selectedIndex: number | null;
   onSelect: (index: number | null) => void;
-  onPhotoOpen: (index: number) => void;
+  onFileOpen: (index: number) => void;
   listRef: React.RefObject<HTMLDivElement | null>;
   rowHeight: number;
   onSelectionCountChange?: (count: number) => void;
@@ -21,10 +21,10 @@ export interface RowSelectionConfig {
 
 export function useRowSelection(cfg: RowSelectionConfig) {
   const {
-    photosLength,
+    filesLength,
     selectedIndex,
     onSelect,
-    onPhotoOpen,
+    onFileOpen,
     listRef,
     rowHeight,
     onSelectionCountChange,
@@ -60,10 +60,10 @@ export function useRowSelection(cfg: RowSelectionConfig) {
   useEffect(() => {
     setSelectedIndices((prev) => {
       const trimmed = new Set<number>();
-      for (const i of prev) if (i >= 0 && i < photosLength) trimmed.add(i);
+      for (const i of prev) if (i >= 0 && i < filesLength) trimmed.add(i);
       return trimmed.size === prev.size ? prev : trimmed;
     });
-  }, [photosLength]);
+  }, [filesLength]);
 
   const handleRowSelect = useCallback(
     (index: number, modifiers: { ctrl: boolean; shift: boolean }) => {
@@ -114,15 +114,15 @@ export function useRowSelection(cfg: RowSelectionConfig) {
   );
 
   // Keyboard nav lives on document. Refs avoid rebinding on every
-  // photos/selectedIndex/rowHeight tick.
-  const photosLenRef = useRef(photosLength);
-  photosLenRef.current = photosLength;
+  // files/selectedIndex/rowHeight tick.
+  const filesLenRef = useRef(filesLength);
+  filesLenRef.current = filesLength;
   const selectedIndexRef = useRef(selectedIndex);
   selectedIndexRef.current = selectedIndex;
   const rowHeightRef = useRef(rowHeight);
   rowHeightRef.current = rowHeight;
-  const onPhotoOpenRef = useRef(onPhotoOpen);
-  onPhotoOpenRef.current = onPhotoOpen;
+  const onFileOpenRef = useRef(onFileOpen);
+  onFileOpenRef.current = onFileOpen;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -139,7 +139,7 @@ export function useRowSelection(cfg: RowSelectionConfig) {
       }
       // Keyboard events bubbling from native dialogs belong to that dialog.
       if ((e.target as Element | null)?.closest?.("dialog")) return;
-      const len = photosLenRef.current;
+      const len = filesLenRef.current;
       if (len === 0) return;
       const cur = selectedIndexRef.current;
 
@@ -204,7 +204,7 @@ export function useRowSelection(cfg: RowSelectionConfig) {
       } else if (e.key === "Enter") {
         if (cur !== null && cur >= 0 && cur < len) {
           e.preventDefault();
-          onPhotoOpenRef.current(cur);
+          onFileOpenRef.current(cur);
         }
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();

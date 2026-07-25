@@ -5,7 +5,7 @@
 // `src/types/generated/`; regenerate with:
 // cargo test --manifest-path src-tauri/Cargo.toml
 
-import type { PhotoInfo } from "./types/generated/PhotoInfo";
+import type { FileInfo } from "./types/generated/FileInfo";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 import type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
@@ -19,7 +19,7 @@ import type { TargetApplyControllerState } from "./targetApplyController";
 import type { TargetVerifyOutcomesByFile } from "./targetVerifyOutcomes";
 import type { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 
-export type { PhotoInfo };
+export type { FileInfo };
 export type { MetadataValue } from "./types/generated/MetadataValue";
 export type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 export type { MetadataOccurrenceId } from "./types/generated/MetadataOccurrenceId";
@@ -80,7 +80,7 @@ export type ThumbnailState = "loading" | "failed" | string;
 /**
  * Observable store for thumbnail data, keyed by relative_path.
  * Lives outside React state so thumbnail_ready events update only the
- * individual row that changed, not the entire photo list.
+ * individual row that changed, not the entire file list.
  */
 export class ThumbnailStore {
   private data = new Map<string, ThumbnailState>();
@@ -215,18 +215,18 @@ export class ImageMetadataOccurrencesStore {
  * Separate from React state to avoid triggering re-renders of the entire component tree.
  */
 export class MetadataProgressStore {
-  private totalPhotos = 0;
+  private totalFiles = 0;
   private receivedCount = 0;
   private subscribers = new Set<() => void>();
 
   reset() {
-    this.totalPhotos = 0;
+    this.totalFiles = 0;
     this.receivedCount = 0;
     this.notifySubscribers();
   }
 
   setTotal(total: number) {
-    this.totalPhotos = total;
+    this.totalFiles = total;
     this.notifySubscribers();
   }
 
@@ -236,11 +236,11 @@ export class MetadataProgressStore {
   }
 
   getRemaining(): number {
-    return Math.max(0, this.totalPhotos - this.receivedCount);
+    return Math.max(0, this.totalFiles - this.receivedCount);
   }
 
   getTotal(): number {
-    return this.totalPhotos;
+    return this.totalFiles;
   }
 
   subscribe(callback: () => void): () => void {
@@ -253,7 +253,7 @@ export class MetadataProgressStore {
   }
 
   getTotalSnapshot(): () => number {
-    return () => this.totalPhotos;
+    return () => this.totalFiles;
   }
 
   private notifySubscribers() {
@@ -396,7 +396,7 @@ export type AppState =
   | {
       kind: "loaded";
       folder: string;
-      photos: PhotoInfo[];
+      files: FileInfo[];
       thumbnails: ThumbnailStore;
       imageMetadataOccurrences: ImageMetadataOccurrencesStore;
       metadataProgress: MetadataProgressStore;
@@ -560,18 +560,18 @@ export interface DescribeProgressState {
  * flow. Each XMP key has a paired IPTC IIM mirror; both are written
  * together so the legacy mirror stays in lockstep with the XMP source
  * of truth. See plan §1 for rationale on the choice of these specific
- * keys (Lightroom / Bridge / Photo Mechanic / digiKam all use them).
+ * keys (Lightroom / Bridge / File Mechanic / digiKam all use them).
  *
  * Used by:
  *  - the "already has location data" overwrite-warning check in
- *    DetailsPane and PhotoList (any of these keys present in metadata
+ *    DetailsPane and FileList (any of these keys present in metadata
  *    or drafts triggers the warning),
  *  - tests that verify all ten keys land as drafts on success.
  */
 /**
  * Per-group target tags written by the metadata normaliser (plan §1).
  * Used by the "already has data" overwrite-warning check in DetailsPane
- * and PhotoList: any of the enabled groups' tags present in metadata or
+ * and FileList: any of the enabled groups' tags present in metadata or
  * drafts triggers the warning. Keep in sync with the `*_TARGET_TAGS`
  * constants in `src-tauri/src/normalise.rs`.
  */
@@ -689,9 +689,9 @@ export interface GeocodeProgressState {
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
 
-export interface PhotoFoundPayload {
+export interface FileFoundPayload {
   scan_id: number;
-  photos: PhotoInfo[];
+  files: FileInfo[];
 }
 
 export interface ImageMetadataReadyPayload {

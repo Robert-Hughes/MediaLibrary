@@ -1,7 +1,7 @@
 /**
  * Confirmation prompts for apply / discard draft-edit gestures.
  *
- * Both DetailsPane (single-photo header buttons) and the photo-list
+ * Both DetailsPane (single-file header buttons) and the file-list
  * row context-menu drive the same backend pathway, so the prompt
  * wording lives in one place. Tweaks to the wording (e.g. "no backup"
  * disclaimer) automatically apply to every entry point.
@@ -17,21 +17,21 @@ export interface ApplyEditsConfirmArgs {
   editCount: number;
   /**
    * Human-readable description of the affected target — typically a
-   * filename for a single photo or "N photos" for a batch. The text
+   * filename for a single file or "N files" for a batch. The text
    * appears verbatim in the prompt.
    */
   target: string;
-  /** Number of distinct photos affected; drives plural-vs-singular for "file"/"files". */
-  photoCount: number;
+  /** Number of distinct files affected; drives plural-vs-singular for "file"/"files". */
+  fileCount: number;
 }
 
 export async function confirmApplyEdits({
   editCount,
   target,
-  photoCount,
+  fileCount,
 }: ApplyEditsConfirmArgs): Promise<boolean> {
   const editNoun = plural(editCount, "edit", "edits");
-  const fileNoun = plural(photoCount, "file", "files");
+  const fileNoun = plural(fileCount, "file", "files");
   return ask(
     `Apply ${editCount} ${editNoun} to ${target}?\n\nThis will permanently modify the original image ${fileNoun}. There is no backup.`,
     { title: "Apply Edits", kind: "warning" },
@@ -42,14 +42,14 @@ export interface DiscardEditsConfirmArgs {
   /** Total number of edits about to be discarded. */
   editCount: number;
   /**
-   * Scope description; either "this photo" (single-photo header) or
-   * "N photos" (batch from the row context-menu).
+   * Scope description; either "this file" (single-file header) or
+   * "N files" (batch from the row context-menu).
    */
   scope: string;
   /**
    * Preposition between the count and the scope. "for" reads
-   * naturally for a single photo ("for this photo"); "across" reads
-   * naturally for a batch ("across 3 photos"). Defaults to "for".
+   * naturally for a single file ("for this file"); "across" reads
+   * naturally for a batch ("across 3 files"). Defaults to "for".
    */
   preposition?: "for" | "across";
 }
@@ -110,7 +110,7 @@ export async function confirmDiscardMetadataGroupEdits({
   const editNoun = editCount === 1 ? "edit" : "edits";
   return ask(
     `Discard ${editCount} pending ${group} field ${editNoun}?\n\n` +
-      `This only removes pending edits for this photo. It does not change the image file.`,
+      `This only removes pending edits for this file. It does not change the image file.`,
     { title: `Discard ${group} Edits`, kind: "warning" },
   );
 }

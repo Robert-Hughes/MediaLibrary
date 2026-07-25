@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type {
   ImageMetadataOccurrencesStore,
   MetadataDraftEdit,
-  PhotoInfo,
+  FileInfo,
   SchemaDefinitionId,
   TagInfo,
 } from "../types";
@@ -29,7 +29,7 @@ import { ModalDialog } from "./ModalDialog";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 
 interface Props {
-  photos: PhotoInfo[];
+  files: FileInfo[];
   imageMetadataOccurrences: ImageMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftEditsByFile;
   onPreview: (
@@ -69,12 +69,12 @@ const GPS_IDS_ARRAY: readonly SchemaDefinitionId[] = [
   GPS_GROUP.altitudeRefId,
 ];
 
-function appliesToEveryPhoto(
+function appliesToEveryFile(
   info: TagInfo,
-  photos: readonly PhotoInfo[],
+  files: readonly FileInfo[],
 ): boolean {
-  return photos.every(
-    (photo) => filterTagInfosByFilename([info], photo.filename).length === 1,
+  return files.every(
+    (file) => filterTagInfosByFilename([info], file.filename).length === 1,
   );
 }
 
@@ -159,14 +159,14 @@ function previewSummary(plan: BulkMetadataDraftPlan): string[] {
     preview.draftsCleared > 0
       ? `${preview.draftsCleared} redundant draft${preview.draftsCleared === 1 ? "" : "s"} will be cleared.`
       : null,
-    preview.noOpPhotoCount > 0
-      ? `${preview.noOpPhotoCount} photo${preview.noOpPhotoCount === 1 ? " is" : "s are"} already in the requested state.`
+    preview.noOpFileCount > 0
+      ? `${preview.noOpFileCount} file${preview.noOpFileCount === 1 ? " is" : "s are"} already in the requested state.`
       : null,
   ].filter((line): line is string => line !== null);
 }
 
 export function BulkMetadataEditorDialog({
-  photos,
+  files,
   imageMetadataOccurrences,
   targetDraftEdits,
   onPreview,
@@ -176,11 +176,11 @@ export function BulkMetadataEditorDialog({
   const frequencies = useMemo(
     () =>
       computeEffectiveMetadataKeyFrequency(
-        photos,
+        files,
         imageMetadataOccurrences,
         targetDraftEdits,
       ),
-    [photos, imageMetadataOccurrences, targetDraftEdits],
+    [files, imageMetadataOccurrences, targetDraftEdits],
   );
   const allLookupIds = useMemo(
     () => [...frequencies.map(({ id }) => id), ...GPS_IDS_ARRAY],
@@ -206,7 +206,7 @@ export function BulkMetadataEditorDialog({
     if (lowerSearch && writableDefinitions !== "loading") {
       for (const info of writableDefinitions) {
         if (!tagInfoMatchesSearch(info, lowerSearch)) continue;
-        if (!appliesToEveryPhoto(info, photos)) continue;
+        if (!appliesToEveryFile(info, files)) continue;
         if (metadataEditCapabilities(info).groupedEditor !== null) continue;
         const token = schemaDefinitionIdToken(info.id);
         byToken.set(token, {
@@ -238,13 +238,13 @@ export function BulkMetadataEditorDialog({
           info !== null &&
           info !== "loading" &&
           info.writable &&
-          appliesToEveryPhoto(info, photos),
+          appliesToEveryFile(info, files),
       )
     ) {
-      const count = photos.filter((photo) => {
+      const count = files.filter((file) => {
         const effective = resolveEffectiveGpsForFile({
-          occurrences: imageMetadataOccurrences.get(photo.relative_path),
-          targetDrafts: targetDraftEdits[photo.relative_path],
+          occurrences: imageMetadataOccurrences.get(file.relative_path),
+          targetDrafts: targetDraftEdits[file.relative_path],
         });
         return effective.lat !== null && effective.lon !== null;
       }).length;
@@ -271,7 +271,7 @@ export function BulkMetadataEditorDialog({
   }, [
     frequencies,
     imageMetadataOccurrences,
-    photos,
+    files,
     lowerSearch,
     tagInfos,
     targetDraftEdits,
@@ -307,18 +307,18 @@ export function BulkMetadataEditorDialog({
     const contextHint = (
       <p className="dialog-hint" data-testid="bulk-editor-context-hint">
         {merge && mergeAvailable
-          ? `The entered value will be merged with the effective value on each of the ${photos.length} selected photos.`
-          : `The entered value will replace this property on all ${photos.length} selected photos, creating it where missing.`}
+          ? `The entered value will be merged with the effective value on each of the ${files.length} selected files.`
+          : `The entered value will replace this property on all ${files.length} selected files, creating it where missing.`}
       </p>
     );
     if (selected.kind === "gps") {
-      const seedPhoto = photos[0];
+      const seedFile = files[0];
       const seedInput = {
-        occurrences: seedPhoto
-          ? imageMetadataOccurrences.get(seedPhoto.relative_path)
+        occurrences: seedFile
+          ? imageMetadataOccurrences.get(seedFile.relative_path)
           : undefined,
-        targetDrafts: seedPhoto
-          ? targetDraftEdits[seedPhoto.relative_path]
+        targetDrafts: seedFile
+          ? targetDraftEdits[seedFile.relative_path]
           : undefined,
       };
       return (
@@ -373,7 +373,7 @@ export function BulkMetadataEditorDialog({
     <ModalDialog
       open
       onDismiss={onClose}
-      aria-label={`Bulk edit ${photos.length} photos`}
+      aria-label={`Bulk edit ${files.length} files`}
       testId="bulk-metadata-dialog-overlay"
     >
       <div
@@ -383,8 +383,7 @@ export function BulkMetadataEditorDialog({
       >
         <div className="dialog-header">
           <h2 className="dialog-title">
-            Bulk Edit ({photos.length}{" "}
-            {photos.length === 1 ? "photo" : "photos"})
+            Bulk Edit ({files.length} {files.length === 1 ? "file" : "files"})
           </h2>
           <button className="dialog-close-btn" onClick={onClose}>
             &times;
@@ -399,8 +398,8 @@ export function BulkMetadataEditorDialog({
                 {selected ? candidateLabel(selected) : "metadata"}
               </h3>
               <p>
-                {plan.preview.affectedPhotoCount} of {plan.preview.photoCount}{" "}
-                selected photos will receive draft changes.
+                {plan.preview.affectedFileCount} of {plan.preview.fileCount}{" "}
+                selected files will receive draft changes.
               </p>
               <ul>
                 {previewSummary(plan).map((line) => (
@@ -434,7 +433,7 @@ export function BulkMetadataEditorDialog({
             <div className="dialog-body column-list-area">
               <p className="dialog-hint">
                 Choose one exact metadata property, then Set or Delete it across
-                the selected photos.
+                the selected files.
               </p>
               <div className="column-search">
                 <input
@@ -493,7 +492,7 @@ export function BulkMetadataEditorDialog({
                             ) : null}
                           </strong>
                           <span>
-                            {candidate.count} of {photos.length} photos
+                            {candidate.count} of {files.length} files
                           </span>
                         </div>
                         <div style={{ fontSize: "11px", opacity: 0.75 }}>

@@ -1,5 +1,5 @@
 /**
- * Resolve a photo's effective GPS coordinates from drafts + metadata.
+ * Resolve a file's effective GPS coordinates from drafts + metadata.
  *
  * The reverse-geocode flow asks the user to confirm sending GPS data
  * to a public endpoint. The lat/lon that ends up in that request must
@@ -123,7 +123,7 @@ function extractValue(
 }
 
 /**
- * Resolve effective (lat, lon) decimal degrees for a photo, with
+ * Resolve effective (lat, lon) decimal degrees for a file, with
  * drafts winning over metadata.
  *
  * Returns `{ lat: null, lon: null }` when no usable GPS is available

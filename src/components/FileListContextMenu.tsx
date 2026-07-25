@@ -1,5 +1,5 @@
 /**
- * Right-click menu for a photo-list row.
+ * Right-click menu for a file-list row.
  *
  * The set of options depends on the current multi-selection: View /
  * Show in Explorer always act on the right-clicked row's index, but
@@ -7,7 +7,7 @@
  * the union of selected rows. Apply/Discard further filter to rows
  * that actually carry drafts.
  */
-import type { PhotoInfo } from "../types";
+import type { FileInfo } from "../types";
 import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { ContextMenu } from "./ContextMenu";
 import {
@@ -20,9 +20,9 @@ interface Props {
   y: number;
   contextMenuIndex: number;
   selectedIndices: Set<number>;
-  photos: PhotoInfo[];
+  files: FileInfo[];
   targetDraftEdits: TargetDraftEditsByFile;
-  onPhotoOpen: (index: number) => void;
+  onFileOpen: (index: number) => void;
   onShowInExplorer: (index: number) => void;
   onCopyPaths?: (relativePaths: string[]) => void;
   onBulkEdit?: (relativePaths: string[]) => void;
@@ -35,14 +35,14 @@ interface Props {
   onClose: () => void;
 }
 
-export function PhotoListContextMenu({
+export function FileListContextMenu({
   x,
   y,
   contextMenuIndex,
   selectedIndices,
-  photos,
+  files,
   targetDraftEdits,
-  onPhotoOpen,
+  onFileOpen,
   onShowInExplorer,
   onCopyPaths,
   onBulkEdit,
@@ -57,7 +57,7 @@ export function PhotoListContextMenu({
   const indices = Array.from(selectedIndices).sort((a, b) => a - b);
   const effectiveIndices = indices.length > 0 ? indices : [contextMenuIndex];
   const selectedPaths = effectiveIndices
-    .map((i) => photos[i]?.relative_path)
+    .map((i) => files[i]?.relative_path)
     .filter((p): p is string => typeof p === "string");
   const editablePaths = selectedPaths.filter(
     (path) => Object.keys(targetDraftEdits[path] ?? {}).length > 0,
@@ -67,7 +67,7 @@ export function PhotoListContextMenu({
     0,
   );
   const count = selectedPaths.length;
-  const noun = count === 1 ? "photo" : "photos";
+  const noun = count === 1 ? "file" : "files";
   const firstIndex = effectiveIndices[0];
 
   return (
@@ -78,14 +78,14 @@ export function PhotoListContextMenu({
         {
           label:
             count > 1
-              ? `View (${photos[firstIndex]?.filename ?? "first"})`
+              ? `View (${files[firstIndex]?.filename ?? "first"})`
               : "View",
-          onClick: () => onPhotoOpen(firstIndex),
+          onClick: () => onFileOpen(firstIndex),
         },
         {
           label:
             count > 1
-              ? `Show in File Explorer (${photos[firstIndex]?.filename ?? "first"})`
+              ? `Show in File Explorer (${files[firstIndex]?.filename ?? "first"})`
               : "Show in File Explorer",
           onClick: () => onShowInExplorer(firstIndex),
         },
@@ -153,7 +153,7 @@ export function PhotoListContextMenu({
               },
             ]
           : []),
-        // Metadata-normalisation entry — always visible when ≥1 photo
+        // Metadata-normalisation entry — always visible when ≥1 file
         // selected. Per-group toggles live inside the dialog. See
         // docs/NORMALISE_METADATA_PLAN.md §13.
         ...(onNormalise && selectedPaths.length > 0
@@ -175,22 +175,21 @@ export function PhotoListContextMenu({
               {
                 label:
                   editablePaths.length > 1
-                    ? `Apply edits… (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
+                    ? `Apply edits… (${editablePaths.length} ${editablePaths.length === 1 ? "file" : "files"})`
                     : "Apply edits…",
                 onClick: async () => {
                   const target =
                     editablePaths.length === 1
-                      ? (photos[
+                      ? (files[
                           effectiveIndices.find(
-                            (i) =>
-                              photos[i]?.relative_path === editablePaths[0],
+                            (i) => files[i]?.relative_path === editablePaths[0],
                           )!
                         ]?.filename ?? editablePaths[0])
-                      : `${editablePaths.length} photos`;
+                      : `${editablePaths.length} files`;
                   const confirmed = await confirmApplyEdits({
                     editCount: totalEdits,
                     target,
-                    photoCount: editablePaths.length,
+                    fileCount: editablePaths.length,
                   });
                   if (confirmed) {
                     onClose();
@@ -205,12 +204,12 @@ export function PhotoListContextMenu({
               {
                 label:
                   editablePaths.length > 1
-                    ? `Discard all edits… (${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"})`
+                    ? `Discard all edits… (${editablePaths.length} ${editablePaths.length === 1 ? "file" : "files"})`
                     : "Discard all edits…",
                 onClick: async () => {
                   const confirmed = await confirmDiscardEdits({
                     editCount: totalEdits,
-                    scope: `${editablePaths.length} ${editablePaths.length === 1 ? "photo" : "photos"}`,
+                    scope: `${editablePaths.length} ${editablePaths.length === 1 ? "file" : "files"}`,
                     preposition: "across",
                   });
                   if (confirmed) onDiscardAllEdits(editablePaths);

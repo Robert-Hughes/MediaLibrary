@@ -177,9 +177,9 @@ impl Default for ActiveQueues {
 
 /// Emitted in batches as the directory walk finds files.
 #[derive(Clone, Serialize)]
-struct PhotoFoundPayload {
+struct FileFoundPayload {
     scan_id: u64,
-    photos: Vec<scanner::PhotoInfo>,
+    files: Vec<scanner::FileInfo>,
 }
 
 /// Emitted when the directory walk is complete (no payload needed).
@@ -253,7 +253,7 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
 /// Three concurrent phases, all starting as soon as files are discovered:
 ///
 ///  Phase 1 — streaming file discovery (single thread):
-///    Walks the directory tree. For each image file found, emits `photo_found`
+///    Walks the directory tree. For each image file found, emits `file_found`
 ///    immediately so the frontend can add it to the list. Also feeds the file
 ///    into the image metadata queue and thumbnail queue right away.
 ///    Emits `scan_complete` (no payload) when the walk finishes.
@@ -558,8 +558,8 @@ fn start_scan(
         // ── Phase 1: streaming directory walk ─────────────────────────────
         // Run the directory walk in a separate thread so we can implement
         // timeout-based flushing even when the walk is slow.
-        let photo_queue = Arc::new(Mutex::new(Vec::new()));
-        let photo_queue_clone = photo_queue.clone();
+        let file_queue = Arc::new(Mutex::new(Vec::new()));
+        let file_queue_clone = file_queue.clone();
         let walk_complete = Arc::new(AtomicBool::new(false));
         let walk_complete_clone = walk_complete.clone();
         let cancel_walk = cancel_clone.clone();
@@ -571,10 +571,10 @@ fn start_scan(
             scanner::scan_folder(
                 &root,
                 cancel_walk,
-                |photo| {
-                    image_metadata_queue_walk.push(photo.relative_path.clone());
-                    thumb_queue_walk.push(photo.relative_path.clone());
-                    photo_queue_clone.lock().unwrap().push(photo);
+                |file| {
+                    image_metadata_queue_walk.push(file.relative_path.clone());
+                    thumb_queue_walk.push(file.relative_path.clone());
+                    file_queue_clone.lock().unwrap().push(file);
                 },
                 |err| {
                     log::warn!("[walk] error: {} ({:?})", err.message, err.path);
@@ -593,8 +593,8 @@ fn start_scan(
             walk_complete_clone.store(true, Ordering::Relaxed);
         });
 
-        // Flush thread: periodically emit batches even if no new photos arrive
-        let photo_queue_flush = photo_queue.clone();
+        // Flush thread: periodically emit batches even if no new files arrive
+        let file_queue_flush = file_queue.clone();
         let app_flush = app_clone.clone();
         let walk_complete_flush = walk_complete.clone();
         let flush_handle = std::thread::spawn(move || {
@@ -603,16 +603,16 @@ fn start_scan(
             loop {
                 std::thread::sleep(emit_interval);
 
-                let mut queue = photo_queue_flush.lock().unwrap();
+                let mut queue = file_queue_flush.lock().unwrap();
                 if !queue.is_empty() {
                     let batch = std::mem::take(&mut *queue);
                     drop(queue); // Release lock before emitting
 
                     let _ = app_flush.emit(
-                        "photo_found",
-                        PhotoFoundPayload {
+                        "file_found",
+                        FileFoundPayload {
                             scan_id,
-                            photos: batch,
+                            files: batch,
                         },
                     );
                 } else {
@@ -622,15 +622,15 @@ fn start_scan(
                 // Check if walk is complete
                 if walk_complete_flush.load(Ordering::Relaxed) {
                     // One final flush
-                    let mut queue = photo_queue_flush.lock().unwrap();
+                    let mut queue = file_queue_flush.lock().unwrap();
                     if !queue.is_empty() {
                         let batch = std::mem::take(&mut *queue);
                         drop(queue);
                         let _ = app_flush.emit(
-                            "photo_found",
-                            PhotoFoundPayload {
+                            "file_found",
+                            FileFoundPayload {
                                 scan_id,
-                                photos: batch,
+                                files: batch,
                             },
                         );
                     }
@@ -946,7 +946,7 @@ mod tests {
         let ifd1 = command_target_existing("JPEG-APP1-IFD1", "IFD1");
         let created = command_target_new();
         let data = std::collections::HashMap::from([(
-            "folder/photo.jpg".to_owned(),
+            "folder/file.jpg".to_owned(),
             vec![ifd0, ifd1, created],
         )]);
 
@@ -958,7 +958,7 @@ mod tests {
             std::fs::read_to_string(dir.path().join("MediaLibraryTargetDraftEdits.jsonl")).unwrap();
         let line: serde_json::Value = serde_json::from_str(bytes.lines().nth(1).unwrap()).unwrap();
         assert_eq!(line["schema_version"], 5);
-        assert_eq!(line["relative_path"], "folder/photo.jpg");
+        assert_eq!(line["relative_path"], "folder/file.jpg");
         let edits = line["edits"].as_array().unwrap();
         assert_eq!(edits.len(), 3);
         assert!(edits.iter().all(|entry| {
@@ -1001,7 +1001,7 @@ mod tests {
         std::fs::write(&draft_path, original).unwrap();
         let entry = command_target_existing("JPEG-APP1-IFD0", "IFD0");
         let data =
-            std::collections::HashMap::from([("photo.jpg".to_owned(), vec![entry.clone(), entry])]);
+            std::collections::HashMap::from([("file.jpg".to_owned(), vec![entry.clone(), entry])]);
 
         let error = save_metadata_draft_edits(folder_path, data).unwrap_err();
 
@@ -1089,7 +1089,7 @@ mod tests {
             }),
         };
         let result = scanner::ImageMetadata {
-            relative_path: "photo.jpg".into(),
+            relative_path: "file.jpg".into(),
             occurrences: MetadataOccurrences(vec![
                 occurrence("JPEG-APP1-IFD0", 0, "IFD0"),
                 occurrence("JPEG-APP1-IFD1", 2, "IFD1"),

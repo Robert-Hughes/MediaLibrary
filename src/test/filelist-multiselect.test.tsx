@@ -14,7 +14,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { MetadataDraftEdit } from "../types";
 
@@ -23,41 +23,41 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn(() => Promise.resolve(true)),
 }));
 
-function makePhotos(n: number) {
-  const photos = [];
+function makeFiles(n: number) {
+  const files = [];
   for (let i = 0; i < n; i++) {
-    photos.push({
+    files.push({
       relative_path: `${i}.jpg`,
       filename: `${i}.jpg`,
       date_modified: null,
       date_created: null,
     });
   }
-  return photos;
+  return files;
 }
 
-type SetupProps = Partial<React.ComponentProps<typeof PhotoList>>;
+type SetupProps = Partial<React.ComponentProps<typeof FileList>>;
 
 function setup(props: SetupProps = {}) {
   const { targetDraftEdits = {}, ...componentProps } = props;
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  const photos = props.photos ?? makePhotos(5);
-  for (const p of photos) {
+  const files = props.files ?? makeFiles(5);
+  for (const p of files) {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   }
   const onSelect = vi.fn();
   const onShowInExplorer = vi.fn();
-  const onPhotoOpen = vi.fn();
+  const onFileOpen = vi.fn();
   const onApplyEdits = vi.fn();
   const onDiscardAllEdits = vi.fn();
   const onGenerateAiDescription = vi.fn();
 
   render(
-    <PhotoList
+    <FileList
       targetDraftEdits={targetDraftEdits}
-      photos={photos}
+      files={files}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}
       visibleColumns={[]}
@@ -67,7 +67,7 @@ function setup(props: SetupProps = {}) {
       onSelect={onSelect}
       onShowInExplorer={onShowInExplorer}
       onVisibilityChange={vi.fn()}
-      onPhotoOpen={onPhotoOpen}
+      onFileOpen={onFileOpen}
       onApplyEdits={onApplyEdits}
       onDiscardAllEdits={onDiscardAllEdits}
       onGenerateAiDescription={onGenerateAiDescription}
@@ -77,7 +77,7 @@ function setup(props: SetupProps = {}) {
   return {
     onSelect,
     onShowInExplorer,
-    onPhotoOpen,
+    onFileOpen,
     onApplyEdits,
     onDiscardAllEdits,
     onGenerateAiDescription,
@@ -85,7 +85,7 @@ function setup(props: SetupProps = {}) {
 }
 
 function rows() {
-  return screen.getAllByTestId("photo-row");
+  return screen.getAllByTestId("file-row");
 }
 
 function textDraft(value: string): MetadataDraftEdit {
@@ -101,26 +101,26 @@ function textDraft(value: string): MetadataDraftEdit {
 function setupStateful(
   opts: {
     initialIndex?: number | null;
-    photoCount?: number;
+    fileCount?: number;
     onSelectionCountChange?: (n: number) => void;
   } = {},
 ) {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  const photos = makePhotos(opts.photoCount ?? 5);
-  for (const p of photos) {
+  const files = makeFiles(opts.fileCount ?? 5);
+  for (const p of files) {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   }
-  const onPhotoOpen = vi.fn();
+  const onFileOpen = vi.fn();
   function Wrapper() {
     const [selectedIndex, setSelectedIndex] = useState<number | null>(
       opts.initialIndex ?? null,
     );
     return (
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
@@ -130,22 +130,22 @@ function setupStateful(
         onSelect={setSelectedIndex}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={onPhotoOpen}
+        onFileOpen={onFileOpen}
         onSelectionCountChange={opts.onSelectionCountChange}
       />
     );
   }
   render(<Wrapper />);
-  return { onPhotoOpen };
+  return { onFileOpen };
 }
 
-describe("PhotoList multi-select", () => {
+describe("FileList multi-select", () => {
   beforeEach(() => cleanup());
 
   it("plain click selects a single row", async () => {
     setup();
     await userEvent.click(rows()[2]);
-    const selected = document.querySelectorAll(".photo-row--selected");
+    const selected = document.querySelectorAll(".file-row--selected");
     expect(selected.length).toBe(1);
     expect(selected[0].getAttribute("data-index")).toBe("2");
   });
@@ -158,7 +158,7 @@ describe("PhotoList multi-select", () => {
     await user.click(rows()[3]);
     await user.keyboard("{/Control}");
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -174,7 +174,7 @@ describe("PhotoList multi-select", () => {
     await user.click(rows()[2]);
     await user.keyboard("{/Control}");
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -189,7 +189,7 @@ describe("PhotoList multi-select", () => {
     await user.click(rows()[4]);
     await user.keyboard("{/Shift}");
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -202,7 +202,7 @@ describe("PhotoList multi-select", () => {
     fireEvent.click(rows()[1], { ctrlKey: true });
     fireEvent.contextMenu(rows()[3]);
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     ).map((el) => el.getAttribute("data-index"));
     expect(selected).toEqual(["3"]);
   });
@@ -213,7 +213,7 @@ describe("PhotoList multi-select", () => {
     fireEvent.click(rows()[2], { ctrlKey: true });
     fireEvent.contextMenu(rows()[2]);
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -221,20 +221,20 @@ describe("PhotoList multi-select", () => {
   });
 });
 
-describe("PhotoList context menu (multi-select)", () => {
+describe("FileList context menu (multi-select)", () => {
   beforeEach(() => cleanup());
 
-  it("View action targets the first selected photo only", async () => {
-    const { onPhotoOpen } = setup();
+  it("View action targets the first selected file only", async () => {
+    const { onFileOpen } = setup();
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[3], { ctrlKey: true });
     fireEvent.contextMenu(rows()[3]);
     const view = await screen.findByRole("button", { name: /^View/ });
     await userEvent.click(view);
-    expect(onPhotoOpen).toHaveBeenCalledWith(1);
+    expect(onFileOpen).toHaveBeenCalledWith(1);
   });
 
-  it("Show in File Explorer targets the first selected photo only", async () => {
+  it("Show in File Explorer targets the first selected file only", async () => {
     const { onShowInExplorer } = setup();
     fireEvent.click(rows()[1]);
     fireEvent.click(rows()[3], { ctrlKey: true });
@@ -278,7 +278,7 @@ describe("PhotoList context menu (multi-select)", () => {
 
     await userEvent.click(
       await screen.findByRole("button", {
-        name: "Show on Map (2 photos)",
+        name: "Show on Map (2 files)",
       }),
     );
 
@@ -323,14 +323,14 @@ describe("PhotoList context menu (multi-select)", () => {
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["2.jpg"]);
   });
 
-  it("Generate AI Description invokes onGenerateAiDescription directly even when some selected photos already have a description (warning lives in dialog now)", async () => {
+  it("Generate AI Description invokes onGenerateAiDescription directly even when some selected files already have a description (warning lives in dialog now)", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     vi.mocked(ask).mockClear();
 
     const thumbnails = new ThumbnailStore();
     const imageMetadata = new ImageMetadataOccurrencesStore();
-    const photos = makePhotos(5);
-    for (const p of photos) {
+    const files = makeFiles(5);
+    for (const p of files) {
       thumbnails.add(p.relative_path);
       imageMetadata.add(p.relative_path);
     }
@@ -342,9 +342,9 @@ describe("PhotoList context menu (multi-select)", () => {
     );
     const onGenerateAiDescription = vi.fn();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
@@ -354,7 +354,7 @@ describe("PhotoList context menu (multi-select)", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
         onGenerateAiDescription={onGenerateAiDescription}
       />,
     );
@@ -399,7 +399,7 @@ describe("PhotoList context menu (multi-select)", () => {
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg"]);
   });
 
-  it("Generate AI Description fires immediately when no selected photo has a description", async () => {
+  it("Generate AI Description fires immediately when no selected file has a description", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     vi.mocked(ask).mockClear();
     const { onGenerateAiDescription } = setup();
@@ -499,7 +499,7 @@ describe("PhotoList context menu (multi-select)", () => {
     expect(onDiscardAllEdits).toHaveBeenCalledWith(["0.jpg", "2.jpg"]);
   });
 
-  it("hides Apply/Discard items when no selected photos have edits", () => {
+  it("hides Apply/Discard items when no selected files have edits", () => {
     setup({ targetDraftEdits: {} });
     fireEvent.click(rows()[1]);
     fireEvent.contextMenu(rows()[1]);
@@ -510,7 +510,7 @@ describe("PhotoList context menu (multi-select)", () => {
   });
 });
 
-describe("PhotoList keyboard navigation", () => {
+describe("FileList keyboard navigation", () => {
   beforeEach(() => cleanup());
 
   it("ArrowDown selects the next row", async () => {
@@ -548,7 +548,7 @@ describe("PhotoList keyboard navigation", () => {
   it("Ctrl+A selects every row", async () => {
     setup({ selectedIndex: 0 });
     fireEvent.keyDown(document, { key: "a", ctrlKey: true });
-    const selected = document.querySelectorAll(".photo-row--selected");
+    const selected = document.querySelectorAll(".file-row--selected");
     expect(selected.length).toBe(5);
   });
 
@@ -575,16 +575,16 @@ describe("PhotoList keyboard navigation", () => {
     expect(onSelect).toHaveBeenLastCalledWith(0);
   });
 
-  it("Enter opens the currently selected photo", () => {
-    const { onPhotoOpen } = setup({ selectedIndex: 2 });
+  it("Enter opens the currently selected file", () => {
+    const { onFileOpen } = setup({ selectedIndex: 2 });
     fireEvent.keyDown(document, { key: "Enter" });
-    expect(onPhotoOpen).toHaveBeenCalledWith(2);
+    expect(onFileOpen).toHaveBeenCalledWith(2);
   });
 
   it("Enter is a no-op when nothing is selected", () => {
-    const { onPhotoOpen } = setup({ selectedIndex: null });
+    const { onFileOpen } = setup({ selectedIndex: null });
     fireEvent.keyDown(document, { key: "Enter" });
-    expect(onPhotoOpen).not.toHaveBeenCalled();
+    expect(onFileOpen).not.toHaveBeenCalled();
   });
 
   it("Shift+ArrowDown extends the selection from the anchor", () => {
@@ -592,7 +592,7 @@ describe("PhotoList keyboard navigation", () => {
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -605,7 +605,7 @@ describe("PhotoList keyboard navigation", () => {
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
     fireEvent.keyDown(document, { key: "ArrowUp", shiftKey: true });
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -616,7 +616,7 @@ describe("PhotoList keyboard navigation", () => {
     setupStateful({ initialIndex: 2 });
     fireEvent.keyDown(document, { key: "End", shiftKey: true });
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -628,7 +628,7 @@ describe("PhotoList keyboard navigation", () => {
     fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
     fireEvent.keyDown(document, { key: "ArrowDown", ctrlKey: true });
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();
@@ -643,7 +643,7 @@ describe("PhotoList keyboard navigation", () => {
     // collapsing the previous additive picks.
     fireEvent.keyDown(document, { key: "ArrowDown", shiftKey: true });
     const selected = Array.from(
-      document.querySelectorAll(".photo-row--selected"),
+      document.querySelectorAll(".file-row--selected"),
     )
       .map((el) => el.getAttribute("data-index"))
       .sort();

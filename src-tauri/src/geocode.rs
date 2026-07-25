@@ -1,10 +1,10 @@
 //! Reverse-geocoding pipeline.
 //!
-//! Given `(lat, lon)` for a photo, return human-readable address fields
+//! Given `(lat, lon)` for a file, return human-readable address fields
 //! by calling OpenStreetMap Nominatim, optionally refining with Overpass
 //! when Nominatim's result is generic. The output is composed into a
 //! set of draft edits targeting the conventional industry-standard
-//! XMP-iptcCore / XMP-photoshop / legacy-IPTC location tags — see
+//! XMP-iptcCore / XMP-fileshop / legacy-IPTC location tags — see
 //! `docs/REVERSE_GEOCODE_PLAN.md` §1 for the tag list and rationale.
 //!
 //! ## Coherent-replacement rule (important!)

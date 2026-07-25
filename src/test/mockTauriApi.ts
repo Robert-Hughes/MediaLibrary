@@ -1,7 +1,7 @@
 import type { TauriApi } from "../useMediaLibrary";
 import type {
-  PhotoInfo,
-  PhotoFoundPayload,
+  FileInfo,
+  FileFoundPayload,
   ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
@@ -58,7 +58,7 @@ export interface MockTauriApi {
   pickFolderResolves: (path: string | null) => void;
   // Models the sole target-aware draft persistence file.
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
-  emitPhotoFound: (photo: PhotoInfo, scanId?: number) => void;
+  emitFileFound: (file: FileInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
   emitImageMetadataReady: (
     relativePath: string,
@@ -233,11 +233,11 @@ export function createMockTauriApi(): MockTauriApi {
     pickFolderResolves: (path) => {
       nextFolder = path;
     },
-    emitPhotoFound: (photo, scanId) =>
-      emit("photo_found", {
+    emitFileFound: (file, scanId) =>
+      emit("file_found", {
         scan_id: scanId ?? mock.currentScanId,
-        photos: [photo],
-      } satisfies PhotoFoundPayload),
+        files: [file],
+      } satisfies FileFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
     emitImageMetadataReady: (relative_path, metadata, scanId, occurrences) =>

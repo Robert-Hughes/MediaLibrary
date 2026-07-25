@@ -586,7 +586,7 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
       <NewPropertyDialog
         onSave={() => {}}
         onCancel={() => {}}
-        filename="photo.jpg"
+        filename="file.jpg"
       />,
     );
 

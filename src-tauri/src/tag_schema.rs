@@ -755,7 +755,7 @@ fn apply_overrides(tags: &mut BTreeMap<SchemaDefinitionId, TagInfo>) {
         ("XMP-xmp:CreateDate", || TagKind::DateTime),
         ("XMP-xmp:ModifyDate", || TagKind::DateTime),
         ("XMP-xmp:MetadataDate", || TagKind::DateTime),
-        ("XMP-photoshop:DateCreated", || TagKind::DateTime),
+        ("XMP-fileshop:DateCreated", || TagKind::DateTime),
         ("XMP-exif:DateTimeOriginal", || TagKind::DateTime),
         ("XMP-exif:DateTimeDigitized", || TagKind::DateTime),
         ("XMP-iptcCore:DateCreated", || TagKind::DateTime),
@@ -1448,7 +1448,7 @@ mod tests {
         let r = fixture_registry();
         assert!(r.lookup(&test_id("XMP::xmp", "CreateDate")).is_none());
         assert!(r
-            .lookup(&test_id("XMP::photoshop", "DateCreated"))
+            .lookup(&test_id("XMP::fileshop", "DateCreated"))
             .is_none());
     }
 

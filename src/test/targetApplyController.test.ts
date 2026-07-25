@@ -23,7 +23,7 @@ import { TargetDraftEditsStore } from "../targetDraftEdits";
 
 const STARTED_EVENT = "apply_edits_started";
 const PROGRESS_EVENT = "apply_metadata_edits_progress";
-const path = "photo.jpg";
+const path = "file.jpg";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

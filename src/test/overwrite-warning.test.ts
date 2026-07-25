@@ -6,7 +6,7 @@ describe("buildOverwriteWarning", () => {
   const describeFlow = {
     title: "Overwrite AI description?",
     subjectSingular: "image",
-    subjectPlural: "photos",
+    subjectPlural: "files",
     dataPhrase: "an AI description",
     actionSingle: "Generating a new one will overwrite the existing one.",
     actionPluralAll: "Generating new ones will overwrite the existing ones.",
@@ -14,15 +14,15 @@ describe("buildOverwriteWarning", () => {
 
   const geocodeFlow = {
     title: "Overwrite location data?",
-    subjectSingular: "photo",
+    subjectSingular: "file",
     dataPhrase: "location data",
     actionSingle:
       "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared.",
     actionPluralPartial:
-      "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those photos; fields the geocoder doesn't return will be cleared.",
+      "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those files; fields the geocoder doesn't return will be cleared.",
   };
 
-  it("returns null when no photos already have data", () => {
+  it("returns null when no files already have data", () => {
     expect(
       buildOverwriteWarning({
         existingCount: 0,
@@ -52,7 +52,7 @@ describe("buildOverwriteWarning", () => {
     ).toBeNull();
   });
 
-  it("single-photo branch uses subjectSingular and actionSingle", () => {
+  it("single-file branch uses subjectSingular and actionSingle", () => {
     const w = buildOverwriteWarning({
       existingCount: 1,
       totalCount: 1,
@@ -71,7 +71,7 @@ describe("buildOverwriteWarning", () => {
       ...describeFlow,
     });
     expect(w?.body).toBe(
-      "All 3 selected photos already have an AI description. Generating new ones will overwrite the existing ones.",
+      "All 3 selected files already have an AI description. Generating new ones will overwrite the existing ones.",
     );
   });
 
@@ -82,7 +82,7 @@ describe("buildOverwriteWarning", () => {
       ...describeFlow,
     });
     expect(w?.body).toBe(
-      "2 of 5 selected photos already have an AI description. Generating new ones will overwrite the existing ones.",
+      "2 of 5 selected files already have an AI description. Generating new ones will overwrite the existing ones.",
     );
   });
 
@@ -93,7 +93,7 @@ describe("buildOverwriteWarning", () => {
       ...describeFlow,
     });
     expect(w?.body).toBe(
-      "1 of 5 selected photos already has an AI description. Generating new ones will overwrite the existing ones.",
+      "1 of 5 selected files already has an AI description. Generating new ones will overwrite the existing ones.",
     );
   });
 
@@ -116,7 +116,7 @@ describe("buildOverwriteWarning", () => {
     expect(w?.body).toContain(
       "Reverse-geocoding will overwrite all location name fields",
     );
-    expect(w?.body).not.toContain("for those photos");
+    expect(w?.body).not.toContain("for those files");
   });
 
   it("uses actionPluralPartial in partial branch", () => {
@@ -125,7 +125,7 @@ describe("buildOverwriteWarning", () => {
       totalCount: 5,
       ...geocodeFlow,
     });
-    expect(w?.body).toContain("for those photos");
+    expect(w?.body).toContain("for those files");
   });
 
   it("defaults subjectPlural to subjectSingular + 's'", () => {
@@ -134,7 +134,7 @@ describe("buildOverwriteWarning", () => {
       totalCount: 3,
       ...geocodeFlow,
     });
-    expect(w?.body).toContain("All 3 selected photos already have");
+    expect(w?.body).toContain("All 3 selected files already have");
   });
 
   it("preserves caller-supplied subjectPlural", () => {

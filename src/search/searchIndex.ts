@@ -5,13 +5,13 @@ import type {
   SearchSchemaLabel,
 } from "../workers/searchWorkerProtocol";
 import { formatMetadataValue } from "../draft";
-import { formatPhotoRowDate } from "../utils/photoDate";
+import { formatFileRowDate } from "../utils/fileDate";
 import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdToken,
 } from "../utils/schemaDefinitionId";
 
-export interface SearchPhotoFields {
+export interface SearchFileFields {
   relative_path: string;
   filename: string;
   date_modified: number | null;
@@ -27,12 +27,12 @@ const HAS_EDITS_TOKEN = "has:edits";
 
 type SearchSchemaId = SearchSchemaLabel["id"];
 
-function photoChunk(fields: SearchPhotoFields): string {
+function fileChunk(fields: SearchFileFields): string {
   return [
     fields.relative_path,
     fields.filename,
-    formatPhotoRowDate(fields.date_modified),
-    formatPhotoRowDate(fields.date_created),
+    formatFileRowDate(fields.date_modified),
+    formatFileRowDate(fields.date_created),
   ].join("\n");
 }
 
@@ -121,15 +121,15 @@ function draftsChunk(
 }
 
 export class SearchIndex {
-  private photoFields = new Map<string, SearchPhotoFields>();
+  private fileFields = new Map<string, SearchFileFields>();
   private occurrences = new Map<string, SearchOccurrencesState>();
   private drafts = new Map<string, SearchDraftEntry[]>();
   private schemaLabels = new Map<string, SearchSchemaLabel>();
   private haystacks = new Map<string, string>();
   private priorQuery: { norm: string; matched: string[] } | null = null;
 
-  setPhoto(fields: SearchPhotoFields) {
-    this.photoFields.set(fields.relative_path, fields);
+  setFile(fields: SearchFileFields) {
+    this.fileFields.set(fields.relative_path, fields);
     this.rebuild(fields.relative_path);
   }
 
@@ -162,7 +162,7 @@ export class SearchIndex {
   }
 
   deletePath(path: string) {
-    this.photoFields.delete(path);
+    this.fileFields.delete(path);
     this.occurrences.delete(path);
     this.drafts.delete(path);
     this.haystacks.delete(path);
@@ -170,7 +170,7 @@ export class SearchIndex {
   }
 
   clear() {
-    this.photoFields.clear();
+    this.fileFields.clear();
     this.occurrences.clear();
     this.drafts.clear();
     this.schemaLabels.clear();
@@ -179,7 +179,7 @@ export class SearchIndex {
   }
 
   size(): number {
-    return this.photoFields.size;
+    return this.fileFields.size;
   }
 
   query(rawQuery: string): SearchQueryResult {
@@ -188,7 +188,7 @@ export class SearchIndex {
     if (hasEditsFilter) q = q.replace(HAS_EDITS_TOKEN, "").trim();
 
     if (!q && !hasEditsFilter) {
-      const matched = Array.from(this.photoFields.keys());
+      const matched = Array.from(this.fileFields.keys());
       this.priorQuery = { norm: "", matched };
       return { matched, hasEditsFilter: false };
     }
@@ -199,7 +199,7 @@ export class SearchIndex {
       q.startsWith(this.priorQuery.norm);
     const candidates: Iterable<string> = canNarrow
       ? this.priorQuery!.matched
-      : this.photoFields.keys();
+      : this.fileFields.keys();
 
     const matched: string[] = [];
     for (const path of candidates) {
@@ -217,14 +217,14 @@ export class SearchIndex {
   }
 
   private rebuild(path: string) {
-    const fields = this.photoFields.get(path);
+    const fields = this.fileFields.get(path);
     if (!fields) {
       this.haystacks.delete(path);
       this.priorQuery = null;
       return;
     }
     const combined = [
-      photoChunk(fields),
+      fileChunk(fields),
       occurrencesChunk(this.occurrences.get(path), this.schemaLabels),
       draftsChunk(this.drafts.get(path), this.schemaLabels),
     ]
