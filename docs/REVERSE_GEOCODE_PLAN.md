@@ -7,21 +7,21 @@ tags. Architecture mirrors the AI-description flow; substantial code is shared.
 
 ## 1. Target tags (industry-standard, no `mlib:` namespace)
 
-Drafts are proposed for the conventional Lightroom / Photoshop / IPTC location
+Drafts are proposed for the conventional Lightroom / Fileshop / IPTC location
 fields. These are the same fields written by every mainstream tagger
-(Lightroom, Bridge, Photo Mechanic, digiKam, ExifTool's `-Country` shortcut).
+(Lightroom, Bridge, File Mechanic, digiKam, ExifTool's `-Country` shortcut).
 
 | Tag                                | Source from Nominatim address                                                     | Notes                                                                                                                        |
 | ---------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `XMP-iptcCore:Location`            | `building` ∪ `tourism` ∪ `amenity` ∪ `leisure` ∪ `historic` ∪ `shop`, else `road` | "Sub-location" / specific named place. Falls back to road if no named POI. Overpass result, when used, populates this field. |
-| `XMP-photoshop:City`               | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb`                                 |                                                                                                                              |
-| `XMP-photoshop:State`              | `state`                                                                           |                                                                                                                              |
-| `XMP-photoshop:Country`            | `country`                                                                         |                                                                                                                              |
+| `XMP-fileshop:City`                | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb`                                 |                                                                                                                              |
+| `XMP-fileshop:State`               | `state`                                                                           |                                                                                                                              |
+| `XMP-fileshop:Country`             | `country`                                                                         |                                                                                                                              |
 | `XMP-iptcCore:CountryCode`         | `country_code` (uppercased — ISO 3166-1 alpha-2)                                  | App semantic value, e.g. `GB`.                                                                                               |
 | `IPTC:Sub-location`                | mirror of `XMP-iptcCore:Location`                                                 | Legacy IPTC IIM mirror.                                                                                                      |
-| `IPTC:City`                        | mirror of `XMP-photoshop:City`                                                    |                                                                                                                              |
-| `IPTC:Province-State`              | mirror of `XMP-photoshop:State`                                                   |                                                                                                                              |
-| `IPTC:Country-PrimaryLocationName` | mirror of `XMP-photoshop:Country`                                                 |                                                                                                                              |
+| `IPTC:City`                        | mirror of `XMP-fileshop:City`                                                     |                                                                                                                              |
+| `IPTC:Province-State`              | mirror of `XMP-fileshop:State`                                                    |                                                                                                                              |
+| `IPTC:Country-PrimaryLocationName` | mirror of `XMP-fileshop:Country`                                                  |                                                                                                                              |
 | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection of `XMP-iptcCore:CountryCode`                  | Alpha-2 value right-padded for two-character ASCII codes, e.g. `GB `. This is not alpha-3 conversion.                        |
 
 Rationale for IPTC IIM mirroring: it's the convention enforced by most apps
@@ -230,9 +230,9 @@ perspective.
 > The following draft tags will be proposed per image, where data is available:
 >
 > - `XMP-iptcCore:Location` and `IPTC:Sub-location`
-> - `XMP-photoshop:City` and `IPTC:City`
-> - `XMP-photoshop:State` and `IPTC:Province-State`
-> - `XMP-photoshop:Country` and `IPTC:Country-PrimaryLocationName`
+> - `XMP-fileshop:City` and `IPTC:City`
+> - `XMP-fileshop:State` and `IPTC:Province-State`
+> - `XMP-fileshop:Country` and `IPTC:Country-PrimaryLocationName`
 > - `XMP-iptcCore:CountryCode` and fixed-width `IPTC:Country-PrimaryLocationCode`
 >
 > **Existing GPS values will not be modified.** No file is changed on disk
@@ -281,7 +281,7 @@ Nominatim result, never the primary geocoder).
 ## 5. Overwrite warning — multi-select aware
 
 Mirror the AI-description pattern in both `DetailsPane` and the
-`PhotoList` context menu.
+`FileList` context menu.
 
 **Definition of "already has reverse-geocoding data":** any of the §1 target
 keys present in the image's metadata **or** in its draft set
@@ -298,23 +298,23 @@ If image has any §1 key in metadata or drafts:
 Title: `Overwrite location data?`, kind `warning`. Same `ask()` helper as
 describe.
 
-### `PhotoList` context menu (multi-select)
+### `FileList` context menu (multi-select)
 
 Count selected paths that have any §1 key in metadata or drafts. If `existing > 0`:
 
 - **All selected have existing:**
-  `All N selected photos already have location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?`
+  `All N selected files already have location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?`
 - **Some selected have existing:**
-  `X of N selected photos already have location data. Reverse-geocoding will overwrite all location fields with drafts for those photos — fields the geocoder doesn't return will be cleared. Continue?`
+  `X of N selected files already have location data. Reverse-geocoding will overwrite all location fields with drafts for those files — fields the geocoder doesn't return will be cleared. Continue?`
 - **Single selected with existing:**
-  `This photo already has location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?`
+  `This file already has location data. Reverse-geocoding will overwrite all location fields with drafts — fields the geocoder doesn't return will be cleared. Continue?`
 
 Same message shape as the AI-description warning at
-`src/components/PhotoList.tsx:846-849`.
+`src/components/FileList.tsx:846-849`.
 
 ### Context menu visibility
 
-`Reverse Geocode…` menu entry is **always visible** when one or more photos
+`Reverse Geocode…` menu entry is **always visible** when one or more files
 are selected. No GPS-presence filter on the entry — the user runs the
 operation and the per-image `no_gps` failures surface in the done panel. This
 is simpler and matches user comment.
@@ -332,7 +332,7 @@ clicking with no GPS immediately yields a one-image batch with a single
   - `onGeocode={(relPaths) => geocode.actions.start(state.folder, buildGeocodeItems(relPaths))}`
     where `buildGeocodeItems` resolves GPS from typed-draft ∪ metadata as
     per §2.
-- `PhotoList.tsx`: add `Reverse Geocode… (N photos)` context-menu entry
+- `FileList.tsx`: add `Reverse Geocode… (N files)` context-menu entry
   next to the AI description entry, with the multi-select overwrite
   confirmation from §5.
 - `DetailsPane.tsx`: add `Reverse Geocode…` button next to the AI
@@ -365,7 +365,7 @@ flips it. Dialog cancel UX mirrors describe:
 
 ## 9. Cache key precision
 
-7-dp lat/lon, 50 m haversine match radius. Two photos taken from opposite
+7-dp lat/lon, 50 m haversine match radius. Two files taken from opposite
 sides of a 40 m building share a cache entry — this is the intended behaviour
 inherited from the 2010 script and the user has confirmed it is acceptable.
 
@@ -396,7 +396,7 @@ inherited from the 2010 script and the user has confirmed it is acceptable.
 
 - `src/App.tsx` — hook, dialog, prop plumbing.
 - `src/components/DetailsPane.tsx` — button + overwrite warning.
-- `src/components/PhotoList.tsx` — context-menu entry + overwrite warning.
+- `src/components/FileList.tsx` — context-menu entry + overwrite warning.
 - `src/components/GalleryView.tsx` — prop plumbing.
 
 **Tests:**
@@ -405,7 +405,7 @@ inherited from the 2010 script and the user has confirmed it is acceptable.
 - `src/test/details-pane-geocode.test.tsx` — button visible always;
   single-image overwrite warning fires when any §1 key present in metadata
   or drafts.
-- `src/test/photolist-geocode-contextmenu.test.tsx` — context-menu entry
+- `src/test/filelist-geocode-contextmenu.test.tsx` — context-menu entry
   visible regardless of GPS presence; multi-select overwrite warning
   messages (all / some / single).
 - `src-tauri/src/geocode.rs` unit tests — DMS parse, decimal parse,

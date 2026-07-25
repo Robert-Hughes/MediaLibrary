@@ -17,7 +17,7 @@ All three backend phases now use consistent 500ms time-based batching with autom
 │  │ Walk Thread  │              │ Flush Thread │                 │
 │  │              │              │              │                 │
 │  │ scan_folder()│─────────────▶│ sleep(500ms) │                 │
-│  │              │  Add photos  │              │                 │
+│  │              │  Add files  │              │                 │
 │  │              │  to queue    │ Emit batch   │──────▶ Frontend │
 │  │              │              │ every 500ms  │                 │
 │  └──────────────┘              └──────────────┘                 │
@@ -94,7 +94,7 @@ All three backend phases now use consistent 500ms time-based batching with autom
 
 ### 3. Thread Safety
 
-- **Phase 1**: `Arc<Mutex<Vec>>` for photo queue
+- **Phase 1**: `Arc<Mutex<Vec>>` for file queue
 - **Phase 2 & 3**: `Arc<WorkQueue>` with built-in synchronization
 - **Completion signaling**: `Arc<AtomicBool>` for lock-free coordination
 

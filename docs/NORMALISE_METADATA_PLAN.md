@@ -183,10 +183,10 @@ draft where current value differs from the projection).
 
 ### Group D — Headline
 
-| Role       | Field                    | Datatype                   |
-| ---------- | ------------------------ | -------------------------- |
-| Primary    | `XMP-photoshop:Headline` | string                     |
-| Derivative | `IPTC:Headline`          | string, 256-char IIM limit |
+| Role       | Field                   | Datatype                   |
+| ---------- | ----------------------- | -------------------------- |
+| Primary    | `XMP-fileshop:Headline` | string                     |
+| Derivative | `IPTC:Headline`         | string, 256-char IIM limit |
 
 **Canonical form.** Single-sentence headline, ≤25 words.
 
@@ -244,11 +244,11 @@ No AI.
 | ---------- | ---------------------------------- | -------------------------------------- |
 | Primary    | `XMP-iptcCore:Location`            | string                                 |
 | Derivative | `IPTC:Sub-location`                | string                                 |
-| Primary    | `XMP-photoshop:City`               | string                                 |
+| Primary    | `XMP-fileshop:City`                | string                                 |
 | Derivative | `IPTC:City`                        | string                                 |
-| Primary    | `XMP-photoshop:State`              | string                                 |
+| Primary    | `XMP-fileshop:State`               | string                                 |
 | Derivative | `IPTC:Province-State`              | string                                 |
-| Primary    | `XMP-photoshop:Country`            | string                                 |
+| Primary    | `XMP-fileshop:Country`             | string                                 |
 | Derivative | `IPTC:Country-PrimaryLocationName` | string                                 |
 | Primary    | `XMP-iptcCore:CountryCode`         | string (ISO 3166-1 alpha-2, uppercase) |
 | Derivative | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection     |
@@ -287,7 +287,7 @@ populate location fields from GPS, run the Reverse Geocode feature first.
 
 | Sub-group         | Primary                          | Mirrors                                                                       | Semantics                                                                |
 | ----------------- | -------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| H1 Shutter time   | `ExifIFD:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`          | Moment shutter fired                                                     |
+| H1 Shutter time   | `ExifIFD:DateTimeOriginal` (DTO) | `XMP-fileshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`           | Moment shutter fired                                                     |
 | H2 Digitised time | `ExifIFD:CreateDate`             | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
 | H3 Modify time    | (skipped)                        | —                                                                             | Auto-updated by exiftool on every write; do not normalise                |
 
@@ -389,7 +389,7 @@ set is an **atomic, complete replacement** of that group's target fields
 
 Read-only input fields are never drafted (only read).
 
-**Exception: idempotency no-op.** If `group_is_normalised(photo)` returns
+**Exception: idempotency no-op.** If `group_is_normalised(file)` returns
 true (see §5), no drafts at all are emitted for that group on that image.
 Re-runs are cheap and observably no-op.
 
@@ -416,9 +416,9 @@ emission once such a group lands.
 For each (group, image) pair, before computing anything:
 
 ```
-group_is_normalised(group, photo) =
-    let sources = read_targets_with_draft_overlay(group, photo)
-    let canonical = derive_canonical(group, sources, read_only_inputs(group, photo))
+group_is_normalised(group, file) =
+    let sources = read_targets_with_draft_overlay(group, file)
+    let canonical = derive_canonical(group, sources, read_only_inputs(group, file))
     canonical == normalise(canonical)                       // already in normal form
     AND for each derivative d in group:
         sources[d] == project(canonical, d.datatype)        // already in sync
@@ -436,22 +436,22 @@ before deciding).
 
 **Model.** New setting `normalise_metadata_model`, default `gpt-5.4-nano`.
 Picker UI mirrors the existing `ai_describe_model` setting; instead of
-showing the estimated cost to describe one photo, the dropdown shows the
-estimated cost to **normalise** one photo's metadata when AI is required.
+showing the estimated cost to describe one file, the dropdown shows the
+estimated cost to **normalise** one file's metadata when AI is required.
 
 **Settings dropdown preview cost.** At settings-time there is no
 selection to dry-run, so the dropdown uses a synthetic typical-cost-per-
-photo helper mirroring describe's
+file helper mirroring describe's
 `estimate_typical_cost_per_image` ([openai_describe.rs:55](src-tauri/src/openai_describe.rs)).
 
 ```rust
 /// Synthetic cost shown next to each model in the picker. Used only
 /// for the settings-dialog preview where there is no real selection
-/// of photos to walk; the run-time estimator (§7) computes exact
+/// of files to walk; the run-time estimator (§7) computes exact
 /// costs from real prompts.
 ///
 /// Assumes the worst case: both Group B (description merge) AND
-/// Group C (title generation) fire on the same photo. Typical token
+/// Group C (title generation) fire on the same file. Typical token
 /// counts derived from prompt structure + median field lengths from
 /// the existing user library (recorded in fixtures so the constant
 /// can be regenerated).
@@ -711,7 +711,7 @@ failure list; non-AI groups for that image still write their drafts.
 ### Settings entry
 
 Add `normalise_metadata_model` to the settings dialog. Same UI component as
-`ai_describe_model` but the per-photo cost preview uses the
+`ai_describe_model` but the per-file cost preview uses the
 normalise estimator.
 
 ## 10. Done-panel stats
@@ -751,7 +751,7 @@ These are extracted ahead of normaliser so the new feature lands cleanly:
    `GeocodeProgressDialog`) update to switch on the typed kind.
 2. **Shared overwrite-warning component** — the multi-select-aware confirm
    text used in both describe and geocode is hoisted into a reusable
-   component. Normaliser will use the same shape (count-of-photos-with-data
+   component. Normaliser will use the same shape (count-of-files-with-data
    varies per enabled-group set).
 3. **Shared audit-log module** — `describe_log.rs` generalised; normaliser
    appends via the same helper.
@@ -780,15 +780,15 @@ Mirrors the pattern in
 data" means any target field of any enabled group is non-empty in
 metadata or in the typed draft store.
 
-`DetailsPane`, `PhotoList` context menu, single / some / all phrasings
+`DetailsPane`, `FileList` context menu, single / some / all phrasings
 identical in structure to the geocode warning. Wording template:
 
-> _N_ of _M_ selected photos already have metadata in the groups you have
+> _N_ of _M_ selected files already have metadata in the groups you have
 > selected. Normalising will overwrite those fields with drafts — fields
 > outside the canonical form will be cleared. Continue?
 
 Context menu entry: `Normalise Metadata…` next to `Reverse Geocode…` and
-`AI Describe…`. Always visible when ≥1 photo selected.
+`AI Describe…`. Always visible when ≥1 file selected.
 
 ## 14. Files touched / created
 
@@ -825,10 +825,10 @@ Context menu entry: `Normalise Metadata…` next to `Reverse Geocode…` and
   `onNormalise` prop plumbing.
 - `src/components/DetailsPane.tsx` — `Normalise Metadata…` button +
   overwrite warning.
-- `src/components/PhotoList.tsx` — context-menu entry + warning.
+- `src/components/FileList.tsx` — context-menu entry + warning.
 - `src/components/GalleryView.tsx` — prop pass-through.
 - `src/components/SettingsDialog.tsx` (or equivalent) —
-  `normalise_metadata_model` picker with per-photo normalise cost estimate.
+  `normalise_metadata_model` picker with per-file normalise cost estimate.
 
 **Tests:**
 
@@ -870,7 +870,7 @@ Context menu entry: `Normalise Metadata…` next to `Reverse Geocode…` and
   upper-bound display; cancel mid-run.
 - `src/test/details-pane-normalise.test.tsx` — button + single-image
   overwrite warning.
-- `src/test/photolist-normalise-contextmenu.test.tsx` — menu entry +
+- `src/test/filelist-normalise-contextmenu.test.tsx` — menu entry +
   multi-select warnings (all / some / single).
 - `src-tauri/src/batch_job.rs` — extend existing tests for the typed
   `JobError::kind` change.

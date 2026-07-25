@@ -22,7 +22,7 @@ and `MediaLibraryApplyLog.jsonl` files are ignored and must remain untouched.
 For each failure, record the checklist number, file format, friendly label,
 exact `{table, tag_id, index?}`, complete occurrence and target diagnostics,
 intended and observed semantic values, apply/readback outcome, and the relevant
-application-log excerpt. Do not attach an original photo when a redacted,
+application-log excerpt. Do not attach an original file when a redacted,
 disposable reproduction is sufficient.
 
 ## Recommended disposable fixtures
@@ -34,7 +34,7 @@ Prepare a representative folder containing:
   `XResolution`;
 - a Windows BMP and an OS/2 BMP;
 - a file with no GPS metadata;
-- several photos suitable for batch Describe, Reverse Geocode and Normalise;
+- several files suitable for batch Describe, Reverse Geocode and Normalise;
 - copies that can be externally altered between staging and apply; and
 - optional malformed and historical draft/apply files for persistence checks.
 
@@ -47,7 +47,7 @@ readback comparisons.
 
 ## Core scan, schema and edit checks
 
-- [ ] **1. Scan the folder.** Confirm every supported photo appears and metadata
+- [ ] **1. Scan the folder.** Confirm every supported file appears and metadata
       loading completes without schema-gap errors for ordinary fields.
 
       _Recommended fixtures:_ open the entire `manual-fixtures\working` folder. Copy `optional\malformed_truncated.jpg` into it only for scan-isolation coverage.
@@ -60,7 +60,7 @@ readback comparisons.
       _Recommended fixture:_ `01_comprehensive_metadata.jpg`.
 
 - [ ] **3. Search.** Search by a friendly property name, description and value.
-      Expected: matching photos appear, while same-name definitions remain
+      Expected: matching files appear, while same-name definitions remain
       independently searchable by their displayed table context.
 
       _Recommended fixture:_ `01_comprehensive_metadata.jpg`.
@@ -74,7 +74,7 @@ readback comparisons.
       the readback value matches and the draft clears only for the selected exact
       target.
 
-      _Recommended fixture:_ `01_comprehensive_metadata.jpg`; edit the writable scalar `XMP-photoshop:Headline`.
+      _Recommended fixture:_ `01_comprehensive_metadata.jpg`; edit the writable scalar `XMP-fileshop:Headline`.
 
 - [ ] **6. Edit a list.** Replace a writable text list, then exercise add and
       remove. Expected: items remain separate, with correct replacement/add/remove
@@ -228,7 +228,7 @@ readback comparisons.
       change the value. Expected: the destination remains unchanged, and no paired
       GPS fields or default destination are introduced.
 
-      _Recommended fixture:_ `04_no_gps_real_photo.jpg`, where GPS is deliberately absent.
+      _Recommended fixture:_ `04_no_gps_real_file.jpg`, where GPS is deliberately absent.
 
 ## Occurrence-first Details and removal checks
 
@@ -321,7 +321,7 @@ readback comparisons.
       _Recommended fixture:_ `02_ifd0_ifd1_shared_schema.jpg`; stage a New Property for the same schema.
 
 - [ ] **39. Preserve staged display formatting.** Stage edits to an enum or
-      otherwise specially formatted field, then navigate away, return to the photo
+      otherwise specially formatted field, then navigate away, return to the file
       and restart the application. Expected: the staged row retains the user-facing
       display label rather than falling back to a raw numeric or encoded value.
 
@@ -397,7 +397,7 @@ readback comparisons.
 
 ## Multi-file removal and generated-workflow checks
 
-- [ ] **47. Remove one field across selected photos.** Select several photos
+- [ ] **47. Remove one field across selected files.** Select several files
       containing a mixture of a unique existing occurrence, an absent field, a
       pending New Property, an already-staged Delete and, if practical, an
       ambiguous or stale target. Expected: the preview distinguishes exact
@@ -410,7 +410,7 @@ readback comparisons.
       _Recommended fixtures:_ `01_comprehensive_metadata.jpg`, `02_ifd0_ifd1_shared_schema.jpg` and `13_batch_york_missing_description.jpg`; stage the required New Property, Delete and stale states first.
 
 - [ ] **48. Run AI Description through target-aware staging.** Use multiple
-      disposable photos containing a mixture of an existing AI field, a missing
+      disposable files containing a mixture of an existing AI field, a missing
       field and a same-schema ambiguity. Expected: the overwrite warning reflects
       effective staged metadata; unique existing fields become exact
       ExistingOccurrence drafts; missing fields become deliberate New Properties;
@@ -428,7 +428,7 @@ readback comparisons.
       staged location metadata; generated edits land on exact targets. A no-GPS
       file is reported without aborting later files.
 
-      _Recommended fixtures:_ files `10_batch_york_existing_description.jpg` through `13_batch_york_missing_description.jpg`, plus `03_zero_south_west_gps.jpg` for signed-zero S/W and `04_no_gps_real_photo.jpg` for no GPS.
+      _Recommended fixtures:_ files `10_batch_york_existing_description.jpg` through `13_batch_york_missing_description.jpg`, plus `03_zero_south_west_gps.jpg` for signed-zero S/W and `04_no_gps_real_file.jpg` for no GPS.
 
 - [ ] **50. Run Normalise with an immutable group selection.** Select a subset
       of normalisation groups, confirm the operation, then change the visible

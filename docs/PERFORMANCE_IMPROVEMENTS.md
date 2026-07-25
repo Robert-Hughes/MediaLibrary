@@ -2,14 +2,14 @@
 
 ## Summary
 
-This document describes the performance optimizations implemented to handle large folders (1000+ photos) efficiently.
+This document describes the performance optimizations implemented to handle large folders (1000+ files) efficiently.
 
 ## Problem Analysis
 
 The original implementation had good architecture with:
 
 - ✅ External stores (`ThumbnailStore`, `ImageMetadataOccurrencesStore`) using `useSyncExternalStore`
-- ✅ Event batching for `photo_found`, `image_metadata_ready`, and `thumbnail_ready`
+- ✅ Event batching for `file_found`, `image_metadata_ready`, and `thumbnail_ready`
 - ✅ Per-row subscriptions to avoid unnecessary re-renders
 
 However, it suffered from two critical issues at scale:
@@ -23,7 +23,7 @@ However, it suffered from two critical issues at scale:
 
 **Library**: `@tanstack/react-virtual` (5KB, actively maintained)
 
-**Implementation**: `src/components/PhotoList.tsx`
+**Implementation**: `src/components/FileList.tsx`
 
 - Only renders ~20-30 visible rows instead of all 1000+
 - Overscan of 10 rows for smooth scrolling
@@ -58,7 +58,7 @@ class MetadataProgressStore {
 **Benefits**:
 
 - Only components that need progress (MenuBar) subscribe to updates
-- PhotoList no longer re-renders when progress changes
+- FileList no longer re-renders when progress changes
 - Batched updates reduce notification frequency
 
 ### 3. Updated MenuBar Component
@@ -80,7 +80,7 @@ class MetadataProgressStore {
 - Removed `imageMetadataRemaining` from React state
 - Removed `imageMetadataReceivedRef` counter
 - `flushMetadataBatch` now only updates `MetadataProgressStore`
-- `flushBatch` updates progress store total when photos are added
+- `flushBatch` updates progress store total when files are added
 - No more React state updates for metadata progress
 
 ### 5. Comprehensive Performance Tests
@@ -89,14 +89,14 @@ class MetadataProgressStore {
 
 **Test Coverage**:
 
-- 1000 photos with full metadata loading
-- Batching verification for photos, metadata, and thumbnails
+- 1000 files with full metadata loading
+- Batching verification for files, metadata, and thumbnails
 - Progress tracking accuracy during incremental loading
 - Performance timing assertions
 
 **Test Results**:
 
-- Photo load time: ~160ms for 1000 photos
+- File load time: ~160ms for 1000 files
 - Metadata load time: ~5s for 1000 metadata updates (test overhead included)
 - Batching reduces updates from 1000 to ~20 notifications
 
@@ -106,7 +106,7 @@ class MetadataProgressStore {
 
 - **DOM Elements**: 1000+ rows rendered
 - **State Updates**: ~1000 React state updates for metadata
-- **Re-renders**: Entire PhotoList reconciled on each metadata update
+- **Re-renders**: Entire FileList reconciled on each metadata update
 - **Memory**: High due to all rows in DOM
 - **Scroll Performance**: Janky with 1000+ elements
 
@@ -114,7 +114,7 @@ class MetadataProgressStore {
 
 - **DOM Elements**: ~30 rows rendered (virtualized)
 - **State Updates**: ~20 progress store notifications (batched)
-- **Re-renders**: Only MenuBar re-renders for progress, PhotoList stable
+- **Re-renders**: Only MenuBar re-renders for progress, FileList stable
 - **Memory**: Significantly reduced (97% fewer DOM elements)
 - **Scroll Performance**: Smooth 60fps
 
@@ -129,7 +129,7 @@ class MetadataProgressStore {
 
 ### Why External Store for Progress?
 
-- **Decoupling**: Progress tracking doesn't affect photo list rendering
+- **Decoupling**: Progress tracking doesn't affect file list rendering
 - **Performance**: Eliminates unnecessary reconciliation
 - **Consistency**: Matches pattern used for thumbnails and metadata
 
@@ -149,7 +149,7 @@ class MetadataProgressStore {
 
 ### Performance Tests
 
-- Large folder simulation (1000 photos)
+- Large folder simulation (1000 files)
 - Timing assertions to catch regressions
 - Batching efficiency verification
 
@@ -183,7 +183,7 @@ class MetadataProgressStore {
 
 ### Not Needed Currently
 
-- Current implementation handles 10,000+ photos efficiently
+- Current implementation handles 10,000+ files efficiently
 - Further optimization should be data-driven based on real usage
 
 ## References
@@ -202,7 +202,7 @@ class MetadataProgressStore {
 
 ## Conclusion
 
-These optimizations transform the application from struggling with 500+ photos to smoothly handling 10,000+ photos. The key insights were:
+These optimizations transform the application from struggling with 500+ files to smoothly handling 10,000+ files. The key insights were:
 
 1. **Virtualization is essential** for large lists in React
 2. **External stores** prevent unnecessary React reconciliation

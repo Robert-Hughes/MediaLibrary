@@ -19,11 +19,11 @@ To add a new fixture: see `tools/build-fixture.sh` for documented recipes
 
 ### Original (pre-refactor) fixtures
 
-| File                  | Source                     | What it tests                                                                                                                                                      |
-| --------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `dummy.jpg`           | minimal placeholder        | Not actually a JPEG (UTF-16 text). Pre-existing; used by some thumbnail tests as a missing-image placeholder.                                                      |
-| `real_with_exif.jpg`  | real photo (Canon EOS 40D) | Has a small (~100×68 px) embedded EXIF thumbnail. `scanner::extract_exif_thumbnail` should reject the embedded thumb as too small and fall through to full-decode. |
-| `large_with_exif.jpg` | real photo                 | Has a large (200×150 px) embedded EXIF thumbnail. `scanner::extract_exif_thumbnail` should accept it directly.                                                     |
+| File                  | Source                    | What it tests                                                                                                                                                      |
+| --------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dummy.jpg`           | minimal placeholder       | Not actually a JPEG (UTF-16 text). Pre-existing; used by some thumbnail tests as a missing-image placeholder.                                                      |
+| `real_with_exif.jpg`  | real file (Canon EOS 40D) | Has a small (~100×68 px) embedded EXIF thumbnail. `scanner::extract_exif_thumbnail` should reject the embedded thumb as too small and fall through to full-decode. |
+| `large_with_exif.jpg` | real file                 | Has a large (200×150 px) embedded EXIF thumbnail. `scanner::extract_exif_thumbnail` should accept it directly.                                                     |
 
 ### Metadata-formats refactor fixtures
 
