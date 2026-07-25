@@ -7,7 +7,7 @@ import { FileMetadataOccurrencesStore } from "../types";
 import { makeFiles } from "./factories";
 
 const PHOTOS = makeFiles(["a.jpg", "b.jpg"]);
-const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
+const fakeLoadMedia = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 function renderGallery(
   overrides: Partial<ComponentProps<typeof GalleryView>> = {},
@@ -21,7 +21,7 @@ function renderGallery(
     folderPath: "/files",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
-    loadImage: fakeLoad,
+    loadMedia: fakeLoadMedia,
     fileMetadataOccurrences: new FileMetadataOccurrencesStore(),
     ...overrides,
   };
@@ -48,7 +48,7 @@ describe("Gallery Zoom and Pan", () => {
 
   it("zooms in on wheel scroll", async () => {
     renderGallery();
-    const area = screen.getByTestId("gallery-image-area");
+    const area = screen.getByTestId("gallery-media-area");
     const image = await screen.findByTestId("gallery-image");
 
     // Simulate wheel event to zoom in
@@ -62,7 +62,7 @@ describe("Gallery Zoom and Pan", () => {
 
   it("middle click resets zoom and pan", async () => {
     renderGallery();
-    const area = screen.getByTestId("gallery-image-area");
+    const area = screen.getByTestId("gallery-media-area");
     const image = await screen.findByTestId("gallery-image");
 
     // Zoom in
@@ -77,7 +77,7 @@ describe("Gallery Zoom and Pan", () => {
 
   it("allows panning when zoomed in", async () => {
     renderGallery();
-    const area = screen.getByTestId("gallery-image-area");
+    const area = screen.getByTestId("gallery-media-area");
     const image = await screen.findByTestId("gallery-image");
 
     // Mock getBoundingClientRect so clampPan works properly
@@ -107,7 +107,7 @@ describe("Gallery Zoom and Pan", () => {
 
   it("does not allow panning when scale is 1", async () => {
     renderGallery();
-    const area = screen.getByTestId("gallery-image-area");
+    const area = screen.getByTestId("gallery-media-area");
     const image = await screen.findByTestId("gallery-image");
 
     // Drag without zoom
@@ -130,13 +130,13 @@ describe("Gallery Zoom and Pan", () => {
         folderPath="/files"
         onClose={onClose}
         onNavigate={onNavigate}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         onRemoveMetadataTargets={onRemoveMetadataTargets}
         onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,
     );
-    const area = screen.getByTestId("gallery-image-area");
+    const area = screen.getByTestId("gallery-media-area");
     const image = await screen.findByTestId("gallery-image");
 
     // Zoom in
@@ -151,7 +151,7 @@ describe("Gallery Zoom and Pan", () => {
         folderPath="/files"
         onClose={onClose}
         onNavigate={onNavigate}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         onRemoveMetadataTargets={onRemoveMetadataTargets}
         onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
