@@ -40,6 +40,7 @@ const setDraftEdit = (value: string): MetadataDraftEdit => ({
 const file = makeFile({
   relative_path: "p.jpg",
   filename: "p.jpg",
+  media_kind: "image" as const,
   date_modified: 0,
   date_created: 0,
 });

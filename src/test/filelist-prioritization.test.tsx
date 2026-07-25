@@ -22,6 +22,7 @@ describe("FileList prioritization optimization", () => {
     "file3.jpg",
   ]).map((p) => ({
     ...p,
+    media_kind: "image" as const,
     date_modified: 1640995200,
     date_created: 1640995200,
   }));

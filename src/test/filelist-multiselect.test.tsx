@@ -29,6 +29,7 @@ function makeFiles(n: number) {
     files.push({
       relative_path: `${i}.jpg`,
       filename: `${i}.jpg`,
+      media_kind: "image" as const,
       date_modified: null,
       date_created: null,
     });

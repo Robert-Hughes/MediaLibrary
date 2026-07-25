@@ -173,6 +173,7 @@ describe("getOsEntries", () => {
     const file = makeFile({
       relative_path: "folder/file.jpg",
       filename: "file.jpg",
+      media_kind: "image" as const,
       date_modified: 1609459200,
       date_created: 1609459200,
     });
@@ -195,6 +196,7 @@ describe("DetailsPane component", () => {
   const file = makeFile({
     relative_path: "2024/vacation/beach.jpg",
     filename: "beach.jpg",
+    media_kind: "image" as const,
     date_modified: 1609459200,
     date_created: 1609372800,
   });
@@ -454,6 +456,7 @@ describe("DetailsPane: Generate-AI button", () => {
   const file = makeFile({
     relative_path: "p.jpg",
     filename: "p.jpg",
+    media_kind: "image" as const,
     date_modified: 0,
     date_created: 0,
   });
@@ -490,6 +493,7 @@ describe("DetailsPane: Add-Property two-step flow", () => {
   const file = makeFile({
     relative_path: "p.jpg",
     filename: "p.jpg",
+    media_kind: "image" as const,
     date_modified: 0,
     date_created: 0,
   });
@@ -1255,6 +1259,7 @@ describe("DetailsPane: read-only row context menu", () => {
   const file = makeFile({
     relative_path: "p.jpg",
     filename: "p.jpg",
+    media_kind: "image" as const,
     date_modified: 0,
     date_created: 0,
   });
@@ -1435,6 +1440,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
   const file = makeFile({
     relative_path: "p.jpg",
     filename: "p.jpg",
+    media_kind: "image" as const,
     date_modified: 0,
     date_created: 0,
   });
@@ -2263,6 +2269,7 @@ describe("DetailsPane: Group context menu", () => {
   const file = makeFile({
     relative_path: "p.jpg",
     filename: "p.jpg",
+    media_kind: "image" as const,
     date_modified: 0,
     date_created: 0,
   });

@@ -48,6 +48,7 @@ function setup(opts: SetupOptions = {}) {
   const files = Array.from({ length: n }, (_, i) => ({
     relative_path: `${i}.jpg`,
     filename: `${i}.jpg`,
+    media_kind: "image" as const,
     date_modified: null,
     date_created: null,
   }));
@@ -133,6 +134,7 @@ describe("FileList: Reverse Geocode context-menu entry", () => {
     const files = Array.from({ length: n }, (_, i) => ({
       relative_path: `${i}.jpg`,
       filename: `${i}.jpg`,
+      media_kind: "image" as const,
       date_modified: null,
       date_created: null,
     }));
