@@ -16,7 +16,7 @@ repository = "https://github.com/Robert-Hughes/MediaLibrary"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "medialibrary_tauri_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["lib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -36,7 +36,7 @@ rayon = "1.10"
 kamadak-exif = "0.5"
 log = "0.4"
 quick-xml = "0.36"
-dirs = "5"
+dirs = "6"
 # OpenAI image-description feature (see docs/IMAGE_ANALYSIS.md). rustls-tls
 # avoids dragging in OpenSSL on Windows. multipart isn't needed — we send
 # base64 image data inline in JSON.
@@ -61,3 +61,11 @@ default = []
 # `cargo test --manifest-path src-tauri/Cargo.toml --features integration`.
 # See AGENTS.md for the tier policy.
 integration = []
+
+[profile.release]
+strip = "debuginfo"
+
+[profile.dev]
+debug = 1
+
+
