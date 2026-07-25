@@ -37,6 +37,11 @@ nConflictPrimaryWon: number,
  */
 nLocationXmpIimConflict: number, 
 /**
+ * Group G only — LocationCreated contained multiple or malformed
+ * structures and was left for manual resolution.
+ */
+nLocationCreatedAmbiguous: number, 
+/**
  * Group H only — H1/H2 target source set disagreed after ISO
  * normalisation (summed across H1+H2).
  */

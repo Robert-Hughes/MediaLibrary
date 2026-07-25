@@ -238,28 +238,32 @@ non-empty derivative)`. (Only group where length-based pick is used;
 
 No AI.
 
-### Group G — Location (XMP ↔ IIM mirror sync)
+### Group G — Location (LocationCreated canonical)
 
 | Role       | Field                              | Datatype                               |
 | ---------- | ---------------------------------- | -------------------------------------- |
-| Primary    | `XMP-iptcCore:Location`            | string                                 |
+| Canonical  | `XMP-iptcExt:LocationCreated`      | bag of Location structures             |
+| Projection | `XMP-iptcCore:Location`            | string                                 |
 | Derivative | `IPTC:Sub-location`                | string                                 |
-| Primary    | `XMP-photoshop:City`               | string                                 |
+| Projection | `XMP-photoshop:City`               | string                                 |
 | Derivative | `IPTC:City`                        | string                                 |
-| Primary    | `XMP-photoshop:State`              | string                                 |
+| Projection | `XMP-photoshop:State`              | string                                 |
 | Derivative | `IPTC:Province-State`              | string                                 |
-| Primary    | `XMP-photoshop:Country`            | string                                 |
+| Projection | `XMP-photoshop:Country`            | string                                 |
 | Derivative | `IPTC:Country-PrimaryLocationName` | string                                 |
-| Primary    | `XMP-iptcCore:CountryCode`         | string (ISO 3166-1 alpha-2, uppercase) |
+| Projection | `XMP-iptcCore:CountryCode`         | string (ISO 3166-1 alpha-2, uppercase) |
 | Derivative | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection     |
 
-Five sub-groups, each a 1:1 XMP↔IIM pair. Treated independently inside the
-group so a divergence in one field doesn't cascade.
+When exactly one LocationCreated structure exists, its `Sublocation`, `City`,
+`ProvinceState`, `CountryName`, and `CountryCode` members are canonical and
+project to the five flat XMP/IIM pairs. A missing member removes both
+corresponding flat fields. Other structured members such as GPS and
+`LocationId` are preserved in LocationCreated and have no flat projection.
+Multiple structures are ambiguous and produce no drafts.
 
-**Canonical form.** Verbatim text from primary; `CountryCode` is trimmed,
-normal-whitespace-collapsed, and uppercased. `IPTC:Country-PrimaryLocationCode`
-readback trims trailing fixed-width storage padding before comparison, so
-`GB ` canonicalises as `GB`.
+When LocationCreated is absent, the five pairs are read independently using
+the existing XMP-wins conflict policy. Their canonical values create one
+LocationCreated structure and are also synchronized across each pair.
 
 **Country-code projection.** `XMP-iptcCore:CountryCode` stores the normal
 alpha-2 semantic value, e.g. `GB`. `IPTC:Country-PrimaryLocationCode` stores
@@ -268,7 +272,7 @@ with one space, e.g. `GB `. Non-two-character values are preserved after
 canonicalisation rather than failed or truncated. This is not alpha-3
 conversion and does not use an ISO lookup table.
 
-**Conflict policy.** Per pair, pick canonical then project to both fields:
+**Legacy conflict policy.** Per pair, pick canonical then project to both fields:
 
 1. Both empty → no drafts.
 2. Exactly one non-empty → canonical = that value (uppercased for
@@ -280,8 +284,8 @@ conversion and does not use an ISO lookup table.
    wins. Recorded in stats as `n_location_xmp_iim_conflict`. No AI —
    never AI-merge place names.
 
-**No reverse-geocoding.** Group G only mirrors what's already in metadata. To
-populate location fields from GPS, run the Reverse Geocode feature first.
+Reverse Geocode writes only LocationCreated; Group G is the explicit step that
+projects it for older consumers.
 
 ### Group H — Dates
 
@@ -848,9 +852,9 @@ Context menu entry: `Normalise Metadata…` next to `Reverse Geocode…` and
   - Group D: primary wins; no AI; no generation from description.
   - Group E: union with order preservation; no name normalisation.
   - Group F: longest-wins fallback for derivatives only.
-  - Group G: five XMP↔IIM pairs treated independently; primary wins on
-    conflict; CountryCode uppercase enforced; IPTC country-code fixed-width
-    padding is projected and readback-canonicalised without alpha-3 conversion.
+  - Group G: one LocationCreated projects to five XMP↔IIM pairs, missing
+    members clear their pairs, multiple structures are left unresolved, and
+    absent LocationCreated is seeded from the legacy XMP-wins policy.
   - Group H: H1 / H2 sync; ISO normalisation with and without offset;
     sub-second preservation; IPTC date/time split; filename regex table
     (each pattern); date-only fallback writes 00:00:00 + flags stat;

@@ -177,7 +177,6 @@ export interface MockTauriApi {
   geocodeSummary: {
     nSucceededFromNominatim: number;
     nSucceededFromCache: number;
-    nSucceededFromOverpass: number;
     nNoGps: number;
     nFailed: number;
   };
@@ -370,7 +369,6 @@ export function createMockTauriApi(): MockTauriApi {
     geocodeSummary: {
       nSucceededFromNominatim: 0,
       nSucceededFromCache: 0,
-      nSucceededFromOverpass: 0,
       nNoGps: 0,
       nFailed: 0,
     },

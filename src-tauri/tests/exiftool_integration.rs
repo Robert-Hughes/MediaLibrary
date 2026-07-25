@@ -1354,6 +1354,75 @@ fn roundtrip_datetime_preserves_explicit_utc_offset_and_exact_id() {
 }
 
 #[test]
+fn location_created_struct_round_trips_as_one_atomic_location() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let id = medialibrary_tauri_lib::known_ids::xmp_location_created();
+    let value = MetadataValue::List {
+        list_kind: ListKind::Bag,
+        items: vec![MetadataValue::Struct(BTreeMap::from([
+            ("Sublocation".into(), MetadataValue::Text("Seria".into())),
+            ("City".into(), MetadataValue::Text("Tokyo".into())),
+            ("ProvinceState".into(), MetadataValue::Text("Tokyo".into())),
+            ("CountryName".into(), MetadataValue::Text("Japan".into())),
+            ("CountryCode".into(), MetadataValue::Text("JP".into())),
+            ("GPSLatitude".into(), MetadataValue::Real(35.62857)),
+            ("GPSLongitude".into(), MetadataValue::Real(139.7367)),
+            (
+                "LocationId".into(),
+                MetadataValue::List {
+                    list_kind: ListKind::Bag,
+                    items: vec![MetadataValue::Text(
+                        "https://www.openstreetmap.org/node/13954804901".into(),
+                    )],
+                },
+            ),
+        ]))],
+    };
+    let outcome = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: id.clone(),
+            edit: metadata_set(value.clone()),
+        }],
+    );
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    let reread = read_one(dir.path(), &dst);
+    assert_eq!(schema_value(&reread, &id), Some(value));
+
+    // A later reverse geocode replaces the parent bag, rather than merging
+    // members and leaving stale City/GPS/LocationId values behind.
+    let replacement = MetadataValue::List {
+        list_kind: ListKind::Bag,
+        items: vec![MetadataValue::Struct(BTreeMap::from([
+            ("CountryName".into(), MetadataValue::Text("France".into())),
+            ("CountryCode".into(), MetadataValue::Text("FR".into())),
+            ("GPSLatitude".into(), MetadataValue::Real(48.8566)),
+            ("GPSLongitude".into(), MetadataValue::Real(2.3522)),
+        ]))],
+    };
+    let outcome = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: id.clone(),
+            edit: metadata_set(replacement.clone()),
+        }],
+    );
+    assert!(
+        outcome.error.is_none(),
+        "replace failed: {:?}",
+        outcome.error
+    );
+    let reread = read_one(dir.path(), &dst);
+    assert_eq!(schema_value(&reread, &id), Some(replacement));
+}
+
+#[test]
 fn missing_exact_schema_is_rejected_before_write() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;

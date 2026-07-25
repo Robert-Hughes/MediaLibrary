@@ -38,6 +38,7 @@ const known: Record<string, SchemaDefinitionId> = {
   "XMP-photoshop:DateCreated": ID.xmpDateCreated,
   "XMP-iptcCore:Location": ID.xmpLocation,
   "XMP-iptcCore:CountryCode": ID.xmpCountryCode,
+  "XMP-iptcExt:LocationCreated": ID.xmpLocationCreated,
   "XMP-exif:DateTimeOriginal": ID.xmpExifDateTimeOriginal,
   "XMP-xmp:CreateDate": ID.xmpCreateDate,
   "XMP-mlib:AIDescription": ID.mlibAiDescription,

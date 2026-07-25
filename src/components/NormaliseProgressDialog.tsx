@@ -600,6 +600,11 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
                 show: stats.nLocationXmpIimConflict > 0,
               },
               {
+                label: "ambiguous LocationCreated",
+                value: stats.nLocationCreatedAmbiguous,
+                show: stats.nLocationCreatedAmbiguous > 0,
+              },
+              {
                 label: "date conflicts",
                 value: stats.nDateConflict,
                 show: stats.nDateConflict > 0,

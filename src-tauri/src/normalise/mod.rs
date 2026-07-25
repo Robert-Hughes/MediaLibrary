@@ -252,15 +252,16 @@ pub struct TitleInput {
 
 /// Location-group input bundle (plan §1 Group G).
 ///
-/// Group G is five independent XMP↔IIM mirror pairs; the bundle ships
-/// one `Option<String>` per side per pair. Reverse-geocoding fills
-/// these via the existing Reverse Geocode feature; normalising only
-/// brings them into sync.
+/// LocationCreated is canonical when it contains exactly one structure.
+/// Otherwise the five XMP↔IIM mirror pairs can seed a new structure.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct LocationInput {
+    /// `XMP-iptcExt:LocationCreated` (canonical structured source).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location_created: Option<MetadataValue>,
     /// `XMP-iptcCore:Location` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location_xmp: Option<String>,
@@ -652,6 +653,9 @@ pub struct PerGroupStats {
     /// Group G only — XMP↔IIM mirror pair disagreed before
     /// canonicalisation (summed across the 5 sub-pairs).
     pub n_location_xmp_iim_conflict: u32,
+    /// Group G only — LocationCreated contained multiple or malformed
+    /// structures and was left for manual resolution.
+    pub n_location_created_ambiguous: u32,
     /// Group H only — H1/H2 target source set disagreed after ISO
     /// normalisation (summed across H1+H2).
     pub n_date_conflict: u32,
@@ -909,6 +913,7 @@ pub async fn process_image(
         if let Some(input) = item.group_inputs.location.as_ref() {
             let outcome = normalise_location(input);
             g.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
+            g.n_location_created_ambiguous = outcome.n_location_created_ambiguous;
             if outcome.n_xmp_iim_conflict > 0 {
                 g.n_conflict_primary_won = 1;
             }
@@ -1114,6 +1119,7 @@ impl NormaliseSummary {
             dst.n_normalised_ai += src.n_normalised_ai;
             dst.n_conflict_primary_won += src.n_conflict_primary_won;
             dst.n_location_xmp_iim_conflict += src.n_location_xmp_iim_conflict;
+            dst.n_location_created_ambiguous += src.n_location_created_ambiguous;
             dst.n_date_conflict += src.n_date_conflict;
             dst.n_dto_from_filename += src.n_dto_from_filename;
             dst.n_dto_from_filename_date_only += src.n_dto_from_filename_date_only;

@@ -191,10 +191,7 @@ afterEach(() => {
 
 describe("Reverse-geocoding flow", () => {
   it("walks straight to awaiting-confirm (no estimate phase) and shows the warning copy", async () => {
-    // Plan §4: the confirm panel must explicitly state which tags will be
-    // written and that fields the geocoder doesn't return will be
-    // cleared. Pin that copy here so a refactor doesn't quietly drop
-    // it.
+    // Pin the single structured target and legacy-projection guidance.
     const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5001 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
@@ -212,7 +209,10 @@ describe("Reverse-geocoding flow", () => {
       /Nominatim/,
     );
     expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
-      /will be cleared/i,
+      /XMP-iptcExt:LocationCreated/i,
+    );
+    expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
+      /Normalise Location/i,
     );
   });
 
@@ -222,22 +222,24 @@ describe("Reverse-geocoding flow", () => {
         relativePath: "test.jpg",
         status: "ok",
         edits: mockGeneratedDraftEntries({
-          "XMP-iptcCore:Location": {
-            value: { kind: "Text", value: "Big Ben" },
+          "XMP-iptcExt:LocationCreated": {
+            value: singletonList({
+              kind: "Struct",
+              value: {
+                Sublocation: { kind: "Text", value: "Big Ben" },
+                City: { kind: "Text", value: "London" },
+                GPSLatitude: { kind: "Real", value: 51.5001 },
+                GPSLongitude: { kind: "Real", value: -0.1262 },
+              },
+            }),
             intent: "Set",
           },
-          "XMP-photoshop:City": {
-            value: { kind: "Text", value: "London" },
-            intent: "Set",
-          },
-          "XMP-photoshop:State": { value: null, intent: "Delete" },
         }),
       },
     ];
     mockApiInstance.geocodeSummary = {
       nSucceededFromNominatim: 1,
       nSucceededFromCache: 0,
-      nSucceededFromOverpass: 0,
       nNoGps: 0,
       nFailed: 0,
     };
@@ -270,26 +272,15 @@ describe("Reverse-geocoding flow", () => {
       /Nominatim/,
     );
 
-    // The coherent replacement is staged only in the exact target-aware store.
+    // The atomic structure is staged only in the exact target-aware store.
     const targetDrafts =
       mockApiInstance.targetDraftEditsByFolder["/files"]?.["test.jpg"] ?? {};
     expect(
       Object.values(targetDrafts).some(
-        ({ target }) => target.schema_id.tag_id === "Location",
+        ({ target }) => target.schema_id.tag_id === "LocationCreated",
       ),
     ).toBe(true);
-    expect(
-      Object.values(targetDrafts).some(
-        ({ target }) => target.schema_id.tag_id === "City",
-      ),
-    ).toBe(true);
-    // A Delete for a genuinely missing schema is an exact no-op rather than a
-    // meaningless NewProperty Delete.
-    expect(
-      Object.values(targetDrafts).some(
-        ({ target }) => target.schema_id.tag_id === "State",
-      ),
-    ).toBe(false);
+    expect(Object.values(targetDrafts)).toHaveLength(1);
   });
 
   it("sends raw GPS Real longitude with W ref as negative to the backend", async () => {
@@ -303,7 +294,6 @@ describe("Reverse-geocoding flow", () => {
     mockApiInstance.geocodeSummary = {
       nSucceededFromNominatim: 1,
       nSucceededFromCache: 0,
-      nSucceededFromOverpass: 0,
       nNoGps: 0,
       nFailed: 0,
     };
@@ -445,7 +435,6 @@ describe("Reverse-geocoding flow", () => {
     mockApiInstance.geocodeSummary = {
       nSucceededFromNominatim: 0,
       nSucceededFromCache: 0,
-      nSucceededFromOverpass: 0,
       nNoGps: 1,
       nFailed: 0,
     };
@@ -503,14 +492,17 @@ describe("Reverse-geocoding flow", () => {
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
       "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
       "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
-      "XMP-iptcCore:Location": { kind: "Text", value: "Existing Place" },
+      "XMP-iptcExt:LocationCreated": singletonList({
+        kind: "Struct",
+        value: { City: { kind: "Text", value: "Existing Place" } },
+      }),
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     expect(askMock).not.toHaveBeenCalled();
     const notice = await screen.findByTestId("geocode-overwrite-notice");
     expect(notice).toHaveTextContent(/Overwrite location data\?/);
     expect(notice).toHaveTextContent(/already has location data/i);
-    expect(notice).toHaveTextContent(/will be cleared/i);
+    expect(notice).toHaveTextContent(/replace LocationCreated/i);
   });
 
   it("DetailsPane button shows no overwrite notice when there is no existing location data", async () => {

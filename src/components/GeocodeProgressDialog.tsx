@@ -6,7 +6,7 @@
  *
  *   awaiting-confirm → user reads the upload + tag-write warning,
  *                      confirms or cancels
- *   running          → backend hits Nominatim (+Overpass fallback),
+ *   running          → backend hits Nominatim,
  *                      drafts arrive per-image
  *   done             → succeeded/failed breakdown + source counters
  *
@@ -102,7 +102,6 @@ function SummaryBreakdown({ s }: { s: GeocodeSummary }) {
         counters={[
           { label: "Cache hits", value: s.nSucceededFromCache },
           { label: "Nominatim", value: s.nSucceededFromNominatim },
-          { label: "Nominatim+Overpass", value: s.nSucceededFromOverpass },
         ]}
       />
       <BatchSummaryCountersRow
@@ -140,48 +139,30 @@ function AwaitingConfirmPanel({
     <>
       <div className="dialog-hint" data-testid="geocode-confirm-summary">
         Ready to reverse-geocode {state.total} {word} using OpenStreetMap
-        Nominatim, with Overpass fallback for named buildings and POIs.
+        Nominatim GeocodeJSON.
       </div>
       <div
         style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
       >
         The <strong>GPS coordinates</strong> of each image will be sent to{" "}
-        <code>nominatim.openstreetmap.org</code> and (when needed){" "}
-        <code>overpass-api.de</code>. The images themselves are{" "}
+        <code>nominatim.openstreetmap.org</code>. The images themselves are{" "}
         <strong>not</strong> uploaded. There is no cost.
       </div>
       <div style={{ marginTop: 12, fontSize: 12 }}>
-        The following draft tags will be proposed per image, where data is
-        available:
+        One structured draft tag will be proposed per image:
         <ul style={{ marginTop: 6, paddingLeft: 18, lineHeight: 1.5 }}>
           <li>
-            <code>XMP-iptcCore:Location</code> and{" "}
-            <code>IPTC:Sub-location</code>
-          </li>
-          <li>
-            <code>XMP-photoshop:City</code> and <code>IPTC:City</code>
-          </li>
-          <li>
-            <code>XMP-photoshop:State</code> and{" "}
-            <code>IPTC:Province-State</code>
-          </li>
-          <li>
-            <code>XMP-photoshop:Country</code> and{" "}
-            <code>IPTC:Country-PrimaryLocationName</code>
-          </li>
-          <li>
-            <code>XMP-iptcCore:CountryCode</code> and{" "}
-            <code>IPTC:Country-PrimaryLocationCode</code>
+            <code>XMP-iptcExt:LocationCreated</code>
           </li>
         </ul>
       </div>
       <div
         style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
       >
-        Existing GPS values are <strong>not</strong> modified. Fields the
-        geocoder doesn't return will be <strong>cleared as drafts</strong> (so
-        the location group stays internally consistent). Nothing is written to
-        disk until you apply drafts.
+        The structure records the original photo coordinates and the address
+        members Nominatim can map accurately. Existing EXIF GPS is not modified.
+        Use Normalise Location to project its compatible members to older
+        XMP/IIM fields. Nothing is written until you apply drafts.
       </div>
       {overwriteInfo && (
         <OverwriteNotice
@@ -194,9 +175,9 @@ function AwaitingConfirmPanel({
             subjectPlural: "images",
             dataPhrase: "location data",
             actionSingle:
-              "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts; fields the geocoder doesn't return will be cleared.",
+              "Reverse-geocoding will replace LocationCreated with a draft; EXIF GPS coordinates and legacy location fields are not touched.",
             actionPluralPartial:
-              "Reverse-geocoding will overwrite all location name fields (City, State, Country, etc. — GPS coordinates are not touched) with drafts for those images; fields the geocoder doesn't return will be cleared.",
+              "Reverse-geocoding will replace LocationCreated with drafts for those images; EXIF GPS coordinates and legacy location fields are not touched.",
           }}
         />
       )}

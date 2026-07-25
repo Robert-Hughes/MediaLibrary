@@ -587,6 +587,7 @@ export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
   creator: [ID.xmpCreator, ID.artist, ID.iptcByLine],
   copyright: [ID.xmpRights, ID.copyright, ID.iptcCopyright],
   location: [
+    ID.xmpLocationCreated,
     ID.xmpLocation,
     ID.iptcSubLocation,
     ID.xmpCity,
@@ -633,16 +634,7 @@ export const ALL_NORMALISE_GROUPS: readonly NormaliseGroup[] = [
 ];
 
 export const GEOCODE_TARGET_TAGS: readonly SchemaDefinitionId[] = [
-  ID.xmpLocation,
-  ID.xmpCity,
-  ID.xmpState,
-  ID.xmpCountry,
-  ID.xmpCountryCode,
-  ID.iptcSubLocation,
-  ID.iptcCity,
-  ID.iptcProvinceState,
-  ID.iptcCountryName,
-  ID.iptcCountryCode,
+  ID.xmpLocationCreated,
 ] as const;
 
 export type GeocodePhase = "awaiting-confirm" | "running" | "done";
@@ -670,7 +662,6 @@ export interface GeocodeFailure {
 export interface GeocodeSummary {
   nSucceededFromNominatim: number;
   nSucceededFromCache: number;
-  nSucceededFromOverpass: number;
   nNoGps: number;
   nFailed: number;
 }
