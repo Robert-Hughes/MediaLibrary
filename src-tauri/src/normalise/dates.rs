@@ -57,6 +57,12 @@ impl ComparableTimestamp {
         fallback_offset: Option<&UtcOffsetValue>,
     ) -> TimeValue {
         let mut time = self.datetime.time.clone();
+        // IPTC IIM time fields (storage_count=11: HH:MM:SS±HH:MM) cannot
+        // represent sub-second precision. Strip it so the draft matches
+        // what ExifTool will actually write — the same projection pattern
+        // used by description (ASCII-fold), headline (truncation) and
+        // location (field-limit truncation).
+        time.subsecond = None;
         time.offset = existing_iptc_offset
             .cloned()
             .or_else(|| self.effective_offset().cloned());
@@ -371,12 +377,16 @@ fn process_date_subgroup(
     }
     let existing_iptc_offset = existing_iptc.and_then(ComparableTimestamp::effective_offset);
     let iptc_time = canonical.time_with_iptc_offset(existing_iptc_offset, iptc_fallback_offset);
+    // Subsecond is intentionally excluded: the IPTC projection above
+    // always sets subsecond = None, but the existing IPTC timestamp may
+    // carry a subsecond value inherited from a related EXIF SubSecTime*
+    // tag during input construction.  Comparing it would cause a churn
+    // rewrite every time even though the on-disk IPTC time is correct.
     let iptc_matches = existing_iptc.map(|v| {
         v.datetime.date == canonical.datetime.date
             && v.datetime.time.hour == iptc_time.hour
             && v.datetime.time.minute == iptc_time.minute
             && v.datetime.time.second == iptc_time.second
-            && v.datetime.time.subsecond == iptc_time.subsecond
             && v.datetime.time.offset == iptc_time.offset
     }) == Some(true);
     if !iptc_matches {
@@ -1039,5 +1049,64 @@ mod tests {
             display(edit_value(&g, "XMP-photoshop:DateCreated")),
             "2020-01-01T00:00:00"
         );
+    }
+
+    #[test]
+    fn iptc_time_strips_subsecond() {
+        let input = DatesInput {
+            date_time_original: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("123".into()), None),
+            ))),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .unwrap();
+        // EXIF/XMP should carry subsecond through.
+        let xmp = edit_value(&out, "XMP-photoshop:DateCreated");
+        assert_eq!(display(xmp), "2024-06-15T14:30:45.123");
+        // IPTC time must have subsecond stripped (projection).
+        let iptc = edit_value(&out, "IPTC:TimeCreated");
+        match iptc {
+            MetadataValue::Time(t) => {
+                assert_eq!(t.subsecond, None, "IPTC time must not carry subsecond");
+            }
+            other => panic!("expected Time value, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn iptc_subsecond_existing_value_is_noop() {
+        // When IPTC already has the correct h/m/s/offset, no IPTC drafts
+        // should be emitted — even though the canonical carries subsecond.
+        let input = DatesInput {
+            date_time_original: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("456".into()), None),
+            ))),
+            photoshop_date_created: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("456".into()), None),
+            ))),
+            iptc_date_created: Some(date(2024, 6, 15)),
+            iptc_time_created: Some(time(14, 30, 45, None)),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, None);
+        // The only expected drafts are for EXIF (no subsecond currently)
+        // and XMP (no subsecond currently). IPTC should be a noop.
+        if let Some(ref g) = out.output {
+            assert!(
+                !g.edits.contains_key(&crate::known_ids::iptc_date_created()),
+                "IPTC date should not be rewritten: {:?}",
+                g.edits
+            );
+            assert!(
+                !g.edits.contains_key(&crate::known_ids::iptc_time_created()),
+                "IPTC time should not be rewritten: {:?}",
+                g.edits
+            );
+        }
     }
 }
