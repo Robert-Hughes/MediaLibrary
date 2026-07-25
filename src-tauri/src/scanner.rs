@@ -32,7 +32,14 @@ pub(crate) fn find_exiftool() -> &'static str {
 }
 
 /// File extensions recognised as files.
-const PHOTO_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif"];
+const SUPPORTED_FILE_EXTENSIONS: &[&str] = &[
+    // Images
+    "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", // Audio
+    "mp3", "flac", "m4a", "m4b", "aac", "wav", "aiff", "ogg", "opus", "wma", "ape",
+    // Video
+    "mp4", "mov", "m4v", "3gp", "3g2", "avi", "mkv", "webm", "mpg", "mpeg", "m2v", "mts", "m2ts",
+    "ts", "wmv",
+];
 
 /// A single file entry from the directory walk.
 /// Contains only path and OS metadata — Image metadata arrives separately via `read_image_metadata`.
@@ -125,7 +132,7 @@ pub fn scan_folder<P, E>(
             None => continue,
         };
 
-        if !PHOTO_EXTENSIONS.contains(&ext.as_str()) {
+        if !SUPPORTED_FILE_EXTENSIONS.contains(&ext.as_str()) {
             continue;
         }
 
