@@ -246,7 +246,7 @@ untouched. They are not parsed, migrated, rewritten, truncated or deleted.
 
 ## Read-only projections and search
 
-`ImageMetadata` stores authoritative occurrences only. Deliberate
+`FileMetadata` stores authoritative occurrences only. Deliberate
 schema-oriented views are derived on demand for consumers such as columns,
 sorting, generated workflows and multi-field semantic editors: identical values
 may collapse and compatible complete LangAlt occurrences from distinct runtime

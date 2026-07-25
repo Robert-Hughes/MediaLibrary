@@ -52,18 +52,18 @@ async function openFolderWithThreeFiles() {
     for (const p of files) mockApiInstance.emitFileFound(p);
   });
   await act(async () => {
-    mockApiInstance.emitImageMetadataReady("alpha.jpg", {
+    mockApiInstance.emitFileMetadataReady("alpha.jpg", {
       "IFD0:Make": { kind: "Text", value: "Canon" },
     });
-    mockApiInstance.emitImageMetadataReady("beta.jpg", {
+    mockApiInstance.emitFileMetadataReady("beta.jpg", {
       "IFD0:Make": { kind: "Text", value: "Sony" },
     });
-    mockApiInstance.emitImageMetadataReady("gamma.jpg", {
+    mockApiInstance.emitFileMetadataReady("gamma.jpg", {
       "IFD0:Make": { kind: "Text", value: "Nikon" },
       "Hidden:Tag": { kind: "Text", value: "ultraspecific-tag-value" },
     });
   });
-  // Let the file_found and image_metadata_ready batches flush.
+  // Let the file_found and file_metadata_ready batches flush.
   await act(async () => {
     await new Promise((r) => setTimeout(r, 300));
   });
@@ -142,7 +142,7 @@ describe("Off-thread list search (end-to-end)", () => {
     // A new file whose filename matches the active query streams in.
     await act(async () => {
       mockApiInstance.emitFileFound(makeFile({ relative_path: "delta.jpg" }));
-      mockApiInstance.emitImageMetadataReady("delta.jpg", {
+      mockApiInstance.emitFileMetadataReady("delta.jpg", {
         "IFD0:Make": { kind: "Text", value: "Fuji" },
       });
     });
@@ -174,7 +174,7 @@ describe("Off-thread list search (end-to-end)", () => {
 
     // The matching metadata streams in for one file.
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady("alpha.jpg", {
+      mockApiInstance.emitFileMetadataReady("alpha.jpg", {
         "IFD0:Make": { kind: "Text", value: "Canon" },
         "Hidden:Tag": {
           kind: "Text",

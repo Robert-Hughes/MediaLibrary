@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo, SortConfig } from "../types";
 import {
   sortFiles,
@@ -140,7 +140,7 @@ describe("nextSortConfig", () => {
 });
 
 describe("sortFiles", () => {
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
 
   it("returns the same order when no sort is configured", () => {
     const files = [
@@ -148,7 +148,7 @@ describe("sortFiles", () => {
       makeFile({ relative_path: "a.jpg" }),
     ];
     const noSort: SortConfig = { primary: null, secondary: null };
-    const result = sortFiles(files, noSort, imageMetadata);
+    const result = sortFiles(files, noSort, fileMetadata);
     expect(result.map((p) => p.relative_path)).toEqual(["b.jpg", "a.jpg"]);
   });
 
@@ -162,7 +162,7 @@ describe("sortFiles", () => {
       primary: pathSortKey("asc"),
       secondary: null,
     };
-    const result = sortFiles(files, sort, imageMetadata);
+    const result = sortFiles(files, sort, fileMetadata);
     expect(result.map((p) => p.relative_path)).toEqual([
       "a.jpg",
       "b.jpg",
@@ -180,7 +180,7 @@ describe("sortFiles", () => {
       primary: pathSortKey("desc"),
       secondary: null,
     };
-    const result = sortFiles(files, sort, imageMetadata);
+    const result = sortFiles(files, sort, fileMetadata);
     expect(result.map((p) => p.relative_path)).toEqual([
       "c.jpg",
       "b.jpg",
@@ -198,7 +198,7 @@ describe("sortFiles", () => {
       primary: osSortKey("date_modified", "asc"),
       secondary: null,
     };
-    const result = sortFiles(files, sort, imageMetadata);
+    const result = sortFiles(files, sort, fileMetadata);
     expect(result.map((p) => p.relative_path)).toEqual([
       "b.jpg",
       "a.jpg",
@@ -207,7 +207,7 @@ describe("sortFiles", () => {
   });
 
   it("sorts by image metadata value ascending, missing values last", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     store.add("b.jpg");
     store.set(
       "b.jpg",
@@ -260,7 +260,7 @@ describe("sortFiles", () => {
       primary: osSortKey("date_modified", "asc"),
       secondary: osSortKey("date_created", "asc"),
     };
-    const result = sortFiles(files, sort, imageMetadata);
+    const result = sortFiles(files, sort, fileMetadata);
     // c first (date_modified=50), then a (date_modified=100, date_created=1), then b
     expect(result.map((p) => p.relative_path)).toEqual([
       "c.jpg",
@@ -279,12 +279,12 @@ describe("sortFiles", () => {
       primary: pathSortKey("asc"),
       secondary: null,
     };
-    sortFiles(files, sort, imageMetadata);
+    sortFiles(files, sort, fileMetadata);
     expect(files).toEqual(original);
   });
   it("sorts identical same-schema occurrences and leaves conflicts last", () => {
     const id = testId("IFD0:Model");
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     const identical = occurrenceFromSchemaValue(id, {
       kind: "Text",
       value: "Nikon",
@@ -341,7 +341,7 @@ describe("sortFiles", () => {
   it("sorts absent schema index and index zero independently", () => {
     const absent = testId("IFD0:Model");
     const zero = { ...absent, index: 0 };
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     store.set("absent.jpg", [
       occurrenceFromSchemaValue(absent, { kind: "Text", value: "A" }),
     ]);
@@ -395,23 +395,23 @@ const mockFiles: FileInfo[] = [
 
 function makeSortStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   mockFiles.forEach((p) => {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   });
-  return { thumbnails, imageMetadata };
+  return { thumbnails, fileMetadata };
 }
 
 describe("FileList sort indicator", () => {
   it("shows no sort indicator by default", () => {
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -426,13 +426,13 @@ describe("FileList sort indicator", () => {
   });
 
   it("shows primary sort indicator on sorted column", () => {
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{
           primary: osSortKey("date_modified", "asc"),
@@ -452,13 +452,13 @@ describe("FileList sort indicator", () => {
   });
 
   it("shows desc indicator when sort direction is desc", () => {
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{
           primary: osSortKey("date_modified", "desc"),
@@ -479,13 +479,13 @@ describe("FileList sort indicator", () => {
 
   it("calls onSortChange with ascending sort when a column header is clicked", async () => {
     const onSortChange = vi.fn();
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
@@ -505,13 +505,13 @@ describe("FileList sort indicator", () => {
 
   it("calls onSortChange toggling to desc when the same sorted column is clicked again", async () => {
     const onSortChange = vi.fn();
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{
           primary: osSortKey("date_modified", "asc"),
@@ -533,13 +533,13 @@ describe("FileList sort indicator", () => {
   });
 
   it("shows secondary sort indicator on secondary sorted column", () => {
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -572,13 +572,13 @@ describe("FileList sortingDisabled", () => {
   };
 
   it("hides ▲/▼ indicators when sortingDisabled is true", () => {
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={sortConfig}
         onSortChange={() => {}}
@@ -595,11 +595,11 @@ describe("FileList sortingDisabled", () => {
   });
 
   it("shows the indicators again once sortingDisabled flips back to false", () => {
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     const props = {
       files: mockFiles,
       thumbnails,
-      imageMetadataOccurrences: imageMetadata,
+      fileMetadataOccurrences: fileMetadata,
       visibleColumns: [osCol("date_modified")],
       sortConfig,
       onSortChange: () => {},
@@ -625,7 +625,7 @@ describe("FileList sortingDisabled", () => {
     // state (image sort + metadata pending), they couldn't click an OS
     // column to switch to a sort that *would* apply.
     const onSortChange = vi.fn();
-    const { thumbnails, imageMetadata } = makeSortStores();
+    const { thumbnails, fileMetadata } = makeSortStores();
     const imagePrimary: SortConfig = {
       primary: imageSortKey("IFD0:Model", "asc"),
       secondary: null,
@@ -635,7 +635,7 @@ describe("FileList sortingDisabled", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           imgCol("IFD0:Model"),

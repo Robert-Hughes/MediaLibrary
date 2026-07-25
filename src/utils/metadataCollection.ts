@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataEntry,
+  FileMetadataEntry,
   MetadataValue,
   SchemaDefinitionId,
 } from "../types";
@@ -9,7 +9,7 @@ import { schemaDefinitionIdToken } from "./schemaDefinitionId";
  * Token-keyed, derived read-only schema view. It is never scanner wire data,
  * authoritative occurrence state, or a safe way to select an occurrence.
  */
-export type MetadataCollection = Record<string, ImageMetadataEntry>;
+export type MetadataCollection = Record<string, FileMetadataEntry>;
 
 export interface SchemaMetadataValueEntry {
   id: SchemaDefinitionId;
@@ -22,7 +22,7 @@ export function metadataCollection(
   return Object.fromEntries(
     entries.map((entry) => [
       schemaDefinitionIdToken(entry.id),
-      { ...entry.value, id: entry.id } as ImageMetadataEntry,
+      { ...entry.value, id: entry.id } as FileMetadataEntry,
     ]),
   );
 }
@@ -30,7 +30,7 @@ export function metadataCollection(
 export function metadataGet(
   collection: MetadataCollection,
   id: SchemaDefinitionId,
-): ImageMetadataEntry | undefined {
+): FileMetadataEntry | undefined {
   return collection[schemaDefinitionIdToken(id)];
 }
 
@@ -57,7 +57,7 @@ export function metadataIds(
   );
 }
 
-function stripMetadataEntryId(entry: ImageMetadataEntry): MetadataValue {
+function stripMetadataEntryId(entry: FileMetadataEntry): MetadataValue {
   const { id: _id, ...value } = entry;
   return value as MetadataValue;
 }

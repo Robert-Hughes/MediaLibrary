@@ -1,5 +1,5 @@
 import type {
-  ImageMetadata,
+  FileMetadata,
   MetadataDraftReconciliation,
   MetadataDraftEdit,
   MetadataTargetDraftEntry,
@@ -415,7 +415,7 @@ function metadataOccurrenceSelectorRelationshipIsValid(
   );
 }
 
-export type ImageMetadataDuplicateIdentity = {
+export type FileMetadataDuplicateIdentity = {
   kind: "occurrence";
   token: string;
   firstIndex: number;
@@ -424,9 +424,9 @@ export type ImageMetadataDuplicateIdentity = {
 
 function findDuplicateIdentity<T>(
   values: T[],
-  kind: ImageMetadataDuplicateIdentity["kind"],
+  kind: FileMetadataDuplicateIdentity["kind"],
   tokenFor: (value: T) => string,
-): ImageMetadataDuplicateIdentity | null {
+): FileMetadataDuplicateIdentity | null {
   const firstIndexes = new Map<string, number>();
   for (const [index, value] of values.entries()) {
     const token = tokenFor(value);
@@ -439,9 +439,9 @@ function findDuplicateIdentity<T>(
   return null;
 }
 
-export function findImageMetadataDuplicateIdentity(
+export function findFileMetadataDuplicateIdentity(
   value: unknown,
-): ImageMetadataDuplicateIdentity | null {
+): FileMetadataDuplicateIdentity | null {
   if (!isRecord(value)) return null;
 
   if (
@@ -459,7 +459,7 @@ export function findImageMetadataDuplicateIdentity(
   return null;
 }
 
-export function isImageMetadata(value: unknown): value is ImageMetadata {
+export function isFileMetadata(value: unknown): value is FileMetadata {
   return (
     isRecord(value) &&
     hasExactlyOwnStringKeys(value, ["relative_path", "occurrences"]) &&
@@ -467,7 +467,7 @@ export function isImageMetadata(value: unknown): value is ImageMetadata {
     value.relative_path.length > 0 &&
     Array.isArray(value.occurrences) &&
     value.occurrences.every(isMetadataOccurrence) &&
-    findImageMetadataDuplicateIdentity(value) === null
+    findFileMetadataDuplicateIdentity(value) === null
   );
 }
 

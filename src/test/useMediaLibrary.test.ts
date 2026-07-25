@@ -70,7 +70,7 @@ function targetDraftResult(
     applied: true,
     error: null,
     warning: null,
-    fresh_image_metadata:
+    fresh_file_metadata:
       value === null
         ? null
         : {
@@ -114,7 +114,7 @@ async function publishOccurrences(
   occurrences: MetadataOccurrence[] = [],
 ): Promise<void> {
   act(() => {
-    mock.emitImageMetadataReady(relativePath, {}, undefined, occurrences);
+    mock.emitFileMetadataReady(relativePath, {}, undefined, occurrences);
   });
   await act(async () => {
     await vi.advanceTimersByTimeAsync(250);
@@ -246,7 +246,7 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.files).toHaveLength(3);
   });
 
-  it("imageMetadataRemaining decrements when image_metadata_ready fires", async () => {
+  it("fileMetadataRemaining decrements when file_metadata_ready fires", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -264,7 +264,7 @@ describe("useMediaLibrary", () => {
     });
 
     act(() => {
-      mock.emitImageMetadataReady("a.jpg", {});
+      mock.emitFileMetadataReady("a.jpg", {});
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
@@ -276,7 +276,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("stores canonical metadata from image_metadata_ready", async () => {
+  it("stores canonical metadata from file_metadata_ready", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -291,7 +291,7 @@ describe("useMediaLibrary", () => {
     });
 
     act(() => {
-      mock.emitImageMetadataReady("a.jpg", {
+      mock.emitFileMetadataReady("a.jpg", {
         "IFD0:Orientation": { kind: "Integer", value: 6 },
       });
     });
@@ -301,7 +301,7 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      const metadata = state.imageMetadataOccurrences.get("a.jpg");
+      const metadata = state.fileMetadataOccurrences.get("a.jpg");
       expect(metadata).not.toBe("loading");
       if (metadata !== "loading") {
         expect(
@@ -772,7 +772,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("image_metadata_ready and thumbnail_ready with a stale scan_id are ignored", async () => {
+  it("file_metadata_ready and thumbnail_ready with a stale scan_id are ignored", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -788,7 +788,7 @@ describe("useMediaLibrary", () => {
 
     const stale = mock.currentScanId - 1;
     act(() => {
-      mock.emitImageMetadataReady(
+      mock.emitFileMetadataReady(
         "a.jpg",
         { "IFD0:Model": { kind: "Text", value: "Stale" } },
         stale,
@@ -804,7 +804,7 @@ describe("useMediaLibrary", () => {
     const state = result.current[0];
     if (state.kind === "loaded") {
       // Stale events should not have written to the stores
-      expect(state.imageMetadataOccurrences.get("a.jpg")).toBe("loading");
+      expect(state.fileMetadataOccurrences.get("a.jpg")).toBe("loading");
       expect(state.thumbnails.get("a.jpg")).toBe("loading");
       expect(state.metadataProgress.getRemaining()).toBe(1);
     }
@@ -1012,7 +1012,7 @@ describe("useMediaLibrary", () => {
     let state = result.current[0];
     if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
     act(() => {
-      mock.emitImageMetadataReady("a.jpg", {
+      mock.emitFileMetadataReady("a.jpg", {
         "IFD0:Model": { kind: "Text", value: "Canon" },
       });
     });
@@ -1036,7 +1036,7 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
     act(() => {
-      mock.emitImageMetadataReady("b.jpg", {
+      mock.emitFileMetadataReady("b.jpg", {
         "IFD0:Model": { kind: "Text", value: "Nikon" },
       });
     });
@@ -1060,7 +1060,7 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
     act(() => {
-      mock.emitImageMetadataReady("c.jpg", {
+      mock.emitFileMetadataReady("c.jpg", {
         "IFD0:Model": { kind: "Text", value: "Sony" },
       });
     });
@@ -1256,7 +1256,7 @@ describe("useMediaLibrary", () => {
       },
     };
     act(() => {
-      mock.emitImageMetadataReady("a.jpg", {}, undefined, [
+      mock.emitFileMetadataReady("a.jpg", {}, undefined, [
         occurrence,
         secondOccurrence,
       ]);
@@ -1266,11 +1266,11 @@ describe("useMediaLibrary", () => {
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind === "loaded") {
-      expect(state.imageMetadataOccurrences.get("a.jpg")).toEqual([
+      expect(state.fileMetadataOccurrences.get("a.jpg")).toEqual([
         occurrence,
         secondOccurrence,
       ]);
-      const loaded = state.imageMetadataOccurrences.get("a.jpg");
+      const loaded = state.fileMetadataOccurrences.get("a.jpg");
       expect(loaded).not.toBe("loading");
       if (loaded !== "loading") {
         expect(
@@ -1293,12 +1293,12 @@ describe("useMediaLibrary", () => {
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitFileFound(makeFile({ relative_path: "failed.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
-    act(() => mock.emitImageMetadataReady("failed.jpg", {}));
+    act(() => mock.emitFileMetadataReady("failed.jpg", {}));
     await act(async () => vi.advanceTimersByTimeAsync(250));
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.imageMetadataOccurrences.get("failed.jpg")).toEqual([]);
+      expect(state.fileMetadataOccurrences.get("failed.jpg")).toEqual([]);
     }
   });
 
@@ -1313,10 +1313,10 @@ describe("useMediaLibrary", () => {
     const firstState = result.current[0];
     expect(firstState.kind).toBe("loaded");
     if (firstState.kind !== "loaded") return;
-    const oldStore = firstState.imageMetadataOccurrences;
+    const oldStore = firstState.fileMetadataOccurrences;
 
     act(() =>
-      mock.emitImageMetadataReady(
+      mock.emitFileMetadataReady(
         "a.jpg",
         { "IFD0:Model": { kind: "Text", value: "stale" } },
         oldScanId - 1,
@@ -1344,15 +1344,15 @@ describe("useMediaLibrary", () => {
     );
     await act(async () => vi.advanceTimersByTimeAsync(250));
     expect(oldStore.get("a.jpg")).toBe("loading");
-    expect(firstState.imageMetadataOccurrences.get("a.jpg")).toBe("loading");
+    expect(firstState.fileMetadataOccurrences.get("a.jpg")).toBe("loading");
 
     await act(async () => result.current[1].openRecent("/second"));
     act(() => mock.emitFileFound(makeFile({ relative_path: "b.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
     const replacement = result.current[0];
     if (replacement.kind === "loaded") {
-      expect(replacement.imageMetadataOccurrences).toBe(oldStore);
-      expect([...replacement.imageMetadataOccurrences.entries()]).toEqual([
+      expect(replacement.fileMetadataOccurrences).toBe(oldStore);
+      expect([...replacement.fileMetadataOccurrences.entries()]).toEqual([
         ["b.jpg", "loading"],
       ]);
     }
@@ -1408,10 +1408,10 @@ describe("useMediaLibrary", () => {
     });
     await act(async () => vi.advanceTimersByTimeAsync(150));
     act(() => {
-      mock.emitImageMetadataReady("a.jpg", {
+      mock.emitFileMetadataReady("a.jpg", {
         "XMP-dc:Title": { kind: "Text", value: "Zulu" },
       });
-      mock.emitImageMetadataReady("b.jpg", {
+      mock.emitFileMetadataReady("b.jpg", {
         "XMP-dc:Title": { kind: "Text", value: "Alpha" },
       });
     });
@@ -1434,7 +1434,7 @@ describe("useMediaLibrary", () => {
       sortFiles(
         state.files,
         state.sortConfig,
-        state.imageMetadataOccurrences,
+        state.fileMetadataOccurrences,
       ).map((file) => file.relative_path),
     ).toEqual(["b.jpg", "a.jpg"]);
     const progressResult = targetDraftResult(
@@ -1466,7 +1466,7 @@ describe("useMediaLibrary", () => {
       sortFiles(
         state.files,
         state.sortConfig,
-        state.imageMetadataOccurrences,
+        state.fileMetadataOccurrences,
       ).map((file) => file.relative_path),
     ).toEqual(["a.jpg", "b.jpg"]);
   });
@@ -2232,7 +2232,7 @@ describe("useMediaLibrary", () => {
     expect(
       state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
     ).toBeUndefined();
-    expect(state.imageMetadataOccurrences.get("shared.jpg")).toEqual([]);
+    expect(state.fileMetadataOccurrences.get("shared.jpg")).toEqual([]);
     expect(state.targetVerifyOutcomes).toEqual({});
     expect(
       state.applicationErrors.filter(({ error_type }) =>
@@ -2758,7 +2758,7 @@ describe("useMediaLibrary", () => {
       applied: false,
       error: "semantic write failure",
       warning: "file metadata was partially refreshed",
-      fresh_image_metadata: null,
+      fresh_file_metadata: null,
       target_outcomes: [
         {
           target: original,

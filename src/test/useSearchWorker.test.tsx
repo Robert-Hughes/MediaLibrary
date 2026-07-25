@@ -8,7 +8,7 @@ import { _clearTagInfoCache } from "../hooks/useTagInfo";
 import { SearchIndex } from "../search/searchIndex";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   type FileInfo,
   type TagInfo,
 } from "../types";
@@ -84,7 +84,7 @@ class FakeWorker implements SearchWorkerLike {
 
 interface HookArgs {
   files: FileInfo[];
-  imageMetadataOccurrencesStore: ImageMetadataOccurrencesStore;
+  fileMetadataOccurrencesStore: FileMetadataOccurrencesStore;
   targetDraftEditsStore: TargetDraftEditsStore;
   query: string;
 }
@@ -93,9 +93,9 @@ function setup(initial: Partial<HookArgs> = {}) {
   const fake = new FakeWorker();
   const props: HookArgs = {
     files: initial.files ?? [],
-    imageMetadataOccurrencesStore:
-      initial.imageMetadataOccurrencesStore ??
-      new ImageMetadataOccurrencesStore(),
+    fileMetadataOccurrencesStore:
+      initial.fileMetadataOccurrencesStore ??
+      new FileMetadataOccurrencesStore(),
     targetDraftEditsStore:
       initial.targetDraftEditsStore ?? new TargetDraftEditsStore(),
     query: initial.query ?? "",

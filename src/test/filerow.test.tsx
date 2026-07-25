@@ -9,7 +9,7 @@ import {
 } from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { MetadataTargetDraftEntry, MetadataOccurrence } from "../types";
 import {
   _clearTagInfoCache,
@@ -30,7 +30,7 @@ function renderTargetDraftRow(
   entries: MetadataTargetDraftEntry[],
 ) {
   const thumbnails = new ThumbnailStore();
-  const metadata = new ImageMetadataOccurrencesStore();
+  const metadata = new FileMetadataOccurrencesStore();
   thumbnails.set("1.jpg", "base64string");
   if (occurrences === "loading") metadata.add("1.jpg");
   else metadata.set("1.jpg", occurrences);
@@ -48,7 +48,7 @@ function renderTargetDraftRow(
         },
       ]}
       thumbnails={thumbnails}
-      imageMetadataOccurrences={metadata}
+      fileMetadataOccurrences={metadata}
       visibleColumns={[imgCol("IFD0:Model")]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
@@ -70,7 +70,7 @@ describe("FileRow", () => {
 
   it("renders FileList with files without crashing", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataOccurrencesStore();
+    const metadata = new FileMetadataOccurrencesStore();
 
     // add some metadata
     thumbnails.set("1.jpg", "base64string");
@@ -94,7 +94,7 @@ describe("FileRow", () => {
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={metadata}
+        fileMetadataOccurrences={metadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -115,7 +115,7 @@ describe("FileRow", () => {
 
   it("fits thumbnail images without cropping", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataOccurrencesStore();
+    const metadata = new FileMetadataOccurrencesStore();
     thumbnails.set("1.jpg", "base64string");
     metadata.set("1.jpg", []);
 
@@ -132,7 +132,7 @@ describe("FileRow", () => {
           },
         ]}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={metadata}
+        fileMetadataOccurrences={metadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -154,7 +154,7 @@ describe("FileRow", () => {
     // row.  The fix is to set --grid-columns on a parent and have rows read it
     // via var(--grid-columns) — a constant string that never changes per render.
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataOccurrencesStore();
+    const metadata = new FileMetadataOccurrencesStore();
     const files = [
       {
         relative_path: "1.jpg",
@@ -172,7 +172,7 @@ describe("FileRow", () => {
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={metadata}
+        fileMetadataOccurrences={metadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -199,7 +199,7 @@ describe("FileRow", () => {
 
   it("displays em dash — for missing metadata and not mojibake â€”", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataOccurrencesStore();
+    const metadata = new FileMetadataOccurrencesStore();
 
     // We add metadata as empty object, so "IFD0:Model" will be missing/undefined.
     thumbnails.set("1.jpg", "base64string");
@@ -220,7 +220,7 @@ describe("FileRow", () => {
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={metadata}
+        fileMetadataOccurrences={metadata}
         visibleColumns={[imgCol("IFD0:Model")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -253,7 +253,7 @@ describe("FileRow", () => {
     });
 
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataOccurrencesStore();
+    const metadata = new FileMetadataOccurrencesStore();
     thumbnails.set("1.jpg", "base64string");
     metadata.set(
       "1.jpg",
@@ -275,7 +275,7 @@ describe("FileRow", () => {
           },
         ]}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={metadata}
+        fileMetadataOccurrences={metadata}
         visibleColumns={[imgCol("IFD0:Orientation")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -300,7 +300,7 @@ describe("FileRow", () => {
     _setTagInfoCacheEntry("IFD0:Orientation", null);
 
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataOccurrencesStore();
+    const metadata = new FileMetadataOccurrencesStore();
     thumbnails.set("1.jpg", "base64string");
     metadata.set(
       "1.jpg",
@@ -322,7 +322,7 @@ describe("FileRow", () => {
           },
         ]}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={metadata}
+        fileMetadataOccurrences={metadata}
         visibleColumns={[imgCol("IFD0:Orientation")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}

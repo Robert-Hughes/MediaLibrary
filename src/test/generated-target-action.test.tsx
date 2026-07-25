@@ -78,7 +78,7 @@ async function loadedFile(
     mock.emitFileFound(makeFile({ relative_path: "file.jpg" }));
     mock.emitScanComplete();
     if (options.emitMetadata !== false) {
-      mock.emitImageMetadataReady(
+      mock.emitFileMetadataReady(
         "file.jpg",
         {},
         undefined,
@@ -238,7 +238,7 @@ describe("generated target-aware production action", () => {
     await act(async () => {
       mock.emitFileFound(makeFile({ relative_path: "valid.jpg" }));
       mock.emitScanComplete();
-      mock.emitImageMetadataReady("valid.jpg", {}, undefined, []);
+      mock.emitFileMetadataReady("valid.jpg", {}, undefined, []);
     });
     expect(result.current[0].kind).toBe("loaded");
     if (result.current[0].kind !== "loaded") return;
@@ -308,7 +308,7 @@ describe("generated target-aware production action", () => {
     const { mock, result } = await loadedFile();
     await act(async () => {
       mock.emitFileFound(makeFile({ relative_path: "second.jpg" }));
-      mock.emitImageMetadataReady("second.jpg", {}, undefined, []);
+      mock.emitFileMetadataReady("second.jpg", {}, undefined, []);
       await new Promise((resolve) => setTimeout(resolve, 250));
     });
     const state = result.current[0];

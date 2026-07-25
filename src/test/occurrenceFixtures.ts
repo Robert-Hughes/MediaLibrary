@@ -1,12 +1,12 @@
 import type {
-  ImageMetadataEntry,
+  FileMetadataEntry,
   MetadataOccurrence,
   MetadataValue,
   SchemaDefinitionId,
   TagInfo,
   TagKind,
 } from "../types";
-import { ImageMetadataOccurrencesStore } from "../types";
+import { FileMetadataOccurrencesStore } from "../types";
 import type { MetadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { testFriendlyName } from "./testIds";
@@ -103,7 +103,7 @@ export function occurrencesFromMetadataCollection(
         schemaDefinitionIdToken(right.id),
       ),
     )
-    .map((entry: ImageMetadataEntry, ordinal) => {
+    .map((entry: FileMetadataEntry, ordinal) => {
       const { id, ...value } = entry;
       return occurrenceFromSchemaValue(id, value as MetadataValue, ordinal);
     });
@@ -111,8 +111,8 @@ export function occurrencesFromMetadataCollection(
 
 export function occurrenceStore(
   byPath: Record<string, MetadataCollection | MetadataOccurrence[]> = {},
-): ImageMetadataOccurrencesStore {
-  const store = new ImageMetadataOccurrencesStore();
+): FileMetadataOccurrencesStore {
+  const store = new FileMetadataOccurrencesStore();
   for (const [path, value] of Object.entries(byPath)) {
     store.set(
       path,

@@ -4,8 +4,8 @@ import { DetailsPane } from "./DetailsPane";
 import type {
   MetadataDraftEdit,
   FileInfo,
-  ImageMetadataOccurrencesState,
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesState,
+  FileMetadataOccurrencesStore,
   MetadataDraftTarget,
   MetadataTargetDraftEntry,
   TargetDraftPersistenceState,
@@ -84,7 +84,7 @@ interface Props {
   /** Injectable for testing — defaults to the real Tauri invoke */
   loadImage?: (path: string) => Promise<string | null>;
   /** Observable authoritative occurrence store. */
-  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
+  fileMetadataOccurrences: FileMetadataOccurrencesStore;
   targetDraftEdits?: TargetDraftCollection;
   targetDraftPersistence?: TargetDraftPersistenceState;
   onSetExistingOccurrenceDraft?: (
@@ -140,7 +140,7 @@ export function GalleryView({
   onClose,
   onNavigate,
   loadImage,
-  imageMetadataOccurrences,
+  fileMetadataOccurrences,
   targetDraftEdits,
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
@@ -245,9 +245,9 @@ export function GalleryView({
 
   // This hook is unconditional so navigation changes the subscribed path and
   // unsubscribes from the previously displayed file.
-  const occurrencesState: ImageMetadataOccurrencesState = useSyncExternalStore(
-    (cb) => imageMetadataOccurrences.subscribe(file?.relative_path ?? "", cb),
-    () => imageMetadataOccurrences.get(file?.relative_path ?? ""),
+  const occurrencesState: FileMetadataOccurrencesState = useSyncExternalStore(
+    (cb) => fileMetadataOccurrences.subscribe(file?.relative_path ?? "", cb),
+    () => fileMetadataOccurrences.get(file?.relative_path ?? ""),
   );
 
   // Load the full image whenever the current file changes.

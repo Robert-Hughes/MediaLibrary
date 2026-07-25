@@ -1,7 +1,7 @@
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import { resolveSchemaDraftForPresentation } from "../targetDraftView";
 import type {
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   SchemaDefinitionId,
 } from "../types";
 import { schemaDefinitionIdToken } from "./schemaDefinitionId";
@@ -17,7 +17,7 @@ export interface EffectiveSchemaPresence {
  * ExistingOccurrence Delete may remove a schema.
  */
 export function effectiveSchemaPresenceForFile(
-  occurrences: ImageMetadataOccurrencesState | undefined,
+  occurrences: FileMetadataOccurrencesState | undefined,
   targetDrafts: TargetDraftCollection | undefined,
 ): EffectiveSchemaPresence {
   const tokens = new Set<string>();

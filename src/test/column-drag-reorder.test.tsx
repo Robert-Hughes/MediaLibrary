@@ -1,7 +1,7 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo, VisibleColumn } from "../types";
 import { imgCol, osCol } from "./factories";
 
@@ -38,12 +38,12 @@ const defaultSortProps = {
 
 function makeStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   mockFiles.forEach((p) => {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   });
-  return { thumbnails, imageMetadata };
+  return { thumbnails, fileMetadata };
 }
 
 const img = imgCol;
@@ -51,13 +51,13 @@ const os = osCol;
 
 describe("column header draggable attribute", () => {
   it("image metadata column headers are draggable", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -73,13 +73,13 @@ describe("column header draggable attribute", () => {
   });
 
   it("OS metadata column headers are draggable", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -95,13 +95,13 @@ describe("column header draggable attribute", () => {
   });
 
   it("path column is NOT draggable", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -119,13 +119,13 @@ describe("column header draggable attribute", () => {
 
 describe("metadata column reorder insertion", () => {
   function setup(onColumnsReorder = vi.fn()) {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           img("IFD0:Model"),
           img("ExifIFD:DateTimeOriginal"),
@@ -208,13 +208,13 @@ describe("metadata column reorder insertion", () => {
 
 describe("OS metadata column reorder insertion", () => {
   function setup(onColumnsReorder = vi.fn()) {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
         onColumnsReorder={onColumnsReorder}
         {...defaultSortProps}
@@ -259,13 +259,13 @@ describe("OS metadata column reorder insertion", () => {
 
 describe("metadata column header gridColumn positions follow visibleColumns order", () => {
   function renderWithOrder(visibleColumns: VisibleColumn[]) {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={visibleColumns}
         {...defaultSortProps}
         selectedIndex={null}
@@ -315,13 +315,13 @@ describe("metadata column header gridColumn positions follow visibleColumns orde
 describe("cross-kind drop is allowed (unified columns)", () => {
   it("dropping an OS column onto an image column reorders within the unified array", () => {
     const onColumnsReorder = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           os("date_modified"),
           os("date_created"),
@@ -357,13 +357,13 @@ describe("cross-kind drop is allowed (unified columns)", () => {
 
 describe("drag-over drop indicator", () => {
   function setup() {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         onColumnsReorder={() => {}}
         {...defaultSortProps}
@@ -469,13 +469,13 @@ describe("drag-over drop indicator", () => {
 
 describe("combined metadata header interactions", () => {
   function setup(onColumnsReorder = vi.fn(), onSortChange = vi.fn()) {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           os("date_modified"),
           img("IFD0:Model"),

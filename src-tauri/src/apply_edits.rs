@@ -75,7 +75,7 @@ struct VerifiedTarget {
 
 #[derive(Debug, Clone)]
 pub struct MetadataSingleFileOutcome {
-    pub fresh_image_metadata: Option<scanner::ImageMetadata>,
+    pub fresh_file_metadata: Option<scanner::FileMetadata>,
     pub error: Option<String>,
     pub warning: Option<String>,
     pub outcomes: Vec<MetadataTargetOutcome>,
@@ -86,7 +86,7 @@ pub struct MetadataSingleFileOutcome {
 impl MetadataSingleFileOutcome {
     fn hard_failure(error: TargetApplyError) -> Self {
         Self {
-            fresh_image_metadata: None,
+            fresh_file_metadata: None,
             error: Some(error.to_string()),
             warning: None,
             outcomes: Vec::new(),
@@ -101,11 +101,11 @@ impl MetadataSingleFileOutcome {
 }
 
 pub(crate) trait MetadataTargetWriteClient {
-    fn read_image_metadata(
+    fn read_file_metadata(
         &self,
         rel_path: &str,
         abs_path: &Path,
-    ) -> Result<scanner::ImageMetadata, String>;
+    ) -> Result<scanner::FileMetadata, String>;
 
     fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String>;
 }
@@ -113,13 +113,13 @@ pub(crate) trait MetadataTargetWriteClient {
 struct RealMetadataTargetWriteClient;
 
 impl MetadataTargetWriteClient for RealMetadataTargetWriteClient {
-    fn read_image_metadata(
+    fn read_file_metadata(
         &self,
         rel_path: &str,
         abs_path: &Path,
-    ) -> Result<scanner::ImageMetadata, String> {
+    ) -> Result<scanner::FileMetadata, String> {
         let outcome =
-            scanner::read_image_metadata_batch(&[rel_path.to_string()], &[abs_path.to_path_buf()])
+            scanner::read_file_metadata_batch(&[rel_path.to_string()], &[abs_path.to_path_buf()])
                 .map_err(|error| format!("authoritative metadata batch read failed: {error}"))?;
 
         let mut results = outcome
@@ -427,7 +427,7 @@ fn observed_occurrence(occurrence: &MetadataOccurrence) -> TargetApplyObservedOc
 fn plan_batch<F>(
     abs_path: &Path,
     edits: &[MetadataTargetDraftEntry],
-    before: &scanner::ImageMetadata,
+    before: &scanner::FileMetadata,
     schema_lookup: F,
 ) -> Result<PlannedBatch, TargetApplyError>
 where
@@ -697,7 +697,7 @@ where
     }
 
     let phase_started = Instant::now();
-    let before = match client.read_image_metadata(rel_path, &abs_path) {
+    let before = match client.read_file_metadata(rel_path, &abs_path) {
         Ok(metadata) => metadata,
         Err(error) => {
             log::info!(
@@ -731,7 +731,7 @@ where
     let rel_path = executed.prepared.rel_path.clone();
     let abs_path = executed.prepared.abs_path.clone();
     let phase_started = Instant::now();
-    let fresh = client.read_image_metadata(&rel_path, &abs_path);
+    let fresh = client.read_file_metadata(&rel_path, &abs_path);
     log::info!(
         "[apply_perf] file={} phase=post_read duration_ms={} status={}",
         rel_path,
@@ -745,7 +745,7 @@ fn prepare_single_file_metadata_with_schema<F>(
     rel_path: &str,
     abs_path: std::path::PathBuf,
     edits: &[MetadataTargetDraftEntry],
-    before: scanner::ImageMetadata,
+    before: scanner::FileMetadata,
     schema_lookup: F,
     file_started: Instant,
 ) -> Result<PreparedMetadataWrite, Box<MetadataSingleFileOutcome>>
@@ -782,7 +782,7 @@ pub(crate) fn prepare_single_file_metadata(
     folder_path: &str,
     rel_path: &str,
     edits: &[MetadataTargetDraftEntry],
-    before: scanner::ImageMetadata,
+    before: scanner::FileMetadata,
 ) -> Result<PreparedMetadataWrite, Box<MetadataSingleFileOutcome>> {
     let file_started = Instant::now();
     log::info!(
@@ -888,7 +888,7 @@ pub(crate) fn executed_relative_path(executed: &ExecutedMetadataWrite) -> &str {
 
 pub(crate) fn finalize_executed_metadata_write(
     executed: ExecutedMetadataWrite,
-    fresh: Result<scanner::ImageMetadata, String>,
+    fresh: Result<scanner::FileMetadata, String>,
 ) -> MetadataSingleFileOutcome {
     let ExecutedMetadataWrite {
         prepared,
@@ -964,7 +964,7 @@ pub(crate) fn finalize_executed_metadata_write(
                 });
             }
             return MetadataSingleFileOutcome {
-                fresh_image_metadata: None,
+                fresh_file_metadata: None,
                 error: Some(error),
                 warning: None,
                 outcomes,
@@ -1026,7 +1026,7 @@ pub(crate) fn finalize_executed_metadata_write(
                 });
             }
             return MetadataSingleFileOutcome {
-                fresh_image_metadata: None,
+                fresh_file_metadata: None,
                 error: Some(error),
                 warning: None,
                 outcomes,
@@ -1110,7 +1110,7 @@ pub(crate) fn finalize_executed_metadata_write(
     // The batch coordinator appends this evidence to the independent
     // target-aware log after draft reconciliation and any persistence attempt.
     let result = MetadataSingleFileOutcome {
-        fresh_image_metadata: Some(fresh),
+        fresh_file_metadata: Some(fresh),
         error: diagnostics.error.or(first_mismatch),
         warning: diagnostics.warning,
         outcomes,
@@ -1148,7 +1148,7 @@ fn targets_to_clear_from_reconciliation(
 }
 
 fn build_strict_post_write_occurrence_index(
-    fresh: &scanner::ImageMetadata,
+    fresh: &scanner::FileMetadata,
 ) -> Result<BTreeMap<MetadataOccurrenceId, &MetadataOccurrence>, TargetApplyError> {
     let mut occurrences = BTreeMap::new();
     for occurrence in fresh.occurrences.iter() {
@@ -1511,7 +1511,7 @@ mod tests {
     use std::collections::VecDeque;
 
     struct FakeClient {
-        reads: RefCell<VecDeque<Result<scanner::ImageMetadata, String>>>,
+        reads: RefCell<VecDeque<Result<scanner::FileMetadata, String>>>,
         writes: RefCell<Vec<(bool, String)>>,
         calls: RefCell<Vec<String>>,
         fail_numeric: bool,
@@ -1519,7 +1519,7 @@ mod tests {
     }
 
     impl FakeClient {
-        fn new(reads: Vec<Result<scanner::ImageMetadata, String>>) -> Self {
+        fn new(reads: Vec<Result<scanner::FileMetadata, String>>) -> Self {
             Self {
                 reads: RefCell::new(reads.into()),
                 writes: RefCell::new(Vec::new()),
@@ -1537,11 +1537,11 @@ mod tests {
     }
 
     impl MetadataTargetWriteClient for FakeClient {
-        fn read_image_metadata(
+        fn read_file_metadata(
             &self,
             _rel_path: &str,
             _abs_path: &Path,
-        ) -> Result<scanner::ImageMetadata, String> {
+        ) -> Result<scanner::FileMetadata, String> {
             self.calls.borrow_mut().push("read".to_string());
             self.reads
                 .borrow_mut()
@@ -1645,8 +1645,8 @@ mod tests {
         }
     }
 
-    fn image(occurrences: Vec<MetadataOccurrence>) -> scanner::ImageMetadata {
-        scanner::ImageMetadata {
+    fn image(occurrences: Vec<MetadataOccurrence>) -> scanner::FileMetadata {
+        scanner::FileMetadata {
             relative_path: "file.jpg".to_string(),
             occurrences: MetadataOccurrences(occurrences),
         }
@@ -2492,7 +2492,7 @@ mod tests {
             outcome.audit_records[1].verification.message,
             outcome.outcomes[1].message
         );
-        let fresh = outcome.fresh_image_metadata.unwrap();
+        let fresh = outcome.fresh_file_metadata.unwrap();
         assert_eq!(fresh.occurrences.0, vec![after1.clone(), after0.clone()]);
 
         let ordered_client = FakeClient::new(vec![
@@ -2667,7 +2667,7 @@ mod tests {
                 .unwrap()
                 .contains(&duplicate_id));
             assert!(outcome.error.as_ref().unwrap().contains(&duplicate_id));
-            assert!(outcome.fresh_image_metadata.is_none());
+            assert!(outcome.fresh_file_metadata.is_none());
             assert!(outcome.targets_to_clear.is_empty());
             assert!(outcome.warning.is_none());
         }
@@ -2713,7 +2713,7 @@ mod tests {
                 .as_ref()
                 .unwrap()
                 .contains("DELETE-DUPLICATE"));
-            assert!(outcome.fresh_image_metadata.is_none());
+            assert!(outcome.fresh_file_metadata.is_none());
             assert!(outcome.targets_to_clear.is_empty());
         }
     }
@@ -2808,7 +2808,7 @@ mod tests {
                     MetadataDraftReconciliation::Keep
                 );
             }
-            assert!(outcome.fresh_image_metadata.is_none());
+            assert!(outcome.fresh_file_metadata.is_none());
             assert!(outcome.targets_to_clear.is_empty());
         }
     }
@@ -2866,7 +2866,7 @@ mod tests {
         let error = outcome.error.unwrap();
         assert!(error.contains("numeric pass failed"));
         assert!(error.contains("UNRELATED-DUPLICATE"));
-        assert!(outcome.fresh_image_metadata.is_none());
+        assert!(outcome.fresh_file_metadata.is_none());
         assert!(outcome.targets_to_clear.is_empty());
     }
 
@@ -4421,7 +4421,7 @@ mod tests {
             &client,
             std::slice::from_ref(&info),
         );
-        assert!(outcome.fresh_image_metadata.is_none());
+        assert!(outcome.fresh_file_metadata.is_none());
         assert!(outcome
             .error
             .unwrap()

@@ -1,5 +1,5 @@
 import {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   type MetadataApplyFileResult,
   type MetadataTargetOutcome,
   type MetadataOccurrences,
@@ -10,7 +10,7 @@ import {
   type TargetDraftCollection,
   type TargetDraftEditsByFile,
 } from "./targetDraftEdits";
-import { metadataOccurrencesEqualExact } from "./utils/imageMetadataEquality";
+import { metadataOccurrencesEqualExact } from "./utils/fileMetadataEquality";
 import { recordFromEntries } from "./utils/stringRecord";
 import {
   targetVerifyOutcomesFromBackend,
@@ -25,7 +25,7 @@ import {
 
 export interface TargetApplyResultStores {
   drafts: TargetDraftEditsStore;
-  occurrences: ImageMetadataOccurrencesStore;
+  occurrences: FileMetadataOccurrencesStore;
   verification: TargetVerifyOutcomesStore;
 }
 
@@ -81,9 +81,9 @@ function prepareValidatedTargetApplyFileResult(
     persistedDraftEntries,
     persistedDraftCollection,
     occurrences:
-      parsed.fresh_image_metadata === null
+      parsed.fresh_file_metadata === null
         ? null
-        : structuredClone(parsed.fresh_image_metadata.occurrences),
+        : structuredClone(parsed.fresh_file_metadata.occurrences),
     targetOutcomes,
     targetVerifyOutcomes,
     error: parsed.error,

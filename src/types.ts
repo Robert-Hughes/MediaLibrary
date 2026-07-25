@@ -10,7 +10,7 @@ import type { MediaKind } from "./types/generated/MediaKind";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 import type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
-import type { ImageMetadata } from "./types/generated/ImageMetadata";
+import type { FileMetadata } from "./types/generated/FileMetadata";
 import { KNOWN_METADATA_IDS as ID } from "./metadata/knownIds";
 import type {
   TargetDraftEditsByFile,
@@ -47,7 +47,7 @@ export type { TagKind } from "./types/generated/TagKind";
 export type { EnumOption } from "./types/generated/EnumOption";
 export type { EnumRepr } from "./types/generated/EnumRepr";
 export type { EditIntent } from "./types/generated/EditIntent";
-export type { ImageMetadata } from "./types/generated/ImageMetadata";
+export type { FileMetadata } from "./types/generated/FileMetadata";
 export type { MetadataApplyFileResult } from "./types/generated/MetadataApplyFileResult";
 export type { MetadataApplyResult } from "./types/generated/MetadataApplyResult";
 export type { MetadataApplyStartedPayload } from "./types/generated/MetadataApplyStartedPayload";
@@ -129,21 +129,21 @@ export class ThumbnailStore {
  * useful to schema-oriented UI helpers, but it is never scanner wire data or
  * authoritative occurrence state and must not be used to select an occurrence.
  */
-export type ImageMetadataEntry = MetadataValue & {
+export type FileMetadataEntry = MetadataValue & {
   readonly id: import("./types/generated/SchemaDefinitionId").SchemaDefinitionId;
 };
 
-export type ImageMetadataOccurrencesState = "loading" | MetadataOccurrences;
-export type ImageMetadataOccurrencesListener = (
+export type FileMetadataOccurrencesState = "loading" | MetadataOccurrences;
+export type FileMetadataOccurrencesListener = (
   path: string,
-  value: ImageMetadataOccurrencesState,
+  value: FileMetadataOccurrencesState,
 ) => void;
 
 /** Observable authoritative occurrence collection keyed by file-relative path. */
-export class ImageMetadataOccurrencesStore {
-  private data = new Map<string, ImageMetadataOccurrencesState>();
+export class FileMetadataOccurrencesStore {
+  private data = new Map<string, FileMetadataOccurrencesState>();
   private subscribers = new Map<string, Set<() => void>>();
-  private globalSubscribers = new Set<ImageMetadataOccurrencesListener>();
+  private globalSubscribers = new Set<FileMetadataOccurrencesListener>();
 
   add(path: string): void {
     if (this.data.has(path)) return;
@@ -151,7 +151,7 @@ export class ImageMetadataOccurrencesStore {
     this.globalSubscribers.forEach((callback) => callback(path, "loading"));
   }
 
-  set(path: string, value: ImageMetadataOccurrencesState): void {
+  set(path: string, value: FileMetadataOccurrencesState): void {
     if (Object.is(this.data.get(path), value)) return;
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((callback) => callback());
@@ -166,7 +166,7 @@ export class ImageMetadataOccurrencesStore {
     this.globalSubscribers.forEach((callback) => callback(path, "loading"));
   }
 
-  get(path: string): ImageMetadataOccurrencesState {
+  get(path: string): FileMetadataOccurrencesState {
     return this.data.get(path) ?? "loading";
   }
 
@@ -181,7 +181,7 @@ export class ImageMetadataOccurrencesStore {
     }
   }
 
-  entries(): IterableIterator<[string, ImageMetadataOccurrencesState]> {
+  entries(): IterableIterator<[string, FileMetadataOccurrencesState]> {
     return this.data.entries();
   }
 
@@ -197,14 +197,14 @@ export class ImageMetadataOccurrencesStore {
   }
 
   /** Subscribe to every changed path for cross-cutting incremental consumers. */
-  subscribeAll(callback: ImageMetadataOccurrencesListener): () => void {
+  subscribeAll(callback: FileMetadataOccurrencesListener): () => void {
     this.globalSubscribers.add(callback);
     return () => {
       this.globalSubscribers.delete(callback);
     };
   }
 
-  getSnapshot(path: string): () => ImageMetadataOccurrencesState {
+  getSnapshot(path: string): () => FileMetadataOccurrencesState {
     return () => this.get(path);
   }
 }
@@ -399,7 +399,7 @@ export type AppState =
       folder: string;
       files: FileInfo[];
       thumbnails: ThumbnailStore;
-      imageMetadataOccurrences: ImageMetadataOccurrencesStore;
+      fileMetadataOccurrences: FileMetadataOccurrencesStore;
       metadataProgress: MetadataProgressStore;
       scanning: boolean; // true while the directory walk is still running
       galleryIndex: number | null;
@@ -695,9 +695,9 @@ export interface FileFoundPayload {
   files: FileInfo[];
 }
 
-export interface ImageMetadataReadyPayload {
+export interface FileMetadataReadyPayload {
   scan_id: number;
-  results: ImageMetadata[];
+  results: FileMetadata[];
 }
 
 export interface ThumbnailReadyPayload {

@@ -82,8 +82,8 @@ describe("ColumnSelectionDialog tests", () => {
       expect(screen.getByText("XMP-dc:Subject")).toBeInTheDocument();
 
       const columnItems = container.querySelectorAll(".column-item");
-      const imageMetadataItems = Array.from(columnItems).slice(2);
-      const labelTexts = imageMetadataItems.map(
+      const fileMetadataItems = Array.from(columnItems).slice(2);
+      const labelTexts = fileMetadataItems.map(
         (item) => item.querySelector(".column-label")?.textContent,
       );
 
@@ -115,8 +115,8 @@ describe("ColumnSelectionDialog tests", () => {
       );
 
       const columnItems = container.querySelectorAll(".column-item");
-      const imageMetadataItems = Array.from(columnItems).slice(2);
-      const labelTexts = imageMetadataItems.map(
+      const fileMetadataItems = Array.from(columnItems).slice(2);
+      const labelTexts = fileMetadataItems.map(
         (item) => item.querySelector(".column-label")?.textContent,
       );
 
@@ -145,8 +145,8 @@ describe("ColumnSelectionDialog tests", () => {
       );
 
       const columnItems = container.querySelectorAll(".column-item");
-      const imageMetadataItems = Array.from(columnItems).slice(2);
-      const labelTexts = imageMetadataItems.map(
+      const fileMetadataItems = Array.from(columnItems).slice(2);
+      const labelTexts = fileMetadataItems.map(
         (item) => item.querySelector(".column-label")?.textContent,
       );
 

@@ -59,7 +59,7 @@ export function normalizeMetadataOccurrencesFromTauri(
  * bounded under heavy load).  Otherwise we defer for `debounceMs` so a
  * burst of small events coalesces into one React update.
  *
- * Used by three near-identical handlers (file_found, image_metadata_ready,
+ * Used by three near-identical handlers (file_found, file_metadata_ready,
  * thumbnail_ready); extracted so they share the same coalescing semantics.
  */
 export function scheduleBatchedFlush(

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo } from "../types";
 import { imgCol } from "./factories";
 import {
@@ -27,11 +27,11 @@ const defaultSortProps = {
 
 describe("FileList column header context menu", () => {
   let thumbnails: ThumbnailStore;
-  let occurrences: ImageMetadataOccurrencesStore;
+  let occurrences: FileMetadataOccurrencesStore;
 
   beforeEach(() => {
     thumbnails = new ThumbnailStore();
-    occurrences = new ImageMetadataOccurrencesStore();
+    occurrences = new FileMetadataOccurrencesStore();
     thumbnails.add("file1.jpg");
     occurrences.add("file1.jpg");
     _clearTagInfoCache();
@@ -50,7 +50,7 @@ describe("FileList column header context menu", () => {
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={occurrences}
+        fileMetadataOccurrences={occurrences}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           imgCol("ExifIFD:DateTimeOriginal"),

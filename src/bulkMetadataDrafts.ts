@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   MetadataDraftEdit,
   MetadataDraftTarget,
   MetadataOccurrence,
@@ -45,7 +45,7 @@ import { planMetadataRemovalTargets } from "./metadataRemovalTargets";
 
 export interface BulkMetadataFileState {
   relativePath: string;
-  occurrences: ImageMetadataOccurrencesState;
+  occurrences: FileMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
 }
 

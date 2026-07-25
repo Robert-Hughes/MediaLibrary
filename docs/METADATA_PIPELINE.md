@@ -18,7 +18,7 @@ document/path/copy and parent-runtime scope into one writable parent occurrence
 whose value is the complete language map. Conflicting values for one language
 produce one read-only `Unknown` parent occurrence.
 
-`ImageMetadata` contains only authoritative occurrences. Columns, sorting,
+`FileMetadata` contains only authoritative occurrences. Columns, sorting,
 normalisation, overwrite, generated workflows and multi-field semantic editors
 may derive deliberate schema-oriented read-only projections. Those projections
 never decide the identity or ownership of an existing Details row.

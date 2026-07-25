@@ -2,7 +2,7 @@ import type { TauriApi } from "../useMediaLibrary";
 import type {
   FileInfo,
   FileFoundPayload,
-  ImageMetadataReadyPayload,
+  FileMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
   ApplicationErrorPayload,
@@ -60,7 +60,7 @@ export interface MockTauriApi {
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
   emitFileFound: (file: FileInfo, scanId?: number) => void;
   emitScanComplete: (scanId?: number) => void;
-  emitImageMetadataReady: (
+  emitFileMetadataReady: (
     relativePath: string,
     metadata: Record<string, MetadataValue>,
     scanId?: number,
@@ -240,8 +240,8 @@ export function createMockTauriApi(): MockTauriApi {
       } satisfies FileFoundPayload),
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
-    emitImageMetadataReady: (relative_path, metadata, scanId, occurrences) =>
-      emit("image_metadata_ready", {
+    emitFileMetadataReady: (relative_path, metadata, scanId, occurrences) =>
+      emit("file_metadata_ready", {
         scan_id: scanId ?? mock.currentScanId,
         results: [
           {
@@ -268,7 +268,7 @@ export function createMockTauriApi(): MockTauriApi {
               })),
           },
         ],
-      } satisfies ImageMetadataReadyPayload),
+      } satisfies FileMetadataReadyPayload),
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
       emit("thumbnail_ready", {
         scan_id: scanId ?? mock.currentScanId,
@@ -296,7 +296,7 @@ export function createMockTauriApi(): MockTauriApi {
           applied: true,
           error: null,
           warning: null,
-          fresh_image_metadata: null,
+          fresh_file_metadata: null,
           target_outcomes: [],
           persisted_draft_entries: null,
         },
@@ -450,7 +450,7 @@ export function createMockTauriApi(): MockTauriApi {
             applied: true,
             error: null,
             warning: null,
-            fresh_image_metadata: null,
+            fresh_file_metadata: null,
             target_outcomes: [],
             persisted_draft_entries: [],
           };

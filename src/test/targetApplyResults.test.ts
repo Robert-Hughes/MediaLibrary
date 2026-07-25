@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import {
-  ImageMetadataOccurrencesStore,
-  type ImageMetadata,
+  FileMetadataOccurrencesStore,
+  type FileMetadata,
   type MetadataApplyResult,
   type MetadataApplyFileResult,
   type MetadataTargetDraftEntry,
@@ -62,7 +62,7 @@ function occurrence(numerator = 1): MetadataOccurrence {
   };
 }
 
-function fresh(numerator = 1, relativePath = path): ImageMetadata {
+function fresh(numerator = 1, relativePath = path): FileMetadata {
   return { relative_path: relativePath, occurrences: [occurrence(numerator)] };
 }
 
@@ -87,7 +87,7 @@ function file(
     applied: true,
     error: null,
     warning: null,
-    fresh_image_metadata: fresh(),
+    fresh_file_metadata: fresh(),
     target_outcomes: [outcome()],
     persisted_draft_entries: [draft()],
     ...overrides,
@@ -97,7 +97,7 @@ function file(
 function stores(): TargetApplyResultStores {
   return {
     drafts: new TargetDraftEditsStore(),
-    occurrences: new ImageMetadataOccurrencesStore(),
+    occurrences: new FileMetadataOccurrencesStore(),
     verification: new TargetVerifyOutcomesStore(),
   };
 }
@@ -119,7 +119,7 @@ describe("target apply occurrence refresh", () => {
     state.occurrences.set(path, existing);
 
     const application = applyTargetApplyFileResult(
-      file({ persisted_draft_entries: null, fresh_image_metadata: null }),
+      file({ persisted_draft_entries: null, fresh_file_metadata: null }),
       state,
     );
 
@@ -139,7 +139,7 @@ describe("target apply occurrence refresh", () => {
 
     const application = applyTargetApplyFileResult(
       file({
-        fresh_image_metadata: fresh(3),
+        fresh_file_metadata: fresh(3),
         persisted_draft_entries: null,
         target_outcomes: [],
       }),
@@ -164,7 +164,7 @@ describe("target apply occurrence refresh", () => {
 
     const application = applyTargetApplyFileResult(
       file({
-        fresh_image_metadata: fresh(2),
+        fresh_file_metadata: fresh(2),
         persisted_draft_entries: null,
         target_outcomes: [],
       }),
@@ -191,9 +191,9 @@ describe("target apply occurrence refresh", () => {
   });
 
   it("prepares immutable occurrence-only applications", () => {
-    const raw = file({ fresh_image_metadata: fresh(5) });
+    const raw = file({ fresh_file_metadata: fresh(5) });
     const prepared = prepareTargetApplyFileResult(raw);
-    raw.fresh_image_metadata!.occurrences[0].value = {
+    raw.fresh_file_metadata!.occurrences[0].value = {
       kind: "Text",
       value: "mutated",
     };
@@ -208,18 +208,18 @@ describe("target apply occurrence refresh", () => {
     const before = state.occurrences.get(firstPath);
     const validFirst = file({
       relative_path: firstPath,
-      fresh_image_metadata: fresh(1, firstPath),
+      fresh_file_metadata: fresh(1, firstPath),
       target_outcomes: [],
       persisted_draft_entries: null,
     });
     const invalidSecond = {
       ...file({
         relative_path: "second.jpg",
-        fresh_image_metadata: fresh(2, "second.jpg"),
+        fresh_file_metadata: fresh(2, "second.jpg"),
         target_outcomes: [],
         persisted_draft_entries: null,
       }),
-      fresh_image_metadata: {
+      fresh_file_metadata: {
         ...fresh(2, "second.jpg"),
         metadata: [],
       },
@@ -230,7 +230,7 @@ describe("target apply occurrence refresh", () => {
         batch([validFirst, invalidSecond as never]),
         state,
       ),
-    ).toThrow(/fresh_image_metadata/);
+    ).toThrow(/fresh_file_metadata/);
     expect(state.occurrences.get(firstPath)).toBe(before);
   });
 

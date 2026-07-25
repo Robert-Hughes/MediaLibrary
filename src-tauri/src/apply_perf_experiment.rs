@@ -43,7 +43,7 @@ fn prepare_files() -> (tempfile::TempDir, Vec<String>, Vec<PathBuf>) {
 }
 
 fn read_batch(relative_paths: &[String], absolute_paths: &[PathBuf]) {
-    let outcome = crate::scanner::read_image_metadata_batch(relative_paths, absolute_paths)
+    let outcome = crate::scanner::read_file_metadata_batch(relative_paths, absolute_paths)
         .expect("authoritative batch read");
     assert!(
         outcome.failures.is_empty(),

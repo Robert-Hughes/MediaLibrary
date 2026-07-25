@@ -56,7 +56,7 @@ export function schemaDatatype(
 }
 
 /**
- * Map a runtime {@link ImageMetadataEntry} to its datatype badge.  Returns
+ * Map a runtime {@link FileMetadataEntry} to its datatype badge.  Returns
  * `null` when there is no value to describe (undefined input).
  *
  * The function also accepts raw JSON shapes (string / number / boolean /

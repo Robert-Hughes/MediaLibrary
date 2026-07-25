@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { MetadataOccurrence, MetadataOccurrences } from "../types";
-import { metadataOccurrencesEqualExact } from "../utils/imageMetadataEquality";
+import { metadataOccurrencesEqualExact } from "../utils/fileMetadataEquality";
 
 const occurrence = (): MetadataOccurrence => ({
   id: {

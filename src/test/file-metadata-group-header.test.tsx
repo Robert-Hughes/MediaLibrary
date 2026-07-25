@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo } from "../types";
 import { imgCol, osCol } from "./factories";
 
@@ -23,23 +23,23 @@ const mockFiles: FileInfo[] = [
 
 function makeStores(files: FileInfo[]) {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   files.forEach((p) => {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   });
-  return { thumbnails, imageMetadata };
+  return { thumbnails, fileMetadata };
 }
 
 describe("FileList per-column kind labels", () => {
   it("shows 'Image' label above each image-metadata column header", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockFiles);
+    const { thumbnails, fileMetadata } = makeStores(mockFiles);
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),
@@ -57,13 +57,13 @@ describe("FileList per-column kind labels", () => {
   });
 
   it("does not render any 'Image' kind label when no image columns are enabled", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockFiles);
+    const { thumbnails, fileMetadata } = makeStores(mockFiles);
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[osCol("date_modified")]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -78,13 +78,13 @@ describe("FileList per-column kind labels", () => {
 
   it("renders only the Path OS kind label in empty-state when no metadata columns are enabled", () => {
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataOccurrencesStore();
+    const fileMetadata = new FileMetadataOccurrencesStore();
     render(
       <FileList
         targetDraftEdits={{}}
         files={[]}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -99,13 +99,13 @@ describe("FileList per-column kind labels", () => {
   });
 
   it("formats Preview and Path with the same two-line header layout", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockFiles);
+    const { thumbnails, fileMetadata } = makeStores(mockFiles);
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -136,13 +136,13 @@ describe("FileList per-column kind labels", () => {
   });
 
   it("renders one 'Image' label per image column when multiple image columns are enabled", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockFiles);
+    const { thumbnails, fileMetadata } = makeStores(mockFiles);
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           imgCol("ExifIFD:DateTimeOriginal"),
           imgCol("IFD0:Model"),
@@ -162,13 +162,13 @@ describe("FileList per-column kind labels", () => {
 describe("FileList kind-label context menu", () => {
   it("shows context menu when right-clicking an 'OS' kind label", async () => {
     const onSelectColumns = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores(mockFiles);
+    const { thumbnails, fileMetadata } = makeStores(mockFiles);
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),
@@ -190,13 +190,13 @@ describe("FileList kind-label context menu", () => {
 
   it("shows context menu when right-clicking an 'Image' kind label", async () => {
     const onSelectColumns = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores(mockFiles);
+    const { thumbnails, fileMetadata } = makeStores(mockFiles);
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
         selectedIndex={null}
         onSelect={() => {}}
@@ -217,13 +217,13 @@ describe("FileList kind-label context menu", () => {
 
   it("clicking Select Columns from a kind-label context menu invokes onSelectColumns", async () => {
     const onSelectColumns = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores(mockFiles);
+    const { thumbnails, fileMetadata } = makeStores(mockFiles);
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),

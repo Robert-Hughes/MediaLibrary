@@ -1,6 +1,6 @@
 import type { TargetDraftCollection } from "./targetDraftEdits";
 import type {
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   MetadataDraftTarget,
   SchemaDefinitionId,
   TargetDraftPersistenceState,
@@ -147,7 +147,7 @@ function validateStoredTargetCollection(
  */
 export function planMetadataTargetRemovals(input: {
   targets: readonly MetadataDraftTarget[];
-  occurrences: ImageMetadataOccurrencesState;
+  occurrences: FileMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
 }): MetadataTargetRemovalPlan {
   const { targets, occurrences, targetDrafts } = input;
@@ -283,7 +283,7 @@ function describe(id: SchemaDefinitionId): string {
  */
 export function planMetadataRemovalTargets(input: {
   schemaIds: readonly SchemaDefinitionId[];
-  occurrences: ImageMetadataOccurrencesState;
+  occurrences: FileMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
 }): MetadataRemovalTargetPlan {
   const { schemaIds, occurrences, targetDrafts } = input;
@@ -446,7 +446,7 @@ export function previewMetadataRemovalFiles(input: {
   schemaId: SchemaDefinitionId;
   relativePaths: readonly string[];
   targetDraftPersistence: TargetDraftPersistenceState;
-  occurrencesForPath: (relativePath: string) => ImageMetadataOccurrencesState;
+  occurrencesForPath: (relativePath: string) => FileMetadataOccurrencesState;
   targetDraftsForPath: (
     relativePath: string,
   ) => TargetDraftCollection | undefined;

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { ImageMetadataOccurrencesStore } from "../types";
+import { FileMetadataOccurrencesStore } from "../types";
 import type {
   MetadataDraftEdit,
   MetadataDraftTarget,
@@ -69,7 +69,7 @@ function existing(
 }
 
 function setup(paths: string[]) {
-  const metadata = new ImageMetadataOccurrencesStore();
+  const metadata = new FileMetadataOccurrencesStore();
   for (const path of paths) metadata.add(path);
   const drafts = new TargetDraftEditsStore();
   return { metadata, drafts };
@@ -77,7 +77,7 @@ function setup(paths: string[]) {
 
 function counts(
   paths: string[],
-  metadata: ImageMetadataOccurrencesStore,
+  metadata: FileMetadataOccurrencesStore,
   drafts: TargetDraftEditsStore,
 ) {
   return new Map(

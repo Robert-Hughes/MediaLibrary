@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   MetadataDraftEdit,
   FileInfo,
   SchemaDefinitionId,
@@ -30,7 +30,7 @@ import { TypedValueEditor } from "./editors/TypedValueEditor";
 
 interface Props {
   files: FileInfo[];
-  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
+  fileMetadataOccurrences: FileMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftEditsByFile;
   onPreview: (
     request: BulkMetadataDraftRequest,
@@ -167,7 +167,7 @@ function previewSummary(plan: BulkMetadataDraftPlan): string[] {
 
 export function BulkMetadataEditorDialog({
   files,
-  imageMetadataOccurrences,
+  fileMetadataOccurrences,
   targetDraftEdits,
   onPreview,
   onStage,
@@ -177,10 +177,10 @@ export function BulkMetadataEditorDialog({
     () =>
       computeEffectiveMetadataKeyFrequency(
         files,
-        imageMetadataOccurrences,
+        fileMetadataOccurrences,
         targetDraftEdits,
       ),
-    [files, imageMetadataOccurrences, targetDraftEdits],
+    [files, fileMetadataOccurrences, targetDraftEdits],
   );
   const allLookupIds = useMemo(
     () => [...frequencies.map(({ id }) => id), ...GPS_IDS_ARRAY],
@@ -243,7 +243,7 @@ export function BulkMetadataEditorDialog({
     ) {
       const count = files.filter((file) => {
         const effective = resolveEffectiveGpsForFile({
-          occurrences: imageMetadataOccurrences.get(file.relative_path),
+          occurrences: fileMetadataOccurrences.get(file.relative_path),
           targetDrafts: targetDraftEdits[file.relative_path],
         });
         return effective.lat !== null && effective.lon !== null;
@@ -270,7 +270,7 @@ export function BulkMetadataEditorDialog({
     );
   }, [
     frequencies,
-    imageMetadataOccurrences,
+    fileMetadataOccurrences,
     files,
     lowerSearch,
     tagInfos,
@@ -315,7 +315,7 @@ export function BulkMetadataEditorDialog({
       const seedFile = files[0];
       const seedInput = {
         occurrences: seedFile
-          ? imageMetadataOccurrences.get(seedFile.relative_path)
+          ? fileMetadataOccurrences.get(seedFile.relative_path)
           : undefined,
         targetDrafts: seedFile
           ? targetDraftEdits[seedFile.relative_path]

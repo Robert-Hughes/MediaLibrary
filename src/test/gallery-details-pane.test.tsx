@@ -17,7 +17,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
 
-import { ImageMetadataOccurrencesStore } from "../types";
+import { FileMetadataOccurrencesStore } from "../types";
 import { makeFiles, mockMetadata } from "./factories";
 import type { FileInfo } from "../types";
 import {
@@ -49,7 +49,7 @@ async function renderGallery(
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: fakeLoad,
-    imageMetadataOccurrences: new ImageMetadataOccurrencesStore(),
+    fileMetadataOccurrences: new FileMetadataOccurrencesStore(),
     ...overrides,
   };
 
@@ -261,11 +261,11 @@ describe("Gallery details pane content", () => {
   });
 
   it("shows loading state when metadata has not been received", async () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     PHOTOS.forEach((p) => store.add(p.relative_path));
     // Don't set metadata — leave in "loading" state
 
-    await renderGallery({ imageMetadataOccurrences: store });
+    await renderGallery({ fileMetadataOccurrences: store });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
 
@@ -275,7 +275,7 @@ describe("Gallery details pane content", () => {
 
   it("shows grouped image metadata when available", async () => {
     const onClose = vi.fn();
-    const occurrences = new ImageMetadataOccurrencesStore();
+    const occurrences = new FileMetadataOccurrencesStore();
     occurrences.set("2024/a.jpg", [
       {
         id: {
@@ -308,7 +308,7 @@ describe("Gallery details pane content", () => {
       },
     ]);
     await renderGallery({
-      imageMetadataOccurrences: occurrences,
+      fileMetadataOccurrences: occurrences,
       onSetExistingOccurrenceDraft: vi.fn(),
       onClose,
     });
@@ -369,10 +369,10 @@ describe("Gallery details pane content", () => {
 
 describe("Gallery details pane with reactive metadata", () => {
   it("updates displayed metadata when metadata store receives new data", async () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     PHOTOS.forEach((p) => store.add(p.relative_path));
 
-    await renderGallery({ imageMetadataOccurrences: store, currentIndex: 0 });
+    await renderGallery({ fileMetadataOccurrences: store, currentIndex: 0 });
 
     // Open details
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));

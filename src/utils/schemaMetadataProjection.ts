@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataEntry,
+  FileMetadataEntry,
   MetadataOccurrence,
   MetadataOccurrenceId,
   MetadataValue,
@@ -209,7 +209,7 @@ export function schemaMetadataCollectionFromOccurrences(
     collection[token] = {
       ...clone(resolution.value),
       id: clone(resolution.id),
-    } as ImageMetadataEntry;
+    } as FileMetadataEntry;
   }
   return collection;
 }

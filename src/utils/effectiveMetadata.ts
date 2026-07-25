@@ -1,7 +1,7 @@
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
-  ImageMetadataEntry,
-  ImageMetadataOccurrencesState,
+  FileMetadataEntry,
+  FileMetadataOccurrencesState,
   MetadataDraftEdit,
   MetadataValue,
   SchemaDefinitionId,
@@ -17,7 +17,7 @@ import {
 } from "./schemaDefinitionId";
 
 function valueFromEntry(
-  entry: ImageMetadataEntry | undefined,
+  entry: FileMetadataEntry | undefined,
 ): MetadataValue | undefined {
   if (entry === undefined) return undefined;
   const { id: _id, ...value } = entry;
@@ -146,7 +146,7 @@ function setEffectiveValue(
   effective[token] = {
     ...structuredClone(value),
     id: structuredClone(id),
-  } as ImageMetadataEntry;
+  } as FileMetadataEntry;
 }
 
 /**
@@ -155,7 +155,7 @@ function setEffectiveValue(
  */
 export function buildEffectiveMetadataForFile(
   input: {
-    occurrences: ImageMetadataOccurrencesState | undefined;
+    occurrences: FileMetadataOccurrencesState | undefined;
     targetDrafts: TargetDraftCollection | undefined;
   },
   options: {

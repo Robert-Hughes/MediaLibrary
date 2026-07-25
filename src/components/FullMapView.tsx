@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useReducer, useState } from "react";
 import type {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   FileInfo,
   ThumbnailStore,
 } from "../types";
@@ -14,7 +14,7 @@ interface FullMapViewProps {
   relativePaths: string[];
   files: FileInfo[];
   thumbnails: ThumbnailStore;
-  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
+  fileMetadataOccurrences: FileMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftEditsByFile;
   onClose: () => void;
 }
@@ -23,7 +23,7 @@ export function FullMapView({
   relativePaths,
   files,
   thumbnails,
-  imageMetadataOccurrences,
+  fileMetadataOccurrences,
   targetDraftEdits,
   onClose,
 }: FullMapViewProps) {
@@ -33,10 +33,10 @@ export function FullMapView({
   useEffect(() => {
     const unsubscribers = relativePaths.flatMap((path) => [
       thumbnails.subscribe(path, refreshStores),
-      imageMetadataOccurrences.subscribe(path, refreshStores),
+      fileMetadataOccurrences.subscribe(path, refreshStores),
     ]);
     return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-  }, [imageMetadataOccurrences, relativePaths, thumbnails]);
+  }, [fileMetadataOccurrences, relativePaths, thumbnails]);
 
   const selectedFiles = useMemo(() => {
     const byPath = new Map(files.map((file) => [file.relative_path, file]));
@@ -48,7 +48,7 @@ export function FullMapView({
   const mapItems: FileMapItem[] = [];
   for (const file of selectedFiles) {
     const position = resolveEffectiveGpsForFile({
-      occurrences: imageMetadataOccurrences.get(file.relative_path),
+      occurrences: fileMetadataOccurrences.get(file.relative_path),
       targetDrafts: targetDraftEdits[file.relative_path],
     });
     if (

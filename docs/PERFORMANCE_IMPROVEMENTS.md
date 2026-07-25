@@ -8,14 +8,14 @@ This document describes the performance optimizations implemented to handle larg
 
 The original implementation had good architecture with:
 
-- ✅ External stores (`ThumbnailStore`, `ImageMetadataOccurrencesStore`) using `useSyncExternalStore`
-- ✅ Event batching for `file_found`, `image_metadata_ready`, and `thumbnail_ready`
+- ✅ External stores (`ThumbnailStore`, `FileMetadataOccurrencesStore`) using `useSyncExternalStore`
+- ✅ Event batching for `file_found`, `file_metadata_ready`, and `thumbnail_ready`
 - ✅ Per-row subscriptions to avoid unnecessary re-renders
 
 However, it suffered from two critical issues at scale:
 
 1. **No virtualization**: Rendering 1000+ DOM elements caused browser performance degradation
-2. **React state updates**: The `imageMetadataRemaining` counter triggered full component tree reconciliation on every update
+2. **React state updates**: The `fileMetadataRemaining` counter triggered full component tree reconciliation on every update
 
 ## Implemented Solutions
 
@@ -68,7 +68,7 @@ class MetadataProgressStore {
 **Changes**:
 
 - Now subscribes to `MetadataProgressStore` using `useSyncExternalStore`
-- Calculates `imageMetadataLoading` from store instead of receiving it as prop
+- Calculates `fileMetadataLoading` from store instead of receiving it as prop
 - Only this component re-renders when metadata progress changes
 
 ### 4. Optimized State Management
@@ -77,8 +77,8 @@ class MetadataProgressStore {
 
 **Changes**:
 
-- Removed `imageMetadataRemaining` from React state
-- Removed `imageMetadataReceivedRef` counter
+- Removed `fileMetadataRemaining` from React state
+- Removed `fileMetadataReceivedRef` counter
 - `flushMetadataBatch` now only updates `MetadataProgressStore`
 - `flushBatch` updates progress store total when files are added
 - No more React state updates for metadata progress
@@ -163,14 +163,14 @@ class MetadataProgressStore {
 
 ### Breaking Changes
 
-- `AppState` type changed: `imageMetadataRemaining` → `metadataProgress`
-- `MenuBar` props changed: `imageMetadataLoading` → `metadataProgress`
+- `AppState` type changed: `fileMetadataRemaining` → `metadataProgress`
+- `MenuBar` props changed: `fileMetadataLoading` → `metadataProgress`
 
 ### Backward Compatibility
 
 - All external APIs unchanged
 - Tauri event payloads unchanged
-- Metadata rows subscribe to the authoritative `ImageMetadataOccurrencesStore`; schema-oriented values are derived on demand.
+- Metadata rows subscribe to the authoritative `FileMetadataOccurrencesStore`; schema-oriented values are derived on demand.
 
 ## Future Optimizations
 

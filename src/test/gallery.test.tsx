@@ -7,7 +7,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makeFiles } from "./factories";
@@ -38,7 +38,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={async () => "asset://track.flac"}
       />,
     );
@@ -63,7 +63,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={async () => "asset://clip.mp4"}
       />,
     );
@@ -84,7 +84,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -102,7 +102,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -122,7 +122,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -141,7 +141,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={onClose}
         onNavigate={vi.fn()}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -170,7 +170,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={onClose}
         onNavigate={vi.fn()}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -190,7 +190,7 @@ describe("GalleryView", () => {
         folderPath="/files"
         onClose={onClose}
         onNavigate={vi.fn()}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         loadImage={fakeLoad}
       />,
     );
@@ -272,14 +272,14 @@ describe("FileList interaction", () => {
     onSelect: (i: number | null) => void,
   ) {
     const thumbs = makeStore(files);
-    const imageMetadata = new ImageMetadataOccurrencesStore();
-    files.forEach((p) => imageMetadata.add(p.relative_path));
+    const fileMetadata = new FileMetadataOccurrencesStore();
+    files.forEach((p) => fileMetadata.add(p.relative_path));
     render(
       <FileList
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbs}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },

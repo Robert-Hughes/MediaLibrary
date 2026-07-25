@@ -4,7 +4,7 @@ import type { MetadataOccurrences } from "./MetadataOccurrences";
 /**
  * Image-level metadata for a single file read by the backend scanner.
  */
-export type ImageMetadata = { relative_path: string, 
+export type FileMetadata = { relative_path: string, 
 /**
  * Authoritative runtime metadata occurrences.
  *

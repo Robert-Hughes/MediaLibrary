@@ -8,13 +8,13 @@
 export function selectVisibleNeedingLoad(
   visible: Iterable<string>,
   thumbnails: { get: (path: string) => unknown },
-  imageMetadata: { get: (path: string) => unknown },
+  fileMetadata: { get: (path: string) => unknown },
 ): string[] {
   const out: string[] = [];
   for (const path of visible) {
     if (
       thumbnails.get(path) === "loading" ||
-      imageMetadata.get(path) === "loading"
+      fileMetadata.get(path) === "loading"
     ) {
       out.push(path);
     }

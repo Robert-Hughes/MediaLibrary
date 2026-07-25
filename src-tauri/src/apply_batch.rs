@@ -44,7 +44,7 @@ pub struct MetadataApplyFileResult {
     pub applied: bool,
     pub error: Option<String>,
     pub warning: Option<String>,
-    pub fresh_image_metadata: Option<scanner::ImageMetadata>,
+    pub fresh_file_metadata: Option<scanner::FileMetadata>,
     pub target_outcomes: Vec<MetadataTargetOutcome>,
     pub persisted_draft_entries: Option<Vec<MetadataTargetDraftEntry>>,
 }
@@ -251,7 +251,7 @@ impl SingleFileApply for RealSingleFileApply {
 fn read_metadata_for_jobs(
     folder_path: &str,
     relative_paths: &[String],
-) -> HashMap<String, Result<scanner::ImageMetadata, String>> {
+) -> HashMap<String, Result<scanner::FileMetadata, String>> {
     let absolute_paths = relative_paths
         .iter()
         .map(|relative_path| {
@@ -259,7 +259,7 @@ fn read_metadata_for_jobs(
         })
         .collect::<Vec<_>>();
     let mut by_path = HashMap::with_capacity(relative_paths.len());
-    match scanner::read_image_metadata_batch(relative_paths, &absolute_paths) {
+    match scanner::read_file_metadata_batch(relative_paths, &absolute_paths) {
         Ok(outcome) => {
             for metadata in outcome.results {
                 by_path.insert(metadata.relative_path.clone(), Ok(metadata));
@@ -672,7 +672,7 @@ where
                 applied: final_error.is_none(),
                 error: final_error,
                 warning: outcome.warning,
-                fresh_image_metadata: outcome.fresh_image_metadata,
+                fresh_file_metadata: outcome.fresh_file_metadata,
                 target_outcomes: outcome.outcomes,
                 persisted_draft_entries,
             };
@@ -1119,7 +1119,7 @@ mod tests {
             .map(|outcome| audit_record(&outcome.target, outcome.draft_reconciliation.clone()))
             .collect();
         MetadataSingleFileOutcome {
-            fresh_image_metadata: None,
+            fresh_file_metadata: None,
             error: error.map(str::to_owned),
             warning: Some("warning".into()),
             outcomes,
@@ -1891,7 +1891,7 @@ mod tests {
     #[test]
     fn progress_preserves_full_metadata_outcomes_and_ignores_emit_failures() {
         let target = new_target("1");
-        let metadata = scanner::ImageMetadata {
+        let metadata = scanner::FileMetadata {
             relative_path: "a.jpg".into(),
             occurrences: MetadataOccurrences(vec![MetadataOccurrence {
                 id: MetadataOccurrenceId {
@@ -1916,7 +1916,7 @@ mod tests {
             None,
             vec![target_outcome(&target, MetadataDraftReconciliation::Keep)],
         );
-        applied.fresh_image_metadata = Some(metadata.clone());
+        applied.fresh_file_metadata = Some(metadata.clone());
         let events = FakeEvents {
             events: Mutex::new(Vec::new()),
             fail: true,
@@ -1933,7 +1933,7 @@ mod tests {
         )
         .unwrap();
         assert!(result.files[0].applied);
-        assert_eq!(result.files[0].fresh_image_metadata, Some(metadata));
+        assert_eq!(result.files[0].fresh_file_metadata, Some(metadata));
         let recorded = events.events.lock().unwrap();
         let RecordedEvent::Progress(progress) = &recorded[1] else {
             panic!()
@@ -2020,7 +2020,7 @@ mod tests {
                         (
                             path.clone(),
                             MetadataSingleFileOutcome {
-                                fresh_image_metadata: None,
+                                fresh_file_metadata: None,
                                 error: None,
                                 warning: None,
                                 outcomes: Vec::new(),
@@ -2122,7 +2122,7 @@ mod tests {
         assert_eq!(outcomes.len(), jobs.len());
         for (index, (relative_path, outcome)) in outcomes.iter().enumerate() {
             assert_eq!(relative_path, &paths[index]);
-            assert!(outcome.fresh_image_metadata.is_some());
+            assert!(outcome.fresh_file_metadata.is_some());
             assert_eq!(outcome.outcomes.len(), 1);
             assert!(matches!(
                 outcome.outcomes[0].kind.as_str(),

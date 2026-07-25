@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FullMapView } from "../components/FullMapView";
-import { ImageMetadataOccurrencesStore, ThumbnailStore } from "../types";
+import { FileMetadataOccurrencesStore, ThumbnailStore } from "../types";
 import { makeFiles, mockOccurrences } from "./factories";
 
 vi.mock("../components/FileMap", () => ({
@@ -19,7 +19,7 @@ describe("FullMapView", () => {
     const thumbnails = new ThumbnailStore();
     thumbnails.set("located.jpg", "THUMB");
     thumbnails.set("missing.jpg", "failed");
-    const occurrences = new ImageMetadataOccurrencesStore();
+    const occurrences = new FileMetadataOccurrencesStore();
     occurrences.set(
       "located.jpg",
       mockOccurrences({
@@ -36,7 +36,7 @@ describe("FullMapView", () => {
         relativePaths={["located.jpg", "missing.jpg"]}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={occurrences}
+        fileMetadataOccurrences={occurrences}
         targetDraftEdits={{}}
         onClose={vi.fn()}
       />,

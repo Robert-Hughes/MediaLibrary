@@ -53,7 +53,7 @@ async function openFolderWithFile(rel = "test.jpg") {
   // DetailsPane only renders its action buttons once metadata has loaded.
   // Emit an empty-but-present record so we leave the "loading" state.
   await act(async () => {
-    mockApiInstance.emitImageMetadataReady(rel, {});
+    mockApiInstance.emitFileMetadataReady(rel, {});
   });
   await act(async () => {
     await new Promise((r) => setTimeout(r, 250));
@@ -528,7 +528,7 @@ describe("AI-description flow", () => {
     };
     const { user, file } = await openFolderWithFile("test.jpg");
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(file.relative_path, {
+      mockApiInstance.emitFileMetadataReady(file.relative_path, {
         "XMP-mlib:AIDescription": {
           kind: "Text",
           value: "older description",

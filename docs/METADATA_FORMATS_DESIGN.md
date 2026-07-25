@@ -15,7 +15,7 @@ the complete target.
 Scan and readback payloads use
 `{ id, schema_id, value, tag_info, observed_selector, write_target }`.
 Unknown local schemas retain their exact identity with null interpretation and
-write target. `ImageMetadata` contains only authoritative occurrences;
+write target. `FileMetadata` contains only authoritative occurrences;
 schema-oriented consumers derive safe read-only values on demand.
 
 One XMP LangAlt property is one occurrence with one complete

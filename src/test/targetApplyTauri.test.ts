@@ -13,7 +13,7 @@ const fileResult = (relativePath = "file.jpg"): MetadataApplyFileResult => ({
   applied: true,
   error: null,
   warning: null,
-  fresh_image_metadata: {
+  fresh_file_metadata: {
     relative_path: relativePath,
     occurrences: [],
   },
@@ -48,7 +48,7 @@ const duplicateOccurrenceBatchResult = () => {
     write_target: null,
   } as const;
   const result = fileResult();
-  result.fresh_image_metadata!.occurrences = [first, structuredClone(first)];
+  result.fresh_file_metadata!.occurrences = [first, structuredClone(first)];
   return {
     files: [result],
     cancelled: false,
@@ -111,7 +111,7 @@ describe("inactive target-aware apply invocation", () => {
         "file.jpg",
       ]),
     ).rejects.toThrow(/duplicate occurrence ID.*indexes 0 and 1/);
-    expect(raw.files[0].fresh_image_metadata?.occurrences).toHaveLength(2);
+    expect(raw.files[0].fresh_file_metadata?.occurrences).toHaveLength(2);
   });
 
   it.each([new Error("busy"), { code: "load/apply", detail: "failed" }])(

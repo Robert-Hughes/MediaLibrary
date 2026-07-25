@@ -4,7 +4,7 @@ import { useState } from "react";
 import { FileList } from "../components/FileList";
 import { imgCol, testId } from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo } from "../types";
 
 const mockFiles: FileInfo[] = [
@@ -24,23 +24,23 @@ const defaultSortProps = {
 
 function makeStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   mockFiles.forEach((p) => {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   });
-  return { thumbnails, imageMetadata };
+  return { thumbnails, fileMetadata };
 }
 
 describe("column resize handles", () => {
   it("renders a resize handle for the Preview column", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -56,13 +56,13 @@ describe("column resize handles", () => {
   });
 
   it("renders a resize handle for the Path column", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -78,13 +78,13 @@ describe("column resize handles", () => {
   });
 
   it("renders resize handles for OS metadata columns", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -106,13 +106,13 @@ describe("column resize handles", () => {
   });
 
   it("renders resize handle for image metadata columns", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[imgCol("IFD0:Model")]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -131,13 +131,13 @@ describe("column resize handles", () => {
 
   it("calls onColumnWidthChange when a resize drag completes", () => {
     const onColumnWidthChange = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{}}
         onColumnWidthChange={onColumnWidthChange}
@@ -167,13 +167,13 @@ describe("column resize handles", () => {
 
   it("calls onColumnWidthChange for preview when its resize drag completes", () => {
     const onColumnWidthChange = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ preview: 52 }}
         onColumnWidthChange={onColumnWidthChange}
@@ -201,7 +201,7 @@ describe("column resize handles", () => {
 
   it("auto-sizes from intrinsic content and does not grow on repeated double-clicks", () => {
     const onColumnWidthChange = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     let selectedRangeNode: Node | null = null;
     const range = {
       selectNodeContents: vi.fn((node: Node) => {
@@ -241,7 +241,7 @@ describe("column resize handles", () => {
           targetDraftEdits={{}}
           files={mockFiles}
           thumbnails={thumbnails}
-          imageMetadataOccurrences={imageMetadata}
+          fileMetadataOccurrences={fileMetadata}
           visibleColumns={[{ key: "date_modified", kind: "os" }]}
           columnWidths={columnWidths}
           onColumnWidthChange={(col, width) => {
@@ -288,13 +288,13 @@ describe("column resize handles", () => {
 
   it("clicking resize handle does not trigger column sort", () => {
     const onSortChange = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
@@ -316,13 +316,13 @@ describe("column resize handles", () => {
 
   it("renders resize handles on empty-state (zero files) headers too", () => {
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataOccurrencesStore();
+    const fileMetadata = new FileMetadataOccurrencesStore();
     render(
       <FileList
         targetDraftEdits={{}}
         files={[]}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}
@@ -346,13 +346,13 @@ describe("column resize handles", () => {
 
 describe("buildGridTemplate (via rendered styles)", () => {
   it("applies saved column widths as pixel values in grid template", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ preview: 84, relative_path: 350, date_modified: 140 }}
         onColumnWidthChange={() => {}}
@@ -371,20 +371,20 @@ describe("buildGridTemplate (via rendered styles)", () => {
   });
 
   it("scales row and thumbnail height from preview column width using 4:3", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     const files = [
       mockFiles[0],
       { ...mockFiles[0], relative_path: "b.jpg", filename: "b.jpg" },
     ];
     thumbnails.add("b.jpg");
-    imageMetadata.add("b.jpg");
+    fileMetadata.add("b.jpg");
 
     render(
       <FileList
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         columnWidths={{ preview: 84 }}
         onColumnWidthChange={() => {}}
@@ -407,13 +407,13 @@ describe("buildGridTemplate (via rendered styles)", () => {
   });
 
   it("uses minmax defaults when no column widths are provided", () => {
-    const { thumbnails, imageMetadata } = makeStores();
+    const { thumbnails, fileMetadata } = makeStores();
     render(
       <FileList
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
         selectedIndex={null}

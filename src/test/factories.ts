@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataEntry,
+  FileMetadataEntry,
   MetadataDraftEdit,
   SchemaMetadataEdit,
   MetadataTargetDraftEntry,
@@ -63,7 +63,7 @@ export function mockMetadata(raw: Record<string, unknown>): MetadataCollection {
       const metadataValue = testValueToMetadataValue(value);
       return [
         schemaDefinitionIdToken(id),
-        { ...metadataValue, id } as ImageMetadataEntry,
+        { ...metadataValue, id } as FileMetadataEntry,
       ];
     }),
   );

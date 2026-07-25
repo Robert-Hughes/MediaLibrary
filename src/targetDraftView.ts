@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   MetadataDraftEdit,
   MetadataTargetDraftEntry,
   MetadataDraftTarget,
@@ -50,7 +50,7 @@ interface LoadedPresentationContext {
 }
 
 function loadedPresentationContext(
-  occurrences: ImageMetadataOccurrencesState | undefined,
+  occurrences: FileMetadataOccurrencesState | undefined,
 ): LoadedPresentationContext | undefined {
   if (!Array.isArray(occurrences)) return undefined;
   return {
@@ -155,7 +155,7 @@ function resolveSchemaDraftWithContext(
  */
 export function resolveSchemaDraftForPresentation(input: {
   schemaId: SchemaDefinitionId;
-  occurrences: ImageMetadataOccurrencesState | undefined;
+  occurrences: FileMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): SchemaDraftPresentationResolution {
   return resolveSchemaDraftWithContext(
@@ -167,7 +167,7 @@ export function resolveSchemaDraftForPresentation(input: {
 
 /** Build the safe schema-keyed display projection for one file. */
 export function buildSchemaDraftDisplayProjection(input: {
-  occurrences: ImageMetadataOccurrencesState | undefined;
+  occurrences: FileMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }): SchemaDraftDisplayProjection {
   const projection: SchemaDraftDisplayProjection = {};

@@ -10,7 +10,7 @@ import {
   NORMALISE_TARGET_TAGS_BY_GROUP,
 } from "./types";
 import type {
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   SchemaMetadataEdit,
   MetadataTargetDraftEntry,
   MetadataDraftTarget,
@@ -142,7 +142,7 @@ function clonePlan(plan: GeneratedTargetDraftPlan): GeneratedTargetDraftPlan {
 export function planGeneratedTargetDraftBatch(input: {
   producer: GeneratedMetadataProducer;
   edits: readonly SchemaMetadataEdit[];
-  occurrences: ImageMetadataOccurrencesState;
+  occurrences: FileMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
 }): GeneratedTargetDraftPlan {
   if (input.edits.length === 0) {
