@@ -9,6 +9,14 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+function indexRange(startIndex: number, endIndex: number): Set<number> {
+  const start = Math.min(startIndex, endIndex);
+  const end = Math.max(startIndex, endIndex);
+  const range = new Set<number>();
+  for (let i = start; i <= end; i++) range.add(i);
+  return range;
+}
+
 export interface RowSelectionConfig {
   filesLength: number;
   selectedIndex: number | null;
@@ -33,6 +41,8 @@ export function useRowSelection(cfg: RowSelectionConfig) {
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
     selectedIndex !== null ? new Set([selectedIndex]) : new Set(),
   );
+  const selectedIndicesRef = useRef(selectedIndices);
+  selectedIndicesRef.current = selectedIndices;
   const anchorRef = useRef<number | null>(selectedIndex);
 
   // Reset multi-selection when the parent's anchor changes externally
@@ -65,14 +75,33 @@ export function useRowSelection(cfg: RowSelectionConfig) {
     });
   }, [filesLength]);
 
+  const selectAll = useCallback(() => {
+    if (filesLength === 0) return;
+    setSelectedIndices(
+      new Set(Array.from({ length: filesLength }, (_, i) => i)),
+    );
+    anchorRef.current = 0;
+    if (selectedIndex === null) onSelect(0);
+  }, [filesLength, onSelect, selectedIndex]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIndices(new Set());
+    anchorRef.current = null;
+    onSelect(null);
+  }, [onSelect]);
+
+  const toggleAll = useCallback(() => {
+    if (filesLength > 0 && selectedIndicesRef.current.size === filesLength) {
+      clearSelection();
+      return;
+    }
+    selectAll();
+  }, [clearSelection, filesLength, selectAll]);
+
   const handleRowSelect = useCallback(
     (index: number, modifiers: { ctrl: boolean; shift: boolean }) => {
       if (modifiers.shift && anchorRef.current !== null) {
-        const start = Math.min(anchorRef.current, index);
-        const end = Math.max(anchorRef.current, index);
-        const range = new Set<number>();
-        for (let i = start; i <= end; i++) range.add(i);
-        setSelectedIndices(range);
+        setSelectedIndices(indexRange(anchorRef.current, index));
         onSelect(index);
         return;
       }
@@ -155,11 +184,7 @@ export function useRowSelection(cfg: RowSelectionConfig) {
             anchorRef.current = cur ?? clamped;
           }
           const a = anchorRef.current;
-          const start = Math.min(a, clamped);
-          const end = Math.max(a, clamped);
-          const range = new Set<number>();
-          for (let i = start; i <= end; i++) range.add(i);
-          setSelectedIndices(range);
+          setSelectedIndices(indexRange(a, clamped));
           onSelect(clamped);
           return;
         }
@@ -208,22 +233,18 @@ export function useRowSelection(cfg: RowSelectionConfig) {
         }
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
-        const all = new Set<number>();
-        for (let i = 0; i < len; i++) all.add(i);
-        setSelectedIndices(all);
-        anchorRef.current = 0;
-        // Update the parent's anchor too so subsequent shift/ctrl
-        // gestures and the row-context-menu pickup the right "first
-        // selected" row.
-        if (cur === null) onSelect(0);
+        selectAll();
       }
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onSelect, listRef]);
+  }, [onSelect, listRef, selectAll]);
 
   return {
     selectedIndices,
+    selectAll,
+    clearSelection,
+    toggleAll,
     handleRowSelect,
     handleRowContextMenu,
   };

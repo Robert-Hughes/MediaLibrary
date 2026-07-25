@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { createRef, useState } from "react";
 import {
   mockMetadata,
   mockTargetDraftsByFile,
@@ -11,10 +11,11 @@ import {
   fireEvent,
   cleanup,
   within,
+  act,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { FileList } from "../components/FileList";
+import { FileList, type FileListSelectionHandle } from "../components/FileList";
 import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo, MetadataDraftEdit } from "../types";
 
@@ -608,6 +609,25 @@ describe("FileList keyboard navigation", () => {
     fireEvent.keyDown(document, { key: "a", ctrlKey: true });
     const selected = document.querySelectorAll(".file-row--selected");
     expect(selected.length).toBe(5);
+  });
+
+  it("toggles all rows through the shared selection handle", () => {
+    const selectionRef = createRef<FileListSelectionHandle>();
+    const onSelectionCountChange = vi.fn();
+    const { onSelect } = setup({
+      ref: selectionRef,
+      onSelectionCountChange,
+    });
+    onSelectionCountChange.mockClear();
+
+    act(() => selectionRef.current?.toggleAllSelection());
+    expect(document.querySelectorAll(".file-row--selected")).toHaveLength(5);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(5);
+
+    act(() => selectionRef.current?.toggleAllSelection());
+    expect(document.querySelectorAll(".file-row--selected")).toHaveLength(0);
+    expect(onSelectionCountChange).toHaveBeenLastCalledWith(0);
+    expect(onSelect).toHaveBeenLastCalledWith(null);
   });
 
   it("ignores arrow keys when focus is in a text input", async () => {

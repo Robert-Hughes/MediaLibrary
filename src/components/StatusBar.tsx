@@ -10,6 +10,7 @@ interface Props {
   scanning: boolean;
   metadataProgress: MetadataProgressStore | null;
   selectedCount: number;
+  onToggleFileSelection?: () => void;
   draftEditsSummary?: { files: number; edits: number } | null;
   onClickDraftSummary?: () => void;
   onApplyAllEdits?: () => void;
@@ -22,6 +23,7 @@ export function StatusBar({
   scanning,
   metadataProgress,
   selectedCount,
+  onToggleFileSelection,
   draftEditsSummary = null,
   onClickDraftSummary,
   onApplyAllEdits,
@@ -45,13 +47,27 @@ export function StatusBar({
     fileCountTotal != null && fileCountTotal !== fileCount
       ? `${fileCount} of ${fileCountTotal} file${fileCountTotal === 1 ? "" : "s"}`
       : `${fileCount} file${fileCount === 1 ? "" : "s"}`;
+  const allDisplayedFilesSelected =
+    fileCount > 0 && selectedCount === fileCount;
+  const toggleSelectionLabel = allDisplayedFilesSelected
+    ? "Deselect all visible files"
+    : "Select all visible files";
 
   return (
     <div className="status-bar" data-testid="status-bar">
       <div className="status-bar-left">
-        <span className="status-bar-item" data-testid="status-bar-count">
+        <button
+          type="button"
+          className="status-bar-item status-bar-count-button"
+          onClick={onToggleFileSelection}
+          disabled={fileCount === 0 || !onToggleFileSelection}
+          aria-label={toggleSelectionLabel}
+          aria-pressed={allDisplayedFilesSelected}
+          title={toggleSelectionLabel}
+          data-testid="status-bar-count"
+        >
           {countLabel}
-        </span>
+        </button>
 
         {scanning && (
           <span className="status-bar-item" data-testid="status-bar-scanning">

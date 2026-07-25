@@ -884,6 +884,30 @@ body {
   gap: 6px;
 }
 
+.status-bar-count-button {
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.status-bar-count-button:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text-primary);
+}
+
+.status-bar-count-button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.status-bar-count-button:disabled {
+  cursor: default;
+}
+
 .status-bar-spinner {
   display: inline-block;
   width: 12px;
