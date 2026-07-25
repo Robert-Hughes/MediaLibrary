@@ -8,6 +8,11 @@ Current
   - AI Description on all photos that don't have it
   - Normalise for everything
 
+- Check all photos at the end
+  - Any missing GPS?
+  - Any missing description/keywords?
+  - Any missing dates?
+
 Bugs/quirks/tweaks/improvements
 =================================
 
