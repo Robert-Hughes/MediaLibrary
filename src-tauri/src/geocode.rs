@@ -1,23 +1,15 @@
 //! Reverse-geocoding pipeline.
 //!
-//! Given `(lat, lon)` for a file, return human-readable address fields
-//! by calling OpenStreetMap Nominatim, optionally refining with Overpass
-//! when Nominatim's result is generic. The output is composed into a
-//! set of draft edits targeting the conventional industry-standard
-//! XMP-iptcCore / XMP-photoshop / legacy-IPTC location tags — see
-//! `docs/REVERSE_GEOCODE_PLAN.md` §1 for the tag list and rationale.
+//! Given `(lat, lon)` for a file, call OpenStreetMap Nominatim's
+//! GeocodeJSON endpoint and compose one IPTC Extension `LocationCreated`
+//! structure. The normaliser owns projection to the less detailed legacy
+//! XMP/IIM location fields.
 //!
 //! ## Coherent-replacement rule (important!)
 //!
-//! `compose_geocode_edits` emits a draft entry for **every** target tag
-//! every time, not just the ones the geocoder happened to return. Tags
-//! with data become Set drafts; tags the geocoder didn't return become
-//! Delete drafts. This is deliberate: a partial replace would leave
-//! stale fields from a previous run hanging around (e.g. existing
-//! `City=York` surviving a new geocode that legitimately resolved to
-//! `Country=France` only), so the file would end up internally
-//! inconsistent. See `docs/REVERSE_GEOCODE_PLAN.md` §1 "Coherent-
-//! replacement rule" for the full discussion.
+//! `compose_geocode_edits` replaces the whole repeatable structure with
+//! exactly one item. This makes the operation atomic: omitted members
+//! cannot leave stale values behind.
 //!
 //! ## All-empty result is a failure, not a success
 //!
@@ -33,10 +25,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::country_code::{iptc_country_code_projection, xmp_country_code_projection};
+use crate::country_code::xmp_country_code_projection;
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
-use crate::metadata_value::MetadataValue;
+use crate::metadata_value::{ListKind, MetadataValue};
 use crate::{known_ids, tag_schema::SchemaDefinitionId};
 
 // ── Wire types for the geocode_images_cmd Tauri command ─────────────────────
@@ -67,14 +59,12 @@ pub struct GeocodeRequestItem {
 pub struct GeocodeSummary {
     pub n_succeeded_from_nominatim: u32,
     pub n_succeeded_from_cache: u32,
-    pub n_succeeded_from_overpass: u32,
     pub n_no_gps: u32,
     pub n_failed: u32,
 }
 
 /// Default endpoints — not user-configurable in V1 (see plan §10).
 pub const NOMINATIM_BASE_URL: &str = "https://nominatim.openstreetmap.org";
-pub const OVERPASS_BASE_URL: &str = "https://overpass-api.de/api/interpreter";
 pub const NOMINATIM_REVERSE_ZOOMS: &[u8] = &[18, 16, 14, 12, 10];
 pub const NOMINATIM_ACCEPT_LANGUAGE: &str = "en-GB,en;q=0.9";
 
@@ -92,27 +82,18 @@ pub fn default_user_agent() -> String {
 
 // ── Rate limiting ───────────────────────────────────────────────────────────
 //
-// Nominatim's usage policy is "at most one request per second"; Overpass's
-// own guidance is the same order of magnitude. The plan §7 calls out
-// *separate* per-host buckets so an Overpass call doesn't share its budget
-// with the next Nominatim call (and vice versa) — Overpass only fires on
-// the fallback path, so coupling the two would burn an unnecessary second
-// of latency on every Overpass image even though the next Nominatim call
-// is genuinely fresh from Nominatim's perspective.
+// Nominatim's usage policy is "at most one request per second".
 
 /// Minimum spacing between consecutive requests to the same host.
 pub const RATE_LIMIT_INTERVAL: Duration = Duration::from_millis(1000);
 
-/// Per-host token bucket for the geocode batch loop.
+/// Nominatim token bucket for the geocode batch loop.
 ///
 /// One instance lives for the duration of a single batch (constructed
 /// in `geocode_images_cmd`, dropped at the end). Each host's last-call
-/// instant is tracked independently so the Nominatim and Overpass
-/// schedules don't bleed into each other.
 #[derive(Default)]
 pub struct GeocodeRateLimiter {
     last_nominatim: Option<std::time::Instant>,
-    last_overpass: Option<std::time::Instant>,
 }
 
 impl GeocodeRateLimiter {
@@ -126,11 +107,6 @@ impl GeocodeRateLimiter {
     /// need to remember to update it.
     pub async fn wait_nominatim(&mut self) {
         Self::wait_for(&mut self.last_nominatim).await;
-    }
-
-    /// Same idea for Overpass — separate bucket from Nominatim.
-    pub async fn wait_overpass(&mut self) {
-        Self::wait_for(&mut self.last_overpass).await;
     }
 
     async fn wait_for(slot: &mut Option<std::time::Instant>) {
@@ -182,6 +158,8 @@ pub struct GeocodeJsonAddress {
     #[serde(rename = "type")]
     pub result_type: Option<String>,
     pub osm_key: Option<String>,
+    pub osm_type: Option<String>,
+    pub osm_id: Option<u64>,
     pub name: Option<String>,
     pub street: Option<String>,
     pub locality: Option<String>,
@@ -191,23 +169,26 @@ pub struct GeocodeJsonAddress {
     pub state: Option<String>,
     pub country: Option<String>,
     pub country_code: Option<String>,
-    pub postcode: Option<String>,
     #[serde(default)]
     pub admin: std::collections::BTreeMap<String, String>,
 }
 
-/// GeocodeJSON narrowed to the existing industry-standard location tags.
+/// GeocodeJSON narrowed to the IPTC LocationCreated members we can map
+/// without guessing.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddressFields {
-    /// Specific named place (building, POI, road as last resort). Maps
-    /// to `XMP-iptcCore:Location` + `IPTC:Sub-location`.
+    /// Specific named place (building, POI, road as last resort).
     pub location: Option<String>,
     pub city: Option<String>,
     pub state: Option<String>,
     pub country: Option<String>,
     /// ISO 3166-1 alpha-2, uppercased.
     pub country_code: Option<String>,
-    pub postcode: Option<String>,
+    pub location_id: Option<String>,
+    /// Original photo coordinates. Nominatim feature geometry may point at a
+    /// centroid or entrance, so it must not replace the camera position.
+    pub gps_latitude: f64,
+    pub gps_longitude: f64,
 }
 
 impl AddressFields {
@@ -219,7 +200,6 @@ impl AddressFields {
             || self.state.is_some()
             || self.country.is_some()
             || self.country_code.is_some()
-            || self.postcode.is_some()
     }
 
     /// Build a human-readable display name from the populated fields,
@@ -247,8 +227,8 @@ fn non_empty(value: &Option<String>) -> Option<String> {
     value.as_ref().filter(|value| !value.is_empty()).cloned()
 }
 
-/// Project GeocodeJSON into the five semantic values mirrored across the
-/// existing ten XMP/IIM tags.
+/// Project GeocodeJSON into the LocationCreated members that also have
+/// legacy XMP/IIM projections.
 ///
 /// The intentionally small mapping is evidence-backed and place-agnostic:
 /// `name ?? street`, `city`, `state ?? admin.level4`, `country`, and the
@@ -256,7 +236,7 @@ fn non_empty(value: &Option<String>) -> Option<String> {
 /// City and do not normalize individual place names (for example London),
 /// because those operations change meaning rather than response shape. See
 /// `docs/REVERSE_GEOCODE_MAPPING.md`.
-pub fn map_geocodejson(addr: &GeocodeJsonAddress) -> AddressFields {
+pub fn map_geocodejson(addr: &GeocodeJsonAddress, lat: f64, lon: f64) -> AddressFields {
     let location = non_empty(&addr.name).or_else(|| non_empty(&addr.street));
     let city = non_empty(&addr.city);
     let state = non_empty(&addr.state).or_else(|| {
@@ -267,33 +247,24 @@ pub fn map_geocodejson(addr: &GeocodeJsonAddress) -> AddressFields {
     });
     let country = non_empty(&addr.country);
     let country_code = non_empty(&addr.country_code).map(|code| xmp_country_code_projection(&code));
-    let postcode = non_empty(&addr.postcode);
+    let location_id = match (non_empty(&addr.osm_type), addr.osm_id) {
+        (Some(osm_type), Some(osm_id)) => Some(format!(
+            "https://www.openstreetmap.org/{}/{}",
+            osm_type.to_ascii_lowercase(),
+            osm_id
+        )),
+        _ => None,
+    };
     AddressFields {
         location,
         city,
         state,
         country,
         country_code,
-        postcode,
+        location_id,
+        gps_latitude: lat,
+        gps_longitude: lon,
     }
-}
-
-/// True when GeocodeJSON selected a street/highway rather than a POI.
-///
-/// GeocodeJSON may put the road text in `name`, so presence of `name` alone
-/// cannot suppress refinement. The normalized type/classification is the
-/// stable signal. With no usable Location, Overpass is unlikely to help and
-/// the call is skipped.
-pub fn should_use_overpass_fallback(addr: &GeocodeJsonAddress, parsed: &AddressFields) -> bool {
-    let is_street = addr
-        .result_type
-        .as_deref()
-        .is_some_and(|value| value.eq_ignore_ascii_case("street"));
-    let is_highway = addr
-        .osm_key
-        .as_deref()
-        .is_some_and(|value| value.eq_ignore_ascii_case("highway"));
-    (is_street || is_highway) && parsed.location.is_some()
 }
 
 // ── Source tag for cache/summary ─────────────────────────────────────────────
@@ -302,11 +273,8 @@ pub fn should_use_overpass_fallback(addr: &GeocodeJsonAddress, parsed: &AddressF
 pub enum GeocodeSource {
     /// Hit the in-memory cache (haversine < 50 m of a prior result).
     Cache,
-    /// Live Nominatim call, no Overpass refinement.
+    /// Live Nominatim call.
     Nominatim,
-    /// Live Nominatim + Overpass call (Overpass found a named feature
-    /// for the `location` slot).
-    NominatimPlusOverpass,
 }
 
 impl GeocodeSource {
@@ -314,7 +282,6 @@ impl GeocodeSource {
         match self {
             GeocodeSource::Cache => "cache",
             GeocodeSource::Nominatim => "nominatim",
-            GeocodeSource::NominatimPlusOverpass => "nominatim+overpass",
         }
     }
 }
@@ -324,26 +291,14 @@ impl GeocodeSource {
 /// Build the set of target tag keys that geocoding writes drafts for.
 /// Returned in a stable order purely for readability; semantically it's
 /// a set.
-pub fn geocode_target_tags() -> [SchemaDefinitionId; 10] {
-    [
-        known_ids::xmp_location(),
-        known_ids::xmp_city(),
-        known_ids::xmp_state(),
-        known_ids::xmp_country(),
-        known_ids::xmp_country_code(),
-        known_ids::iptc_sub_location(),
-        known_ids::iptc_city(),
-        known_ids::iptc_province_state(),
-        known_ids::iptc_country_name(),
-        known_ids::iptc_country_code(),
-    ]
+pub fn geocode_target_tags() -> [SchemaDefinitionId; 1] {
+    [known_ids::xmp_location_created()]
 }
 
 /// Compose draft edits for a geocoded image.
 ///
-/// IMPORTANT: emits an entry for **every** target tag — Set when data
-/// is present, Delete when not. See file-level doc-comment "Coherent-
-/// replacement rule" for why. Callers must NOT call this for an all-
+/// Emits one Set draft containing a one-item Bag of Location structures.
+/// Callers must NOT call this for an all-
 /// empty `AddressFields`: that case is the `nominatim_empty` failure
 /// and writes no drafts (see file-level doc-comment "All-empty result
 /// is a failure, not a success").
@@ -355,77 +310,41 @@ pub fn compose_geocode_edits(addr: &AddressFields) -> SchemaMetadataEditMap {
          doc-comment."
     );
 
-    fn set_text(s: &str) -> MetadataDraftEdit {
-        MetadataDraftEdit {
-            value: Some(MetadataValue::Text(s.to_string())),
-            intent: EditIntent::Set,
+    let mut fields = std::collections::BTreeMap::new();
+    let mut put_text = |name: &str, value: Option<&str>| {
+        if let Some(value) = value {
+            fields.insert(name.into(), MetadataValue::Text(value.into()));
         }
-    }
-    fn delete_field() -> MetadataDraftEdit {
-        // Delete-intent on a tag tells the apply pipeline to remove the
-        // field rather than write an empty string. Why a remove and not
-        // a literal "": downstream tools treat empty string and absent
-        // differently, and the user's intent is "this group is now
-        // governed by the new geocode" — a clean removal is more
-        // honest than smuggling in empty values.
-        MetadataDraftEdit {
-            value: None,
-            intent: EditIntent::Delete,
-        }
-    }
-
-    // Helper that emits one Set/Delete pair across a paired (XMP, IPTC)
-    // tag mirror. Keeping them paired in code makes the
-    // coherent-replacement intent obvious to a reader and keeps the
-    // legacy IIM mirror in lockstep with the XMP source of truth.
-    let mut edits = SchemaMetadataEditMap::new();
-    let mut put = |xmp: SchemaDefinitionId,
-                   iptc: SchemaDefinitionId,
-                   value: Option<&str>,
-                   xmp_project: fn(&str) -> String,
-                   iptc_project: fn(&str) -> String| {
-        let (a, b) = match value {
-            Some(v) => (set_text(&xmp_project(v)), set_text(&iptc_project(v))),
-            None => (delete_field(), delete_field()),
-        };
-        edits.insert(xmp, a);
-        edits.insert(iptc, b);
     };
-
-    put(
-        known_ids::xmp_location(),
-        known_ids::iptc_sub_location(),
-        addr.location.as_deref(),
-        str::to_string,
-        str::to_string,
+    put_text("Sublocation", addr.location.as_deref());
+    put_text("City", addr.city.as_deref());
+    put_text("ProvinceState", addr.state.as_deref());
+    put_text("CountryName", addr.country.as_deref());
+    put_text("CountryCode", addr.country_code.as_deref());
+    if let Some(location_id) = addr.location_id.as_deref() {
+        fields.insert(
+            "LocationId".into(),
+            MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![MetadataValue::Text(location_id.into())],
+            },
+        );
+    }
+    fields.insert("GPSLatitude".into(), MetadataValue::Real(addr.gps_latitude));
+    fields.insert(
+        "GPSLongitude".into(),
+        MetadataValue::Real(addr.gps_longitude),
     );
-    put(
-        known_ids::xmp_city(),
-        known_ids::iptc_city(),
-        addr.city.as_deref(),
-        str::to_string,
-        str::to_string,
-    );
-    put(
-        known_ids::xmp_state(),
-        known_ids::iptc_province_state(),
-        addr.state.as_deref(),
-        str::to_string,
-        str::to_string,
-    );
-    put(
-        known_ids::xmp_country(),
-        known_ids::iptc_country_name(),
-        addr.country.as_deref(),
-        str::to_string,
-        str::to_string,
-    );
-    put(
-        known_ids::xmp_country_code(),
-        known_ids::iptc_country_code(),
-        addr.country_code.as_deref(),
-        xmp_country_code_projection,
-        iptc_country_code_projection,
+    let mut edits = SchemaMetadataEditMap::new();
+    edits.insert(
+        known_ids::xmp_location_created(),
+        MetadataDraftEdit {
+            value: Some(MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![MetadataValue::Struct(fields)],
+            }),
+            intent: EditIntent::Set,
+        },
     );
     edits
 }
@@ -436,7 +355,6 @@ pub fn compose_geocode_edits(addr: &AddressFields) -> SchemaMetadataEditMap {
 #[derive(Clone)]
 pub struct GeocodeClient {
     pub nominatim_base: String,
-    pub overpass_base: String,
     pub http: reqwest::Client,
 }
 
@@ -449,13 +367,12 @@ impl GeocodeClient {
             .expect("reqwest client construction never fails with default config");
         Self {
             nominatim_base: NOMINATIM_BASE_URL.into(),
-            overpass_base: OVERPASS_BASE_URL.into(),
             http,
         }
     }
 
-    /// Override base URLs (test-only convenience).
-    pub fn with_bases(nominatim_base: String, overpass_base: String) -> Self {
+    /// Override the base URL (test-only convenience).
+    pub fn with_base(nominatim_base: String) -> Self {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .user_agent(default_user_agent())
@@ -463,7 +380,6 @@ impl GeocodeClient {
             .expect("reqwest client construction never fails with default config");
         Self {
             nominatim_base,
-            overpass_base,
             http,
         }
     }
@@ -650,75 +566,11 @@ pub async fn nominatim_reverse(
     })
 }
 
-/// Call Overpass for the nearest named feature within 30 m. Returns
-/// the feature's `name` tag (and a hint at its type, for cache
-/// inspection) on success, or `Ok(None)` if there's no useful feature.
-pub async fn overpass_named_nearby(
-    client: &GeocodeClient,
-    lat: f64,
-    lon: f64,
-) -> Result<Option<String>, GeocodeError> {
-    // Overpass QL: nodes within 30 m carrying any of the named-feature
-    // tags, requiring `name` to be set. We sort client-side by raw
-    // distance off the returned `lat/lon`.
-    let ql = format!(
-        "[out:json][timeout:25];\
-         (node(around:30,{lat},{lon})[name][~\"^(tourism|amenity|historic|leisure|building|shop|memorial)$\"~\".\"];);\
-         out tags center;",
-        lat = lat,
-        lon = lon,
-    );
-    let resp = client
-        .http
-        .post(&client.overpass_base)
-        .header("content-type", "text/plain")
-        .body(ql)
-        .send()
-        .await
-        .map_err(|e| GeocodeError::Network(e.to_string()))?;
-    let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
-    if !status.is_success() {
-        return Err(GeocodeError::Http {
-            status: status.as_u16(),
-            body: text,
-        });
-    }
-    let json: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| GeocodeError::Network(format!("overpass bad JSON: {} (body: {})", e, text)))?;
-    let elements = json.get("elements").and_then(|v| v.as_array());
-    let elements = match elements {
-        Some(e) => e,
-        None => return Ok(None),
-    };
-    // Pick nearest by haversine to the original query coordinates.
-    use crate::geocode_cache::haversine_meters;
-    let mut best: Option<(f64, String)> = None;
-    for el in elements {
-        let elat = el.get("lat").and_then(|v| v.as_f64());
-        let elon = el.get("lon").and_then(|v| v.as_f64());
-        let name = el
-            .get("tags")
-            .and_then(|t| t.get("name"))
-            .and_then(|v| v.as_str());
-        if let (Some(elat), Some(elon), Some(name)) = (elat, elon, name) {
-            let d = haversine_meters(lat, lon, elat, elon);
-            if best.as_ref().map(|(b, _)| d < *b).unwrap_or(true) {
-                best = Some((d, name.to_string()));
-            }
-        }
-    }
-    Ok(best.map(|(_, n)| n))
-}
-
-/// Cache → Nominatim → optional Overpass. Owns the per-host rate-limit
-/// sleeps so the caller doesn't have to predict whether the Overpass
-/// path will fire. The rate limiter is borrowed `&mut` so a single
+/// Cache → Nominatim. The rate limiter is borrowed `&mut` so a single
 /// instance per batch keeps state across calls.
 ///
 /// `cancel_flag` is polled before every potentially-slow step
-/// (rate-limit sleep, network call, the gap between Nominatim and
-/// Overpass) so a user pressing Cancel mid-image surfaces as a
+/// (rate-limit sleep and network call) so a user pressing Cancel surfaces as a
 /// `Cancelled` failure for the in-flight image rather than waiting
 /// for the next image boundary. Plan §8.
 pub async fn geocode_one(
@@ -742,7 +594,9 @@ pub async fn geocode_one(
                 state: r.state,
                 country: r.country,
                 country_code: r.country_code,
-                postcode: r.postcode,
+                location_id: r.location_id,
+                gps_latitude: lat,
+                gps_longitude: lon,
             },
             display_name: r.display_name,
             source: GeocodeSource::Cache,
@@ -764,7 +618,7 @@ pub async fn geocode_one(
             return Err(GeocodeError::Cancelled);
         }
         let response = nominatim_reverse(client, lat, lon, *zoom).await?;
-        let parsed = map_geocodejson(&response.address);
+        let parsed = map_geocodejson(&response.address, lat, lon);
         if parsed.has_any_usable() {
             selected = Some((response.address, parsed, response.zoom));
             break;
@@ -779,7 +633,7 @@ pub async fn geocode_one(
         empty_previews.push(format!("zoom {}: {}", response.zoom, response.preview));
     }
 
-    let (geocoding, mut parsed, selected_zoom) = match selected {
+    let (_geocoding, parsed, selected_zoom) = match selected {
         Some(result) => result,
         None => {
             let zooms = NOMINATIM_REVERSE_ZOOMS
@@ -798,29 +652,13 @@ pub async fn geocode_one(
             });
         }
     };
-    let mut source = GeocodeSource::Nominatim;
+    let source = GeocodeSource::Nominatim;
     log::info!(
         "[geocode] nominatim usable lat={:.6} lon={:.6} zoom={}",
         lat,
         lon,
         selected_zoom
     );
-
-    // Overpass refinement for generic Nominatim results. Separate
-    // bucket — see GeocodeRateLimiter doc-comment.
-    if should_use_overpass_fallback(&geocoding, &parsed) {
-        if cancelled() {
-            return Err(GeocodeError::Cancelled);
-        }
-        limiter.wait_overpass().await;
-        if cancelled() {
-            return Err(GeocodeError::Cancelled);
-        }
-        if let Ok(Some(name)) = overpass_named_nearby(client, lat, lon).await {
-            parsed.location = Some(name);
-            source = GeocodeSource::NominatimPlusOverpass;
-        }
-    }
 
     let display_name = parsed.display_name();
     let entry = GeocodeCacheEntry {
@@ -835,7 +673,7 @@ pub async fn geocode_one(
             state: parsed.state.clone(),
             country: parsed.country.clone(),
             country_code: parsed.country_code.clone(),
-            postcode: parsed.postcode.clone(),
+            location_id: parsed.location_id.clone(),
         },
     };
     cache.upsert(entry);
@@ -1018,7 +856,6 @@ where
                 match result.source {
                     GeocodeSource::Cache => summary.n_succeeded_from_cache += 1,
                     GeocodeSource::Nominatim => summary.n_succeeded_from_nominatim += 1,
-                    GeocodeSource::NominatimPlusOverpass => summary.n_succeeded_from_overpass += 1,
                 }
             }
             Err(e) => {
@@ -1117,7 +954,7 @@ mod tests {
             country_code: Some("gb".into()),
             ..Default::default()
         };
-        let f = map_geocodejson(&addr);
+        let f = map_geocodejson(&addr, 51.5, -0.07);
         assert_eq!(f.location.as_deref(), Some("Tower of London"));
         assert_eq!(f.country_code.as_deref(), Some("GB"));
     }
@@ -1131,7 +968,7 @@ mod tests {
             country_code: Some("gb".into()),
             ..Default::default()
         };
-        let f = map_geocodejson(&addr);
+        let f = map_geocodejson(&addr, 53.9, -1.1);
         assert_eq!(f.location.as_deref(), Some("Oakdale Road"));
         assert_eq!(f.city.as_deref(), Some("York"));
     }
@@ -1144,7 +981,7 @@ mod tests {
             admin: std::collections::BTreeMap::from([("level4".into(), "Tokyo".into())]),
             ..Default::default()
         };
-        let parsed = map_geocodejson(&addr);
+        let parsed = map_geocodejson(&addr, 35.6, 139.7);
         assert_eq!(parsed.city.as_deref(), Some("Tokyo"));
         assert_eq!(parsed.state.as_deref(), Some("Tokyo"));
     }
@@ -1156,34 +993,8 @@ mod tests {
             district: Some("Minato".into()),
             ..Default::default()
         };
-        let parsed = map_geocodejson(&addr);
+        let parsed = map_geocodejson(&addr, 35.6, 139.7);
         assert_eq!(parsed.city, None);
-    }
-
-    #[test]
-    fn should_use_overpass_fallback_for_street_result_even_with_name() {
-        let addr = GeocodeJsonAddress {
-            result_type: Some("street".into()),
-            osm_key: Some("highway".into()),
-            name: Some("Some Street".into()),
-            city: Some("City".into()),
-            ..Default::default()
-        };
-        let parsed = map_geocodejson(&addr);
-        assert!(should_use_overpass_fallback(&addr, &parsed));
-    }
-
-    #[test]
-    fn should_skip_overpass_for_named_non_street_feature() {
-        let addr = GeocodeJsonAddress {
-            result_type: Some("house".into()),
-            osm_key: Some("office".into()),
-            name: Some("HMS Wellington".into()),
-            street: Some("Victoria Embankment".into()),
-            ..Default::default()
-        };
-        let parsed = map_geocodejson(&addr);
-        assert!(!should_use_overpass_fallback(&addr, &parsed));
     }
 
     #[test]
@@ -1205,74 +1016,71 @@ mod tests {
             state: None,
             country: Some("United Kingdom".into()),
             country_code: Some("GB".into()),
-            postcode: None,
+            location_id: Some("https://www.openstreetmap.org/node/1".into()),
+            gps_latitude: 51.5,
+            gps_longitude: -0.07,
         };
         let edits = compose_geocode_edits(&addr);
-        // Every target tag appears.
-        for k in geocode_target_tags() {
-            assert!(edits.contains_key(&k), "missing {}", k);
-        }
-        // Present field → Set.
-        match &edits[&known_ids::xmp_location()].intent {
-            EditIntent::Set => {}
-            other => panic!("expected Set, got {:?}", other),
-        }
-        match &edits[&known_ids::xmp_location()].value {
-            Some(MetadataValue::Text(s)) => assert_eq!(s, "Tower of London"),
-            other => panic!("expected text value, got {:?}", other),
-        }
-        // IPTC mirror agrees with XMP source of truth.
-        match &edits[&known_ids::iptc_sub_location()].value {
-            Some(MetadataValue::Text(s)) => assert_eq!(s, "Tower of London"),
-            other => panic!("expected text value, got {:?}", other),
-        }
-        match &edits[&known_ids::xmp_country_code()].value {
-            Some(MetadataValue::Text(s)) => assert_eq!(s, "GB"),
-            other => panic!("expected text value, got {:?}", other),
-        }
-        match &edits[&known_ids::iptc_country_code()].value {
-            Some(MetadataValue::Text(s)) => assert_eq!(s, "GB "),
-            other => panic!("expected text value, got {:?}", other),
+        assert_eq!(edits.len(), 1);
+        let edit = &edits[&known_ids::xmp_location_created()];
+        assert!(matches!(edit.intent, EditIntent::Set));
+        match &edit.value {
+            Some(MetadataValue::List { items, .. }) => {
+                let MetadataValue::Struct(fields) = &items[0] else {
+                    panic!("expected Location struct")
+                };
+                assert_eq!(
+                    fields.get("Sublocation"),
+                    Some(&MetadataValue::Text("Tower of London".into()))
+                );
+                assert_eq!(fields.get("GPSLatitude"), Some(&MetadataValue::Real(51.5)));
+                assert_eq!(
+                    fields.get("GPSLongitude"),
+                    Some(&MetadataValue::Real(-0.07))
+                );
+            }
+            other => panic!("expected one-item LocationCreated bag, got {other:?}"),
         }
     }
 
     #[test]
-    fn compose_geocode_edits_writes_delete_drafts_for_absent_fields() {
-        // The coherent-replacement rule: absent fields produce
-        // Delete-intent drafts, not omissions. This test pins that
-        // behaviour because the alternative ("omit empty") leaves
-        // stale fields from earlier runs in place.
+    fn compose_geocode_edits_omits_unknown_members_inside_atomic_structure() {
         let addr = AddressFields {
             country: Some("X".into()),
             ..AddressFields::default()
         };
         let edits = compose_geocode_edits(&addr);
-        for k in [
-            known_ids::xmp_location(),
-            known_ids::xmp_city(),
-            known_ids::xmp_state(),
-        ] {
-            assert!(edits.contains_key(&k), "missing {}", k);
-            assert!(
-                matches!(edits[&k].intent, EditIntent::Delete),
-                "expected Delete intent for {}, got {:?}",
-                k,
-                edits[&k].intent
-            );
-            assert!(edits[&k].value.is_none(), "Delete should carry no value");
-        }
-        // And the IPTC mirrors get the same treatment.
-        for k in [
-            known_ids::iptc_sub_location(),
-            known_ids::iptc_city(),
-            known_ids::iptc_province_state(),
-        ] {
-            assert!(
-                matches!(edits[&k].intent, EditIntent::Delete),
-                "expected Delete intent for {}",
-                k
-            );
-        }
+        let Some(MetadataValue::List { items, .. }) =
+            &edits[&known_ids::xmp_location_created()].value
+        else {
+            panic!("expected LocationCreated")
+        };
+        let MetadataValue::Struct(fields) = &items[0] else {
+            panic!("expected struct")
+        };
+        assert_eq!(
+            fields.get("CountryName"),
+            Some(&MetadataValue::Text("X".into()))
+        );
+        assert!(!fields.contains_key("City"));
+        assert!(!edits.contains_key(&known_ids::xmp_city()));
+    }
+
+    #[test]
+    fn map_geocodejson_preserves_query_coordinates_and_osm_id() {
+        let addr = GeocodeJsonAddress {
+            osm_type: Some("node".into()),
+            osm_id: Some(42),
+            country: Some("Japan".into()),
+            ..Default::default()
+        };
+        let parsed = map_geocodejson(&addr, 35.62857, 139.7367);
+        assert_eq!(parsed.gps_latitude, 35.62857);
+        assert_eq!(parsed.gps_longitude, 139.7367);
+        assert_eq!(
+            parsed.location_id.as_deref(),
+            Some("https://www.openstreetmap.org/node/42")
+        );
     }
 
     #[tokio::test]
@@ -1294,9 +1102,9 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
+        let client = GeocodeClient::with_base(server.uri());
         let raw = nominatim_reverse(&client, 51.5, -0.07, 18).await.unwrap();
-        let parsed = map_geocodejson(&raw.address);
+        let parsed = map_geocodejson(&raw.address, 51.5, -0.07);
         assert_eq!(parsed.location.as_deref(), Some("Tower of London"));
         assert_eq!(parsed.country_code.as_deref(), Some("GB"));
     }
@@ -1314,7 +1122,7 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
+        let client = GeocodeClient::with_base(server.uri());
         let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
@@ -1353,7 +1161,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
+        let client = GeocodeClient::with_base(server.uri());
         let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
@@ -1394,7 +1202,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
+        let client = GeocodeClient::with_base(server.uri());
         let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
@@ -1430,12 +1238,11 @@ mod tests {
                 state: None,
                 country: Some("United Kingdom".into()),
                 country_code: Some("GB".into()),
-                postcode: None,
+                location_id: Some("https://www.openstreetmap.org/node/1".into()),
             },
         });
         // Bogus URL — must NOT be hit.
-        let client =
-            GeocodeClient::with_bases("http://127.0.0.1:1".into(), "http://127.0.0.1:1".into());
+        let client = GeocodeClient::with_base("http://127.0.0.1:1".into());
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let result = geocode_one(&client, &mut cache, &mut limiter, &cancel, 51.5002, -0.1262)
@@ -1453,7 +1260,7 @@ mod tests {
         // entry, cache miss, so the very first cancel check fires
         // before any network call. No mock server needed — if we
         // reached the network we'd hit "http://unused".
-        let client = GeocodeClient::with_bases("http://unused".into(), "http://unused".into());
+        let client = GeocodeClient::with_base("http://unused".into());
         let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(true);
@@ -1465,15 +1272,13 @@ mod tests {
 
     #[tokio::test]
     async fn rate_limiter_spaces_consecutive_calls_per_host() {
-        // Two properties to pin: each bucket enforces RATE_LIMIT_INTERVAL
-        // between its own consecutive calls, AND the two buckets are
-        // independent — calls on one don't consume the other's budget.
+        // Consecutive Nominatim calls enforce RATE_LIMIT_INTERVAL.
         // Tolerance is generous because Windows timer resolution is
         // ~15 ms and CI runners can be even noisier.
         let tolerance = std::time::Duration::from_millis(50);
         let mut limiter = GeocodeRateLimiter::new();
 
-        // Property 1: first call on each bucket is free (no prior stamp).
+        // First call is free (no prior stamp).
         let t = std::time::Instant::now();
         limiter.wait_nominatim().await;
         assert!(
@@ -1482,7 +1287,7 @@ mod tests {
             t.elapsed()
         );
 
-        // Property 2: second call on the same bucket waits the interval.
+        // Second call waits the interval.
         let t = std::time::Instant::now();
         limiter.wait_nominatim().await;
         let nominatim_gap = t.elapsed();
@@ -1490,28 +1295,6 @@ mod tests {
             nominatim_gap >= RATE_LIMIT_INTERVAL - tolerance,
             "nominatim bucket should enforce interval, got {:?}",
             nominatim_gap
-        );
-
-        // Property 3: the FIRST overpass call must NOT wait, even though
-        // two Nominatim calls already happened. This is the key
-        // independence assertion — a shared bucket would force this
-        // call to sleep too.
-        let t = std::time::Instant::now();
-        limiter.wait_overpass().await;
-        assert!(
-            t.elapsed() < tolerance,
-            "first overpass call must be independent of nominatim budget, got {:?}",
-            t.elapsed()
-        );
-
-        // Property 4: second overpass call waits its own interval.
-        let t = std::time::Instant::now();
-        limiter.wait_overpass().await;
-        let overpass_gap = t.elapsed();
-        assert!(
-            overpass_gap >= RATE_LIMIT_INTERVAL - tolerance,
-            "overpass bucket should enforce interval, got {:?}",
-            overpass_gap
         );
     }
 }

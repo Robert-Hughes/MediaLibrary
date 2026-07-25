@@ -186,6 +186,7 @@ export function buildNormaliseItemForFile(
 
   if (groupSet.has("location")) {
     groupInputs.location = {
+      locationCreated: scalarValue(effective, ID.xmpLocationCreated) ?? null,
       locationXmp: scalar(effective, ID.xmpLocation) ?? null,
       locationIptc: scalar(effective, ID.iptcSubLocation) ?? null,
       cityXmp: scalar(effective, ID.xmpCity) ?? null,

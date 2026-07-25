@@ -2,24 +2,20 @@
 //!
 //! The reverse-geocoding Tauri command (`geocode_images_cmd`) is mostly
 //! wiring — app handle, app_data_dir, event emitter, cancellation
-//! state. The interesting behaviour (loop accounting, mid-pipeline
-//! cancellation surfacing as `cancelled` failure rows, end-of-batch
+//! state. The interesting behaviour (loop accounting and end-of-batch
 //! `cache_io` synthesis) lives in `run_geocode_batch` so we can drive
 //! it without a Tauri runtime here.
 //!
 //! These tests cover the plan deviations the recent audit flagged that
 //! aren't reachable from the unit tests in `geocode.rs`:
 //!
-//!   * cancel between Nominatim and Overpass (mid-pipeline cancel
-//!     surfaces as a per-image `cancelled` failure, not a silent loop
-//!     break);
 //!   * `cache_io` failure-row synthesis when the end-of-batch cache
 //!     save fails;
 //!   * the happy-path source-counter accounting (sanity check that
-//!     `Cache` / `Nominatim` / `Nominatim+Overpass` route to distinct
+//!     `Cache` / `Nominatim` route to distinct
 //!     summary counters).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 use medialibrary_tauri_lib::batch_job::{BatchFailureKind, BatchFailureRow};
@@ -30,7 +26,7 @@ use medialibrary_tauri_lib::geocode::{
 use medialibrary_tauri_lib::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
 
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ── Reusable test infrastructure ───────────────────────────────────────────
 //
@@ -163,7 +159,7 @@ fn cache_with_entry(lat: f64, lon: f64, city: &str) -> GeocodeCacheFile {
             state: None,
             country: Some("United Kingdom".into()),
             country_code: Some("GB".into()),
-            postcode: None,
+            location_id: None,
         },
     });
     c
@@ -176,12 +172,7 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
     // Sanity check the runner's source-counter accounting. Three items:
     //   - one no-GPS (n_no_gps += 1, n_failed unchanged)
     //   - one cache hit (n_succeeded_from_cache += 1)
-    //   - one cache miss → Nominatim returns a named feature, so no
-    //     Overpass fallback fires (n_succeeded_from_nominatim += 1)
-    // We deliberately don't cover the Nominatim+Overpass counter here
-    // because the wiremock setup gets noisier for one extra arithmetic
-    // assertion; the source-routing logic for Overpass is exercised
-    // by the geocode_one unit tests.
+    //   - one cache miss → Nominatim (n_succeeded_from_nominatim += 1)
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/reverse"))
@@ -201,7 +192,7 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
         })))
         .mount(&server)
         .await;
-    let client = GeocodeClient::with_bases(server.uri(), "http://unused.invalid".into());
+    let client = GeocodeClient::with_base(server.uri());
 
     // Cache pre-seeded for the (51.5, -0.1) coords — the third item's
     // (52.0, -1.0) will miss and hit the mock server.
@@ -221,7 +212,6 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
     assert_eq!(outcome.summary.n_no_gps, 1);
     assert_eq!(outcome.summary.n_succeeded_from_cache, 1);
     assert_eq!(outcome.summary.n_succeeded_from_nominatim, 1);
-    assert_eq!(outcome.summary.n_succeeded_from_overpass, 0);
     assert_eq!(outcome.summary.n_failed, 0);
     assert_eq!(outcome.succeeded, vec!["b.jpg".to_string(), "c.jpg".into()]);
     assert_eq!(outcome.failed.len(), 1, "no_gps lives in failed[]");
@@ -239,123 +229,6 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
     assert_eq!(sink.progress_events().len(), 3);
 }
 
-/// Wiremock `Respond` impl that flips a cancel flag before serving a
-/// canned response.
-///
-/// Used to engineer a mid-pipeline cancellation: Nominatim returns a
-/// road-only address (which would normally trigger Overpass fallback),
-/// but the flag is now true so the runner's between-sub-call cancel
-/// check fires before Overpass is hit.
-struct CancelFlipOnRequest {
-    cancel: std::sync::Arc<AtomicBool>,
-    body: serde_json::Value,
-}
-
-impl Respond for CancelFlipOnRequest {
-    fn respond(&self, _: &Request) -> ResponseTemplate {
-        self.cancel.store(true, Ordering::Relaxed);
-        ResponseTemplate::new(200).set_body_json(self.body.clone())
-    }
-}
-
-#[tokio::test]
-async fn cancel_between_nominatim_and_overpass_emits_cancelled_progress_and_skips_overpass() {
-    // Plan §8: cancellation between sub-calls must surface as a
-    // per-image `cancelled` failure (not a silent loop break). The
-    // unit test in geocode.rs proves the BEFORE-Nominatim branch;
-    // this one proves the AFTER-Nominatim-BEFORE-Overpass branch via
-    // a Nominatim mock that flips the cancel flag from inside its
-    // response handler.
-    let nominatim = MockServer::start().await;
-    let overpass = MockServer::start().await;
-
-    let cancel = std::sync::Arc::new(AtomicBool::new(false));
-
-    // A GeocodeJSON street/highway result forces the fallback even though
-    // Nominatim represents its road text as `name`.
-    let road_only = serde_json::json!({
-        "features": [{
-            "properties": {
-                "geocoding": {
-                    "type": "street",
-                    "osm_key": "highway",
-                    "name": "High Street",
-                    "country": "United Kingdom",
-                    "country_code": "gb"
-                }
-            }
-        }]
-    });
-    Mock::given(method("GET"))
-        .and(path("/reverse"))
-        .respond_with(CancelFlipOnRequest {
-            cancel: cancel.clone(),
-            body: road_only,
-        })
-        .mount(&nominatim)
-        .await;
-
-    // Overpass mock must NEVER be hit. The `.expect(0)` assertion is
-    // verified when the server drops — if the runner mistakenly fires
-    // Overpass despite the cancel, the test panics on drop.
-    Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "elements": []
-        })))
-        .expect(0)
-        .mount(&overpass)
-        .await;
-
-    let client = GeocodeClient::with_bases(nominatim.uri(), overpass.uri());
-    let mut cache = GeocodeCacheFile::empty_current();
-    let sink = RecordingSink::default();
-
-    let outcome = geocode::run_geocode_batch(
-        &[item("a.jpg", 51.5, -0.1)],
-        &client,
-        &mut cache,
-        &cancel,
-        &sink,
-        |_| Ok(()),
-    )
-    .await;
-
-    // The image surfaces as a per-image failure with kind "cancelled".
-    assert_eq!(
-        outcome.summary.n_failed, 1,
-        "mid-pipeline cancel must surface as a per-image failure"
-    );
-    assert_eq!(outcome.succeeded.len(), 0);
-    assert_eq!(outcome.failed.len(), 1);
-    assert_eq!(outcome.failed[0].kind, BatchFailureKind::Cancelled);
-    assert_eq!(outcome.failed[0].relative_path, "a.jpg");
-
-    // Cache must not have been polluted with the partial result —
-    // the runner returned before reaching the cache.upsert step.
-    assert!(cache.entries.is_empty());
-
-    // The sink must observe a progress event with status="cancelled"
-    // — confirms the runner notifies the frontend rather than just
-    // appending to `failed` silently.
-    let progress = sink.progress_events();
-    assert_eq!(progress.len(), 1);
-    if let SinkEvent::Progress {
-        status,
-        relative_path,
-        ..
-    } = &progress[0]
-    {
-        assert_eq!(status, "cancelled");
-        assert_eq!(relative_path, "a.jpg");
-    } else {
-        unreachable!("filtered to progress events above");
-    }
-
-    // Drop the Overpass server — its `.expect(0)` panics on drop if
-    // a request was received.
-    drop(overpass);
-}
-
 #[tokio::test]
 async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     // Plan §4 done-panel labels include `cache_io`. The runner emits
@@ -365,10 +238,7 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     // call is needed for this test — the item is served from the
     // cache.
     let mut cache = cache_with_entry(51.5, -0.1, "Westminster");
-    let client = GeocodeClient::with_bases(
-        "http://unused.invalid".into(),
-        "http://unused.invalid".into(),
-    );
+    let client = GeocodeClient::with_base("http://unused.invalid".into());
     let cancel = AtomicBool::new(false);
     let sink = RecordingSink::default();
 

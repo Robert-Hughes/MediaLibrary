@@ -62,14 +62,12 @@ pub struct CachedResult {
     pub state: Option<String>,
     pub country: Option<String>,
     pub country_code: Option<String>,
-    pub postcode: Option<String>,
+    pub location_id: Option<String>,
 }
 
-// Version 3 invalidates results projected from Nominatim's free-form JSON
-// address object. GeocodeJSON uses a normalized hierarchy and deliberately
-// different City/State rules, so retaining version 2 entries would mix two
-// metadata semantics in one batch.
-pub const CACHE_VERSION: u32 = 3;
+// Version 4 stores the structured LocationCreated candidate (including the
+// stable OSM identifier) and invalidates v3's ten-field projection.
+pub const CACHE_VERSION: u32 = 4;
 
 /// Compute great-circle distance between two coordinate pairs, in metres.
 ///
@@ -189,7 +187,7 @@ mod tests {
                 state: None,
                 country: None,
                 country_code: None,
-                postcode: None,
+                location_id: None,
             },
         });
         let hit = c.lookup(51.5002, -0.1262);
@@ -212,7 +210,7 @@ mod tests {
                 state: None,
                 country: None,
                 country_code: None,
-                postcode: None,
+                location_id: None,
             },
         };
         c.upsert(mk(51.5001, "first"));
@@ -229,7 +227,7 @@ mod tests {
             lat: 1.0,
             lon: 2.0,
             queried_at: "2026-01-01T00:00:00Z".into(),
-            source: "nominatim+overpass".into(),
+            source: "nominatim".into(),
             result: CachedResult {
                 display_name: "X".into(),
                 location: Some("Tower".into()),
@@ -237,14 +235,14 @@ mod tests {
                 state: None,
                 country: Some("United Kingdom".into()),
                 country_code: Some("GB".into()),
-                postcode: None,
+                location_id: Some("https://www.openstreetmap.org/node/1".into()),
             },
         });
         save(dir.path(), &c).unwrap();
         let back = load(dir.path());
         assert_eq!(back.entries.len(), 1);
         assert_eq!(back.entries[0].result.location.as_deref(), Some("Tower"));
-        assert_eq!(back.entries[0].source, "nominatim+overpass");
+        assert_eq!(back.entries[0].source, "nominatim");
     }
 
     #[test]
@@ -282,6 +280,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = cache_path(dir.path());
         fs::write(&path, br#"{"version": 2, "entries": []}"#).unwrap();
+        let c = load(dir.path());
+        assert_eq!(c.entries.len(), 0);
+        assert_eq!(c.version, CACHE_VERSION);
+    }
+
+    #[test]
+    fn load_invalidates_pre_location_created_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = cache_path(dir.path());
+        fs::write(&path, br#"{"version": 3, "entries": []}"#).unwrap();
         let c = load(dir.path());
         assert_eq!(c.entries.len(), 0);
         assert_eq!(c.version, CACHE_VERSION);

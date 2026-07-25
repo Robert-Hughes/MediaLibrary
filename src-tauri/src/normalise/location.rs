@@ -1,24 +1,14 @@
-//! Group G — Location (XMP ↔ IIM mirror sync).
+//! Group G — canonical IPTC LocationCreated and legacy mirror projection.
 //!
-//! Plan §1 Group G. Five XMP↔IIM mirror pairs treated independently.
-//! Per-pair policy:
-//!   1. Both empty → no drafts.
-//!   2. Exactly one non-empty → canonical = that value, project to both fields.
-//!      For the CountryCode pair:
-//!        - The canonical semantic value is trimmed, whitespace-collapsed,
-//!          and uppercased alpha-2-style text (this is not alpha-3 conversion
-//!          and does not use a lookup table).
-//!        - XMP projection writes the canonical value, e.g. `GB`.
-//!        - IPTC projection writes the legacy fixed-width padded storage form
-//!          for 2-character ASCII codes, e.g. `GB `.
-//!   3. Both non-empty AND equal after canonicalisation → write to both.
-//!      Handles e.g. `gb` vs `GB` for CountryCode, where IPTC readback
-//!      canonicalisation trims trailing fixed-width space padding before comparison.
-//!   4. Both non-empty AND distinct after canonicalisation → primary
-//!      (XMP side) wins. Stats: `n_location_xmp_iim_conflict`.
+//! Exactly one LocationCreated structure is authoritative. Its five
+//! overlapping members project to the flat XMP/IIM pairs, and an absent member
+//! removes both flat fields. Multiple structures are deliberately left for
+//! manual resolution: choosing one would discard a legitimate location.
 //!
-//! No AI — never AI-merge place names. No reverse-geocoding here;
-//! Group G only mirrors what is already in metadata.
+//! When LocationCreated is absent, the five flat pairs seed it. Each pair is
+//! treated independently and XMP wins a disagreement. CountryCode is
+//! uppercased semantically; the legacy IIM projection retains its fixed-width
+//! padding. No AI or place-name normalization is used.
 
 use super::{
     collapse_whitespace_single_line, text_edit, truncate_at_word, GroupOutput, LocationContext,
@@ -28,9 +18,11 @@ use crate::country_code::{
     canonical_country_code, canonical_iptc_country_code_readback, iptc_country_code_projection,
     xmp_country_code_projection,
 };
-use crate::draft_edits::SchemaMetadataEditMap;
+use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::known_ids;
+use crate::metadata_value::{ListKind, MetadataValue};
 use crate::tag_schema::SchemaDefinitionId;
+use std::collections::BTreeMap;
 
 const IPTC_SUB_LOCATION_LIMIT: usize = 32;
 
@@ -58,6 +50,142 @@ fn identity_projection(s: &str) -> String {
 
 fn iptc_sub_location_projection(s: &str) -> String {
     truncate_at_word(s, IPTC_SUB_LOCATION_LIMIT)
+}
+
+#[derive(Debug, Clone, Default)]
+struct CanonicalLocation {
+    sublocation: Option<String>,
+    city: Option<String>,
+    state: Option<String>,
+    country: Option<String>,
+    country_code: Option<String>,
+}
+
+enum StructuredLocation {
+    Absent,
+    One(CanonicalLocation),
+    Ambiguous,
+}
+
+fn struct_text(fields: &BTreeMap<String, MetadataValue>, key: &str) -> Option<String> {
+    match fields.get(key) {
+        Some(MetadataValue::Text(value)) => {
+            let value = canonicalise_location_text(value);
+            (!value.is_empty()).then_some(value)
+        }
+        _ => None,
+    }
+}
+
+fn read_location_created(value: Option<&MetadataValue>) -> StructuredLocation {
+    let Some(value) = value else {
+        return StructuredLocation::Absent;
+    };
+    let MetadataValue::List { items, .. } = value else {
+        return StructuredLocation::Ambiguous;
+    };
+    if items.is_empty() {
+        return StructuredLocation::Absent;
+    }
+    let [MetadataValue::Struct(fields)] = items.as_slice() else {
+        return StructuredLocation::Ambiguous;
+    };
+    StructuredLocation::One(CanonicalLocation {
+        sublocation: struct_text(fields, "Sublocation"),
+        city: struct_text(fields, "City"),
+        state: struct_text(fields, "ProvinceState"),
+        country: struct_text(fields, "CountryName"),
+        country_code: struct_text(fields, "CountryCode")
+            .map(|value| canonicalise_country_code(&value))
+            .filter(|value| !value.is_empty()),
+    })
+}
+
+fn canonical_from_legacy(input: &LocationInput) -> CanonicalLocation {
+    let pick =
+        |xmp: Option<&str>, ipt: Option<&str>, canon: fn(&str) -> String| -> Option<String> {
+            let xc = xmp.map(canon).filter(|s| !s.is_empty());
+            let ic = ipt.map(canon).filter(|s| !s.is_empty());
+            match (xc, ic) {
+                (None, None) => None,
+                (Some(v), None) | (None, Some(v)) => Some(v),
+                (Some(x), Some(_)) => Some(x),
+            }
+        };
+    CanonicalLocation {
+        sublocation: pick(
+            input.location_xmp.as_deref(),
+            input.location_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        city: pick(
+            input.city_xmp.as_deref(),
+            input.city_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        state: pick(
+            input.state_xmp.as_deref(),
+            input.state_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        country: pick(
+            input.country_xmp.as_deref(),
+            input.country_iptc.as_deref(),
+            canonicalise_location_text,
+        ),
+        country_code: pick(
+            input.country_code_xmp.as_deref(),
+            input.country_code_iptc.as_deref(),
+            canonicalise_country_code,
+        ),
+    }
+}
+
+fn location_created_value(location: &CanonicalLocation) -> MetadataValue {
+    let mut fields = BTreeMap::new();
+    for (key, value) in [
+        ("Sublocation", location.sublocation.as_deref()),
+        ("City", location.city.as_deref()),
+        ("ProvinceState", location.state.as_deref()),
+        ("CountryName", location.country.as_deref()),
+        ("CountryCode", location.country_code.as_deref()),
+    ] {
+        if let Some(value) = value {
+            fields.insert(key.into(), MetadataValue::Text(value.into()));
+        }
+    }
+    MetadataValue::List {
+        list_kind: ListKind::Bag,
+        items: vec![MetadataValue::Struct(fields)],
+    }
+}
+
+fn delete_edit() -> MetadataDraftEdit {
+    MetadataDraftEdit {
+        value: None,
+        intent: EditIntent::Delete,
+    }
+}
+
+fn project_member(
+    edits: &mut SchemaMetadataEditMap,
+    key: SchemaDefinitionId,
+    current: Option<&str>,
+    canonical: Option<&str>,
+    projection: fn(&str) -> String,
+) {
+    match canonical {
+        Some(value) => {
+            let target = projection(value);
+            if current != Some(target.as_str()) {
+                edits.insert(key, text_edit(target));
+            }
+        }
+        None if current.is_some() => {
+            edits.insert(key, delete_edit());
+        }
+        None => {}
+    }
 }
 
 fn process_pair(
@@ -105,37 +233,16 @@ fn process_pair(
 /// drafts. Used by the dispatcher to pass POST-normalisation location
 /// context into Group B / Group C AI prompts.
 pub fn derive_location_canonical(input: &LocationInput) -> LocationContext {
-    let pick =
-        |xmp: Option<&str>, ipt: Option<&str>, canon: fn(&str) -> String| -> Option<String> {
-            let xc = xmp.map(canon).filter(|s| !s.is_empty());
-            let ic = ipt.map(canon).filter(|s| !s.is_empty());
-            match (xc, ic) {
-                (None, None) => None,
-                (Some(v), None) | (None, Some(v)) => Some(v),
-                (Some(x), Some(_)) => Some(x),
-            }
-        };
+    let canonical = match read_location_created(input.location_created.as_ref()) {
+        StructuredLocation::One(location) => location,
+        StructuredLocation::Absent => canonical_from_legacy(input),
+        StructuredLocation::Ambiguous => return LocationContext::default(),
+    };
     LocationContext {
-        location: pick(
-            input.location_xmp.as_deref(),
-            input.location_iptc.as_deref(),
-            canonicalise_location_text,
-        ),
-        city: pick(
-            input.city_xmp.as_deref(),
-            input.city_iptc.as_deref(),
-            canonicalise_location_text,
-        ),
-        state: pick(
-            input.state_xmp.as_deref(),
-            input.state_iptc.as_deref(),
-            canonicalise_location_text,
-        ),
-        country: pick(
-            input.country_xmp.as_deref(),
-            input.country_iptc.as_deref(),
-            canonicalise_location_text,
-        ),
+        location: canonical.sublocation,
+        city: canonical.city,
+        state: canonical.state,
+        country: canonical.country,
     }
 }
 
@@ -143,10 +250,85 @@ pub fn derive_location_canonical(input: &LocationInput) -> LocationContext {
 pub struct LocationOutcome {
     pub output: Option<GroupOutput>,
     pub n_xmp_iim_conflict: u32,
+    pub n_location_created_ambiguous: u32,
 }
 
 /// Run Group G (Location) normalisation for one image.
 pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
+    if matches!(
+        read_location_created(input.location_created.as_ref()),
+        StructuredLocation::Ambiguous
+    ) {
+        // LocationCreated is repeatable. Choosing one of several structures
+        // would silently discard meaning, so require the user to resolve it.
+        return LocationOutcome {
+            n_location_created_ambiguous: 1,
+            ..Default::default()
+        };
+    }
+
+    if let StructuredLocation::One(canonical) =
+        read_location_created(input.location_created.as_ref())
+    {
+        let mut edits = SchemaMetadataEditMap::new();
+        let members = [
+            (
+                known_ids::xmp_location(),
+                known_ids::iptc_sub_location(),
+                input.location_xmp.as_deref(),
+                input.location_iptc.as_deref(),
+                canonical.sublocation.as_deref(),
+                identity_projection as fn(&str) -> String,
+                iptc_sub_location_projection as fn(&str) -> String,
+            ),
+            (
+                known_ids::xmp_city(),
+                known_ids::iptc_city(),
+                input.city_xmp.as_deref(),
+                input.city_iptc.as_deref(),
+                canonical.city.as_deref(),
+                identity_projection,
+                identity_projection,
+            ),
+            (
+                known_ids::xmp_state(),
+                known_ids::iptc_province_state(),
+                input.state_xmp.as_deref(),
+                input.state_iptc.as_deref(),
+                canonical.state.as_deref(),
+                identity_projection,
+                identity_projection,
+            ),
+            (
+                known_ids::xmp_country(),
+                known_ids::iptc_country_name(),
+                input.country_xmp.as_deref(),
+                input.country_iptc.as_deref(),
+                canonical.country.as_deref(),
+                identity_projection,
+                identity_projection,
+            ),
+            (
+                known_ids::xmp_country_code(),
+                known_ids::iptc_country_code(),
+                input.country_code_xmp.as_deref(),
+                input.country_code_iptc.as_deref(),
+                canonical.country_code.as_deref(),
+                xmp_country_code_projection,
+                iptc_country_code_projection,
+            ),
+        ];
+        for (xmp_key, iptc_key, xmp, iptc, value, xmp_projection, iptc_projection) in members {
+            project_member(&mut edits, xmp_key, xmp, value, xmp_projection);
+            project_member(&mut edits, iptc_key, iptc, value, iptc_projection);
+        }
+        return LocationOutcome {
+            output: (!edits.is_empty()).then_some(GroupOutput { edits }),
+            n_xmp_iim_conflict: 0,
+            n_location_created_ambiguous: 0,
+        };
+    }
+
     type LocationPair<'a> = (
         SchemaDefinitionId,
         SchemaDefinitionId,
@@ -234,6 +416,22 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         }
     }
 
+    let canonical = canonical_from_legacy(input);
+    if canonical.sublocation.is_some()
+        || canonical.city.is_some()
+        || canonical.state.is_some()
+        || canonical.country.is_some()
+        || canonical.country_code.is_some()
+    {
+        edits.insert(
+            known_ids::xmp_location_created(),
+            MetadataDraftEdit {
+                value: Some(location_created_value(&canonical)),
+                intent: EditIntent::Set,
+            },
+        );
+    }
+
     LocationOutcome {
         output: if edits.is_empty() {
             None
@@ -241,6 +439,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             Some(GroupOutput { edits })
         },
         n_xmp_iim_conflict: conflicts,
+        n_location_created_ambiguous: 0,
     }
 }
 
@@ -254,6 +453,13 @@ mod tests {
             Some(MetadataValue::Text(v)) => v.clone(),
             other => panic!("expected text value, got {:?}", other),
         }
+    }
+
+    fn location_created(g: &GroupOutput) -> MetadataValue {
+        g.edits[&crate::known_ids::xmp_location_created()]
+            .value
+            .clone()
+            .expect("LocationCreated Set value")
     }
 
     #[test]
@@ -286,14 +492,17 @@ mod tests {
     }
 
     #[test]
-    fn both_equal_in_sync_no_drafts_for_that_pair() {
+    fn both_equal_legacy_values_seed_location_created() {
         let input = LocationInput {
             city_xmp: Some("Paris".into()),
             city_iptc: Some("Paris".into()),
             ..Default::default()
         };
         let out = normalise_location(&input);
-        assert!(out.output.is_none());
+        let group = out.output.expect("legacy values must seed LocationCreated");
+        assert!(group
+            .edits
+            .contains_key(&crate::known_ids::xmp_location_created()));
         assert_eq!(out.n_xmp_iim_conflict, 0);
     }
 
@@ -350,14 +559,18 @@ mod tests {
     }
 
     #[test]
-    fn xmp_country_code_and_padded_iptc_readback_are_in_sync() {
+    fn synced_legacy_country_code_seeds_location_created() {
         let input = LocationInput {
             country_code_xmp: Some("GB".into()),
             country_code_iptc: Some("GB ".into()),
             ..Default::default()
         };
         let out = normalise_location(&input);
-        assert!(out.output.is_none());
+        assert!(out
+            .output
+            .expect("legacy values must seed LocationCreated")
+            .edits
+            .contains_key(&crate::known_ids::xmp_location_created()));
         assert_eq!(out.n_xmp_iim_conflict, 0);
     }
 
@@ -409,6 +622,7 @@ mod tests {
         };
         let first = normalise_location(&initial).output.unwrap();
         let post = LocationInput {
+            location_created: Some(location_created(&first)),
             city_xmp: Some("Paris".into()),
             city_iptc: Some(s(&first, "IPTC:City")),
             country_code_xmp: Some(s(&first, "XMP-iptcCore:CountryCode")),
@@ -449,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn long_xmp_location_with_projected_iptc_is_idempotent() {
+    fn synced_legacy_sublocation_seeds_location_created() {
         let full = "The Rook and Gaskill Inn, Foss Islands, York, United Kingdom";
         let input = LocationInput {
             location_xmp: Some(full.into()),
@@ -457,7 +671,11 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_location(&input);
-        assert!(out.output.is_none());
+        assert!(out
+            .output
+            .expect("legacy values must seed LocationCreated")
+            .edits
+            .contains_key(&crate::known_ids::xmp_location_created()));
         assert_eq!(out.n_xmp_iim_conflict, 0);
     }
 
@@ -476,6 +694,7 @@ mod tests {
         assert_eq!(s(&g, "IPTC:Sub-location"), projected);
 
         let post = LocationInput {
+            location_created: Some(location_created(&g)),
             location_xmp: Some(full.into()),
             location_iptc: Some(projected),
             ..Default::default()
@@ -493,5 +712,84 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(ctx.location.as_deref(), Some(full));
+    }
+
+    fn structured(fields: &[(&str, &str)]) -> MetadataValue {
+        MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![MetadataValue::Struct(
+                fields
+                    .iter()
+                    .map(|(key, value)| ((*key).into(), MetadataValue::Text((*value).into())))
+                    .collect(),
+            )],
+        }
+    }
+
+    #[test]
+    fn one_location_created_projects_present_members_and_clears_missing_legacy() {
+        let input = LocationInput {
+            location_created: Some(structured(&[
+                ("Sublocation", "Seria"),
+                ("City", "Tokyo"),
+                ("CountryName", "Japan"),
+                ("CountryCode", "jp"),
+            ])),
+            state_xmp: Some("stale state".into()),
+            state_iptc: Some("stale state".into()),
+            ..Default::default()
+        };
+        let out = normalise_location(&input).output.unwrap();
+        assert_eq!(s(&out, "XMP-iptcCore:Location"), "Seria");
+        assert_eq!(s(&out, "IPTC:City"), "Tokyo");
+        assert_eq!(s(&out, "XMP-iptcCore:CountryCode"), "JP");
+        assert_eq!(s(&out, "IPTC:Country-PrimaryLocationCode"), "JP ");
+        for id in [known_ids::xmp_state(), known_ids::iptc_province_state()] {
+            let edit = &out.edits[&id];
+            assert!(matches!(edit.intent, EditIntent::Delete));
+            assert!(edit.value.is_none());
+        }
+        assert!(!out.edits.contains_key(&known_ids::xmp_location_created()));
+    }
+
+    #[test]
+    fn multiple_location_created_structures_are_left_for_manual_resolution() {
+        let MetadataValue::List { items, .. } = structured(&[("City", "Tokyo")]) else {
+            unreachable!()
+        };
+        let location = items[0].clone();
+        let input = LocationInput {
+            location_created: Some(MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![location.clone(), location],
+            }),
+            city_xmp: Some("Legacy city".into()),
+            ..Default::default()
+        };
+        assert!(normalise_location(&input).output.is_none());
+        assert_eq!(normalise_location(&input).n_location_created_ambiguous, 1);
+        assert_eq!(
+            derive_location_canonical(&input),
+            LocationContext::default()
+        );
+    }
+
+    #[test]
+    fn location_created_projection_is_idempotent() {
+        let value = structured(&[("City", "Tokyo"), ("CountryCode", "JP")]);
+        let initial = LocationInput {
+            location_created: Some(value.clone()),
+            ..Default::default()
+        };
+        let first = normalise_location(&initial).output.unwrap();
+        let post = LocationInput {
+            location_created: Some(value),
+            city_xmp: Some(s(&first, "XMP-photoshop:City")),
+            city_iptc: Some(s(&first, "IPTC:City")),
+            country_code_xmp: Some(s(&first, "XMP-iptcCore:CountryCode")),
+            country_code_iptc: Some(s(&first, "IPTC:Country-PrimaryLocationCode")),
+            ..Default::default()
+        };
+        assert!(normalise_location(&post).output.is_none());
     }
 }

@@ -269,7 +269,10 @@ fn count_overwrites_for_group(
         G::Location => match &inputs.location {
             None => 0,
             Some(b) => {
-                scalar(crate::known_ids::xmp_location(), b.location_xmp.as_deref())
+                scalar_value(
+                    crate::known_ids::xmp_location_created(),
+                    b.location_created.as_ref(),
+                ) + scalar(crate::known_ids::xmp_location(), b.location_xmp.as_deref())
                     + scalar(
                         crate::known_ids::iptc_sub_location(),
                         b.location_iptc.as_deref(),

@@ -779,6 +779,31 @@ fn apply_overrides(tags: &mut BTreeMap<SchemaDefinitionId, TagInfo>) {
         ("XMP-exif:GPSLatitude", || TagKind::Real),
         ("XMP-exif:GPSLongitude", || TagKind::Real),
         ("XMP-exif:GPSAltitude", || TagKind::Real),
+        // IPTC Extension defines LocationCreated as a repeatable Location
+        // structure. listx exposes the outer tag but not the member types,
+        // so spell them out to preserve numbers and the nested LocationId bag.
+        ("XMP-iptcExt:LocationCreated", || {
+            TagKind::Bag(Box::new(TagKind::Struct(BTreeMap::from([
+                ("City".into(), TagKind::Text),
+                ("CountryCode".into(), TagKind::Text),
+                ("CountryName".into(), TagKind::Text),
+                ("GPSAltitude".into(), TagKind::Real),
+                (
+                    "GPSAltitudeRef".into(),
+                    TagKind::Integer {
+                        min: Some(0),
+                        max: Some(1),
+                    },
+                ),
+                ("GPSLatitude".into(), TagKind::Real),
+                ("GPSLongitude".into(), TagKind::Real),
+                ("LocationId".into(), TagKind::Bag(Box::new(TagKind::Text))),
+                ("LocationName".into(), TagKind::LangAlt),
+                ("ProvinceState".into(), TagKind::Text),
+                ("Sublocation".into(), TagKind::Text),
+                ("WorldRegion".into(), TagKind::Text),
+            ]))))
+        }),
         // ── XMP-mlib namespace (AI-generated metadata) ────────────────
         // Registered with exiftool via the embedded user-defined config
         // (see `exiftool_config.rs`). `-listx` does not enumerate

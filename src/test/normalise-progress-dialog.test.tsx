@@ -595,6 +595,7 @@ describe("NormaliseProgressDialog — done", () => {
       nNormalisedAi: 0,
       nConflictPrimaryWon: 0,
       nLocationXmpIimConflict: 0,
+      nLocationCreatedAmbiguous: 0,
       nDateConflict: 0,
       nDtoFromFilename: 0,
       nDtoFromFilenameDateOnly: 0,

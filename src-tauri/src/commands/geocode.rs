@@ -51,13 +51,12 @@ pub async fn geocode_images_cmd(
         .await;
 
     log::info!(
-        "[geocode] finished succeeded={} failed={} no_gps={} from_cache={} from_nominatim={} from_overpass={}",
+        "[geocode] finished succeeded={} failed={} no_gps={} from_cache={} from_nominatim={}",
         outcome.succeeded.len(),
         outcome.summary.n_failed,
         outcome.summary.n_no_gps,
         outcome.summary.n_succeeded_from_cache,
         outcome.summary.n_succeeded_from_nominatim,
-        outcome.summary.n_succeeded_from_overpass,
     );
 
     geocode_state.clear();
