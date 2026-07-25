@@ -7,21 +7,21 @@ tags. Architecture mirrors the AI-description flow; substantial code is shared.
 
 ## 1. Target tags (industry-standard, no `mlib:` namespace)
 
-Drafts are proposed for the conventional Lightroom / Fileshop / IPTC location
+Drafts are proposed for the conventional Lightroom / Photoshop / IPTC location
 fields. These are the same fields written by every mainstream tagger
 (Lightroom, Bridge, File Mechanic, digiKam, ExifTool's `-Country` shortcut).
 
 | Tag                                | Source from Nominatim address                                                     | Notes                                                                                                                        |
 | ---------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `XMP-iptcCore:Location`            | `building` ∪ `tourism` ∪ `amenity` ∪ `leisure` ∪ `historic` ∪ `shop`, else `road` | "Sub-location" / specific named place. Falls back to road if no named POI. Overpass result, when used, populates this field. |
-| `XMP-fileshop:City`                | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb`                                 |                                                                                                                              |
-| `XMP-fileshop:State`               | `state`                                                                           |                                                                                                                              |
-| `XMP-fileshop:Country`             | `country`                                                                         |                                                                                                                              |
+| `XMP-photoshop:City`               | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb`                                 |                                                                                                                              |
+| `XMP-photoshop:State`              | `state`                                                                           |                                                                                                                              |
+| `XMP-photoshop:Country`            | `country`                                                                         |                                                                                                                              |
 | `XMP-iptcCore:CountryCode`         | `country_code` (uppercased — ISO 3166-1 alpha-2)                                  | App semantic value, e.g. `GB`.                                                                                               |
 | `IPTC:Sub-location`                | mirror of `XMP-iptcCore:Location`                                                 | Legacy IPTC IIM mirror.                                                                                                      |
-| `IPTC:City`                        | mirror of `XMP-fileshop:City`                                                     |                                                                                                                              |
-| `IPTC:Province-State`              | mirror of `XMP-fileshop:State`                                                    |                                                                                                                              |
-| `IPTC:Country-PrimaryLocationName` | mirror of `XMP-fileshop:Country`                                                  |                                                                                                                              |
+| `IPTC:City`                        | mirror of `XMP-photoshop:City`                                                    |                                                                                                                              |
+| `IPTC:Province-State`              | mirror of `XMP-photoshop:State`                                                   |                                                                                                                              |
+| `IPTC:Country-PrimaryLocationName` | mirror of `XMP-photoshop:Country`                                                 |                                                                                                                              |
 | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection of `XMP-iptcCore:CountryCode`                  | Alpha-2 value right-padded for two-character ASCII codes, e.g. `GB `. This is not alpha-3 conversion.                        |
 
 Rationale for IPTC IIM mirroring: it's the convention enforced by most apps
@@ -230,9 +230,9 @@ perspective.
 > The following draft tags will be proposed per image, where data is available:
 >
 > - `XMP-iptcCore:Location` and `IPTC:Sub-location`
-> - `XMP-fileshop:City` and `IPTC:City`
-> - `XMP-fileshop:State` and `IPTC:Province-State`
-> - `XMP-fileshop:Country` and `IPTC:Country-PrimaryLocationName`
+> - `XMP-photoshop:City` and `IPTC:City`
+> - `XMP-photoshop:State` and `IPTC:Province-State`
+> - `XMP-photoshop:Country` and `IPTC:Country-PrimaryLocationName`
 > - `XMP-iptcCore:CountryCode` and fixed-width `IPTC:Country-PrimaryLocationCode`
 >
 > **Existing GPS values will not be modified.** No file is changed on disk

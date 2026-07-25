@@ -37,9 +37,9 @@ known_ids! {
     xmp_description => ("XMP::dc", "description"), xmp_title => ("XMP::dc", "title"),
     xmp_subject => ("XMP::dc", "subject"), xmp_creator => ("XMP::dc", "creator"),
     xmp_rights => ("XMP::dc", "rights"), xmp_hierarchical_subject => ("XMP::Lightroom", "hierarchicalSubject"),
-    xmp_headline => ("XMP::fileshop", "Headline"), xmp_city => ("XMP::fileshop", "City"),
-    xmp_state => ("XMP::fileshop", "State"), xmp_country => ("XMP::fileshop", "Country"),
-    xmp_date_created => ("XMP::fileshop", "DateCreated"), xmp_location => ("XMP::iptcCore", "Location"),
+    xmp_headline => ("XMP::photoshop", "Headline"), xmp_city => ("XMP::photoshop", "City"),
+    xmp_state => ("XMP::photoshop", "State"), xmp_country => ("XMP::photoshop", "Country"),
+    xmp_date_created => ("XMP::photoshop", "DateCreated"), xmp_location => ("XMP::iptcCore", "Location"),
     xmp_country_code => ("XMP::iptcCore", "CountryCode"), xmp_create_date => ("XMP::xmp", "CreateDate"),
     xmp_rating => ("XMP::xmp", "Rating"), xmp_region_info => ("MWG::Regions", "Regions"),
     mlib_ai_description => ("UserDefined::mlib", "AIDescription"),
@@ -64,11 +64,11 @@ pub fn test_id(label: &str) -> SchemaDefinitionId {
         "XMP-dc:Creator" => xmp_creator(),
         "XMP-dc:Rights" => xmp_rights(),
         "XMP-lr:HierarchicalSubject" => xmp_hierarchical_subject(),
-        "XMP-fileshop:Headline" => xmp_headline(),
-        "XMP-fileshop:City" => xmp_city(),
-        "XMP-fileshop:State" => xmp_state(),
-        "XMP-fileshop:Country" => xmp_country(),
-        "XMP-fileshop:DateCreated" => xmp_date_created(),
+        "XMP-photoshop:Headline" => xmp_headline(),
+        "XMP-photoshop:City" => xmp_city(),
+        "XMP-photoshop:State" => xmp_state(),
+        "XMP-photoshop:Country" => xmp_country(),
+        "XMP-photoshop:DateCreated" => xmp_date_created(),
         "XMP-iptcCore:Location" => xmp_location(),
         "XMP-iptcCore:CountryCode" => xmp_country_code(),
         "XMP-xmp:CreateDate" => xmp_create_date(),
@@ -96,5 +96,23 @@ pub fn test_id(label: &str) -> SchemaDefinitionId {
         "XMP-mlib:AIPromptVersion" => mlib_ai_prompt_version(),
         "XMP-mlib:AIGeneratedAt" => mlib_ai_generated_at(),
         other => panic!("no exact test schema identity registered for {other}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_canonical_xmp_photoshop_namespace() {
+        for id in [
+            xmp_headline(),
+            xmp_city(),
+            xmp_state(),
+            xmp_country(),
+            xmp_date_created(),
+        ] {
+            assert_eq!(id.table, "XMP::photoshop");
+        }
     }
 }

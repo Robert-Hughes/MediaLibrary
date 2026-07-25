@@ -159,13 +159,14 @@ function AwaitingConfirmPanel({
             <code>IPTC:Sub-location</code>
           </li>
           <li>
-            <code>XMP-fileshop:City</code> and <code>IPTC:City</code>
+            <code>XMP-photoshop:City</code> and <code>IPTC:City</code>
           </li>
           <li>
-            <code>XMP-fileshop:State</code> and <code>IPTC:Province-State</code>
+            <code>XMP-photoshop:State</code> and{" "}
+            <code>IPTC:Province-State</code>
           </li>
           <li>
-            <code>XMP-fileshop:Country</code> and{" "}
+            <code>XMP-photoshop:Country</code> and{" "}
             <code>IPTC:Country-PrimaryLocationName</code>
           </li>
           <li>

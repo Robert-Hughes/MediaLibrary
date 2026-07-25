@@ -169,7 +169,7 @@ export function buildNormaliseItemForFile(
 
   if (groupSet.has("headline")) {
     groupInputs.headline = {
-      fileshopHeadline: scalar(effective, ID.xmpHeadline) ?? null,
+      photoshopHeadline: scalar(effective, ID.xmpHeadline) ?? null,
       iptcHeadline: scalar(effective, ID.iptcHeadline) ?? null,
     };
   }
@@ -222,7 +222,7 @@ export function buildNormaliseItemForFile(
       dateTimeOriginal: scalarValue(effective, ID.dateTimeOriginal) ?? null,
       offsetTimeOriginal: scalarValue(effective, ID.offsetTimeOriginal) ?? null,
       subSecTimeOriginal: scalarValue(effective, ID.subSecTimeOriginal) ?? null,
-      fileshopDateCreated: scalarValue(effective, ID.xmpDateCreated) ?? null,
+      photoshopDateCreated: scalarValue(effective, ID.xmpDateCreated) ?? null,
       iptcDateCreated: scalarValue(effective, ID.iptcDateCreated) ?? null,
       iptcTimeCreated: scalarValue(effective, ID.iptcTimeCreated) ?? null,
       createDate: scalarValue(effective, ID.createDate) ?? null,

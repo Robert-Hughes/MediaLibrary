@@ -1879,12 +1879,12 @@ mod tests {
 
     #[test]
     fn prewrite_rebinds_unique_stale_copy_and_clears_original_draft() {
-        let info = schema("City", "XMP-fileshop", "City", true, TagKind::Text);
+        let info = schema("City", "XMP-photoshop", "City", true, TagKind::Text);
         let original = occurrence(
             occurrence_id("JPEG-APP1-XMP", "City", 1),
             MetadataValue::Text("South Yorkshire".into()),
             Some(info.clone()),
-            Some("XMP-fileshop"),
+            Some("XMP-photoshop"),
             "City",
         );
         let entry = existing_entry(
@@ -1898,7 +1898,7 @@ mod tests {
             occurrence_id("JPEG-APP1-XMP", "City", 0),
             MetadataValue::Text("Doncaster".into()),
             Some(info),
-            Some("XMP-fileshop"),
+            Some("XMP-photoshop"),
             "City",
         );
         let client = FakeClient::new(vec![
@@ -1919,7 +1919,7 @@ mod tests {
         assert_eq!(client.writes.borrow().len(), 1);
         assert!(client.writes.borrow()[0]
             .1
-            .contains("-1XMP-fileshop:7ID-City:City=Doncaster"));
+            .contains("-1XMP-photoshop:7ID-City:City=Doncaster"));
         let TargetApplyPostWriteState::Unique { occurrence } = &outcome.audit_records[0].post_write
         else {
             panic!("rebound write must retain the current occurrence")

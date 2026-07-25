@@ -183,10 +183,10 @@ draft where current value differs from the projection).
 
 ### Group D — Headline
 
-| Role       | Field                   | Datatype                   |
-| ---------- | ----------------------- | -------------------------- |
-| Primary    | `XMP-fileshop:Headline` | string                     |
-| Derivative | `IPTC:Headline`         | string, 256-char IIM limit |
+| Role       | Field                    | Datatype                   |
+| ---------- | ------------------------ | -------------------------- |
+| Primary    | `XMP-photoshop:Headline` | string                     |
+| Derivative | `IPTC:Headline`          | string, 256-char IIM limit |
 
 **Canonical form.** Single-sentence headline, ≤25 words.
 
@@ -244,11 +244,11 @@ No AI.
 | ---------- | ---------------------------------- | -------------------------------------- |
 | Primary    | `XMP-iptcCore:Location`            | string                                 |
 | Derivative | `IPTC:Sub-location`                | string                                 |
-| Primary    | `XMP-fileshop:City`                | string                                 |
+| Primary    | `XMP-photoshop:City`               | string                                 |
 | Derivative | `IPTC:City`                        | string                                 |
-| Primary    | `XMP-fileshop:State`               | string                                 |
+| Primary    | `XMP-photoshop:State`              | string                                 |
 | Derivative | `IPTC:Province-State`              | string                                 |
-| Primary    | `XMP-fileshop:Country`             | string                                 |
+| Primary    | `XMP-photoshop:Country`            | string                                 |
 | Derivative | `IPTC:Country-PrimaryLocationName` | string                                 |
 | Primary    | `XMP-iptcCore:CountryCode`         | string (ISO 3166-1 alpha-2, uppercase) |
 | Derivative | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection     |
@@ -287,7 +287,7 @@ populate location fields from GPS, run the Reverse Geocode feature first.
 
 | Sub-group         | Primary                          | Mirrors                                                                       | Semantics                                                                |
 | ----------------- | -------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| H1 Shutter time   | `ExifIFD:DateTimeOriginal` (DTO) | `XMP-fileshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`           | Moment shutter fired                                                     |
+| H1 Shutter time   | `ExifIFD:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`          | Moment shutter fired                                                     |
 | H2 Digitised time | `ExifIFD:CreateDate`             | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
 | H3 Modify time    | (skipped)                        | —                                                                             | Auto-updated by exiftool on every write; do not normalise                |
 

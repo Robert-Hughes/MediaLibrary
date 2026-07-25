@@ -21,7 +21,7 @@ import {
 
 const ID: SchemaDefinitionId = { table: "XMP::dc", tag_id: "title" };
 const OTHER_ID: SchemaDefinitionId = {
-  table: "XMP::fileshop",
+  table: "XMP::photoshop",
   tag_id: "City",
 };
 const text = (value: string): MetadataValue => ({ kind: "Text", value });

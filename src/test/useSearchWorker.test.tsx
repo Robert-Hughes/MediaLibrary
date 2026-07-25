@@ -112,10 +112,10 @@ function setup(initial: Partial<HookArgs> = {}) {
   return { fake, props, ...rendered };
 }
 
-const cityId = testId("XMP-fileshop:City");
+const cityId = testId("XMP-photoshop:City");
 const cityInfo: TagInfo = {
   id: cityId,
-  group: "XMP-fileshop",
+  group: "XMP-photoshop",
   name: "City",
   writable: true,
   kind: { kind: "Text" },
@@ -162,8 +162,8 @@ describe("useSearchWorker target-draft projection", () => {
     );
 
     for (const query of [
-      "XMP::fileshop",
-      "XMP-fileshop:City",
+      "XMP::photoshop",
+      "XMP-photoshop:City",
       "City where the image was made",
       "has:edits",
     ]) {

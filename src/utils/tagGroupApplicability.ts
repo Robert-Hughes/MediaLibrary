@@ -28,7 +28,7 @@ const IMAGE_GROUPS = new Set<string>([
   "SubIFD2",
   "MakerNotes",
   "IPTC",
-  "Fileshop",
+  "Photoshop",
   "JFIF",
   "Adobe",
   "AdobeCM",
@@ -226,7 +226,7 @@ function groupOf(tagKey: string): string {
 /** True when the group is in the always-allowed set (XMP-*, ICC-*, etc.). */
 function isUniversal(group: string): boolean {
   if (ALWAYS_ALLOWED.has(group)) return true;
-  // XMP namespaces all start with `XMP-` (XMP-dc, XMP-exif, XMP-fileshop, …).
+  // XMP namespaces all start with `XMP-` (XMP-dc, XMP-exif, XMP-photoshop, …).
   if (group.startsWith("XMP-")) return true;
   // ICC profile sub-groups.
   if (group.startsWith("ICC-") || group.startsWith("ICC_")) return true;

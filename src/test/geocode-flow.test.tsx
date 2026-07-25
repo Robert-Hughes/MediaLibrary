@@ -226,11 +226,11 @@ describe("Reverse-geocoding flow", () => {
             value: { kind: "Text", value: "Big Ben" },
             intent: "Set",
           },
-          "XMP-fileshop:City": {
+          "XMP-photoshop:City": {
             value: { kind: "Text", value: "London" },
             intent: "Set",
           },
-          "XMP-fileshop:State": { value: null, intent: "Delete" },
+          "XMP-photoshop:State": { value: null, intent: "Delete" },
         }),
       },
     ];
