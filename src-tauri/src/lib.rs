@@ -32,7 +32,7 @@ pub mod write_args;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static STARTUP_INSTANT: OnceLock<Instant> = OnceLock::new();
@@ -484,77 +484,69 @@ fn start_scan(
                 })
             })
             .collect();
-
         // ── Phase 3: thumbnail workers ────────────────────────────────────
-        // Batch thumbnails by time (emit every 500ms) to keep UI responsive
+        // All thumbnail producers send results through one channel. A single
+        // emitter batches both extracted image thumbnails and immediate
+        // audio/video placeholders before notifying the frontend.
+        let (thumbnail_result_tx, thumbnail_result_rx) = mpsc::channel::<ThumbnailResult>();
+        let thumbnail_emitter = {
+            let app = app_clone.clone();
+            std::thread::spawn(move || {
+                let mut batch = Vec::with_capacity(50);
+                let emit_interval = std::time::Duration::from_millis(500);
+
+                loop {
+                    match thumbnail_result_rx.recv_timeout(emit_interval) {
+                        Ok(result) => batch.push(result),
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            if !batch.is_empty() {
+                                let _ = app.emit(
+                                    "thumbnail_ready",
+                                    ThumbnailReadyPayload {
+                                        scan_id,
+                                        results: std::mem::take(&mut batch),
+                                    },
+                                );
+                            }
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            if !batch.is_empty() {
+                                let _ = app.emit(
+                                    "thumbnail_ready",
+                                    ThumbnailReadyPayload {
+                                        scan_id,
+                                        results: batch,
+                                    },
+                                );
+                            }
+                            break;
+                        }
+                    }
+                }
+            })
+        };
+
         let thumb_handles: Vec<_> = (0..thumbnail_workers)
             .map(|_| {
                 let queue = thumb_queue.clone();
-                let app = app_clone.clone();
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
+                let result_tx = thumbnail_result_tx.clone();
                 std::thread::spawn(move || {
-                    let mut batch = Vec::with_capacity(50);
-                    let mut last_emit = std::time::Instant::now();
-                    let emit_interval = std::time::Duration::from_millis(500);
-
-                    loop {
-                        match queue.pop_timeout(emit_interval) {
-                            crate::work_queue::PopResult::Items(rel_path) => {
-                                if cancelled.load(Ordering::Relaxed) {
-                                    break;
-                                }
-
-                                let abs =
-                                    root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                                let thumbnail = scanner::thumbnail_for(&abs);
-                                batch.push(ThumbnailResult {
-                                    relative_path: rel_path,
-                                    thumbnail,
-                                });
-
-                                // Emit batch if enough time has elapsed
-                                if last_emit.elapsed() >= emit_interval && !batch.is_empty() {
-                                    let _ = app.emit(
-                                        "thumbnail_ready",
-                                        ThumbnailReadyPayload {
-                                            scan_id,
-                                            results: std::mem::take(&mut batch),
-                                        },
-                                    );
-                                    last_emit = std::time::Instant::now();
-                                }
-                            }
-                            crate::work_queue::PopResult::Timeout => {
-                                if !batch.is_empty() {
-                                    let _ = app.emit(
-                                        "thumbnail_ready",
-                                        ThumbnailReadyPayload {
-                                            scan_id,
-                                            results: std::mem::take(&mut batch),
-                                        },
-                                    );
-                                    last_emit = std::time::Instant::now();
-                                }
-                            }
-                            crate::work_queue::PopResult::Done => {
-                                if !batch.is_empty() {
-                                    let _ = app.emit(
-                                        "thumbnail_ready",
-                                        ThumbnailReadyPayload {
-                                            scan_id,
-                                            results: std::mem::take(&mut batch),
-                                        },
-                                    );
-                                }
-                                break;
-                            }
+                    while let Some(rel_path) = queue.pop() {
+                        if cancelled.load(Ordering::Relaxed) {
+                            break;
                         }
+
+                        let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                        let _ = result_tx.send(ThumbnailResult {
+                            relative_path: rel_path,
+                            thumbnail: scanner::thumbnail_for(&abs),
+                        });
                     }
                 })
             })
             .collect();
-
         // ── Phase 1: streaming directory walk ─────────────────────────────
         // Run the directory walk in a separate thread so we can implement
         // timeout-based flushing even when the walk is slow.
@@ -566,7 +558,7 @@ fn start_scan(
         let image_metadata_queue_walk = image_metadata_queue.clone();
         let thumb_queue_walk = thumb_queue.clone();
 
-        let app_walk_thumbnail = app_clone.clone();
+        let thumbnail_result_tx_walk = thumbnail_result_tx.clone();
         let app_walk_err = app_clone.clone();
         let walk_handle = std::thread::spawn(move || {
             scanner::scan_folder(
@@ -579,18 +571,11 @@ fn start_scan(
                             thumb_queue_walk.push(file.relative_path.clone());
                         }
                         scanner::MediaKind::Audio | scanner::MediaKind::Video => {
-                            let thumbnail =
-                                scanner::placeholder_thumbnail(file.media_kind).map(str::to_owned);
-                            let _ = app_walk_thumbnail.emit(
-                                "thumbnail_ready",
-                                ThumbnailReadyPayload {
-                                    scan_id,
-                                    results: vec![ThumbnailResult {
-                                        relative_path: file.relative_path.clone(),
-                                        thumbnail,
-                                    }],
-                                },
-                            );
+                            let _ = thumbnail_result_tx_walk.send(ThumbnailResult {
+                                relative_path: file.relative_path.clone(),
+                                thumbnail: scanner::placeholder_thumbnail(file.media_kind)
+                                    .map(str::to_owned),
+                            });
                         }
                     }
                     file_queue_clone.lock().unwrap().push(file);
@@ -679,7 +664,8 @@ fn start_scan(
         for h in thumb_handles {
             let _ = h.join();
         }
-
+        drop(thumbnail_result_tx);
+        let _ = thumbnail_emitter.join();
         // Clear the queue slots — but only if a newer scan hasn't already
         // installed its own queues here.  Without this guard, a fast
         // folder-switch can null out the new scan's queues and break
