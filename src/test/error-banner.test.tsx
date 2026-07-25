@@ -33,7 +33,7 @@ describe("ErrorBanner top-layer presentation", () => {
       <>
         <ErrorBanner errors={[error]} onDismiss={dismiss} />
         <ModalDialog open onDismiss={vi.fn()} aria-label="Test dialog">
-          body
+          <span>body</span>
         </ModalDialog>
       </>,
     );
@@ -51,12 +51,12 @@ describe("ErrorBanner top-layer presentation", () => {
     const banner = <ErrorBanner errors={[error]} onDismiss={dismiss} />;
     const outer = (
       <ModalDialog open onDismiss={vi.fn()} aria-label="Outer dialog">
-        outer
+        <span>outer</span>
       </ModalDialog>
     );
     const inner = (
       <ModalDialog open onDismiss={vi.fn()} aria-label="Inner dialog">
-        inner
+        <span>inner</span>
       </ModalDialog>
     );
     const { rerender } = render(banner);

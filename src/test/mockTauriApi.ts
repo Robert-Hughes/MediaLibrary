@@ -106,6 +106,7 @@ export interface MockTauriApi {
     normalise_metadata_model: string;
     ai_cost_estimate_mode: "heuristic" | "exact";
     describe_concurrency: number;
+    normalise_concurrency: number;
     metadata_scan_concurrency: number;
     metadata_scan_batch_size: number;
     metadata_apply_batch_size: number;
@@ -317,6 +318,7 @@ export function createMockTauriApi(): MockTauriApi {
       normalise_metadata_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 12,
+      normalise_concurrency: 4,
       metadata_scan_concurrency: 4,
       metadata_scan_batch_size: 20,
       metadata_apply_batch_size: 32,

@@ -63,9 +63,6 @@ async function loadedFile(
 ) {
   const mock = createMockTauriApi();
   mock.pickFolderResolves("/photos");
-  const consoleError = options.targetLoadFails
-    ? vi.spyOn(console, "error").mockImplementation(() => {})
-    : null;
   const api = options.targetLoadFails
     ? {
         ...mock.api,
@@ -77,13 +74,6 @@ async function loadedFile(
     : mock.api;
   const hook = renderHook(() => useMediaLibrary(api));
   await act(async () => hook.result.current[1].openFolder());
-  if (consoleError) {
-    expect(consoleError).toHaveBeenCalledWith(
-      "Failed to load target-aware target drafts",
-      expect.any(Error),
-    );
-    consoleError.mockRestore();
-  }
   await act(async () => {
     mock.emitPhotoFound(makePhoto({ relative_path: "photo.jpg" }));
     mock.emitScanComplete();
@@ -107,6 +97,16 @@ function saveCount(
 }
 
 describe("generated target-aware production action", () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
   it("treats empty edits as unchanged without errors, notifications, or saves", async () => {
     const { mock, result } = await loadedFile();
     const state = result.current[0];

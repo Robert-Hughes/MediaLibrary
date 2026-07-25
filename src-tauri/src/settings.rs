@@ -57,6 +57,10 @@ pub fn default_describe_concurrency() -> u16 {
     12
 }
 
+pub fn default_normalise_concurrency() -> u16 {
+    4
+}
+
 pub fn default_metadata_scan_concurrency() -> u16 {
     available_parallelism_capped(4)
 }
@@ -110,6 +114,9 @@ pub struct Settings {
     /// Maximum number of image-description requests in flight.
     #[serde(default = "default_describe_concurrency")]
     pub describe_concurrency: u16,
+    /// Maximum number of metadata-normalisation AI requests in flight.
+    #[serde(default = "default_normalise_concurrency")]
+    pub normalise_concurrency: u16,
     /// Number of metadata scanner workers. Each worker may spawn ExifTool.
     #[serde(default = "default_metadata_scan_concurrency")]
     pub metadata_scan_concurrency: u16,
@@ -135,6 +142,7 @@ impl Default for Settings {
             normalise_metadata_model: default_normalise_model(),
             ai_cost_estimate_mode: default_ai_cost_estimate_mode(),
             describe_concurrency: default_describe_concurrency(),
+            normalise_concurrency: default_normalise_concurrency(),
             metadata_scan_concurrency: default_metadata_scan_concurrency(),
             metadata_scan_batch_size: default_metadata_scan_batch_size(),
             metadata_apply_batch_size: default_metadata_apply_batch_size(),
@@ -172,6 +180,7 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
         parsed.openai_model = default_model();
     }
     clamp_loaded_concurrency("describe_concurrency", &mut parsed.describe_concurrency);
+    clamp_loaded_concurrency("normalise_concurrency", &mut parsed.normalise_concurrency);
     clamp_loaded_concurrency(
         "metadata_scan_concurrency",
         &mut parsed.metadata_scan_concurrency,
@@ -225,6 +234,7 @@ fn clamp_loaded_batch_size(name: &str, value: &mut u16) {
 fn validate_settings(settings: &Settings) -> Result<(), String> {
     for (name, value) in [
         ("describe_concurrency", settings.describe_concurrency),
+        ("normalise_concurrency", settings.normalise_concurrency),
         (
             "metadata_scan_concurrency",
             settings.metadata_scan_concurrency,

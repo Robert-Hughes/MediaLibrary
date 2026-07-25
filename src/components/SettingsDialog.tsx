@@ -344,6 +344,44 @@ export function SettingsDialog({ onClose }: Props) {
                     marginBottom: 4,
                   }}
                 >
+                  Metadata normalise concurrency
+                </label>
+                <select
+                  data-testid="settings-normalise-concurrency-select"
+                  value={settings.normalise_concurrency}
+                  onChange={(e) =>
+                    persist({
+                      ...settings,
+                      normalise_concurrency: Number(e.target.value),
+                    })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  {CONCURRENCY_OPTIONS.map((value) => (
+                    <option key={value} value={value}>
+                      {value === 4 ? `${value} (recommended)` : value}
+                    </option>
+                  ))}
+                </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Maximum OpenAI metadata-normalisation requests in flight.
+                  Applies to the next Normalize Metadata run.
+                </div>
+
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    marginTop: 12,
+                    marginBottom: 4,
+                  }}
+                >
                   Metadata scanner concurrency
                 </label>
                 <select

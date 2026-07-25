@@ -1590,6 +1590,7 @@ describe("useMediaLibrary", () => {
   });
 
   it("enforces the complete direct NewProperty mutation boundary", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1867,13 +1868,20 @@ describe("useMediaLibrary", () => {
       );
     });
     const collisionSaveCount = saveCount();
-    await act(async () => {
-      await result.current[1].setNewPropertyDraft(
-        "pending-collision.jpg",
-        collisionTarget,
-        edit,
-      );
-    });
+    await expectConsoleErrorMessages(
+      [
+        "[application-error:metadata-target-new-property-selector-collision] Another pending draft already uses the intended complete selector. No new-property draft was staged. [object Object]",
+      ],
+      async () => {
+        await act(async () => {
+          await result.current[1].setNewPropertyDraft(
+            "pending-collision.jpg",
+            collisionTarget,
+            edit,
+          );
+        });
+      },
+    );
     expect(saveCount()).toBe(collisionSaveCount);
     expect(lastErrorType()).toBe(
       "metadata-target-new-property-selector-collision",
@@ -1996,29 +2004,46 @@ describe("useMediaLibrary", () => {
     act(() =>
       state.targetVerifyOutcomesStore.replaceFile("move.jpg", [verification]),
     );
-    await act(async () => {
-      moved = await result.current[1].replaceNewPropertyDraftTarget(
-        "move.jpg",
-        replacement,
-        {
-          ...structuredClone(replacement),
-          write_target: { ...replacement.write_target, group1: "XMP-blocked" },
-        },
-        edit,
-      );
-    });
+    await expectConsoleErrorMessages(
+      [
+        "[application-error:metadata-target-new-property-move-verification-pending] Resolve the verification outcome for this destination before editing it. Nothing was moved. [object Object]",
+      ],
+      async () => {
+        await act(async () => {
+          moved = await result.current[1].replaceNewPropertyDraftTarget(
+            "move.jpg",
+            replacement,
+            {
+              ...structuredClone(replacement),
+              write_target: {
+                ...replacement.write_target,
+                group1: "XMP-blocked",
+              },
+            },
+            edit,
+          );
+        });
+      },
+    );
     expect(moved).toBe(false);
     let valueEdited = true;
-    await act(async () => {
-      valueEdited = await result.current[1].setNewPropertyDraft(
-        "move.jpg",
-        replacement,
-        {
-          intent: "Set",
-          value: { kind: "Text", value: "blocked value" },
-        },
-      );
-    });
+    await expectConsoleErrorMessages(
+      [
+        "[application-error:metadata-target-new-property-edit-verification-pending] Resolve the verification outcome for this destination before editing it. Nothing was saved. [object Object]",
+      ],
+      async () => {
+        await act(async () => {
+          valueEdited = await result.current[1].setNewPropertyDraft(
+            "move.jpg",
+            replacement,
+            {
+              intent: "Set",
+              value: { kind: "Text", value: "blocked value" },
+            },
+          );
+        });
+      },
+    );
     expect(valueEdited).toBe(false);
     expect(
       Object.values(
@@ -2092,6 +2117,9 @@ describe("useMediaLibrary", () => {
   });
 
   it("leaves the original New Property draft untouched when a move is stale or collides", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/photos");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -2159,6 +2187,8 @@ describe("useMediaLibrary", () => {
     });
     expect(moved).toBe(false);
     expect(store.getMetadataFile("move-failure.jpg")).toBeDefined();
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("abandons a deferred new-property lookup after switching folders", async () => {
@@ -2399,6 +2429,9 @@ describe("useMediaLibrary", () => {
   });
 
   it("retains same-lifecycle eligibility rechecks after a deferred lookup", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const mock = createMockTauriApi();
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     const edit = {
@@ -2551,6 +2584,8 @@ describe("useMediaLibrary", () => {
       finalState.applicationErrors[finalState.applicationErrors.length - 1]
         ?.error_type,
     ).toBe("metadata-target-unavailable");
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("target verification actions use the exact replacement slot and target-aware persistence only", async () => {
@@ -2866,6 +2901,9 @@ describe("useMediaLibrary", () => {
       },
     );
     await act(async () => mock.emitScanComplete());
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
 
     let state = result.current[0];
     if (state.kind !== "loaded") return;
@@ -3027,6 +3065,8 @@ describe("useMediaLibrary", () => {
         ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       ),
     ).toHaveLength(0);
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
   it("reports strict target-aware load failure, preserves it, then switches safely", async () => {
     const mock = createMockTauriApi();
