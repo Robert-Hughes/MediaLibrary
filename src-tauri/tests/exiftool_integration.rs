@@ -87,17 +87,17 @@ fn rel_of(folder: &Path, abs: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn read_one(folder: &Path, abs: &Path) -> scanner::ImageMetadata {
+fn read_one(folder: &Path, abs: &Path) -> scanner::FileMetadata {
     let rel = rel_of(folder, abs);
-    let outcome = scanner::read_image_metadata_batch(&[rel], &[abs.to_path_buf()])
-        .expect("read_image_metadata_batch ok");
+    let outcome = scanner::read_file_metadata_batch(&[rel], &[abs.to_path_buf()])
+        .expect("read_file_metadata_batch ok");
     if !outcome.failures.is_empty() {
         panic!("read_one failed: {}", outcome.failures[0].error_message);
     }
     outcome.results.into_iter().next().expect("one result")
 }
 
-fn schema_value(image: &scanner::ImageMetadata, id: &SchemaDefinitionId) -> Option<MetadataValue> {
+fn schema_value(image: &scanner::FileMetadata, id: &SchemaDefinitionId) -> Option<MetadataValue> {
     let values = image
         .occurrences
         .for_schema(id)
@@ -241,7 +241,7 @@ fn scanner_two_pass_returns_authoritative_occurrences() {
         !metadata.occurrences.is_empty(),
         "authoritative occurrences should be non-empty"
     );
-    let wire = serde_json::to_value(&metadata).expect("serialise ImageMetadata");
+    let wire = serde_json::to_value(&metadata).expect("serialise FileMetadata");
     assert_eq!(wire.as_object().unwrap().len(), 2);
     assert!(wire.get("metadata").is_none());
 }
@@ -731,7 +731,7 @@ fn unicode_filename_does_not_crash_scanner() {
     };
     let (dir, dst) = copy_to_temp(&src);
     let rel = rel_of(dir.path(), &dst);
-    let result = scanner::read_image_metadata_batch(&[rel], &[dst]);
+    let result = scanner::read_file_metadata_batch(&[rel], &[dst]);
     match result {
         Ok(outcome) => {
             // If exiftool found the file, sanity-check metadata; otherwise
@@ -771,7 +771,7 @@ fn malformed_truncated_does_not_kill_batch() {
     let rel_paths = vec!["good.jpg".to_string(), "bad.jpg".to_string()];
     let abs_paths = vec![good_dst.clone(), bad_dst.clone()];
 
-    let outcome = scanner::read_image_metadata_batch(&rel_paths, &abs_paths)
+    let outcome = scanner::read_file_metadata_batch(&rel_paths, &abs_paths)
         .expect("batch read should not hard-fail");
     assert_eq!(outcome.results.len() + outcome.failures.len(), 2);
 
@@ -863,7 +863,7 @@ fn semantic_apply_rating_fractional_coerces_or_rejects_cleanly() {
     // clean verification-failure message naming the tag.  We just assert
     // it didn't hard-fail.
     assert!(
-        outcome.fresh_image_metadata.is_some(),
+        outcome.fresh_file_metadata.is_some(),
         "expected authoritative metadata even on coerced write; error: {:?}",
         outcome.error
     );

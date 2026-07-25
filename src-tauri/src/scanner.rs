@@ -3,7 +3,7 @@
 /// Three concerns are kept separate:
 ///  - `scan_folder` — fast directory walk, path + OS metadata only. Calls a
 ///    callback per file so callers can stream results.
-///  - `read_image_metadata` — reads metadata for a single file using ExifTool.
+///  - `read_file_metadata` — reads metadata for a single file using ExifTool.
 ///  - `thumbnail_for` — generates a thumbnail.
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -95,7 +95,7 @@ pub struct WalkErrorInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct ImageMetadata {
+pub struct FileMetadata {
     pub relative_path: String,
 
     /// Authoritative runtime metadata occurrences.
@@ -232,7 +232,7 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 ///  -j                    JSON output
 ///
 /// Runs **two required passes** per batch and merges them into one canonical
-/// `ImageMetadata` per file:
+/// `FileMetadata` per file:
 ///
 /// - Pass A: no `-n`. Pretty values — `Orientation = "Rotate 90 CW"`,
 ///   `ExposureTime = "1/250"`. These JSON values supply display/pretty parser
@@ -264,7 +264,7 @@ fn read_os_metadata(path: &Path) -> (Option<i64>, Option<i64>) {
 /// Returns Ok(MetadataBatchReadOutcome) when ExifTool executes successfully.
 /// Returns Err(error_message) only for genuine batch-wide process/parsing
 /// failures.
-pub fn read_image_metadata_batch(
+pub fn read_file_metadata_batch(
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
 ) -> Result<MetadataBatchReadOutcome, String> {
@@ -412,7 +412,7 @@ pub struct MetadataReadFailure {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct MetadataBatchReadOutcome {
-    pub results: Vec<ImageMetadata>,
+    pub results: Vec<FileMetadata>,
     pub failures: Vec<MetadataReadFailure>,
 }
 
@@ -853,7 +853,7 @@ fn assemble_batch_outcome(
                 }
             };
 
-            results.push(ImageMetadata {
+            results.push(FileMetadata {
                 relative_path: rel_path.clone(),
                 occurrences: metadata_occurrences_from_canonical(&occurrences),
             });
@@ -1634,13 +1634,13 @@ fn is_exiftool_binary_placeholder(val: &serde_json::Value) -> bool {
 }
 
 /// Test helper: takes JSON for one pass, the input paths, and returns canonical
-/// `ImageMetadata`. The provided JSON is treated as display/pretty hints.
+/// `FileMetadata`. The provided JSON is treated as display/pretty hints.
 #[cfg(test)]
 fn parse_exiftool_batch_json(
     json: &str,
     rel_paths: &[String],
     abs_paths: &[std::path::PathBuf],
-) -> Vec<ImageMetadata> {
+) -> Vec<FileMetadata> {
     let registry = crate::tag_schema::get_registry().ok();
     let mut map_by_source = try_parse_exiftool_pass_json_raw_with_registry(json, registry)
         .ok()
@@ -1667,7 +1667,7 @@ fn parse_exiftool_batch_json(
             None,
         )
         .unwrap_or_default();
-        results.push(ImageMetadata {
+        results.push(FileMetadata {
             relative_path: rel_path.clone(),
             occurrences: metadata_occurrences_from_canonical(&canonical),
         });
@@ -3289,7 +3289,7 @@ mod tests {
 
         let relative_paths = ["public-occurrences.jpg".to_string()];
         let absolute_paths = [copy.clone()];
-        let outcome = read_image_metadata_batch(&relative_paths, &absolute_paths).unwrap();
+        let outcome = read_file_metadata_batch(&relative_paths, &absolute_paths).unwrap();
         assert!(outcome.failures.is_empty(), "{:#?}", outcome.failures);
         assert_eq!(outcome.results.len(), 1);
         let result = &outcome.results[0];
@@ -3375,7 +3375,7 @@ mod tests {
             String::from_utf8_lossy(&conflict_output.stderr)
         );
 
-        let conflicting = read_image_metadata_batch(&relative_paths, &absolute_paths).unwrap();
+        let conflicting = read_file_metadata_batch(&relative_paths, &absolute_paths).unwrap();
         assert!(
             conflicting.failures.is_empty(),
             "{:#?}",
@@ -3652,7 +3652,7 @@ mod tests {
     fn metadata_returns_empty_on_error() {
         let dir = tempdir().unwrap();
         let path = dir.path().join("missing.jpg");
-        let results = read_image_metadata_batch(&["missing.jpg".to_string()], &[path]);
+        let results = read_file_metadata_batch(&["missing.jpg".to_string()], &[path]);
         // Should return an error for missing file
         let err = results.expect_err("missing file should fail metadata batch");
         assert!(
@@ -5581,11 +5581,11 @@ mod tests {
     fn test_worker_failure_grouping() {
         let outcome = MetadataBatchReadOutcome {
             results: vec![
-                ImageMetadata {
+                FileMetadata {
                     relative_path: "good1.jpg".to_string(),
                     occurrences: MetadataOccurrences::default(),
                 },
-                ImageMetadata {
+                FileMetadata {
                     relative_path: "good2.jpg".to_string(),
                     occurrences: MetadataOccurrences::default(),
                 },

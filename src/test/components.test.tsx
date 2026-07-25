@@ -9,7 +9,7 @@ import { WelcomeScreen } from "../components/WelcomeScreen";
 import { MenuBar } from "../components/MenuBar";
 import { FileList } from "../components/FileList";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo } from "../types";
 import {
   imgCol,
@@ -30,9 +30,9 @@ function makeStores(
   const thumbs = new ThumbnailStore();
   thumbs.reset(files.map((p) => p.relative_path));
   for (const [k, v] of Object.entries(thumbOverrides)) thumbs.set(k, v);
-  const imageMetadata = new ImageMetadataOccurrencesStore();
-  files.forEach((p) => imageMetadata.add(p.relative_path));
-  return { thumbs, imageMetadata };
+  const fileMetadata = new FileMetadataOccurrencesStore();
+  files.forEach((p) => fileMetadata.add(p.relative_path));
+  return { thumbs, fileMetadata };
 }
 
 function renderList(
@@ -47,16 +47,13 @@ function renderList(
     onSelectColumns?: () => void;
   } = {},
 ) {
-  const { thumbs, imageMetadata } = makeStores(
-    files,
-    opts.thumbOverrides ?? {},
-  );
+  const { thumbs, fileMetadata } = makeStores(files, opts.thumbOverrides ?? {});
   render(
     <FileList
       targetDraftEdits={{}}
       files={files}
       thumbnails={thumbs}
-      imageMetadataOccurrences={imageMetadata}
+      fileMetadataOccurrences={fileMetadata}
       visibleColumns={
         opts.visibleColumns ?? [
           { key: "date_modified", kind: "os" },
@@ -74,7 +71,7 @@ function renderList(
       onSelectColumns={opts.onSelectColumns ?? (() => {})}
     />,
   );
-  return { thumbs, imageMetadata };
+  return { thumbs, fileMetadata };
 }
 
 const noop = () => {};
@@ -181,13 +178,13 @@ describe("FileList", () => {
     _setTagInfoCacheEntry("IFD0:Model", null);
   });
   it("shows empty message when no files", () => {
-    const { thumbs, imageMetadata } = makeStores([]);
+    const { thumbs, fileMetadata } = makeStores([]);
     render(
       <FileList
         targetDraftEdits={{}}
         files={[]}
         thumbnails={thumbs}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -226,9 +223,9 @@ describe("FileList", () => {
 
   it("shows metadata value after it arrives", () => {
     const files = [makeFile({ relative_path: "a.jpg" })];
-    const { thumbs, imageMetadata } = makeStores(files);
+    const { thumbs, fileMetadata } = makeStores(files);
     act(() => {
-      imageMetadata.set(
+      fileMetadata.set(
         "a.jpg",
         occurrencesFromMetadataCollection(
           mockMetadata({ "IFD0:Model": "Canon EOS R5" }),
@@ -240,7 +237,7 @@ describe("FileList", () => {
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbs}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },

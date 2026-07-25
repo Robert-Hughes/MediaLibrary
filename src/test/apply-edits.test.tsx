@@ -66,7 +66,7 @@ function fileResult(
     applied: true,
     error: null,
     warning: null,
-    fresh_image_metadata: null,
+    fresh_file_metadata: null,
     target_outcomes: [],
     persisted_draft_entries: [],
     ...overrides,
@@ -220,7 +220,7 @@ describe("target-aware progress and results", () => {
     mockApiInstance.targetApplyProgressResultsByPath["test.jpg"] = fileResult(
       "test.jpg",
       {
-        fresh_image_metadata: {
+        fresh_file_metadata: {
           relative_path: "test.jpg",
           occurrences: [],
         },

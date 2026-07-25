@@ -150,7 +150,7 @@ async function openFolderAndSelectFile(
     mockApiInstance.emitScanComplete();
   });
   await act(async () => {
-    mockApiInstance.emitImageMetadataReady(
+    mockApiInstance.emitFileMetadataReady(
       rel,
       metadata,
       undefined,

@@ -390,7 +390,7 @@ describe("App Select Columns metadata counts", () => {
     });
 
     act(() => {
-      emit("image_metadata_ready", {
+      emit("file_metadata_ready", {
         scan_id: scanId,
         results: [
           {
@@ -512,7 +512,7 @@ describe("App Select Columns metadata counts", () => {
       { timeout: 10000 },
     );
 
-    // 2. Open Select Columns before emitting any `image_metadata_ready` event.
+    // 2. Open Select Columns before emitting any `file_metadata_ready` event.
     await act(async () => {
       fireEvent.click(screen.getByTestId("menu-bar-columns-btn"));
     });
@@ -526,9 +526,9 @@ describe("App Select Columns metadata counts", () => {
     );
     expect(screen.queryByText("XMP-dc:Title")).not.toBeInTheDocument();
 
-    // 4. Emit an `image_metadata_ready` event for one file containing `XMP-dc:Title`.
+    // 4. Emit an `file_metadata_ready` event for one file containing `XMP-dc:Title`.
     act(() => {
-      emit("image_metadata_ready", {
+      emit("file_metadata_ready", {
         scan_id: scanId,
         results: [
           {
@@ -550,9 +550,9 @@ describe("App Select Columns metadata counts", () => {
       { timeout: 10000 },
     );
 
-    // 7. Emit another `image_metadata_ready` event or batch for the second file also containing `XMP-dc:Title`.
+    // 7. Emit another `file_metadata_ready` event or batch for the second file also containing `XMP-dc:Title`.
     act(() => {
-      emit("image_metadata_ready", {
+      emit("file_metadata_ready", {
         scan_id: scanId,
         results: [
           {
@@ -563,7 +563,7 @@ describe("App Select Columns metadata counts", () => {
       });
     });
 
-    // Wait for the 200ms debounce of image_metadata_ready to fire inside act
+    // Wait for the 200ms debounce of file_metadata_ready to fire inside act
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 250));
     });
@@ -739,7 +739,7 @@ describe("App occurrence wiring regression", () => {
       },
     ];
     act(() => {
-      emit("image_metadata_ready", {
+      emit("file_metadata_ready", {
         scan_id: scanId,
         results: [
           {

@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   MetadataValue,
   FileInfo,
   SchemaDefinitionId,
@@ -40,7 +40,7 @@ function activeImageSortIds(sortConfig: SortConfig): SchemaDefinitionId[] {
 function precomputeImageSortValues(
   files: readonly FileInfo[],
   sortConfig: SortConfig,
-  occurrencesStore: ImageMetadataOccurrencesStore,
+  occurrencesStore: FileMetadataOccurrencesStore,
 ): PrecomputedImageSortValues {
   const ids = activeImageSortIds(sortConfig);
   const values: PrecomputedImageSortValues = new Map();
@@ -107,7 +107,7 @@ function compareByKey(
 export function sortFiles(
   files: FileInfo[],
   sortConfig: SortConfig,
-  occurrencesStore: ImageMetadataOccurrencesStore,
+  occurrencesStore: FileMetadataOccurrencesStore,
 ): FileInfo[] {
   if (!sortConfig.primary) return files;
   const imageValues = precomputeImageSortValues(

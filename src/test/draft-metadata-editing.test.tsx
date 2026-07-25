@@ -139,7 +139,7 @@ describe("Draft Metadata Editing Integration", () => {
     // We also need some metadata so we have a column to edit
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file.relative_path,
         metadata,
         undefined,
@@ -257,7 +257,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file.relative_path,
         metadata,
         undefined,
@@ -341,13 +341,13 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file1.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
       );
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file2.relative_path,
         metadata,
         undefined,
@@ -435,7 +435,7 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file.relative_path,
         metadata,
         undefined,
@@ -514,13 +514,13 @@ describe("Draft Metadata Editing Integration", () => {
 
     const metadata = { "IFD0:Make": { kind: "Text", value: "Canon" } } as const;
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file1.relative_path,
         metadata,
         undefined,
         [makeOccurrence()],
       );
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file2.relative_path,
         metadata,
         undefined,
@@ -638,7 +638,7 @@ describe("Draft Metadata Editing Integration", () => {
     expect(row.querySelector(".draft-new")).toBeNull();
 
     act(() => {
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file.relative_path,
         { "XMP-dc:Description": { kind: "Text", value: "Committed" } },
         undefined,
@@ -734,7 +734,7 @@ describe("Draft Metadata Editing Integration", () => {
     const file = makeFile({ relative_path: "test.jpg" });
     act(() => {
       mockApiInstance.emitFileFound(file);
-      mockApiInstance.emitImageMetadataReady(
+      mockApiInstance.emitFileMetadataReady(
         file.relative_path,
         {
           "XMP-dc:Description": {

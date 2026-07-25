@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { ImageMetadataOccurrencesStore, ThumbnailStore } from "../types";
+import { FileMetadataOccurrencesStore, ThumbnailStore } from "../types";
 import { occurrenceFromSchemaValue } from "./occurrenceFixtures";
 
 const occurrence = occurrenceFromSchemaValue(
@@ -26,9 +26,9 @@ describe("ThumbnailStore subscriber lifecycle", () => {
   });
 });
 
-describe("ImageMetadataOccurrencesStore subscriptions", () => {
+describe("FileMetadataOccurrencesStore subscriptions", () => {
   it("preserves per-path subscriptions and cleans the final subscriber set", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     store.add("a.jpg");
     const callback = vi.fn();
     const unsubscribe = store.subscribe("a.jpg", callback);
@@ -44,7 +44,7 @@ describe("ImageMetadataOccurrencesStore subscriptions", () => {
   });
 
   it("notifies global subscribers for add, set, invalidate and each clear path", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     const callback = vi.fn();
     store.subscribeAll(callback);
 
@@ -69,7 +69,7 @@ describe("ImageMetadataOccurrencesStore subscriptions", () => {
   });
 
   it("stops global notifications after unsubscribe", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     const callback = vi.fn();
     const unsubscribe = store.subscribeAll(callback);
     unsubscribe();

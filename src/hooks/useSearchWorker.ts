@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {
-  ImageMetadataOccurrencesState,
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesState,
+  FileMetadataOccurrencesStore,
   FileInfo,
   SchemaDefinitionId,
   TagInfo,
@@ -24,7 +24,7 @@ import { frontendNow, logSlowFrontendOperation } from "../frontendPerformance";
 const INITIAL_REPLAY_RETRY_DELAYS_MS = [250, 1_000, 5_000] as const;
 
 export function toSearchOccurrencesState(
-  occurrences: ImageMetadataOccurrencesState,
+  occurrences: FileMetadataOccurrencesState,
 ): SearchOccurrencesState {
   if (occurrences === "loading") return "loading";
   return occurrences.map((occurrence) => ({
@@ -86,7 +86,7 @@ export interface SearchWorkerLike {
 
 export interface UseSearchWorkerArgs {
   files: FileInfo[];
-  imageMetadataOccurrencesStore: ImageMetadataOccurrencesStore;
+  fileMetadataOccurrencesStore: FileMetadataOccurrencesStore;
   targetDraftEditsStore: TargetDraftEditsStore;
   query: string;
   /** Default 150ms.  Tests pass 0 to bypass the debounce. */
@@ -164,7 +164,7 @@ export function useSearchWorker(
 ): UseSearchWorkerResult {
   const {
     files,
-    imageMetadataOccurrencesStore,
+    fileMetadataOccurrencesStore,
     targetDraftEditsStore,
     query,
     debounceMs = 150,
@@ -242,7 +242,7 @@ export function useSearchWorker(
     // resolves labels first, then sends entries and search-only labels atomically;
     // labels enrich the haystack but never become identity.
     const initialOccurrences = Array.from(
-      imageMetadataOccurrencesStore.entries(),
+      fileMetadataOccurrencesStore.entries(),
     ).map(([path, occurrences]) => ({
       path,
       occurrences: toSearchOccurrencesState(occurrences),
@@ -322,7 +322,7 @@ export function useSearchWorker(
     };
     replayInitialSnapshot();
 
-    const unsubOccurrences = imageMetadataOccurrencesStore.subscribeAll(
+    const unsubOccurrences = fileMetadataOccurrencesStore.subscribeAll(
       (path, occurrences) => {
         const revision = (occurrenceRevisionsRef.current.get(path) ?? 0) + 1;
         occurrenceRevisionsRef.current.set(path, revision);
@@ -389,7 +389,7 @@ export function useSearchWorker(
       unsubOccurrences();
       unsubDrafts();
     };
-  }, [imageMetadataOccurrencesStore, targetDraftEditsStore]);
+  }, [fileMetadataOccurrencesStore, targetDraftEditsStore]);
 
   // ── File list sync + re-submit ─────────────────────────────────────
   useEffect(() => {

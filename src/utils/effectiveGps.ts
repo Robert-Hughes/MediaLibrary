@@ -2,13 +2,13 @@ import type { TargetDraftCollection } from "../targetDraftEdits";
 import { GPS_IDS } from "../metadata/knownIds";
 import type {
   GeocodeRequestItem,
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
 } from "../types";
 import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
 import { resolveGps } from "./resolveGps";
 
 export interface EffectiveGpsInput {
-  occurrences: ImageMetadataOccurrencesState | undefined;
+  occurrences: FileMetadataOccurrencesState | undefined;
   targetDrafts: TargetDraftCollection | undefined;
 }
 

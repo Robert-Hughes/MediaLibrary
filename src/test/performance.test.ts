@@ -49,7 +49,7 @@ describe("Performance: Large folder handling", () => {
     for (let i = 0; i < state.files.length; i++) {
       const file = state.files[i];
       act(() => {
-        mock.emitImageMetadataReady(file.relative_path, {
+        mock.emitFileMetadataReady(file.relative_path, {
           "IFD0:Model": { kind: "Text", value: "Test Camera" },
           "ExifIFD:DateTimeOriginal": {
             kind: "Text",
@@ -70,10 +70,8 @@ describe("Performance: Large folder handling", () => {
 
     expect(state.metadataProgress.getRemaining()).toBe(0);
     // Spot-check that metadata is actually stored
-    expect(state.imageMetadataOccurrences.get("file-0.jpg")).not.toBe(
-      "loading",
-    );
-    expect(state.imageMetadataOccurrences.get("file-999.jpg")).not.toBe(
+    expect(state.fileMetadataOccurrences.get("file-0.jpg")).not.toBe("loading");
+    expect(state.fileMetadataOccurrences.get("file-999.jpg")).not.toBe(
       "loading",
     );
   });
@@ -147,7 +145,7 @@ describe("Performance: Large folder handling", () => {
     // Emit metadata for all files
     for (let i = 0; i < 100; i++) {
       act(() => {
-        mock.emitImageMetadataReady(`file-${i}.jpg`, {
+        mock.emitFileMetadataReady(`file-${i}.jpg`, {
           "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });
@@ -243,7 +241,7 @@ describe("Performance: Large folder handling", () => {
     // Load metadata for 25 files
     for (let i = 0; i < 25; i++) {
       act(() => {
-        mock.emitImageMetadataReady(`file-${i}.jpg`, {
+        mock.emitFileMetadataReady(`file-${i}.jpg`, {
           "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });
@@ -274,7 +272,7 @@ describe("Performance: Large folder handling", () => {
     // Load all remaining metadata
     for (let i = 25; i < 100; i++) {
       act(() => {
-        mock.emitImageMetadataReady(`file-${i}.jpg`, {
+        mock.emitFileMetadataReady(`file-${i}.jpg`, {
           "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });

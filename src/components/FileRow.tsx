@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo, useSyncExternalStore } from "react";
 import type {
-  ImageMetadataEntry,
-  ImageMetadataOccurrencesStore,
+  FileMetadataEntry,
+  FileMetadataOccurrencesStore,
   MetadataDraftEdit,
   FileInfo,
   ThumbnailStore,
@@ -53,7 +53,7 @@ function CellContent({
 
 function formatMetadataCellValue(
   id: SchemaDefinitionId,
-  v: ImageMetadataEntry | undefined,
+  v: FileMetadataEntry | undefined,
   tagInfo: Exclude<ReturnType<typeof useTagInfo>, "loading">,
 ): string {
   if (v === undefined) return EMPTY_CELL;
@@ -68,7 +68,7 @@ function MetadataCellContent({
   searchQuery,
 }: {
   id: SchemaDefinitionId;
-  value: ImageMetadataEntry | undefined;
+  value: FileMetadataEntry | undefined;
   draft?: MetadataDraftEdit;
   searchQuery: string;
 }) {
@@ -104,7 +104,7 @@ interface RowProps {
   index: number;
   selected: boolean;
   thumbnails: ThumbnailStore;
-  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
+  fileMetadataOccurrences: FileMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftCollection;
   visibleColumns: VisibleColumn[];
   onSelect: (
@@ -121,7 +121,7 @@ export const FileRow = memo(function FileRow({
   index,
   selected,
   thumbnails,
-  imageMetadataOccurrences,
+  fileMetadataOccurrences,
   targetDraftEdits,
   visibleColumns,
   onSelect,
@@ -142,12 +142,12 @@ export const FileRow = memo(function FileRow({
 
   const subscribeOccurrences = useCallback(
     (callback: () => void) =>
-      imageMetadataOccurrences.subscribe(file.relative_path, callback),
-    [imageMetadataOccurrences, file.relative_path],
+      fileMetadataOccurrences.subscribe(file.relative_path, callback),
+    [fileMetadataOccurrences, file.relative_path],
   );
   const getOccurrencesSnapshot = useCallback(
-    () => imageMetadataOccurrences.get(file.relative_path),
-    [imageMetadataOccurrences, file.relative_path],
+    () => fileMetadataOccurrences.get(file.relative_path),
+    [fileMetadataOccurrences, file.relative_path],
   );
   const occurrences = useSyncExternalStore(
     subscribeOccurrences,

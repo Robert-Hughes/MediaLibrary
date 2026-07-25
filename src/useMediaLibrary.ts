@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ThumbnailStore,
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   MetadataProgressStore,
 } from "./types";
 import type {
   AppState,
   FileFoundPayload,
-  ImageMetadataReadyPayload,
+  FileMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
   ApplicationErrorPayload,
@@ -18,7 +18,7 @@ import type {
   MetadataDraftEdit,
   SchemaMetadataEdit,
   SchemaDefinitionId,
-  ImageMetadata,
+  FileMetadata,
   TargetDraftPersistenceState,
   MetadataTargetDraftEntry,
   TagInfo,
@@ -209,8 +209,9 @@ export function useMediaLibrary(
   const [recentFolders, pushRecentFolder] = useRecentFolders();
 
   const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
-  const imageMetadataOccurrencesStoreRef =
-    useRef<ImageMetadataOccurrencesStore>(new ImageMetadataOccurrencesStore());
+  const fileMetadataOccurrencesStoreRef = useRef<FileMetadataOccurrencesStore>(
+    new FileMetadataOccurrencesStore(),
+  );
   const metadataProgressStoreRef = useRef<MetadataProgressStore>(
     new MetadataProgressStore(),
   );
@@ -306,7 +307,7 @@ export function useMediaLibrary(
   useEffect(() => {
     targetDraftEditsStoreRef.current.setCurrentValueResolver((path, target) =>
       currentValueForMetadataDraftTarget(
-        imageMetadataOccurrencesStoreRef.current.get(path),
+        fileMetadataOccurrencesStoreRef.current.get(path),
         target,
       ),
     );
@@ -325,7 +326,7 @@ export function useMediaLibrary(
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
 
-  const metadataBufferRef = useRef<ImageMetadata[]>([]);
+  const metadataBufferRef = useRef<FileMetadata[]>([]);
   const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -352,7 +353,7 @@ export function useMediaLibrary(
           },
           stores: {
             drafts: targetDraftEditsStoreRef.current,
-            occurrences: imageMetadataOccurrencesStoreRef.current,
+            occurrences: fileMetadataOccurrencesStoreRef.current,
             verification: targetVerifyOutcomesStoreRef.current,
           },
           autosaveGate: targetDraftAutosaveGateRef.current,
@@ -470,7 +471,7 @@ export function useMediaLibrary(
       }
 
       thumbnailStoreRef.current = new ThumbnailStore();
-      imageMetadataOccurrencesStoreRef.current.clear();
+      fileMetadataOccurrencesStoreRef.current.clear();
       metadataProgressStoreRef.current = new MetadataProgressStore();
       activeFolderRef.current = folder;
       targetLoadErrorRef.current = null;
@@ -542,7 +543,7 @@ export function useMediaLibrary(
             folder: prev.folder,
             files: batch,
             thumbnails: thumbnailStoreRef.current,
-            imageMetadataOccurrences: imageMetadataOccurrencesStoreRef.current,
+            fileMetadataOccurrences: fileMetadataOccurrencesStoreRef.current,
             metadataProgress: metadataProgressStoreRef.current,
             scanning: true,
             galleryIndex: null,
@@ -589,7 +590,7 @@ export function useMediaLibrary(
       console.debug(`[metadata] flushing ${batch.length} results`);
 
       for (const res of batch) {
-        imageMetadataOccurrencesStoreRef.current.set(
+        fileMetadataOccurrencesStoreRef.current.set(
           res.relative_path,
           normalizeMetadataOccurrencesFromTauri(res.occurrences),
         );
@@ -650,7 +651,7 @@ export function useMediaLibrary(
 
         for (const file of files) {
           thumbnailStoreRef.current.add(file.relative_path);
-          imageMetadataOccurrencesStoreRef.current.add(file.relative_path);
+          fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
           fileBufferRef.current.push(file);
         }
 
@@ -693,8 +694,7 @@ export function useMediaLibrary(
               folder: prev.folder,
               files: [],
               thumbnails: thumbnailStoreRef.current,
-              imageMetadataOccurrences:
-                imageMetadataOccurrencesStoreRef.current,
+              fileMetadataOccurrences: fileMetadataOccurrencesStoreRef.current,
               metadataProgress: metadataProgressStoreRef.current,
               scanning: false,
               galleryIndex: null,
@@ -724,10 +724,10 @@ export function useMediaLibrary(
       });
 
       const unlistenMetadata = await api.listen(
-        "image_metadata_ready",
+        "file_metadata_ready",
         (raw) => {
           if (cancelled) return;
-          const { scan_id, results } = raw as ImageMetadataReadyPayload;
+          const { scan_id, results } = raw as FileMetadataReadyPayload;
           if (scan_id !== activeScanIdRef.current) return;
           console.debug(`[metadata] received ${results.length} results`);
 
@@ -852,7 +852,7 @@ export function useMediaLibrary(
     thumbnailBufferRef.current = [];
     targetDraftEditsStoreRef.current.resetMetadata({});
     targetVerifyOutcomesStoreRef.current.clear();
-    imageMetadataOccurrencesStoreRef.current.clear();
+    fileMetadataOccurrencesStoreRef.current.clear();
 
     setAppState({ kind: "idle" });
     api.invoke("stop_scan").catch(() => {});
@@ -1114,7 +1114,7 @@ export function useMediaLibrary(
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       const unavailable = paths.find(
         (relativePath) =>
-          imageMetadataOccurrencesStoreRef.current.get(relativePath) ===
+          fileMetadataOccurrencesStoreRef.current.get(relativePath) ===
           "loading",
       );
       if (unavailable !== undefined) {
@@ -1199,7 +1199,7 @@ export function useMediaLibrary(
               producer,
               edits,
               occurrences:
-                imageMetadataOccurrencesStoreRef.current.get(relativePath),
+                fileMetadataOccurrencesStoreRef.current.get(relativePath),
               targetDrafts:
                 targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
             });
@@ -1273,7 +1273,7 @@ export function useMediaLibrary(
         files: paths.map((relativePath) => ({
           relativePath,
           occurrences:
-            imageMetadataOccurrencesStoreRef.current.get(relativePath),
+            fileMetadataOccurrencesStoreRef.current.get(relativePath),
           targetDrafts:
             targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
         })),
@@ -1348,7 +1348,7 @@ export function useMediaLibrary(
       try {
         const validated = validateGpsTargetDraftEntries(
           entries,
-          imageMetadataOccurrencesStoreRef.current.get(relativePath),
+          fileMetadataOccurrencesStoreRef.current.get(relativePath),
           targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
         );
         targetDraftEditsStoreRef.current.setMetadataBatch(
@@ -1378,7 +1378,7 @@ export function useMediaLibrary(
       );
       const plan = planMetadataRemovalTargets({
         schemaIds: uniqueIds,
-        occurrences: imageMetadataOccurrencesStoreRef.current.get(relativePath),
+        occurrences: fileMetadataOccurrencesStoreRef.current.get(relativePath),
         targetDrafts:
           targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
       });
@@ -1404,7 +1404,7 @@ export function useMediaLibrary(
         const plan = planMetadataTargetRemovals({
           targets,
           occurrences:
-            imageMetadataOccurrencesStoreRef.current.get(relativePath),
+            fileMetadataOccurrencesStoreRef.current.get(relativePath),
           targetDrafts:
             targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
         });
@@ -1481,7 +1481,7 @@ export function useMediaLibrary(
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return;
 
       const occurrenceState =
-        imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
+        fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
       if (occurrenceState === "loading") {
         pushApplicationError(
           "metadata-target-occurrence-unavailable",
@@ -1582,7 +1582,7 @@ export function useMediaLibrary(
           }
         }
         const occurrenceState =
-          imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
+          fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
         if (occurrenceState === "loading") {
           pushApplicationError(
             "metadata-target-new-property-occurrences-loading",
@@ -1793,7 +1793,7 @@ export function useMediaLibrary(
         }
 
         const occurrenceState =
-          imageMetadataOccurrencesStoreRef.current.get(fileRelativePath);
+          fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
         if (occurrenceState === "loading") {
           pushApplicationError(
             "metadata-target-new-property-move-occurrences-loading",

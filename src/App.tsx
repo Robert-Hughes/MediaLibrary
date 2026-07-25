@@ -13,7 +13,7 @@ import {
   type TauriApi,
   type MediaLibraryActions,
 } from "./useMediaLibrary";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "./types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "./types";
 import type { AppState } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
@@ -122,7 +122,7 @@ function LoadedView({
         : sortFiles(
             state.files,
             state.sortConfig,
-            state.imageMetadataOccurrences,
+            state.fileMetadataOccurrences,
           ),
     // metadataVersion is the invalidation signal for image-metadata sorts
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,7 +130,7 @@ function LoadedView({
       state.files,
       state.sortConfig,
       state.metadataVersion,
-      state.imageMetadataOccurrences,
+      state.fileMetadataOccurrences,
       sortingDisabled,
     ],
   );
@@ -177,7 +177,7 @@ function LoadedView({
   // forward each change.  See `src/hooks/useSearchWorker.ts`.
   const { matched: searchMatched, pending: searchPending } = useSearchWorker({
     files: sortedFiles,
-    imageMetadataOccurrencesStore: state.imageMetadataOccurrences,
+    fileMetadataOccurrencesStore: state.fileMetadataOccurrences,
     targetDraftEditsStore: state.targetDraftEditsStore,
     query: listSearchQuery,
     createWorker: createSearchWorker,
@@ -280,13 +280,13 @@ function LoadedView({
     void metadataRemaining;
     return computeEffectiveMetadataKeyFrequency(
       state.files,
-      state.imageMetadataOccurrences,
+      state.fileMetadataOccurrences,
       state.targetDraftEdits,
     );
   }, [
     showColumnDialog,
     state.files,
-    state.imageMetadataOccurrences,
+    state.fileMetadataOccurrences,
     state.targetDraftEdits,
     state.metadataVersion,
     metadataRemaining,
@@ -310,12 +310,12 @@ function LoadedView({
     (relPaths: string[]): GeocodeRequestItem[] => {
       return relPaths.map((relPath) =>
         buildGeocodeRequestItemForFile(relPath, {
-          occurrences: state.imageMetadataOccurrences.get(relPath),
+          occurrences: state.fileMetadataOccurrences.get(relPath),
           targetDrafts: state.targetDraftEdits[relPath],
         }),
       );
     },
-    [state.imageMetadataOccurrences, state.targetDraftEdits],
+    [state.fileMetadataOccurrences, state.targetDraftEdits],
   );
 
   return (
@@ -336,7 +336,7 @@ function LoadedView({
       <FileList
         files={displayFiles}
         thumbnails={state.thumbnails}
-        imageMetadataOccurrences={state.imageMetadataOccurrences}
+        fileMetadataOccurrences={state.fileMetadataOccurrences}
         targetDraftEdits={state.targetDraftEdits}
         visibleColumns={state.visibleColumns}
         columnWidths={state.columnWidths}
@@ -360,7 +360,7 @@ function LoadedView({
           setDescribeOverwrite(
             countDescribeOverwrites(
               relPaths,
-              state.imageMetadataOccurrences,
+              state.fileMetadataOccurrences,
               state.targetDraftEdits,
             ),
           );
@@ -371,7 +371,7 @@ function LoadedView({
           setGeocodeOverwrite(
             countGeocodeOverwrites(
               relPaths,
-              state.imageMetadataOccurrences,
+              state.fileMetadataOccurrences,
               state.targetDraftEdits,
             ),
           );
@@ -384,7 +384,7 @@ function LoadedView({
           const initialGroups = ALL_NORMALISE_GROUPS;
           const items = buildNormaliseItems(
             relPaths,
-            metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
+            metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
             state.targetDraftEdits,
             initialGroups,
           );
@@ -402,7 +402,7 @@ function LoadedView({
         <BulkMetadataEditorDialog
           key={bulkEditPaths.join("\n")}
           files={bulkEditFiles}
-          imageMetadataOccurrences={state.imageMetadataOccurrences}
+          fileMetadataOccurrences={state.fileMetadataOccurrences}
           targetDraftEdits={state.targetDraftEdits}
           onPreview={(request) =>
             actions.previewBulkMetadataDraftBatch(bulkEditPaths, request)
@@ -421,7 +421,7 @@ function LoadedView({
           onClose={actions.closeGallery}
           onNavigate={onGalleryNavigate}
           loadImage={loadImage}
-          imageMetadataOccurrences={state.imageMetadataOccurrences}
+          fileMetadataOccurrences={state.fileMetadataOccurrences}
           targetDraftEdits={
             state.targetDraftEdits[
               displayFiles[state.galleryIndex].relative_path
@@ -444,7 +444,7 @@ function LoadedView({
             setDescribeOverwrite(
               countDescribeOverwrites(
                 [relPath],
-                state.imageMetadataOccurrences,
+                state.fileMetadataOccurrences,
                 state.targetDraftEdits,
               ),
             );
@@ -455,7 +455,7 @@ function LoadedView({
             setGeocodeOverwrite(
               countGeocodeOverwrites(
                 [relPath],
-                state.imageMetadataOccurrences,
+                state.fileMetadataOccurrences,
                 state.targetDraftEdits,
               ),
             );
@@ -466,7 +466,7 @@ function LoadedView({
             const initialGroups = ALL_NORMALISE_GROUPS;
             const items = buildNormaliseItems(
               [relPath],
-              metadataOccurrencesStoreLookup(state.imageMetadataOccurrences),
+              metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
               state.targetDraftEdits,
               initialGroups,
             );
@@ -486,7 +486,7 @@ function LoadedView({
           relativePaths={fullMapPaths}
           files={state.files}
           thumbnails={state.thumbnails}
-          imageMetadataOccurrences={state.imageMetadataOccurrences}
+          fileMetadataOccurrences={state.fileMetadataOccurrences}
           targetDraftEdits={state.targetDraftEdits}
           onClose={() => setFullMapPaths(null)}
         />
@@ -783,7 +783,7 @@ export default function App() {
             targetDraftEdits={{}}
             files={[]}
             thumbnails={new ThumbnailStore()}
-            imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+            fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
             visibleColumns={state.visibleColumns}
             columnWidths={state.columnWidths}
             sortConfig={state.sortConfig}

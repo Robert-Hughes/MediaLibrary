@@ -9,8 +9,8 @@ import type {
 import { targetDraftsFromWire } from "../targetDraftEdits";
 import { metadataDraftTargetSlotToken } from "./metadataDraftTarget";
 import {
-  findImageMetadataDuplicateIdentity,
-  isImageMetadata,
+  findFileMetadataDuplicateIdentity,
+  isFileMetadata,
   isMetadataTargetDraftEntry,
   isMetadataTargetOutcome,
   isRecord,
@@ -59,24 +59,24 @@ export function targetApplyFileResultFromUnknown(
   }
   const warning = raw.warning;
 
-  const fresh = raw.fresh_image_metadata;
-  const duplicateIdentity = findImageMetadataDuplicateIdentity(fresh);
+  const fresh = raw.fresh_file_metadata;
+  const duplicateIdentity = findFileMetadataDuplicateIdentity(fresh);
   if (duplicateIdentity) {
     invalid(
       `${context} for '${relativePath}'`,
-      `fresh_image_metadata contains duplicate ${duplicateIdentity.kind} ID '${duplicateIdentity.token}' at indexes ${duplicateIdentity.firstIndex} and ${duplicateIdentity.secondIndex}`,
+      `fresh_file_metadata contains duplicate ${duplicateIdentity.kind} ID '${duplicateIdentity.token}' at indexes ${duplicateIdentity.firstIndex} and ${duplicateIdentity.secondIndex}`,
     );
   }
-  if (!(fresh === null || isImageMetadata(fresh))) {
+  if (!(fresh === null || isFileMetadata(fresh))) {
     invalid(
       `${context} for '${relativePath}'`,
-      "fresh_image_metadata must be null or complete valid ImageMetadata",
+      "fresh_file_metadata must be null or complete valid FileMetadata",
     );
   }
   if (fresh !== null && fresh.relative_path !== relativePath) {
     invalid(
       `${context} for '${relativePath}'`,
-      `fresh_image_metadata path '${fresh.relative_path}' does not match result path`,
+      `fresh_file_metadata path '${fresh.relative_path}' does not match result path`,
     );
   }
 
@@ -142,7 +142,7 @@ export function targetApplyFileResultFromUnknown(
     applied,
     error,
     warning,
-    fresh_image_metadata: fresh,
+    fresh_file_metadata: fresh,
     target_outcomes: typedOutcomes,
     persisted_draft_entries: typedPersisted,
   };

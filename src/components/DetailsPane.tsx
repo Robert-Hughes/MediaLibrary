@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   MetadataDraftEdit,
   FileInfo,
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   MetadataDraftTarget,
   MetadataOccurrence,
   MetadataOccurrenceId,
@@ -94,7 +94,7 @@ type EditDialogState =
 interface Props {
   file: FileInfo;
   /** Authoritative occurrences are the sole metadata state. */
-  occurrences: ImageMetadataOccurrencesState;
+  occurrences: FileMetadataOccurrencesState;
   /** Exact-target drafts for New Property and exact existing occurrence rows. */
   targetDraftEdits?: TargetDraftCollection;
   /** Folder-scoped safety state for the strict target-aware persistence file. */
@@ -272,7 +272,7 @@ function groupedGpsEditingAvailability({
   expectedTarget,
 }: {
   group: GpsTagGroup;
-  occurrences: ImageMetadataOccurrencesState | undefined;
+  occurrences: FileMetadataOccurrencesState | undefined;
   targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceState;
   callbackAvailable: boolean;
@@ -346,7 +346,7 @@ function DetailsGroupContextMenu({
     group: string;
     rows: OccurrenceDetailsRow[];
   };
-  occurrences: ImageMetadataOccurrencesState | undefined;
+  occurrences: FileMetadataOccurrencesState | undefined;
   targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceState;
   onEditGps?: (group: GpsTagGroup) => void;

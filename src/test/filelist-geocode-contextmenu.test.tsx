@@ -15,7 +15,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { MetadataTargetDraftEntry } from "../types";
 import {
   mockMetadata,
@@ -54,14 +54,14 @@ function setup(opts: SetupOptions = {}) {
   }));
 
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   for (const p of files) {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   }
   if (opts.metadataByPath) {
     for (const [path, meta] of Object.entries(opts.metadataByPath)) {
-      imageMetadata.set(
+      fileMetadata.set(
         path,
         occurrencesFromMetadataCollection(mockMetadata(meta)),
       );
@@ -77,7 +77,7 @@ function setup(opts: SetupOptions = {}) {
       )}
       files={files}
       thumbnails={thumbnails}
-      imageMetadataOccurrences={imageMetadata}
+      fileMetadataOccurrences={fileMetadata}
       visibleColumns={[]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
@@ -139,17 +139,17 @@ describe("FileList: Reverse Geocode context-menu entry", () => {
       date_created: null,
     }));
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataOccurrencesStore();
+    const fileMetadata = new FileMetadataOccurrencesStore();
     for (const p of files) {
       thumbnails.add(p.relative_path);
-      imageMetadata.add(p.relative_path);
+      fileMetadata.add(p.relative_path);
     }
     render(
       <FileList
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}

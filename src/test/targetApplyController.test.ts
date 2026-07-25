@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   type MetadataApplyResult,
   type MetadataApplyFileResult,
   type MetadataTargetDraftEntry,
@@ -61,7 +61,7 @@ function fileResult(
     applied: true,
     error: null,
     warning: null,
-    fresh_image_metadata: {
+    fresh_file_metadata: {
       relative_path: path,
       occurrences: [],
     },
@@ -113,7 +113,7 @@ function invalidPersistenceResult(
     applied: false,
     error,
     warning,
-    fresh_image_metadata: null,
+    fresh_file_metadata: null,
     target_outcomes: [targetOutcome],
     persisted_draft_entries: null,
   });
@@ -193,7 +193,7 @@ class FakeApplyApi implements TargetApplyTauriApi {
 function makeStores(): TargetApplyResultStores {
   return {
     drafts: new TargetDraftEditsStore(),
-    occurrences: new ImageMetadataOccurrencesStore(),
+    occurrences: new FileMetadataOccurrencesStore(),
     verification: new TargetVerifyOutcomesStore(),
   };
 }
@@ -346,7 +346,7 @@ describe("inactive TargetApplyController lifecycle", () => {
     });
     const authoritative = fileResult({
       persisted_draft_entries: [draft("authoritative")],
-      fresh_image_metadata: {
+      fresh_file_metadata: {
         relative_path: path,
         occurrences: [
           {

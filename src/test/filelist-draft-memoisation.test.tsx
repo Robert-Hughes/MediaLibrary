@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { FileInfo, VisibleColumn } from "../types";
 import {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   ThumbnailStore,
   type MetadataDraftTarget,
 } from "../types";
@@ -56,7 +56,7 @@ import { FileList } from "../components/FileList";
 
 const files: FileInfo[] = makeFiles(["one.jpg", "two.jpg"]);
 const thumbnails = new ThumbnailStore();
-const imageMetadataOccurrences = new ImageMetadataOccurrencesStore();
+const fileMetadataOccurrences = new FileMetadataOccurrencesStore();
 const visibleColumns: VisibleColumn[] = [];
 const sortConfig = { primary: null, secondary: null } as const;
 const onSortChange = vi.fn();
@@ -73,7 +73,7 @@ function fileList(
     <FileList
       files={files}
       thumbnails={thumbnails}
-      imageMetadataOccurrences={imageMetadataOccurrences}
+      fileMetadataOccurrences={fileMetadataOccurrences}
       targetDraftEdits={targetDraftEdits}
       visibleColumns={visibleColumns}
       sortConfig={sortConfig}

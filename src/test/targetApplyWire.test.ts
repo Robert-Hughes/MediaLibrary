@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import type {
-  ImageMetadata,
+  FileMetadata,
   MetadataApplyFileResult,
   MetadataOccurrence,
   SchemaDefinitionId,
@@ -9,7 +9,7 @@ import type {
 } from "../types";
 import { normalizeMetadataOccurrencesFromTauri } from "../utils/scanEvents";
 import {
-  isImageMetadata,
+  isFileMetadata,
   isMetadataOccurrence,
   isTagInfo,
 } from "../utils/metadataWireGuards";
@@ -58,10 +58,10 @@ const occurrence = (
   write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
 });
 
-const imageMetadata = (
+const fileMetadata = (
   occurrences: MetadataOccurrence[] = [occurrence()],
   relativePath = "file.jpg",
-): ImageMetadata => ({
+): FileMetadata => ({
   relative_path: relativePath,
   occurrences,
 });
@@ -71,7 +71,7 @@ const fileResult = (relativePath = "file.jpg"): MetadataApplyFileResult => ({
   applied: true,
   error: null,
   warning: null,
-  fresh_image_metadata: imageMetadata([occurrence()], relativePath),
+  fresh_file_metadata: fileMetadata([occurrence()], relativePath),
   target_outcomes: [],
   persisted_draft_entries: null,
 });
@@ -89,17 +89,17 @@ describe("occurrence-only scanner wire guards", () => {
   });
 
   it("requires exactly relative_path and occurrences", () => {
-    expect(isImageMetadata(imageMetadata())).toBe(true);
-    expect(isImageMetadata({ ...imageMetadata(), metadata: [] })).toBe(false);
-    expect(isImageMetadata({ relative_path: "file.jpg" })).toBe(false);
-    expect(isImageMetadata({ relative_path: "", occurrences: [] })).toBe(false);
+    expect(isFileMetadata(fileMetadata())).toBe(true);
+    expect(isFileMetadata({ ...fileMetadata(), metadata: [] })).toBe(false);
+    expect(isFileMetadata({ relative_path: "file.jpg" })).toBe(false);
+    expect(isFileMetadata({ relative_path: "", occurrences: [] })).toBe(false);
   });
 
   it("allows same-schema occurrences but rejects duplicate occurrence IDs", () => {
     const ifd0 = occurrence("JPEG-APP1-IFD0", 300);
     const ifd1 = occurrence("JPEG-APP1-IFD1", 72);
-    expect(isImageMetadata(imageMetadata([ifd0, ifd1]))).toBe(true);
-    expect(isImageMetadata(imageMetadata([ifd0, structuredClone(ifd0)]))).toBe(
+    expect(isFileMetadata(fileMetadata([ifd0, ifd1]))).toBe(true);
+    expect(isFileMetadata(fileMetadata([ifd0, structuredClone(ifd0)]))).toBe(
       false,
     );
   });
@@ -127,13 +127,13 @@ describe("target-aware apply wire", () => {
     );
   });
 
-  it("rejects the removed metadata field inside fresh_image_metadata", () => {
+  it("rejects the removed metadata field inside fresh_file_metadata", () => {
     const raw = structuredClone(fileResult()) as unknown as {
-      fresh_image_metadata: Record<string, unknown>;
+      fresh_file_metadata: Record<string, unknown>;
     };
-    raw.fresh_image_metadata.metadata = [];
+    raw.fresh_file_metadata.metadata = [];
     expect(() => targetApplyFileResultFromUnknown(raw)).toThrow(
-      /fresh_image_metadata must be null or complete valid ImageMetadata/,
+      /fresh_file_metadata must be null or complete valid FileMetadata/,
     );
   });
 
@@ -141,13 +141,13 @@ describe("target-aware apply wire", () => {
     expect(() =>
       targetApplyFileResultFromUnknown({
         ...fileResult(),
-        fresh_image_metadata: imageMetadata([occurrence()], "other.jpg"),
+        fresh_file_metadata: fileMetadata([occurrence()], "other.jpg"),
       }),
     ).toThrow(/does not match result path/);
     expect(() =>
       targetApplyFileResultFromUnknown({
         ...fileResult(),
-        fresh_image_metadata: imageMetadata([
+        fresh_file_metadata: fileMetadata([
           occurrence(),
           structuredClone(occurrence()),
         ]),

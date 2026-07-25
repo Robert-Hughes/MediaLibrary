@@ -73,7 +73,7 @@ describe("BulkMetadataEditorDialog", () => {
     render(
       <BulkMetadataEditorDialog
         files={makeFiles(["one.jpg"])}
-        imageMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
+        fileMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
         targetDraftEdits={{}}
         onPreview={vi.fn()}
         onStage={() => true}
@@ -124,7 +124,7 @@ describe("BulkMetadataEditorDialog", () => {
     render(
       <BulkMetadataEditorDialog
         files={makeFiles(["thumbnail.jpg"])}
-        imageMetadataOccurrences={occurrenceStore({
+        fileMetadataOccurrences={occurrenceStore({
           "thumbnail.jpg": [thumbnail],
         })}
         targetDraftEdits={{}}
@@ -163,7 +163,7 @@ describe("BulkMetadataEditorDialog", () => {
     render(
       <BulkMetadataEditorDialog
         files={makeFiles(["one.jpg"])}
-        imageMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
+        fileMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
         targetDraftEdits={{}}
         onPreview={() => ({
           kind: "blocked",
@@ -222,7 +222,7 @@ describe("BulkMetadataEditorDialog", () => {
     render(
       <BulkMetadataEditorDialog
         files={makeFiles(["one.jpg", "two.jpg"])}
-        imageMetadataOccurrences={occurrenceStore({
+        fileMetadataOccurrences={occurrenceStore({
           "one.jpg": [existing],
           "two.jpg": [],
         })}
@@ -285,7 +285,7 @@ describe("BulkMetadataEditorDialog", () => {
     render(
       <BulkMetadataEditorDialog
         files={makeFiles(["gps.jpg"])}
-        imageMetadataOccurrences={occurrenceStore({ "gps.jpg": [] })}
+        fileMetadataOccurrences={occurrenceStore({ "gps.jpg": [] })}
         targetDraftEdits={{}}
         onPreview={onPreview}
         onStage={() => true}
@@ -328,7 +328,7 @@ describe("BulkMetadataEditorDialog", () => {
     render(
       <BulkMetadataEditorDialog
         files={makeFiles(["gps.jpg"])}
-        imageMetadataOccurrences={occurrenceStore({
+        fileMetadataOccurrences={occurrenceStore({
           "gps.jpg": [latitude, longitude],
         })}
         targetDraftEdits={{}}

@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GalleryView } from "../components/GalleryView";
-import { ImageMetadataOccurrencesStore } from "../types";
+import { FileMetadataOccurrencesStore } from "../types";
 import type { MetadataOccurrence, TagInfo } from "../types";
 import { makeFiles } from "./factories";
 import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
@@ -42,14 +42,14 @@ function occurrence(
   };
 }
 
-function props(imageMetadataOccurrences: ImageMetadataOccurrencesStore) {
+function props(fileMetadataOccurrences: FileMetadataOccurrencesStore) {
   return {
     files,
     folderPath: "/files",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: async () => "data:image/jpeg;base64,FAKE",
-    imageMetadataOccurrences,
+    fileMetadataOccurrences,
     onRemoveMetadataTargets: vi.fn(),
     onDiscardTargetDraftBatch: vi.fn(),
   };
@@ -62,7 +62,7 @@ describe("Gallery occurrence-store subscription", () => {
   });
 
   it("rerenders from the current path and follows navigation subscriptions", async () => {
-    const occurrences = new ImageMetadataOccurrencesStore();
+    const occurrences = new FileMetadataOccurrencesStore();
     for (const file of files) occurrences.add(file.relative_path);
 
     const subscribe = vi.spyOn(occurrences, "subscribe");
@@ -90,7 +90,7 @@ describe("Gallery occurrence-store subscription", () => {
   });
 
   it("reacts when loading changes to an empty authoritative set", async () => {
-    const occurrences = new ImageMetadataOccurrencesStore();
+    const occurrences = new FileMetadataOccurrencesStore();
     occurrences.add("a.jpg");
     render(
       <GalleryView
@@ -106,7 +106,7 @@ describe("Gallery occurrence-store subscription", () => {
   });
 
   it("reacts when one schema gains a second authoritative occurrence", async () => {
-    const occurrences = new ImageMetadataOccurrencesStore();
+    const occurrences = new FileMetadataOccurrencesStore();
     occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 301, "IFD0")]);
 
     render(

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type {
   FileInfo,
   SchemaDefinitionId,
@@ -37,7 +37,7 @@ export type ColumnContextTarget =
 interface Props {
   files: FileInfo[];
   thumbnails: ThumbnailStore;
-  imageMetadataOccurrences: ImageMetadataOccurrencesStore;
+  fileMetadataOccurrences: FileMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftEditsByFile;
   visibleColumns: VisibleColumn[];
   columnWidths?: Record<string, number>;
@@ -315,7 +315,7 @@ function FileListHeader(props: HeaderProps) {
 export function FileList({
   files,
   thumbnails,
-  imageMetadataOccurrences,
+  fileMetadataOccurrences,
   targetDraftEdits,
   visibleColumns,
   columnWidths = {},
@@ -395,7 +395,7 @@ export function FileList({
       const visibleOrdered = selectVisibleNeedingLoad(
         visibleRef.current,
         thumbnails,
-        imageMetadataOccurrences,
+        fileMetadataOccurrences,
       );
       if (visibleOrdered.length > 0) {
         onVisibilityChangeRef.current(visibleOrdered);
@@ -423,7 +423,7 @@ export function FileList({
     };
 
     updateVisible();
-  }, [virtualItems, thumbnails, imageMetadataOccurrences]);
+  }, [virtualItems, thumbnails, fileMetadataOccurrences]);
 
   // Defensive kickstart: when files first appear in a scan, notify about the
   // first 30 paths that still need loading.  This runs once per scan so the
@@ -445,7 +445,7 @@ export function FileList({
       const path = files[i].relative_path;
       if (
         thumbnails.get(path) === "loading" ||
-        imageMetadataOccurrences.get(path) === "loading"
+        fileMetadataOccurrences.get(path) === "loading"
       ) {
         initialPaths.push(path);
       }
@@ -454,7 +454,7 @@ export function FileList({
     if (initialPaths.length > 0) {
       onVisibilityChange(initialPaths);
     }
-  }, [files, thumbnails, imageMetadataOccurrences, onVisibilityChange]);
+  }, [files, thumbnails, fileMetadataOccurrences, onVisibilityChange]);
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {
@@ -630,7 +630,7 @@ export function FileList({
                 index={virtualRow.index}
                 selected={selectedIndices.has(virtualRow.index)}
                 thumbnails={thumbnails}
-                imageMetadataOccurrences={imageMetadataOccurrences}
+                fileMetadataOccurrences={fileMetadataOccurrences}
                 targetDraftEdits={
                   targetDraftEdits[file.relative_path] ??
                   EMPTY_TARGET_DRAFT_COLLECTION

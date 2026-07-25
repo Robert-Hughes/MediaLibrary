@@ -125,21 +125,21 @@ impl Default for ScanState {
 #[derive(Clone)]
 pub struct ActiveQueues {
     thumbnails: Arc<Mutex<Option<Arc<WorkQueue>>>>,
-    image_metadata: Arc<Mutex<Option<Arc<WorkQueue>>>>,
+    file_metadata: Arc<Mutex<Option<Arc<WorkQueue>>>>,
 }
 
 impl ActiveQueues {
     pub fn new() -> Self {
         Self {
             thumbnails: Arc::new(Mutex::new(None)),
-            image_metadata: Arc::new(Mutex::new(None)),
+            file_metadata: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Replace the currently-installed queues with new ones (used by start_scan).
     pub fn install(&self, thumbs: Arc<WorkQueue>, metadata: Arc<WorkQueue>) {
         *self.thumbnails.lock().unwrap() = Some(thumbs);
-        *self.image_metadata.lock().unwrap() = Some(metadata);
+        *self.file_metadata.lock().unwrap() = Some(metadata);
     }
 
     /// Clear the queue slots, but only if the currently-installed queues are
@@ -152,7 +152,7 @@ impl ActiveQueues {
             *t = None;
         }
         drop(t);
-        let mut m = self.image_metadata.lock().unwrap();
+        let mut m = self.file_metadata.lock().unwrap();
         if m.as_ref().is_some_and(|q| Arc::ptr_eq(q, mine_metadata)) {
             *m = None;
         }
@@ -162,8 +162,8 @@ impl ActiveQueues {
         self.thumbnails.lock().unwrap().clone()
     }
 
-    pub fn image_metadata(&self) -> Option<Arc<WorkQueue>> {
-        self.image_metadata.lock().unwrap().clone()
+    pub fn file_metadata(&self) -> Option<Arc<WorkQueue>> {
+        self.file_metadata.lock().unwrap().clone()
     }
 }
 
@@ -206,9 +206,9 @@ struct ApplicationErrorPayload {
 
 /// Emitted when a batch of Image metadata (EXIF etc) has been read.
 #[derive(Clone, Serialize)]
-struct ImageMetadataReadyPayload {
+struct FileMetadataReadyPayload {
     scan_id: u64,
-    results: Vec<scanner::ImageMetadata>,
+    results: Vec<scanner::FileMetadata>,
 }
 
 #[derive(Clone, Serialize)]
@@ -259,7 +259,7 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
 ///    Emits `scan_complete` (no payload) when the walk finishes.
 ///
 ///  Phase 2 — Image Metadata (thread pool, starts alongside phase 1):
-///    Reads EXIF data per file and emits `image_metadata_ready`.
+///    Reads EXIF data per file and emits `file_metadata_ready`.
 ///
 ///  Phase 3 — thumbnail generation (thread pool, starts alongside phase 1):
 ///    Generates thumbnails and emits `thumbnail_ready`.
@@ -343,17 +343,17 @@ fn start_scan(
 
         // Shared queues fed by the walk, drained by worker pools.
         let thumb_queue = Arc::new(WorkQueue::new(vec![]));
-        let image_metadata_queue = Arc::new(WorkQueue::new(vec![]));
+        let file_metadata_queue = Arc::new(WorkQueue::new(vec![]));
 
         // Install the queues so prioritize_queues can reach them.
-        queues_for_thread.install(thumb_queue.clone(), image_metadata_queue.clone());
+        queues_for_thread.install(thumb_queue.clone(), file_metadata_queue.clone());
 
         let root_arc = Arc::new(root.clone());
 
         // ── Phase 2: Image Metadata workers ───────────────────────────────
         let metadata_handles: Vec<_> = (0..metadata_workers)
             .map(|_| {
-                let queue = image_metadata_queue.clone();
+                let queue = file_metadata_queue.clone();
                 let app = app_clone.clone();
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
@@ -373,8 +373,8 @@ fn start_scan(
                                         batch_results.len()
                                     );
                                     let _ = app.emit(
-                                        "image_metadata_ready",
-                                        ImageMetadataReadyPayload {
+                                        "file_metadata_ready",
+                                        FileMetadataReadyPayload {
                                             scan_id,
                                             results: std::mem::take(&mut batch_results),
                                         },
@@ -391,7 +391,7 @@ fn start_scan(
                             .map(|p| root.join(p.replace('/', std::path::MAIN_SEPARATOR_STR)))
                             .collect();
 
-                        match scanner::read_image_metadata_batch(&rel_paths, &abs_paths) {
+                        match scanner::read_file_metadata_batch(&rel_paths, &abs_paths) {
                             Ok(outcome) => {
                                 log::debug!(
                                     "[metadata] Read {} successes and {} failures",
@@ -417,7 +417,7 @@ fn start_scan(
                                 }
 
                                 for fail in outcome.failures {
-                                    batch_results.push(scanner::ImageMetadata {
+                                    batch_results.push(scanner::FileMetadata {
                                         relative_path: fail.relative_path,
                                         occurrences:
                                             crate::metadata_occurrence::MetadataOccurrences::default(),
@@ -441,7 +441,7 @@ fn start_scan(
 
                                 // Send empty occurrence results for failed files so the frontend clears loading.
                                 for rel_path in rel_paths {
-                                    batch_results.push(scanner::ImageMetadata {
+                                    batch_results.push(scanner::FileMetadata {
                                         relative_path: rel_path,
                                         occurrences:
                                             crate::metadata_occurrence::MetadataOccurrences::default(),
@@ -457,8 +457,8 @@ fn start_scan(
                                 batch_results.len()
                             );
                             let _ = app.emit(
-                                "image_metadata_ready",
-                                ImageMetadataReadyPayload {
+                                "file_metadata_ready",
+                                FileMetadataReadyPayload {
                                     scan_id,
                                     results: std::mem::take(&mut batch_results),
                                 },
@@ -474,8 +474,8 @@ fn start_scan(
                             batch_results.len()
                         );
                         let _ = app.emit(
-                            "image_metadata_ready",
-                            ImageMetadataReadyPayload {
+                            "file_metadata_ready",
+                            FileMetadataReadyPayload {
                                 scan_id,
                                 results: batch_results,
                             },
@@ -555,7 +555,7 @@ fn start_scan(
         let walk_complete = Arc::new(AtomicBool::new(false));
         let walk_complete_clone = walk_complete.clone();
         let cancel_walk = cancel_clone.clone();
-        let image_metadata_queue_walk = image_metadata_queue.clone();
+        let file_metadata_queue_walk = file_metadata_queue.clone();
         let thumb_queue_walk = thumb_queue.clone();
 
         let thumbnail_result_tx_walk = thumbnail_result_tx.clone();
@@ -565,7 +565,7 @@ fn start_scan(
                 &root,
                 cancel_walk,
                 |file| {
-                    image_metadata_queue_walk.push(file.relative_path.clone());
+                    file_metadata_queue_walk.push(file.relative_path.clone());
                     match file.media_kind {
                         scanner::MediaKind::Image => {
                             thumb_queue_walk.push(file.relative_path.clone());
@@ -654,7 +654,7 @@ fn start_scan(
         clear_running(&app_clone);
 
         // Signal workers that no more items are coming.
-        image_metadata_queue.finish();
+        file_metadata_queue.finish();
         thumb_queue.finish();
 
         // Wait for all workers to finish.
@@ -670,7 +670,7 @@ fn start_scan(
         // installed its own queues here.  Without this guard, a fast
         // folder-switch can null out the new scan's queues and break
         // prioritize_queues / stop_scan for it.
-        queues_for_thread.clear_if_mine(&thumb_queue, &image_metadata_queue);
+        queues_for_thread.clear_if_mine(&thumb_queue, &file_metadata_queue);
     });
 
     Ok(())
@@ -685,7 +685,7 @@ fn stop_scan(
     if let Some(q) = active_queues.thumbnails() {
         q.abort();
     }
-    if let Some(q) = active_queues.image_metadata() {
+    if let Some(q) = active_queues.file_metadata() {
         q.abort();
     }
     Ok(())
@@ -699,7 +699,7 @@ fn prioritize_queues(
     if let Some(q) = active_queues.thumbnails() {
         q.prioritize(&visible_paths);
     }
-    if let Some(q) = active_queues.image_metadata() {
+    if let Some(q) = active_queues.file_metadata() {
         q.prioritize(&visible_paths);
     }
     Ok(())
@@ -1093,7 +1093,7 @@ mod tests {
                 tag_name: "XResolution".into(),
             }),
         };
-        let result = scanner::ImageMetadata {
+        let result = scanner::FileMetadata {
             relative_path: "file.jpg".into(),
             occurrences: MetadataOccurrences(vec![
                 occurrence("JPEG-APP1-IFD0", 0, "IFD0"),
@@ -1101,7 +1101,7 @@ mod tests {
             ]),
         };
 
-        let json = serde_json::to_value(ImageMetadataReadyPayload {
+        let json = serde_json::to_value(FileMetadataReadyPayload {
             scan_id: 7,
             results: vec![result],
         })
@@ -1125,7 +1125,7 @@ mod tests {
 
     #[test]
     fn metadata_ready_failed_placeholder_serializes_empty_occurrences_only() {
-        let result = scanner::ImageMetadata {
+        let result = scanner::FileMetadata {
             relative_path: "failed.jpg".into(),
             occurrences: crate::metadata_occurrence::MetadataOccurrences::default(),
         };
@@ -1182,7 +1182,7 @@ mod tests {
         aq.clear_if_mine(&thumbs, &metadata);
 
         assert!(aq.thumbnails().is_none());
-        assert!(aq.image_metadata().is_none());
+        assert!(aq.file_metadata().is_none());
     }
 
     #[test]
@@ -1207,7 +1207,7 @@ mod tests {
             .thumbnails()
             .expect("scan B's thumb queue must still be installed");
         let installed_metadata = aq
-            .image_metadata()
+            .file_metadata()
             .expect("scan B's metadata queue must still be installed");
         assert!(Arc::ptr_eq(&installed_thumbs, &scan_b_thumbs));
         assert!(Arc::ptr_eq(&installed_metadata, &scan_b_metadata));
@@ -1229,7 +1229,7 @@ mod tests {
             aq.thumbnails().is_none(),
             "mine_thumbs should have been cleared"
         );
-        let installed = aq.image_metadata().expect("other_metadata must remain");
+        let installed = aq.file_metadata().expect("other_metadata must remain");
         assert!(Arc::ptr_eq(&installed, &other_metadata));
     }
 

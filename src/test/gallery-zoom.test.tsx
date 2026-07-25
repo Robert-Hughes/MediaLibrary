@@ -2,7 +2,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
-import { ImageMetadataOccurrencesStore } from "../types";
+import { FileMetadataOccurrencesStore } from "../types";
 
 import { makeFiles } from "./factories";
 
@@ -22,7 +22,7 @@ function renderGallery(
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: fakeLoad,
-    imageMetadataOccurrences: new ImageMetadataOccurrencesStore(),
+    fileMetadataOccurrences: new FileMetadataOccurrencesStore(),
     ...overrides,
   };
 
@@ -131,7 +131,7 @@ describe("Gallery Zoom and Pan", () => {
         onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         onRemoveMetadataTargets={onRemoveMetadataTargets}
         onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,
@@ -152,7 +152,7 @@ describe("Gallery Zoom and Pan", () => {
         onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}
-        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
         onRemoveMetadataTargets={onRemoveMetadataTargets}
         onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
       />,

@@ -68,7 +68,7 @@ async function openFolderWithFile(
     mockApiInstance.emitScanComplete();
   });
   await act(async () => {
-    mockApiInstance.emitImageMetadataReady(rel, metadata);
+    mockApiInstance.emitFileMetadataReady(rel, metadata);
   });
   await act(async () => {
     await new Promise((r) => setTimeout(r, 250));

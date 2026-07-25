@@ -2,7 +2,7 @@ import { DESCRIBE_TARGET_TAGS } from "../generatedTargetDrafts";
 import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { GEOCODE_TARGET_TAGS } from "../types";
 import type {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   SchemaDefinitionId,
 } from "../types";
 import { effectiveSchemaPresenceForFile } from "./effectiveSchemaPresence";
@@ -16,7 +16,7 @@ export interface OverwriteCount {
 function countAnyEffectiveSchema(
   relPaths: string[],
   schemas: readonly SchemaDefinitionId[],
-  occurrences: ImageMetadataOccurrencesStore,
+  occurrences: FileMetadataOccurrencesStore,
   targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
   const targetTokens = new Set(schemas.map(schemaDefinitionIdToken));
@@ -35,7 +35,7 @@ function countAnyEffectiveSchema(
 
 export function countDescribeOverwrites(
   relPaths: string[],
-  occurrences: ImageMetadataOccurrencesStore,
+  occurrences: FileMetadataOccurrencesStore,
   targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
   return countAnyEffectiveSchema(
@@ -48,7 +48,7 @@ export function countDescribeOverwrites(
 
 export function countGeocodeOverwrites(
   relPaths: string[],
-  occurrences: ImageMetadataOccurrencesStore,
+  occurrences: FileMetadataOccurrencesStore,
   targetDrafts: TargetDraftEditsByFile,
 ): OverwriteCount {
   return countAnyEffectiveSchema(

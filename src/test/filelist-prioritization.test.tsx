@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo } from "../types";
 import { imgCol, makeFiles, mockMetadata } from "./factories";
 import {
@@ -28,14 +28,14 @@ describe("FileList prioritization optimization", () => {
   }));
 
   let thumbnailStore: ThumbnailStore;
-  let metadataStore: ImageMetadataOccurrencesStore;
+  let metadataStore: FileMetadataOccurrencesStore;
   let onVisibilityChangeMock: ReturnType<
     typeof vi.fn<(paths: string[]) => void>
   >;
 
   beforeEach(() => {
     thumbnailStore = new ThumbnailStore();
-    metadataStore = new ImageMetadataOccurrencesStore();
+    metadataStore = new FileMetadataOccurrencesStore();
     onVisibilityChangeMock = vi.fn<(paths: string[]) => void>();
 
     // Add all files to stores (they start in "loading" state)
@@ -54,7 +54,7 @@ describe("FileList prioritization optimization", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnailStore}
-        imageMetadataOccurrences={metadataStore}
+        fileMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -93,7 +93,7 @@ describe("FileList prioritization optimization", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnailStore}
-        imageMetadataOccurrences={metadataStore}
+        fileMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -128,7 +128,7 @@ describe("FileList prioritization optimization", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnailStore}
-        imageMetadataOccurrences={metadataStore}
+        fileMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -160,7 +160,7 @@ describe("FileList prioritization optimization", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnailStore}
-        imageMetadataOccurrences={metadataStore}
+        fileMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -200,7 +200,7 @@ describe("FileList prioritization optimization", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnailStore}
-        imageMetadataOccurrences={metadataStore}
+        fileMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -238,7 +238,7 @@ describe("FileList prioritization optimization", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnailStore}
-        imageMetadataOccurrences={metadataStore}
+        fileMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -277,7 +277,7 @@ describe("FileList prioritization optimization", () => {
         targetDraftEdits={{}}
         files={mockFiles}
         thumbnails={thumbnailStore}
-        imageMetadataOccurrences={metadataStore}
+        fileMetadataOccurrences={metadataStore}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },
@@ -311,11 +311,11 @@ describe("initial-kickstart prioritization fires once per scan", () => {
     onVisibilityChange: (paths: string[]) => void,
     stores?: {
       thumbnails: ThumbnailStore;
-      metadata: ImageMetadataOccurrencesStore;
+      metadata: FileMetadataOccurrencesStore;
     },
   ) {
     const thumbs = stores?.thumbnails ?? new ThumbnailStore();
-    const metadata = stores?.metadata ?? new ImageMetadataOccurrencesStore();
+    const metadata = stores?.metadata ?? new FileMetadataOccurrencesStore();
     files.forEach((p) => {
       thumbs.add(p.relative_path);
       metadata.add(p.relative_path);
@@ -328,7 +328,7 @@ describe("initial-kickstart prioritization fires once per scan", () => {
           targetDraftEdits={{}}
           files={files}
           thumbnails={thumbs}
-          imageMetadataOccurrences={metadata}
+          fileMetadataOccurrences={metadata}
           visibleColumns={[]}
           {...defaultSortProps}
           selectedIndex={null}

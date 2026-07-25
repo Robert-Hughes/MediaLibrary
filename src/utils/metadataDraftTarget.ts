@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   MetadataDraftTarget,
   MetadataOccurrence,
   SchemaDefinitionId,
@@ -279,7 +279,7 @@ export function existingOccurrenceTargetFromOccurrence(
 
 /** Current-value lookup for the target-aware redundant-draft guard. */
 export function currentValueForMetadataDraftTarget(
-  occurrences: ImageMetadataOccurrencesState,
+  occurrences: FileMetadataOccurrencesState,
   target: MetadataDraftTarget,
 ): MetadataOccurrence["value"] | undefined {
   if (target.kind === "NewProperty" || occurrences === "loading") {

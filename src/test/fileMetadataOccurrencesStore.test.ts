@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { ImageMetadataOccurrencesStore } from "../types";
+import { FileMetadataOccurrencesStore } from "../types";
 import { resolveExactMetadataOccurrence } from "../utils/metadataOccurrences";
 
-describe("ImageMetadataOccurrencesStore", () => {
+describe("FileMetadataOccurrencesStore", () => {
   it("reads unknown paths as loading and add preserves completed results", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     expect(store.get("a.jpg")).toBe("loading");
     store.add("a.jpg");
     expect(store.getSnapshot("a.jpg")()).toBe("loading");
@@ -14,7 +14,7 @@ describe("ImageMetadataOccurrencesStore", () => {
   });
 
   it("sets and looks up exact paths, with empty arrays representing completion", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     store.set("folder/a.jpg", []);
     expect(store.get("folder/a.jpg")).toEqual([]);
     expect(store.get("a.jpg")).toBe("loading");
@@ -22,7 +22,7 @@ describe("ImageMetadataOccurrencesStore", () => {
   });
 
   it("notifies only subscribers for the changed path and cleans up", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     const a = vi.fn();
     const b = vi.fn();
     const unsubscribe = store.subscribe("a.jpg", a);
@@ -36,7 +36,7 @@ describe("ImageMetadataOccurrencesStore", () => {
   });
 
   it("invalidates a loaded path without asserting an empty occurrence collection", () => {
-    const store = new ImageMetadataOccurrencesStore();
+    const store = new FileMetadataOccurrencesStore();
     const listener = vi.fn();
     store.set("a.jpg", []);
     store.subscribe("a.jpg", listener);
@@ -48,9 +48,9 @@ describe("ImageMetadataOccurrencesStore", () => {
   });
 
   it("a replacement scan can use a fresh independent store", () => {
-    const oldStore = new ImageMetadataOccurrencesStore();
+    const oldStore = new FileMetadataOccurrencesStore();
     oldStore.set("old.jpg", []);
-    const replacement = new ImageMetadataOccurrencesStore();
+    const replacement = new FileMetadataOccurrencesStore();
     expect(replacement).not.toBe(oldStore);
     expect(replacement.get("old.jpg")).toBe("loading");
     expect([...replacement.entries()]).toEqual([]);

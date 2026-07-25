@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataOccurrencesStore,
+  FileMetadataOccurrencesStore,
   FileInfo,
   SchemaDefinitionId,
 } from "../types";
@@ -14,7 +14,7 @@ export interface MetadataIdFrequency {
 
 export function computeEffectiveMetadataKeyFrequency(
   files: FileInfo[],
-  occurrencesStore: ImageMetadataOccurrencesStore,
+  occurrencesStore: FileMetadataOccurrencesStore,
   draftEdits: TargetDraftEditsByFile,
 ): MetadataIdFrequency[] {
   const counts = new Map<string, MetadataIdFrequency>();

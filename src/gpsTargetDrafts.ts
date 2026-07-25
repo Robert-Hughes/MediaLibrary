@@ -1,5 +1,5 @@
 import type {
-  ImageMetadataOccurrencesState,
+  FileMetadataOccurrencesState,
   MetadataDraftEdit,
   MetadataDraftTarget,
   MetadataTargetDraftEntry,
@@ -124,7 +124,7 @@ export function planGpsTargetDraftBatch(
     id: SchemaDefinitionId;
     edit: MetadataDraftEdit;
   }[],
-  occurrences: ImageMetadataOccurrencesState,
+  occurrences: FileMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
 ): PlannedGpsTargetDraft[] {
   if (occurrences === "loading") {
@@ -228,7 +228,7 @@ export function planGpsTargetDraftBatch(
  */
 export function validateGpsTargetDraftEntries(
   entries: readonly MetadataTargetDraftMutation[],
-  occurrences: ImageMetadataOccurrencesState,
+  occurrences: FileMetadataOccurrencesState,
   targetDrafts: TargetDraftCollection | undefined,
 ): MetadataTargetDraftEntry[] {
   if (occurrences === "loading") {

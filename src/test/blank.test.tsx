@@ -1,13 +1,13 @@
 import { render } from "@testing-library/react";
 import { describe, it, vi } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import { imgCol } from "./factories";
 
 describe("FileList", () => {
   it("renders without crashing", () => {
     const thumbnails = new ThumbnailStore();
-    const metadata = new ImageMetadataOccurrencesStore();
+    const metadata = new FileMetadataOccurrencesStore();
 
     const files = [
       {
@@ -24,7 +24,7 @@ describe("FileList", () => {
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={metadata}
+        fileMetadataOccurrences={metadata}
         visibleColumns={[
           { key: "date_modified", kind: "os" },
           { key: "date_created", kind: "os" },

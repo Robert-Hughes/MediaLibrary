@@ -4,9 +4,9 @@ import type {
   TargetDraftEditsByFile,
 } from "../targetDraftEdits";
 import type {
-  ImageMetadataEntry,
-  ImageMetadataOccurrencesState,
-  ImageMetadataOccurrencesStore,
+  FileMetadataEntry,
+  FileMetadataOccurrencesState,
+  FileMetadataOccurrencesStore,
   MetadataValue,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -20,7 +20,7 @@ import { metadataGet, type MetadataCollection } from "./metadataCollection";
 type EffectiveMetadataEntry = MetadataValue | null;
 
 function metadataValueOnly(
-  entry: ImageMetadataEntry | undefined,
+  entry: FileMetadataEntry | undefined,
 ): MetadataValue | null {
   if (!entry) return null;
   const { id: _id, ...value } = entry;
@@ -77,11 +77,11 @@ function metadataEntryToStringList(v: EffectiveMetadataEntry): string[] {
 }
 
 export interface FileOccurrencesLookup {
-  get(relPath: string): ImageMetadataOccurrencesState | undefined;
+  get(relPath: string): FileMetadataOccurrencesState | undefined;
 }
 
 export function metadataOccurrencesStoreLookup(
-  store: ImageMetadataOccurrencesStore,
+  store: FileMetadataOccurrencesStore,
 ): FileOccurrencesLookup {
   return { get: (relPath) => store.get(relPath) };
 }
@@ -122,7 +122,7 @@ function list(
 export function buildNormaliseItemForFile(
   relPath: string,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
-  occurrences?: ImageMetadataOccurrencesState,
+  occurrences?: FileMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
 ): NormaliseRequestItem {
   const effective = buildEffectiveMetadataForFile({

@@ -15,7 +15,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo, MetadataDraftEdit } from "../types";
 
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
@@ -42,11 +42,11 @@ type SetupProps = Partial<React.ComponentProps<typeof FileList>>;
 function setup(props: SetupProps = {}) {
   const { targetDraftEdits = {}, ...componentProps } = props;
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   const files = props.files ?? makeFiles(5);
   for (const p of files) {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   }
   const onSelect = vi.fn();
   const onShowInExplorer = vi.fn();
@@ -60,7 +60,7 @@ function setup(props: SetupProps = {}) {
       targetDraftEdits={targetDraftEdits}
       files={files}
       thumbnails={thumbnails}
-      imageMetadataOccurrences={imageMetadata}
+      fileMetadataOccurrences={fileMetadata}
       visibleColumns={[]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
@@ -107,11 +107,11 @@ function setupStateful(
   } = {},
 ) {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   const files = makeFiles(opts.fileCount ?? 5);
   for (const p of files) {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   }
   const onFileOpen = vi.fn();
   function Wrapper() {
@@ -123,7 +123,7 @@ function setupStateful(
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
@@ -329,13 +329,13 @@ describe("FileList context menu (multi-select)", () => {
     vi.mocked(ask).mockClear();
 
     const thumbnails = new ThumbnailStore();
-    const imageMetadata = new ImageMetadataOccurrencesStore();
+    const fileMetadata = new FileMetadataOccurrencesStore();
     const files = makeFiles(5);
     for (const p of files) {
       thumbnails.add(p.relative_path);
-      imageMetadata.add(p.relative_path);
+      fileMetadata.add(p.relative_path);
     }
-    imageMetadata.set(
+    fileMetadata.set(
       "2.jpg",
       occurrencesFromMetadataCollection(
         mockMetadata({ "XMP-mlib:AIDescription": "old text" }),
@@ -347,7 +347,7 @@ describe("FileList context menu (multi-select)", () => {
         targetDraftEdits={{}}
         files={files}
         thumbnails={thumbnails}
-        imageMetadataOccurrences={imageMetadata}
+        fileMetadataOccurrences={fileMetadata}
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
 import { FileList } from "../components/FileList";
-import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
+import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo, VisibleColumn } from "../types";
 
 const files: FileInfo[] = [
@@ -17,22 +17,22 @@ const files: FileInfo[] = [
 
 function makeStores() {
   const thumbnails = new ThumbnailStore();
-  const imageMetadata = new ImageMetadataOccurrencesStore();
+  const fileMetadata = new FileMetadataOccurrencesStore();
   files.forEach((p) => {
     thumbnails.add(p.relative_path);
-    imageMetadata.add(p.relative_path);
+    fileMetadata.add(p.relative_path);
   });
-  return { thumbnails, imageMetadata };
+  return { thumbnails, fileMetadata };
 }
 
 function renderWith(visibleColumns: VisibleColumn[]) {
-  const { thumbnails, imageMetadata } = makeStores();
+  const { thumbnails, fileMetadata } = makeStores();
   return render(
     <FileList
       targetDraftEdits={{}}
       files={files}
       thumbnails={thumbnails}
-      imageMetadataOccurrences={imageMetadata}
+      fileMetadataOccurrences={fileMetadata}
       visibleColumns={visibleColumns}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
