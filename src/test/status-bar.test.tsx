@@ -54,6 +54,36 @@ describe("StatusBar", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("uses the file count as a select-all button", async () => {
+    const onToggleFileSelection = vi.fn();
+    render(
+      <StatusBar {...base} onToggleFileSelection={onToggleFileSelection} />,
+    );
+    const button = screen.getByRole("button", {
+      name: "Select all visible files",
+    });
+    expect(button).toHaveAttribute("aria-pressed", "false");
+
+    await userEvent.click(button);
+    expect(onToggleFileSelection).toHaveBeenCalledOnce();
+  });
+
+  it("exposes the deselect-all state when every visible file is selected", () => {
+    render(
+      <StatusBar {...base} selectedCount={42} onToggleFileSelection={noop} />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Deselect all visible files" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("disables selection when no files are visible", () => {
+    render(<StatusBar {...base} fileCount={0} onToggleFileSelection={noop} />);
+    expect(
+      screen.getByRole("button", { name: "Select all visible files" }),
+    ).toBeDisabled();
+  });
+
   it("shows scanning indicator while scanning", () => {
     render(<StatusBar {...base} scanning={true} />);
     expect(screen.getByTestId("status-bar-scanning")).toHaveTextContent(

@@ -17,7 +17,7 @@ import { ThumbnailStore, FileMetadataOccurrencesStore } from "./types";
 import type { AppState } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
-import { FileList } from "./components/FileList";
+import { FileList, type FileListSelectionHandle } from "./components/FileList";
 import { GalleryView } from "./components/GalleryView";
 import { FullMapView } from "./components/FullMapView";
 import { StatusBar } from "./components/StatusBar";
@@ -137,6 +137,7 @@ function LoadedView({
 
   const [listSearchQuery, setListSearchQuery] = useState("");
   const [selectionCount, setSelectionCount] = useState(0);
+  const fileListSelectionRef = useRef<FileListSelectionHandle>(null);
   const [fullMapPaths, setFullMapPaths] = useState<string[] | null>(null);
   const [bulkEditPaths, setBulkEditPaths] = useState<string[] | null>(null);
 
@@ -334,6 +335,7 @@ function LoadedView({
         searching={searchPending}
       />
       <FileList
+        ref={fileListSelectionRef}
         files={displayFiles}
         thumbnails={state.thumbnails}
         fileMetadataOccurrences={state.fileMetadataOccurrences}
@@ -524,6 +526,9 @@ function LoadedView({
         scanning={state.scanning}
         metadataProgress={state.metadataProgress}
         selectedCount={selectionCount}
+        onToggleFileSelection={() =>
+          fileListSelectionRef.current?.toggleAllSelection()
+        }
         draftEditsSummary={draftEditsSummary}
         onClickDraftSummary={onClickDraftSummary}
         onApplyAllEdits={() => actions.applyDraftEdits()}

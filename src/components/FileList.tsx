@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  forwardRef,
+  type ForwardedRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type {
@@ -74,6 +82,10 @@ interface Props {
   onShowOnMap?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
+}
+
+export interface FileListSelectionHandle {
+  toggleAllSelection: () => void;
 }
 
 const EMPTY_TARGET_DRAFT_COLLECTION: TargetDraftCollection = {};
@@ -312,36 +324,39 @@ function FileListHeader(props: HeaderProps) {
     </>
   );
 }
-export function FileList({
-  files,
-  thumbnails,
-  fileMetadataOccurrences,
-  targetDraftEdits,
-  visibleColumns,
-  columnWidths = {},
-  onColumnWidthChange,
-  onColumnsReorder,
-  sortConfig,
-  onSortChange,
-  sortingDisabled,
-  selectedIndex,
-  onSelect,
-  onShowInExplorer,
-  onVisibilityChange,
-  onFileOpen,
-  onSelectColumns,
-  searchQuery = "",
-  emptySearchMessage = null,
-  onDiscardAllEdits,
-  onApplyEdits,
-  onGenerateAiDescription,
-  onGeocode,
-  onNormalise,
-  onCopyPaths,
-  onBulkEdit,
-  onShowOnMap,
-  onSelectionCountChange,
-}: Props) {
+function FileListImpl(
+  {
+    files,
+    thumbnails,
+    fileMetadataOccurrences,
+    targetDraftEdits,
+    visibleColumns,
+    columnWidths = {},
+    onColumnWidthChange,
+    onColumnsReorder,
+    sortConfig,
+    onSortChange,
+    sortingDisabled,
+    selectedIndex,
+    onSelect,
+    onShowInExplorer,
+    onVisibilityChange,
+    onFileOpen,
+    onSelectColumns,
+    searchQuery = "",
+    emptySearchMessage = null,
+    onDiscardAllEdits,
+    onApplyEdits,
+    onGenerateAiDescription,
+    onGeocode,
+    onNormalise,
+    onCopyPaths,
+    onBulkEdit,
+    onShowOnMap,
+    onSelectionCountChange,
+  }: Props,
+  selectionHandleRef: ForwardedRef<FileListSelectionHandle>,
+) {
   const listRef = useRef<HTMLDivElement>(null);
   const visibleRef = useRef<Set<string>>(new Set());
 
@@ -463,7 +478,7 @@ export function FileList({
     }
   }, [selectedIndex, rowVirtualizer]);
 
-  const { selectedIndices, handleRowSelect, handleRowContextMenu } =
+  const { selectedIndices, toggleAll, handleRowSelect, handleRowContextMenu } =
     useRowSelection({
       filesLength: files.length,
       selectedIndex,
@@ -473,6 +488,11 @@ export function FileList({
       rowHeight,
       onSelectionCountChange,
     });
+  useImperativeHandle(
+    selectionHandleRef,
+    () => ({ toggleAllSelection: toggleAll }),
+    [toggleAll],
+  );
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -688,3 +708,5 @@ export function FileList({
     </div>
   );
 }
+
+export const FileList = forwardRef(FileListImpl);
