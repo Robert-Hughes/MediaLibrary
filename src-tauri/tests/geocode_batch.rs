@@ -186,12 +186,18 @@ async fn happy_path_accounting_routes_each_source_to_its_summary_counter() {
     Mock::given(method("GET"))
         .and(path("/reverse"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-            "address": {
-                "tourism": "Tower of London",
-                "city": "London",
-                "country": "United Kingdom",
-                "country_code": "gb"
-            }
+            "features": [{
+                "properties": {
+                    "geocoding": {
+                        "type": "house",
+                        "osm_key": "tourism",
+                        "name": "Tower of London",
+                        "city": "London",
+                        "country": "United Kingdom",
+                        "country_code": "gb"
+                    }
+                }
+            }]
         })))
         .mount(&server)
         .await;
@@ -265,13 +271,20 @@ async fn cancel_between_nominatim_and_overpass_emits_cancelled_progress_and_skip
 
     let cancel = std::sync::Arc::new(AtomicBool::new(false));
 
-    // Road-only address forces should_use_overpass_fallback → true.
+    // A GeocodeJSON street/highway result forces the fallback even though
+    // Nominatim represents its road text as `name`.
     let road_only = serde_json::json!({
-        "address": {
-            "road": "High Street",
-            "country": "United Kingdom",
-            "country_code": "gb"
-        }
+        "features": [{
+            "properties": {
+                "geocoding": {
+                    "type": "street",
+                    "osm_key": "highway",
+                    "name": "High Street",
+                    "country": "United Kingdom",
+                    "country_code": "gb"
+                }
+            }
+        }]
     });
     Mock::given(method("GET"))
         .and(path("/reverse"))

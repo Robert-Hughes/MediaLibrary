@@ -65,10 +65,11 @@ pub struct CachedResult {
     pub postcode: Option<String>,
 }
 
-// Version 2 invalidates results fetched without an explicit language
-// preference. Reusing those entries would preserve local-script place
-// names after the geocoder switched to English output.
-pub const CACHE_VERSION: u32 = 2;
+// Version 3 invalidates results projected from Nominatim's free-form JSON
+// address object. GeocodeJSON uses a normalized hierarchy and deliberately
+// different City/State rules, so retaining version 2 entries would mix two
+// metadata semantics in one batch.
+pub const CACHE_VERSION: u32 = 3;
 
 /// Compute great-circle distance between two coordinate pairs, in metres.
 ///
@@ -271,6 +272,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = cache_path(dir.path());
         fs::write(&path, br#"{"version": 1, "entries": []}"#).unwrap();
+        let c = load(dir.path());
+        assert_eq!(c.entries.len(), 0);
+        assert_eq!(c.version, CACHE_VERSION);
+    }
+
+    #[test]
+    fn load_invalidates_pre_geocodejson_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = cache_path(dir.path());
+        fs::write(&path, br#"{"version": 2, "entries": []}"#).unwrap();
         let c = load(dir.path());
         assert_eq!(c.entries.len(), 0);
         assert_eq!(c.version, CACHE_VERSION);
