@@ -56,9 +56,17 @@ export function FileListContextMenu({
 }: Props) {
   const indices = Array.from(selectedIndices).sort((a, b) => a - b);
   const effectiveIndices = indices.length > 0 ? indices : [contextMenuIndex];
-  const selectedPaths = effectiveIndices
-    .map((i) => files[i]?.relative_path)
-    .filter((p): p is string => typeof p === "string");
+  const selectedFiles = effectiveIndices
+    .map((i) => files[i])
+    .filter((file): file is FileInfo => file !== undefined);
+  const selectedPaths = selectedFiles.map((file) => file.relative_path);
+  const selectedImageCount = selectedFiles.filter(
+    (file) => file.media_kind === "image",
+  ).length;
+  const allSelectedFilesAreImages =
+    selectedFiles.length > 0 && selectedImageCount === selectedFiles.length;
+  const mixedMediaSelection =
+    selectedImageCount > 0 && selectedImageCount < selectedFiles.length;
   const editablePaths = selectedPaths.filter(
     (path) => Object.keys(targetDraftEdits[path] ?? {}).length > 0,
   );
@@ -69,7 +77,6 @@ export function FileListContextMenu({
   const count = selectedPaths.length;
   const noun = count === 1 ? "file" : "files";
   const firstIndex = effectiveIndices[0];
-
   return (
     <ContextMenu
       x={x}
@@ -120,13 +127,19 @@ export function FileListContextMenu({
               },
             ]
           : []),
-        ...(onGenerateAiDescription && selectedPaths.length > 0
+        ...(onGenerateAiDescription &&
+        selectedPaths.length > 0 &&
+        (allSelectedFilesAreImages || mixedMediaSelection)
           ? [
               {
                 label:
                   count > 1
                     ? `Generate AI Description… (${count} ${noun})`
                     : "Generate AI Description…",
+                disabled: !allSelectedFilesAreImages,
+                title: mixedMediaSelection
+                  ? "AI Describe requires an image-only selection"
+                  : undefined,
                 onClick: () => {
                   onClose();
                   onGenerateAiDescription(selectedPaths);
@@ -134,8 +147,6 @@ export function FileListContextMenu({
               },
             ]
           : []),
-        // Reverse-geocode entry. Always visible regardless of GPS
-        // presence — per docs/REVERSE_GEOCODE_PLAN.md §5, the backend
         // surfaces no_gps as a per-image failure in the done panel
         // instead of hiding the entry (which would be more confusing
         // than the silent skip behaviour).
