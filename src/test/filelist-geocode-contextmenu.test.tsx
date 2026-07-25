@@ -188,7 +188,7 @@ describe("FileList: Reverse Geocode context-menu entry", () => {
     // fires the callback unconditionally.
     const { onGeocode } = setup({
       metadataByPath: {
-        "1.jpg": { "XMP-fileshop:City": "London" },
+        "1.jpg": { "XMP-photoshop:City": "London" },
         "2.jpg": { "IPTC:Country-PrimaryLocationName": "France" },
       },
     });
@@ -225,7 +225,7 @@ describe("FileList: Reverse Geocode context-menu entry", () => {
     const { onGeocode } = setup({
       targetDraftEntriesByPath: {
         "0.jpg": [
-          newPropertyTargetDraft("XMP-fileshop:State", {
+          newPropertyTargetDraft("XMP-photoshop:State", {
             intent: "Set",
             value: { kind: "Text", value: "Bavaria" },
           }),

@@ -36,7 +36,7 @@ describe("ColumnSelectionDialog tests", () => {
     { key: "XMP-dc:Subject", count: 5 },
     { key: "GPS:GPSLatitude", count: 3 },
     { key: "GPS:GPSLongitude", count: 3 },
-    { key: "XMP-fileshop:City", count: 7 },
+    { key: "XMP-photoshop:City", count: 7 },
   ]);
 
   const cols = (...arr: VisibleColumn[]): VisibleColumn[] => arr;
@@ -319,7 +319,7 @@ describe("ColumnSelectionDialog tests", () => {
       await userEvent.type(searchInput, "xmp");
 
       expect(screen.getByText("XMP-dc:Subject")).toBeInTheDocument();
-      expect(screen.getByText("XMP-fileshop:City")).toBeInTheDocument();
+      expect(screen.getByText("XMP-photoshop:City")).toBeInTheDocument();
       expect(screen.queryByText("IFD0:Model")).not.toBeInTheDocument();
       expect(screen.queryByText("GPS:GPSLatitude")).not.toBeInTheDocument();
     });

@@ -5,9 +5,9 @@
  */
 export type HeadlineInput = { 
 /**
- * `XMP-fileshop:Headline` (primary).
+ * `XMP-photoshop:Headline` (primary).
  */
-fileshopHeadline: string | null, 
+photoshopHeadline: string | null, 
 /**
  * `IPTC:Headline` (derivative; 256-char IIM limit applied on
  * write).

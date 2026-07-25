@@ -24,11 +24,11 @@ describe("list search target-draft projection", () => {
   });
 
   it("finds a draft-only value by value, exact schema, friendly name, description, and has:edits", async () => {
-    const cityId = testId("XMP-fileshop:City");
+    const cityId = testId("XMP-photoshop:City");
     mockApi.tagInfos = [
       {
         id: cityId,
-        group: "XMP-fileshop",
+        group: "XMP-photoshop",
         name: "City",
         writable: true,
         kind: { kind: "Text" },
@@ -68,8 +68,8 @@ describe("list search target-draft projection", () => {
     const search = screen.getByTestId("list-search-input");
     for (const query of [
       "Reykjavik draft",
-      "XMP::fileshop",
-      "XMP-fileshop:City",
+      "XMP::photoshop",
+      "XMP-photoshop:City",
       "City shown in the filegraph",
       "has:edits",
     ]) {

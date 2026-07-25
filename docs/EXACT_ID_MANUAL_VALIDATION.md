@@ -74,7 +74,7 @@ readback comparisons.
       the readback value matches and the draft clears only for the selected exact
       target.
 
-      _Recommended fixture:_ `01_comprehensive_metadata.jpg`; edit the writable scalar `XMP-fileshop:Headline`.
+      _Recommended fixture:_ `01_comprehensive_metadata.jpg`; edit the writable scalar `XMP-photoshop:Headline`.
 
 - [ ] **6. Edit a list.** Replace a writable text list, then exercise add and
       remove. Expected: items remain separate, with correct replacement/add/remove

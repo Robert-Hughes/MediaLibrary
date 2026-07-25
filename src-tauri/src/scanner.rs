@@ -2126,20 +2126,20 @@ mod tests {
         let source = "D:/batch/iptc-record-versions.jpg";
         let display_json = serde_json::json!([{
             "SourceFile": source,
-            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:EnvelopeRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:EnvelopeRecordVersion": {
                 "table": "IPTC::EnvelopeRecord", "id": 0, "val": "4"
             },
-            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:ApplicationRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:ApplicationRecordVersion": {
                 "table": "IPTC::ApplicationRecord", "id": 0, "val": "4"
             }
         }])
         .to_string();
         let raw_json = serde_json::json!([{
             "SourceFile": source,
-            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:EnvelopeRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:EnvelopeRecordVersion": {
                 "table": "IPTC::EnvelopeRecord", "id": 0, "val": 4
             },
-            "IPTC:Main::JPEG-APP13-Fileshop-IPTC:ID-0:ApplicationRecordVersion": {
+            "IPTC:Main::JPEG-APP13-Photoshop-IPTC:ID-0:ApplicationRecordVersion": {
                 "table": "IPTC::ApplicationRecord", "id": 0, "val": 4
             }
         }])
@@ -2165,7 +2165,7 @@ mod tests {
         assert_ne!(ids[0], ids[1]);
         assert!(ids.iter().all(|id| {
             id.document.is_none()
-                && id.path == "JPEG-APP13-Fileshop-IPTC"
+                && id.path == "JPEG-APP13-Photoshop-IPTC"
                 && id.runtime_tag_id == "0"
                 && id.tag_id_scope.tag_id == "0"
                 && id.tag_id_scope.index.is_none()
@@ -3863,7 +3863,7 @@ mod tests {
     fn parse_batch_populates_semantic_occurrences() {
         let json = r#"[{
             "SourceFile": "D:/a.jpg",
-            "IPTC:Main:Copy0:JPEG-APP13-Fileshop-IPTC:ID-60:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
+            "IPTC:Main:Copy0:JPEG-APP13-Photoshop-IPTC:ID-60:TimeCreated": {"table": "IPTC::ApplicationRecord", "id": "60", "val": "10:56:05"},
             "ExifIFD:Main:Copy0:JPEG-APP1-IFD0-ExifIFD:ID-36881:OffsetTimeOriginal": {"table": "Exif::Main", "id": "36881", "val": "+01:00"},
             "MadeUp:Main:Copy0:Fixture-Metadata:ID-MadeUpThing:Thing": {"table": "TestFixture::Unknown", "id": "MadeUp:Thing", "val": 5}
         }]"#;

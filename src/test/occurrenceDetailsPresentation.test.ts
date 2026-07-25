@@ -729,7 +729,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
 
   it("keeps same-schema New Properties at separate destinations independent", () => {
     const first = newTarget(otherSchema, "XMP-dc");
-    const second = newTarget(otherSchema, "XMP-fileshop");
+    const second = newTarget(otherSchema, "XMP-photoshop");
     const entries = [
       { target: first, edit: edit({ kind: "Text", value: "One" }) },
       { target: second, edit: edit({ kind: "Text", value: "Two" }) },
@@ -742,7 +742,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
 
     expect(result.groups.map((group) => group.name)).toEqual([
       "XMP-dc",
-      "XMP-fileshop",
+      "XMP-photoshop",
     ]);
     expect(
       result.groups.flatMap((group) => group.rows).map((row) => row.key),
