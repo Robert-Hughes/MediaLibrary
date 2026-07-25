@@ -66,11 +66,11 @@ pub fn default_metadata_scan_batch_size() -> u16 {
 }
 
 pub fn default_metadata_apply_batch_size() -> u16 {
-    8
+    32
 }
 
 pub fn default_metadata_apply_concurrency() -> u16 {
-    4
+    8
 }
 
 pub fn default_thumbnail_concurrency() -> u16 {
@@ -289,6 +289,8 @@ mod tests {
         assert_eq!(s, Settings::default());
         assert_eq!(s.openai_model, default_model());
         assert_eq!(s.describe_concurrency, 12);
+        assert_eq!(s.metadata_apply_batch_size, 32);
+        assert_eq!(s.metadata_apply_concurrency, 8);
         assert!(s.openai_api_key.is_empty());
     }
 

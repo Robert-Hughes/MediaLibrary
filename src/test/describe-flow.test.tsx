@@ -128,6 +128,16 @@ describe("SettingsDialog", () => {
     expect(metadataBatchSizeSelect.value).toBe("20");
     expect(metadataApplyBatchSizeSelect.value).toBe("8");
     expect(metadataApplyConcurrencySelect.value).toBe("4");
+    expect(
+      within(metadataApplyBatchSizeSelect).getByRole("option", {
+        name: "32 (recommended)",
+      }),
+    ).toHaveValue("32");
+    expect(
+      within(metadataApplyConcurrencySelect).getByRole("option", {
+        name: "8 (recommended)",
+      }),
+    ).toHaveValue("8");
     expect(thumbnailConcurrencySelect.value).toBe("8");
 
     // Type into the API key input and tab away to commit the save.

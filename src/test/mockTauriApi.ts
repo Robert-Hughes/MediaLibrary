@@ -319,8 +319,8 @@ export function createMockTauriApi(): MockTauriApi {
       describe_concurrency: 12,
       metadata_scan_concurrency: 4,
       metadata_scan_batch_size: 20,
-      metadata_apply_batch_size: 8,
-      metadata_apply_concurrency: 4,
+      metadata_apply_batch_size: 32,
+      metadata_apply_concurrency: 8,
       thumbnail_concurrency: 8,
     },
     recommendedModels: [
