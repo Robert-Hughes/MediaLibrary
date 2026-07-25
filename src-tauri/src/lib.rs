@@ -566,6 +566,7 @@ fn start_scan(
         let image_metadata_queue_walk = image_metadata_queue.clone();
         let thumb_queue_walk = thumb_queue.clone();
 
+        let app_walk_thumbnail = app_clone.clone();
         let app_walk_err = app_clone.clone();
         let walk_handle = std::thread::spawn(move || {
             scanner::scan_folder(
@@ -573,7 +574,25 @@ fn start_scan(
                 cancel_walk,
                 |file| {
                     image_metadata_queue_walk.push(file.relative_path.clone());
-                    thumb_queue_walk.push(file.relative_path.clone());
+                    match file.media_kind {
+                        scanner::MediaKind::Image => {
+                            thumb_queue_walk.push(file.relative_path.clone());
+                        }
+                        scanner::MediaKind::Audio | scanner::MediaKind::Video => {
+                            let thumbnail =
+                                scanner::placeholder_thumbnail(file.media_kind).map(str::to_owned);
+                            let _ = app_walk_thumbnail.emit(
+                                "thumbnail_ready",
+                                ThumbnailReadyPayload {
+                                    scan_id,
+                                    results: vec![ThumbnailResult {
+                                        relative_path: file.relative_path.clone(),
+                                        thumbnail,
+                                    }],
+                                },
+                            );
+                        }
+                    }
                     file_queue_clone.lock().unwrap().push(file);
                 },
                 |err| {
