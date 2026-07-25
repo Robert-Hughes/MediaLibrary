@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { MetadataDraftEdit } from "../types";
+import type { FileInfo, MetadataDraftEdit } from "../types";
 
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -414,6 +414,63 @@ describe("FileList context menu (multi-select)", () => {
     expect(onGenerateAiDescription).toHaveBeenCalledWith(["1.jpg", "2.jpg"]);
   });
 
+  it("hides AI Describe for an audio-only selection", async () => {
+    const files = makeFiles(1).map((file) => ({
+      ...file,
+      relative_path: "track.flac",
+      filename: "track.flac",
+      media_kind: "audio" as const,
+    }));
+    setup({ files });
+
+    fireEvent.contextMenu(rows()[0]);
+
+    expect(
+      screen.queryByRole("button", { name: /Generate AI Description/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides AI Describe for a video-only selection", async () => {
+    const files = makeFiles(1).map((file) => ({
+      ...file,
+      relative_path: "clip.mp4",
+      filename: "clip.mp4",
+      media_kind: "video" as const,
+    }));
+    setup({ files });
+
+    fireEvent.contextMenu(rows()[0]);
+
+    expect(
+      screen.queryByRole("button", { name: /Generate AI Description/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("disables AI Describe for a mixed-media selection", async () => {
+    const files: FileInfo[] = makeFiles(2);
+    files[1] = {
+      ...files[1],
+      relative_path: "track.flac",
+      filename: "track.flac",
+      media_kind: "audio",
+    };
+    const { onGenerateAiDescription } = setup({ files });
+
+    fireEvent.click(rows()[0]);
+    fireEvent.click(rows()[1], { ctrlKey: true });
+    fireEvent.contextMenu(rows()[1]);
+
+    const button = await screen.findByRole("button", {
+      name: /Generate AI Description/,
+    });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute(
+      "title",
+      "AI Describe requires an image-only selection",
+    );
+    await userEvent.click(button);
+    expect(onGenerateAiDescription).not.toHaveBeenCalled();
+  });
   it("Apply edits passes the array of edited selected paths", async () => {
     const targetDraftEdits = mockTargetDraftsByFile({
       "1.jpg": [newPropertyTargetDraft("IFD0:Make", textDraft("Canon"))],

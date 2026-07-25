@@ -50,6 +50,7 @@ import {
 import { sortFiles, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
+import { arePathsImageOnly } from "./utils/mediaKind";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
 import "./App.css";
 
@@ -349,12 +350,12 @@ function LoadedView({
         onShowInExplorer={onShowInExplorer}
         onVisibilityChange={actions.prioritizeQueues}
         onFileOpen={actions.openGallery}
-        onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
+          if (!arePathsImageOnly(state.files, relPaths)) return;
           if (!actions.canStageGeneratedMetadata(relPaths)) return;
           setDescribeOverwrite(
             countDescribeOverwrites(
