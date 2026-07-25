@@ -21,7 +21,7 @@ function makeStore(files: FileInfo[]) {
   return s;
 }
 
-const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
+const fakeLoadMedia = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 describe("GalleryView", () => {
   it("renders audio files with browser controls", async () => {
@@ -39,7 +39,7 @@ describe("GalleryView", () => {
         onClose={() => {}}
         onNavigate={() => {}}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={async () => "asset://track.flac"}
+        loadMedia={async () => "asset://track.flac"}
       />,
     );
 
@@ -64,7 +64,7 @@ describe("GalleryView", () => {
         onClose={() => {}}
         onNavigate={() => {}}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={async () => "asset://clip.mp4"}
+        loadMedia={async () => "asset://clip.mp4"}
       />,
     );
 
@@ -85,7 +85,7 @@ describe("GalleryView", () => {
         onClose={() => {}}
         onNavigate={() => {}}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
       />,
     );
     await screen.findByTestId("gallery-image");
@@ -103,7 +103,7 @@ describe("GalleryView", () => {
         onClose={() => {}}
         onNavigate={() => {}}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
       />,
     );
     await screen.findByTestId("gallery-image");
@@ -112,7 +112,7 @@ describe("GalleryView", () => {
     expect(counter!.textContent).toMatch(/2.*3/);
   });
 
-  it("shows the loaded image when loadImage resolves", async () => {
+  it("shows the loaded image when loadMedia resolves", async () => {
     render(
       <GalleryView
         onRemoveMetadataTargets={vi.fn()}
@@ -123,7 +123,7 @@ describe("GalleryView", () => {
         onClose={() => {}}
         onNavigate={() => {}}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
       />,
     );
     const img = await screen.findByTestId("gallery-image");
@@ -142,7 +142,7 @@ describe("GalleryView", () => {
         onClose={onClose}
         onNavigate={vi.fn()}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
       />,
     );
     const dialog = await screen.findByRole("dialog", {
@@ -171,7 +171,7 @@ describe("GalleryView", () => {
         onClose={onClose}
         onNavigate={vi.fn()}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
       />,
     );
     await screen.findByTestId("gallery-image");
@@ -191,7 +191,7 @@ describe("GalleryView", () => {
         onClose={onClose}
         onNavigate={vi.fn()}
         fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-        loadImage={fakeLoad}
+        loadMedia={fakeLoadMedia}
       />,
     );
     await screen.findByTestId("gallery-image");

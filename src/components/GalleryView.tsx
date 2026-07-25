@@ -82,7 +82,7 @@ interface Props {
   onClose: () => void;
   onNavigate: (delta: -1 | 1) => void;
   /** Injectable for testing — defaults to the real Tauri invoke */
-  loadImage?: (path: string) => Promise<string | null>;
+  loadMedia?: (path: string) => Promise<string | null>;
   /** Observable authoritative occurrence store. */
   fileMetadataOccurrences: FileMetadataOccurrencesStore;
   targetDraftEdits?: TargetDraftCollection;
@@ -139,7 +139,7 @@ export function GalleryView({
   folderPath,
   onClose,
   onNavigate,
-  loadImage,
+  loadMedia,
   fileMetadataOccurrences,
   targetDraftEdits,
   targetDraftPersistence,
@@ -159,7 +159,7 @@ export function GalleryView({
   onOpenFullMap,
 }: Props) {
   const file = files[currentIndex];
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [mediaSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [detailsVisible, setDetailsVisibleState] =
     useState<boolean>(loadDetailsVisible);
@@ -252,15 +252,15 @@ export function GalleryView({
 
   // Load the full image whenever the current file changes.
   useEffect(() => {
-    if (!file || !loadImage) return;
+    if (!file || !loadMedia) return;
     setLoading(true);
     setImageSrc(null);
     const absPath = `${folderPath}/${file.relative_path}`.replace(/\\/g, "/");
-    loadImage(absPath).then((src) => {
+    loadMedia(absPath).then((src) => {
       setImageSrc(src);
       setLoading(false);
     });
-  }, [file, folderPath, loadImage]);
+  }, [file, folderPath, loadMedia]);
 
   const onKey = (e: React.KeyboardEvent<HTMLDialogElement>) => {
     const target = e.target as HTMLElement | null;
@@ -284,7 +284,7 @@ export function GalleryView({
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (!imageSrc) return;
+    if (!mediaSrc) return;
 
     const zoomFactor = Math.pow(2, e.deltaY * -0.002);
     let newScale = scale * zoomFactor;
@@ -325,7 +325,7 @@ export function GalleryView({
       setPan({ x: 0, y: 0 });
       return;
     }
-    if (scale <= 1 || !imageSrc || e.button !== 0) return;
+    if (scale <= 1 || !mediaSrc || e.button !== 0) return;
     e.preventDefault();
     setIsDragging(true);
     setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
@@ -399,8 +399,8 @@ export function GalleryView({
         </button>
 
         <div
-          className="gallery-image-area"
-          data-testid="gallery-image-area"
+          className="gallery-media-area"
+          data-testid="gallery-media-area"
           ref={areaRef}
           onWheel={file.media_kind === "image" ? handleWheel : undefined}
           onMouseDown={
@@ -423,10 +423,10 @@ export function GalleryView({
               className="gallery-spinner"
               data-testid="gallery-spinner"
             />
-          ) : imageSrc ? (
+          ) : mediaSrc ? (
             file.media_kind === "image" ? (
               <img
-                src={imageSrc}
+                src={mediaSrc}
                 alt={file.relative_path}
                 className="gallery-image"
                 data-testid="gallery-image"
@@ -440,14 +440,14 @@ export function GalleryView({
               />
             ) : file.media_kind === "audio" ? (
               <audio
-                src={imageSrc}
+                src={mediaSrc}
                 className="gallery-audio"
                 data-testid="gallery-audio"
                 controls
               />
             ) : (
               <video
-                src={imageSrc}
+                src={mediaSrc}
                 className="gallery-video"
                 data-testid="gallery-video"
                 controls

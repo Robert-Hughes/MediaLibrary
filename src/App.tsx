@@ -59,7 +59,7 @@ const tauriApi: TauriApi = {
   listen: (event, handler) => listen(event, (e) => handler(e.payload)),
 };
 
-async function loadImage(path: string): Promise<string | null> {
+async function loadMedia(path: string): Promise<string | null> {
   try {
     return convertFileSrc(path);
   } catch {
@@ -420,7 +420,7 @@ function LoadedView({
           folderPath={state.folder}
           onClose={actions.closeGallery}
           onNavigate={onGalleryNavigate}
-          loadImage={loadImage}
+          loadMedia={loadMedia}
           fileMetadataOccurrences={state.fileMetadataOccurrences}
           targetDraftEdits={
             state.targetDraftEdits[

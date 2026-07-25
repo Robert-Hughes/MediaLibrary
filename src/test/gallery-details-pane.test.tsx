@@ -33,7 +33,7 @@ const PHOTOS: FileInfo[] = makeFiles([
   "2024/b.jpg",
   "2024/c.jpg",
 ]);
-const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
+const fakeLoadMedia = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 /** Render the GalleryView with defaults suitable for integration testing. */
 async function renderGallery(
@@ -48,7 +48,7 @@ async function renderGallery(
     folderPath: "/files",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
-    loadImage: fakeLoad,
+    loadMedia: fakeLoadMedia,
     fileMetadataOccurrences: new FileMetadataOccurrencesStore(),
     ...overrides,
   };

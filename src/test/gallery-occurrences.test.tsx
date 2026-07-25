@@ -48,7 +48,7 @@ function props(fileMetadataOccurrences: FileMetadataOccurrencesStore) {
     folderPath: "/files",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
-    loadImage: async () => "data:image/jpeg;base64,FAKE",
+    loadMedia: async () => "data:image/jpeg;base64,FAKE",
     fileMetadataOccurrences,
     onRemoveMetadataTargets: vi.fn(),
     onDiscardTargetDraftBatch: vi.fn(),
