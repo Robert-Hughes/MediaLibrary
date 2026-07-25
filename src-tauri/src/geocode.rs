@@ -171,8 +171,32 @@ pub fn parse_gps(value: &str) -> Option<f64> {
 
 // ── Address shape ────────────────────────────────────────────────────────────
 
-/// Parsed Nominatim `address` block, narrowed to the fields we map to
-/// industry-standard location tags.
+/// GeocodeJSON's normalized location hierarchy for the selected feature.
+///
+/// These are the schema-defined GeocodeJSON properties we need for the
+/// existing five semantic location fields plus the context that explains
+/// them. Keeping this typed avoids returning to the former free-form
+/// Nominatim `address` key precedence.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GeocodeJsonAddress {
+    #[serde(rename = "type")]
+    pub result_type: Option<String>,
+    pub osm_key: Option<String>,
+    pub name: Option<String>,
+    pub street: Option<String>,
+    pub locality: Option<String>,
+    pub district: Option<String>,
+    pub city: Option<String>,
+    pub county: Option<String>,
+    pub state: Option<String>,
+    pub country: Option<String>,
+    pub country_code: Option<String>,
+    pub postcode: Option<String>,
+    #[serde(default)]
+    pub admin: std::collections::BTreeMap<String, String>,
+}
+
+/// GeocodeJSON narrowed to the existing industry-standard location tags.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AddressFields {
     /// Specific named place (building, POI, road as last resort). Maps
@@ -219,52 +243,31 @@ impl AddressFields {
     }
 }
 
-/// Priority list of Nominatim `address` keys that represent a *named
-/// feature* — a building, POI, etc. — as opposed to a generic
-/// road/place. Shared between `flatten_address` (which prefers any of
-/// these over a road for the `location` field) and
-/// `should_use_overpass_fallback` (which skips Overpass when any of
-/// these is already populated). Keeping the list in one place avoids
-/// the drift bug where one site picks up a new key and the other
-/// doesn't — the fallback decision would then disagree with the
-/// flattener's view of "did we get a named feature?".
-const NAMED_FEATURE_KEYS: &[&str] = &[
-    "building", "tourism", "amenity", "leisure", "historic", "shop", "memorial", "man_made",
-];
+fn non_empty(value: &Option<String>) -> Option<String> {
+    value.as_ref().filter(|value| !value.is_empty()).cloned()
+}
 
-/// Flatten Nominatim's `address` object (a free-form `serde_json::Value`)
-/// into our six-field shape, picking the most specific available value
-/// for each slot per the precedence table in the plan.
-pub fn flatten_address(addr: &serde_json::Value) -> AddressFields {
-    // Pick the first non-empty key in priority order. Nominatim's
-    // hierarchy varies wildly by place type so we walk a deliberate
-    // priority list rather than trusting any single key.
-    fn pick(addr: &serde_json::Value, keys: &[&str]) -> Option<String> {
-        for k in keys {
-            if let Some(s) = addr.get(*k).and_then(|v| v.as_str()) {
-                if !s.is_empty() {
-                    return Some(s.to_string());
-                }
-            }
-        }
-        None
-    }
-    let location = pick(addr, NAMED_FEATURE_KEYS).or_else(|| pick(addr, &["road"]));
-    let city = pick(
-        addr,
-        &[
-            "city",
-            "town",
-            "village",
-            "hamlet",
-            "municipality",
-            "suburb",
-        ],
-    );
-    let state = pick(addr, &["state", "region"]);
-    let country = pick(addr, &["country"]);
-    let country_code = pick(addr, &["country_code"]).map(|c| xmp_country_code_projection(&c));
-    let postcode = pick(addr, &["postcode"]);
+/// Project GeocodeJSON into the five semantic values mirrored across the
+/// existing ten XMP/IIM tags.
+///
+/// The intentionally small mapping is evidence-backed and place-agnostic:
+/// `name ?? street`, `city`, `state ?? admin.level4`, `country`, and the
+/// uppercased country code. We do not promote locality/district/county into
+/// City and do not normalize individual place names (for example London),
+/// because those operations change meaning rather than response shape. See
+/// `docs/REVERSE_GEOCODE_MAPPING.md`.
+pub fn map_geocodejson(addr: &GeocodeJsonAddress) -> AddressFields {
+    let location = non_empty(&addr.name).or_else(|| non_empty(&addr.street));
+    let city = non_empty(&addr.city);
+    let state = non_empty(&addr.state).or_else(|| {
+        addr.admin
+            .get("level4")
+            .filter(|value| !value.is_empty())
+            .cloned()
+    });
+    let country = non_empty(&addr.country);
+    let country_code = non_empty(&addr.country_code).map(|code| xmp_country_code_projection(&code));
+    let postcode = non_empty(&addr.postcode);
     AddressFields {
         location,
         city,
@@ -275,27 +278,22 @@ pub fn flatten_address(addr: &serde_json::Value) -> AddressFields {
     }
 }
 
-/// True when Nominatim's result is too generic to be useful — we got a
-/// road or nothing for `location`, and no other named-feature signal.
-/// The caller then tries Overpass for a nearby named POI.
-pub fn should_use_overpass_fallback(addr: &serde_json::Value, parsed: &AddressFields) -> bool {
-    // Reuse the same priority list as `flatten_address` — the decision
-    // "did Nominatim already give us a named feature?" must stay in
-    // lockstep with what the flattener actually consumes.
-    for k in NAMED_FEATURE_KEYS {
-        if addr
-            .get(*k)
-            .and_then(|v| v.as_str())
-            .is_some_and(|s| !s.is_empty())
-        {
-            return false;
-        }
-    }
-    // Otherwise we fall back when we have at least a road but no named
-    // POI — i.e. the result is just an address on a street. With
-    // nothing at all, Overpass is unlikely to help either, so don't
-    // burn the call.
-    parsed.location.is_some()
+/// True when GeocodeJSON selected a street/highway rather than a POI.
+///
+/// GeocodeJSON may put the road text in `name`, so presence of `name` alone
+/// cannot suppress refinement. The normalized type/classification is the
+/// stable signal. With no usable Location, Overpass is unlikely to help and
+/// the call is skipped.
+pub fn should_use_overpass_fallback(addr: &GeocodeJsonAddress, parsed: &AddressFields) -> bool {
+    let is_street = addr
+        .result_type
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("street"));
+    let is_highway = addr
+        .osm_key
+        .as_deref()
+        .is_some_and(|value| value.eq_ignore_ascii_case("highway"));
+    (is_street || is_highway) && parsed.location.is_some()
 }
 
 // ── Source tag for cache/summary ─────────────────────────────────────────────
@@ -546,8 +544,24 @@ pub struct GeocodeResult {
 #[derive(Debug, Clone)]
 pub struct NominatimReverseResponse {
     pub zoom: u8,
-    pub address: serde_json::Value,
+    pub address: GeocodeJsonAddress,
     pub preview: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeocodeJsonEnvelope {
+    #[serde(default)]
+    features: Vec<GeocodeJsonFeature>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeocodeJsonFeature {
+    properties: GeocodeJsonProperties,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeocodeJsonProperties {
+    geocoding: GeocodeJsonAddress,
 }
 
 fn truncate_for_log(value: &str, max_chars: usize) -> String {
@@ -563,8 +577,8 @@ fn nominatim_response_preview(json: &serde_json::Value) -> String {
         .get("error")
         .and_then(|v| v.as_str())
         .map(|s| truncate_for_log(s, 120));
-    let address = json.get("address");
-    let address_keys = address
+    let geocoding = json.pointer("/features/0/properties/geocoding");
+    let geocoding_keys = geocoding
         .and_then(|v| v.as_object())
         .map(|obj| {
             let mut keys: Vec<&str> = obj.keys().map(|s| s.as_str()).collect();
@@ -576,20 +590,19 @@ fn nominatim_response_preview(json: &serde_json::Value) -> String {
         .map(|s| truncate_for_log(&s, 240))
         .unwrap_or_else(|_| "<unserializable>".into());
     format!(
-        "error={} address={} address_keys=[{}] raw={}",
+        "error={} geocoding={} geocoding_keys=[{}] raw={}",
         error
             .as_ref()
             .map(|s| format!("true({})", s))
             .unwrap_or_else(|| "false".into()),
-        address.is_some(),
-        address_keys,
+        geocoding.is_some(),
+        geocoding_keys,
         raw
     )
 }
 
 /// Call Nominatim `/reverse` once at the requested zoom. Returns the
-/// raw `address` JSON object plus a compact response preview for
-/// diagnostics.
+/// normalized GeocodeJSON location plus a compact response preview.
 pub async fn nominatim_reverse(
     client: &GeocodeClient,
     lat: f64,
@@ -597,7 +610,7 @@ pub async fn nominatim_reverse(
     zoom: u8,
 ) -> Result<NominatimReverseResponse, GeocodeError> {
     let url = format!(
-        "{}/reverse?format=json&lat={:.7}&lon={:.7}&zoom={}&addressdetails=1",
+        "{}/reverse?format=geocodejson&lat={:.7}&lon={:.7}&zoom={}&addressdetails=1",
         client.nominatim_base, lat, lon, zoom
     );
     let resp = client
@@ -619,12 +632,20 @@ pub async fn nominatim_reverse(
         GeocodeError::Network(format!("nominatim bad JSON: {} (body: {})", e, text))
     })?;
     let preview = nominatim_response_preview(&json);
+    let envelope: GeocodeJsonEnvelope = serde_json::from_value(json).map_err(|e| {
+        GeocodeError::Network(format!(
+            "nominatim bad GeocodeJSON shape: {} (body: {})",
+            e, text
+        ))
+    })?;
     Ok(NominatimReverseResponse {
         zoom,
-        address: json
-            .get("address")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null),
+        address: envelope
+            .features
+            .into_iter()
+            .next()
+            .map(|feature| feature.properties.geocoding)
+            .unwrap_or_default(),
         preview,
     })
 }
@@ -730,7 +751,7 @@ pub async fn geocode_one(
         });
     }
 
-    let mut selected: Option<(serde_json::Value, AddressFields, u8)> = None;
+    let mut selected: Option<(GeocodeJsonAddress, AddressFields, u8)> = None;
     let mut empty_previews: Vec<String> = Vec::new();
     for zoom in NOMINATIM_REVERSE_ZOOMS {
         if cancelled() {
@@ -743,7 +764,7 @@ pub async fn geocode_one(
             return Err(GeocodeError::Cancelled);
         }
         let response = nominatim_reverse(client, lat, lon, *zoom).await?;
-        let parsed = flatten_address(&response.address);
+        let parsed = map_geocodejson(&response.address);
         if parsed.has_any_usable() {
             selected = Some((response.address, parsed, response.zoom));
             break;
@@ -758,7 +779,7 @@ pub async fn geocode_one(
         empty_previews.push(format!("zoom {}: {}", response.zoom, response.preview));
     }
 
-    let (raw_addr, mut parsed, selected_zoom) = match selected {
+    let (geocoding, mut parsed, selected_zoom) = match selected {
         Some(result) => result,
         None => {
             let zooms = NOMINATIM_REVERSE_ZOOMS
@@ -787,7 +808,7 @@ pub async fn geocode_one(
 
     // Overpass refinement for generic Nominatim results. Separate
     // bucket — see GeocodeRateLimiter doc-comment.
-    if should_use_overpass_fallback(&raw_addr, &parsed) {
+    if should_use_overpass_fallback(&geocoding, &parsed) {
         if cancelled() {
             return Err(GeocodeError::Cancelled);
         }
@@ -1047,6 +1068,16 @@ mod tests {
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
+    fn geocodejson_body(geocoding: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "features": [{
+                "properties": {
+                    "geocoding": geocoding
+                }
+            }]
+        })
+    }
+
     #[test]
     fn parse_gps_decimal_round_trip() {
         assert_eq!(parse_gps("51.5"), Some(51.5));
@@ -1077,49 +1108,81 @@ mod tests {
     }
 
     #[test]
-    fn flatten_address_prefers_named_feature_over_road() {
-        let addr = serde_json::json!({
-            "tourism": "Tower of London",
-            "road": "Tower Hill",
-            "city": "London",
-            "country": "United Kingdom",
-            "country_code": "gb"
-        });
-        let f = flatten_address(&addr);
+    fn map_geocodejson_prefers_name_over_street() {
+        let addr = GeocodeJsonAddress {
+            name: Some("Tower of London".into()),
+            street: Some("Tower Hill".into()),
+            city: Some("London".into()),
+            country: Some("United Kingdom".into()),
+            country_code: Some("gb".into()),
+            ..Default::default()
+        };
+        let f = map_geocodejson(&addr);
         assert_eq!(f.location.as_deref(), Some("Tower of London"));
         assert_eq!(f.country_code.as_deref(), Some("GB"));
     }
 
     #[test]
-    fn flatten_address_falls_back_to_road_when_no_named_feature() {
-        let addr = serde_json::json!({
-            "road": "Oakdale Road",
-            "city": "York",
-            "country": "United Kingdom",
-            "country_code": "gb"
-        });
-        let f = flatten_address(&addr);
+    fn map_geocodejson_falls_back_to_street() {
+        let addr = GeocodeJsonAddress {
+            street: Some("Oakdale Road".into()),
+            city: Some("York".into()),
+            country: Some("United Kingdom".into()),
+            country_code: Some("gb".into()),
+            ..Default::default()
+        };
+        let f = map_geocodejson(&addr);
         assert_eq!(f.location.as_deref(), Some("Oakdale Road"));
         assert_eq!(f.city.as_deref(), Some("York"));
     }
 
     #[test]
-    fn should_use_overpass_fallback_when_only_road_is_known() {
-        let addr = serde_json::json!({
-            "road": "Some Street",
-            "city": "City"
-        });
-        let parsed = flatten_address(&addr);
+    fn map_geocodejson_uses_admin_level4_when_state_is_absent() {
+        let addr = GeocodeJsonAddress {
+            city: Some("Tokyo".into()),
+            country: Some("Japan".into()),
+            admin: std::collections::BTreeMap::from([("level4".into(), "Tokyo".into())]),
+            ..Default::default()
+        };
+        let parsed = map_geocodejson(&addr);
+        assert_eq!(parsed.city.as_deref(), Some("Tokyo"));
+        assert_eq!(parsed.state.as_deref(), Some("Tokyo"));
+    }
+
+    #[test]
+    fn map_geocodejson_does_not_promote_district_or_locality_to_city() {
+        let addr = GeocodeJsonAddress {
+            locality: Some("Takanawa 4".into()),
+            district: Some("Minato".into()),
+            ..Default::default()
+        };
+        let parsed = map_geocodejson(&addr);
+        assert_eq!(parsed.city, None);
+    }
+
+    #[test]
+    fn should_use_overpass_fallback_for_street_result_even_with_name() {
+        let addr = GeocodeJsonAddress {
+            result_type: Some("street".into()),
+            osm_key: Some("highway".into()),
+            name: Some("Some Street".into()),
+            city: Some("City".into()),
+            ..Default::default()
+        };
+        let parsed = map_geocodejson(&addr);
         assert!(should_use_overpass_fallback(&addr, &parsed));
     }
 
     #[test]
-    fn should_skip_overpass_when_named_feature_already_present() {
-        let addr = serde_json::json!({
-            "tourism": "X Museum",
-            "road": "Y Road"
-        });
-        let parsed = flatten_address(&addr);
+    fn should_skip_overpass_for_named_non_street_feature() {
+        let addr = GeocodeJsonAddress {
+            result_type: Some("house".into()),
+            osm_key: Some("office".into()),
+            name: Some("HMS Wellington".into()),
+            street: Some("Victoria Embankment".into()),
+            ..Default::default()
+        };
+        let parsed = map_geocodejson(&addr);
         assert!(!should_use_overpass_fallback(&addr, &parsed));
     }
 
@@ -1213,19 +1276,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nominatim_reverse_parses_address_block() {
+    async fn nominatim_reverse_parses_geocodejson_feature() {
         let server = MockServer::start().await;
-        let body = serde_json::json!({
-            "display_name": "Tower Hill, London",
-            "address": {
-                "tourism": "Tower of London",
-                "city": "London",
-                "country": "United Kingdom",
-                "country_code": "gb"
-            }
-        });
+        let body = geocodejson_body(serde_json::json!({
+            "type": "house",
+            "osm_key": "tourism",
+            "name": "Tower of London",
+            "city": "London",
+            "country": "United Kingdom",
+            "country_code": "gb"
+        }));
         Mock::given(method("GET"))
             .and(path("/reverse"))
+            .and(query_param("format", "geocodejson"))
             .and(query_param("accept-language", NOMINATIM_ACCEPT_LANGUAGE))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&server)
@@ -1233,23 +1296,21 @@ mod tests {
 
         let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
         let raw = nominatim_reverse(&client, 51.5, -0.07, 18).await.unwrap();
-        let parsed = flatten_address(&raw.address);
+        let parsed = map_geocodejson(&raw.address);
         assert_eq!(parsed.location.as_deref(), Some("Tower of London"));
         assert_eq!(parsed.country_code.as_deref(), Some("GB"));
     }
 
     #[tokio::test]
-    async fn geocode_one_returns_nominatim_empty_when_address_block_yields_nothing() {
-        // An ocean coord — Nominatim sometimes returns an `address`
-        // object with only metadata keys like `iso3166-2-lvl4` and no
-        // civic context. Our flattener produces an empty AddressFields,
-        // which the caller must surface as a failure (not write empty
-        // drafts!) so the user's existing tags aren't mass-cleared.
+    async fn geocode_one_returns_nominatim_empty_when_geocodejson_yields_nothing() {
+        // An ocean coord may return no feature. The empty normalized
+        // location must surface as a failure (not write empty drafts!)
+        // so the user's existing tags aren't mass-cleared.
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/reverse"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "address": {}
+                "features": []
             })))
             .mount(&server)
             .await;
@@ -1282,13 +1343,13 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/reverse"))
             .and(query_param("zoom", "16"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "address": {
+            .respond_with(ResponseTemplate::new(200).set_body_json(geocodejson_body(
+                serde_json::json!({
                     "city": "York",
                     "country": "United Kingdom",
                     "country_code": "gb"
-                }
-            })))
+                }),
+            )))
             .mount(&server)
             .await;
 
@@ -1323,13 +1384,13 @@ mod tests {
             .and(query_param("lat", "53.9838560"))
             .and(query_param("lon", "-1.1009180"))
             .and(query_param("zoom", "18"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "address": {
+            .respond_with(ResponseTemplate::new(200).set_body_json(geocodejson_body(
+                serde_json::json!({
                     "city": "York",
                     "country": "United Kingdom",
                     "country_code": "gb"
-                }
-            })))
+                }),
+            )))
             .mount(&server)
             .await;
 

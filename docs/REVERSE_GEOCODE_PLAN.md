@@ -11,11 +11,11 @@ Drafts are proposed for the conventional Lightroom / Photoshop / IPTC location
 fields. These are the same fields written by every mainstream tagger
 (Lightroom, Bridge, File Mechanic, digiKam, ExifTool's `-Country` shortcut).
 
-| Tag                                | Source from Nominatim address                                                     | Notes                                                                                                                        |
+| Tag                                | Source from Nominatim GeocodeJSON                                                  | Notes                                                                                                                        |
 | ---------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `XMP-iptcCore:Location`            | `building` ∪ `tourism` ∪ `amenity` ∪ `leisure` ∪ `historic` ∪ `shop`, else `road` | "Sub-location" / specific named place. Falls back to road if no named POI. Overpass result, when used, populates this field. |
-| `XMP-photoshop:City`               | `city` ∪ `town` ∪ `village` ∪ `hamlet` ∪ `suburb`                                 |                                                                                                                              |
-| `XMP-photoshop:State`              | `state`                                                                           |                                                                                                                              |
+| `XMP-iptcCore:Location`            | `name`, else `street`                                                             | "Sub-location" / specific named place. Overpass may refine a street/highway result to a nearby named POI.                    |
+| `XMP-photoshop:City`               | `city`                                                                            | Deliberately does not promote locality, district, or county.                                                                  |
+| `XMP-photoshop:State`              | `state`, else `admin.level4`                                                       |                                                                                                                              |
 | `XMP-photoshop:Country`            | `country`                                                                         |                                                                                                                              |
 | `XMP-iptcCore:CountryCode`         | `country_code` (uppercased — ISO 3166-1 alpha-2)                                  | App semantic value, e.g. `GB`.                                                                                               |
 | `IPTC:Sub-location`                | mirror of `XMP-iptcCore:Location`                                                 | Legacy IPTC IIM mirror.                                                                                                      |
@@ -23,6 +23,9 @@ fields. These are the same fields written by every mainstream tagger
 | `IPTC:Province-State`              | mirror of `XMP-photoshop:State`                                                   |                                                                                                                              |
 | `IPTC:Country-PrimaryLocationName` | mirror of `XMP-photoshop:Country`                                                 |                                                                                                                              |
 | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection of `XMP-iptcCore:CountryCode`                  | Alpha-2 value right-padded for two-character ASCII codes, e.g. `GB `. This is not alpha-3 conversion.                        |
+
+The current GeocodeJSON mapping and its rationale are the contract documented
+in [REVERSE_GEOCODE_MAPPING.md](REVERSE_GEOCODE_MAPPING.md).
 
 Rationale for IPTC IIM mirroring: it's the convention enforced by most apps
 (IPTC fields are stored in two parallel places — XMP and legacy IIM — and tools
@@ -124,14 +127,13 @@ perspective.
 - **`src-tauri/src/geocode.rs`**:
   - `parse_gps(value) -> Option<f64>` — DMS + decimal.
   - `haversine_meters(lat1, lon1, lat2, lon2) -> f64`.
-  - `flatten_address(address) -> AddressFields` — typed output (location,
+  - `map_geocodejson(address) -> AddressFields` — typed output (location,
     city, state, country, country_code, postcode) using the precedence
     table from §1.
   - `async fn nominatim_reverse(client, lat, lon) -> Result<NominatimResp, GeocodeError>`.
   - `async fn overpass_named_nearby(client, lat, lon, radius_m) -> Result<Option<OverpassFeature>, GeocodeError>`.
-  - `should_use_overpass_fallback(addr: &AddressFields) -> bool` — true
-    when `location` is empty or fell back to `road` only, and no named POI
-    came back from Nominatim.
+  - `should_use_overpass_fallback(addr: &GeocodeJsonAddress, parsed: &AddressFields) -> bool` — true
+    when GeocodeJSON selected a street/highway and produced a usable Location.
   - `async fn geocode_one(client, cache, lat, lon) -> Result<GeocodeResult, GeocodeError>`:
     1. Cache lookup with haversine < 50 m → return cached + mark `source = Cache`.
     2. Nominatim call. 1 req/s rate limiter.
