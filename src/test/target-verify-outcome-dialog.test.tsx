@@ -5,6 +5,11 @@ import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 import { recordFromEntries } from "../utils/stringRecord";
 import { testId } from "./factories";
+import { createMockTauriApi } from "./mockTauriApi";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(() => new Promise(() => {})),
+}));
 
 const id = testId("XMP-dc:Subject");
 const replacement = {
@@ -29,6 +34,9 @@ const replacement = {
 };
 
 describe("TargetVerifyOutcomeDialog", () => {
+  beforeEach(() => {
+    createMockTauriApi();
+  });
   it("shows friendly and diagnostic LangAlt and offset-aware Time values", () => {
     const rights = {
       kind: "NewProperty" as const,

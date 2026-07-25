@@ -30,6 +30,10 @@ ai_cost_estimate_mode: AiCostEstimateMode,
  */
 describe_concurrency: number, 
 /**
+ * Maximum number of metadata-normalisation AI requests in flight.
+ */
+normalise_concurrency: number, 
+/**
  * Number of metadata scanner workers. Each worker may spawn ExifTool.
  */
 metadata_scan_concurrency: number, 
