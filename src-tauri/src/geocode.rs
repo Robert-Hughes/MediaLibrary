@@ -76,6 +76,7 @@ pub struct GeocodeSummary {
 pub const NOMINATIM_BASE_URL: &str = "https://nominatim.openstreetmap.org";
 pub const OVERPASS_BASE_URL: &str = "https://overpass-api.de/api/interpreter";
 pub const NOMINATIM_REVERSE_ZOOMS: &[u8] = &[18, 16, 14, 12, 10];
+pub const NOMINATIM_ACCEPT_LANGUAGE: &str = "en-GB,en;q=0.9";
 
 /// Required by Nominatim's usage policy. Bundles the crate version so
 /// it's clear which build is hitting the server during a debugging
@@ -602,6 +603,7 @@ pub async fn nominatim_reverse(
     let resp = client
         .http
         .get(&url)
+        .query(&[("accept-language", NOMINATIM_ACCEPT_LANGUAGE)])
         .send()
         .await
         .map_err(|e| GeocodeError::Network(e.to_string()))?;
@@ -1224,6 +1226,7 @@ mod tests {
         });
         Mock::given(method("GET"))
             .and(path("/reverse"))
+            .and(query_param("accept-language", NOMINATIM_ACCEPT_LANGUAGE))
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&server)
             .await;
@@ -1251,7 +1254,7 @@ mod tests {
             .mount(&server)
             .await;
         let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
-        let mut cache = GeocodeCacheFile::default_v1();
+        let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
         match geocode_one(&client, &mut cache, &mut limiter, &cancel, 0.0, 0.0).await {
@@ -1290,7 +1293,7 @@ mod tests {
             .await;
 
         let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
-        let mut cache = GeocodeCacheFile::default_v1();
+        let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let result = geocode_one(
@@ -1331,7 +1334,7 @@ mod tests {
             .await;
 
         let client = GeocodeClient::with_bases(server.uri(), "http://unused".into());
-        let mut cache = GeocodeCacheFile::default_v1();
+        let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let result = geocode_one(
@@ -1353,7 +1356,7 @@ mod tests {
         // No mock server needed — if the cache hit short-circuits, no
         // network call happens. Set the cache up with a result for a
         // London-ish coord, then ask for one ~20 m away.
-        let mut cache = GeocodeCacheFile::default_v1();
+        let mut cache = GeocodeCacheFile::empty_current();
         cache.upsert(GeocodeCacheEntry {
             lat: 51.5001,
             lon: -0.1262,
@@ -1390,7 +1393,7 @@ mod tests {
         // before any network call. No mock server needed — if we
         // reached the network we'd hit "http://unused".
         let client = GeocodeClient::with_bases("http://unused".into(), "http://unused".into());
-        let mut cache = GeocodeCacheFile::default_v1();
+        let mut cache = GeocodeCacheFile::empty_current();
         let mut limiter = GeocodeRateLimiter::new();
         let cancel = std::sync::atomic::AtomicBool::new(true);
         match geocode_one(&client, &mut cache, &mut limiter, &cancel, 1.0, 2.0).await {

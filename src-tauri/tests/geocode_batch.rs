@@ -150,7 +150,7 @@ fn item_no_gps(rel: &str) -> GeocodeRequestItem {
 /// addressful result so a `geocode_one` call will be served from the
 /// cache (no network).
 fn cache_with_entry(lat: f64, lon: f64, city: &str) -> GeocodeCacheFile {
-    let mut c = GeocodeCacheFile::default_v1();
+    let mut c = GeocodeCacheFile::empty_current();
     c.upsert(GeocodeCacheEntry {
         lat,
         lon,
@@ -294,7 +294,7 @@ async fn cancel_between_nominatim_and_overpass_emits_cancelled_progress_and_skip
         .await;
 
     let client = GeocodeClient::with_bases(nominatim.uri(), overpass.uri());
-    let mut cache = GeocodeCacheFile::default_v1();
+    let mut cache = GeocodeCacheFile::empty_current();
     let sink = RecordingSink::default();
 
     let outcome = geocode::run_geocode_batch(
