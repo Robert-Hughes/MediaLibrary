@@ -29,6 +29,41 @@ fn make_dummy_jpgs(dir: &std::path::Path, n: usize) -> Vec<String> {
 }
 
 #[test]
+fn scan_folder_discovers_supported_image_audio_and_video_extensions() {
+    let dir = tempdir().unwrap();
+    let extensions = [
+        "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "mp3", "flac", "m4a", "m4b",
+        "aac", "wav", "aiff", "ogg", "opus", "wma", "ape", "mp4", "mov", "m4v", "3gp", "3g2",
+        "avi", "mkv", "webm", "mpg", "mpeg", "m2v", "mts", "m2ts", "ts", "wmv",
+    ];
+
+    for extension in extensions {
+        fs::write(dir.path().join(format!("sample.{extension}")), b"x").unwrap();
+    }
+    fs::write(dir.path().join("uppercase.FLAC"), b"x").unwrap();
+    fs::write(dir.path().join("unsupported.txt"), b"x").unwrap();
+    fs::write(dir.path().join("no-extension"), b"x").unwrap();
+
+    let mut discovered = HashSet::new();
+    scanner::scan_folder(
+        dir.path(),
+        Arc::new(AtomicBool::new(false)),
+        |file| {
+            discovered.insert(file.relative_path);
+        },
+        |error| panic!("unexpected scan error: {error:?}"),
+    );
+
+    let expected: HashSet<String> = extensions
+        .into_iter()
+        .map(|extension| format!("sample.{extension}"))
+        .chain(["uppercase.FLAC".to_owned()])
+        .collect();
+
+    assert_eq!(discovered, expected);
+}
+
+#[test]
 fn walk_feeds_queues_and_workers_drain_them_with_no_loss() {
     let dir = tempdir().unwrap();
     let names = make_dummy_jpgs(dir.path(), 200);
