@@ -948,7 +948,8 @@ mod tests {
                 }
                 let active_count = active_count_clone.clone();
                 async move {
-                    let item_num: usize = item.rel_path.trim_end_matches(".jpg").parse().unwrap_or(0);
+                    let item_num: usize =
+                        item.rel_path.trim_end_matches(".jpg").parse().unwrap_or(0);
                     if item_num == 0 {
                         tokio::time::sleep(Duration::from_millis(50)).await;
                     } else {
@@ -969,6 +970,9 @@ mod tests {
         assert!(max_active_observed.load(Ordering::SeqCst) <= 4);
         let pos_0 = completed.iter().position(|r| r == "0.jpg").unwrap();
         let pos_1 = completed.iter().position(|r| r == "1.jpg").unwrap();
-        assert!(pos_1 < pos_0, "Item 1 should complete before Item 0 due to simulated latency");
+        assert!(
+            pos_1 < pos_0,
+            "Item 1 should complete before Item 0 due to simulated latency"
+        );
     }
 }
