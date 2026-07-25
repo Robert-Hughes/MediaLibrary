@@ -24,6 +24,56 @@ function makeStore(files: FileInfo[]) {
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 describe("GalleryView", () => {
+  it("renders audio files with browser controls", async () => {
+    const files: FileInfo[] = [
+      { ...makeFiles(["track.flac"])[0], media_kind: "audio" },
+    ];
+
+    render(
+      <GalleryView
+        onRemoveMetadataTargets={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+        files={files}
+        currentIndex={0}
+        folderPath="/files"
+        onClose={() => {}}
+        onNavigate={() => {}}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        loadImage={async () => "asset://track.flac"}
+      />,
+    );
+
+    const audio = await screen.findByTestId("gallery-audio");
+    expect(audio).toHaveAttribute("src", "asset://track.flac");
+    expect(audio).toHaveAttribute("controls");
+    expect(screen.queryByTestId("gallery-image")).not.toBeInTheDocument();
+  });
+
+  it("renders video files with browser controls", async () => {
+    const files: FileInfo[] = [
+      { ...makeFiles(["clip.mp4"])[0], media_kind: "video" },
+    ];
+
+    render(
+      <GalleryView
+        onRemoveMetadataTargets={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+        files={files}
+        currentIndex={0}
+        folderPath="/files"
+        onClose={() => {}}
+        onNavigate={() => {}}
+        imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
+        loadImage={async () => "asset://clip.mp4"}
+      />,
+    );
+
+    const video = await screen.findByTestId("gallery-video");
+    expect(video).toHaveAttribute("src", "asset://clip.mp4");
+    expect(video).toHaveAttribute("controls");
+    expect(screen.queryByTestId("gallery-image")).not.toBeInTheDocument();
+  });
+
   it("renders the current file path in the caption", async () => {
     render(
       <GalleryView

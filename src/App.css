@@ -937,7 +937,8 @@ body {
   min-width: 0;
 }
 
-.gallery-image {
+.gallery-image,
+.gallery-video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
@@ -945,6 +946,9 @@ body {
   display: block;
 }
 
+.gallery-audio {
+  width: min(640px, 80%);
+}
 .gallery-spinner {
   width: 40px;
   height: 40px;
