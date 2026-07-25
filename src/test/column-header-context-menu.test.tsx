@@ -14,6 +14,7 @@ const files: FileInfo[] = [
   {
     relative_path: "file1.jpg",
     filename: "file1.jpg",
+    media_kind: "image" as const,
     date_modified: 1640995200,
     date_created: 1640995200,
   },

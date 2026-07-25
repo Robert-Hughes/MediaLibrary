@@ -6,6 +6,7 @@
 // cargo test --manifest-path src-tauri/Cargo.toml
 
 import type { FileInfo } from "./types/generated/FileInfo";
+import type { MediaKind } from "./types/generated/MediaKind";
 import type { MetadataValue } from "./types/generated/MetadataValue";
 import type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 import type { MetadataOccurrences } from "./types/generated/MetadataOccurrences";
@@ -19,7 +20,7 @@ import type { TargetApplyControllerState } from "./targetApplyController";
 import type { TargetVerifyOutcomesByFile } from "./targetVerifyOutcomes";
 import type { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 
-export type { FileInfo };
+export type { FileInfo, MediaKind };
 export type { MetadataValue } from "./types/generated/MetadataValue";
 export type { SchemaDefinitionId } from "./types/generated/SchemaDefinitionId";
 export type { MetadataOccurrenceId } from "./types/generated/MetadataOccurrenceId";

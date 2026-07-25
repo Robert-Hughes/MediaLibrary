@@ -31,30 +31,47 @@ pub(crate) fn find_exiftool() -> &'static str {
     }
 }
 
-/// File extensions recognised as files.
-const SUPPORTED_FILE_EXTENSIONS: &[&str] = &[
-    // Images
-    "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", // Audio
-    "mp3", "flac", "m4a", "m4b", "aac", "wav", "aiff", "ogg", "opus", "wma", "ape",
-    // Video
-    "mp4", "mov", "m4v", "3gp", "3g2", "avi", "mkv", "webm", "mpg", "mpeg", "m2v", "mts", "m2ts",
-    "ts", "wmv",
-];
+/// Broad media category assigned during folder discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum MediaKind {
+    Image,
+    Audio,
+    Video,
+}
+
+/// Return the media category for a supported extension.
+/// An unsupported extension returns `None` and is omitted from the scan.
+fn media_kind_from_extension(extension: &str) -> Option<MediaKind> {
+    match extension {
+        // Images
+        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "tiff" | "tif" => Some(MediaKind::Image),
+        // Audio
+        "mp3" | "flac" | "m4a" | "m4b" | "aac" | "wav" | "aiff" | "ogg" | "opus" | "wma"
+        | "ape" => Some(MediaKind::Audio),
+        // Video
+        "mp4" | "mov" | "m4v" | "3gp" | "3g2" | "avi" | "mkv" | "webm" | "mpg" | "mpeg" | "m2v"
+        | "mts" | "m2ts" | "ts" | "wmv" => Some(MediaKind::Video),
+        _ => None,
+    }
+}
 
 /// A single file entry from the directory walk.
-/// Contains only path and OS metadata — Image metadata arrives separately via `read_image_metadata`.
+/// Contains only path, media category and OS metadata — detailed metadata arrives separately.
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct FileInfo {
     pub relative_path: String,
     pub filename: String,
+    pub media_kind: MediaKind,
     #[cfg_attr(test, ts(type = "number | null"))]
     pub date_modified: Option<i64>,
     #[cfg_attr(test, ts(type = "number | null"))]
     pub date_created: Option<i64>,
 }
-
 /// A directory-walk failure (permission denied, broken symlink, IO error,
 /// etc.).  Reported per-entry — the walk continues past the failure.
 #[derive(Debug, Clone)]
@@ -121,20 +138,20 @@ pub fn scan_folder<P, E>(
                 continue;
             }
         };
-
         if !entry.file_type().is_file() {
             continue;
         }
 
         let path = entry.path();
-        let ext = match path.extension().and_then(|e| e.to_str()) {
-            Some(e) => e.to_ascii_lowercase(),
+        let media_kind = match path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(str::to_ascii_lowercase)
+            .and_then(|extension| media_kind_from_extension(&extension))
+        {
+            Some(media_kind) => media_kind,
             None => continue,
         };
-
-        if !SUPPORTED_FILE_EXTENSIONS.contains(&ext.as_str()) {
-            continue;
-        }
 
         let rel = match path.strip_prefix(folder) {
             Ok(r) => r.to_string_lossy().replace('\\', "/"),
@@ -157,6 +174,7 @@ pub fn scan_folder<P, E>(
         on_file(FileInfo {
             relative_path: rel,
             filename,
+            media_kind,
             date_modified,
             date_created,
         });

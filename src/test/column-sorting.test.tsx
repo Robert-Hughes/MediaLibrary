@@ -244,11 +244,13 @@ describe("sortFiles", () => {
     const files = [
       makeFile({
         relative_path: "b.jpg",
+        media_kind: "image" as const,
         date_modified: 100,
         date_created: 2,
       }),
       makeFile({
         relative_path: "a.jpg",
+        media_kind: "image" as const,
         date_modified: 100,
         date_created: 1,
       }),
@@ -378,12 +380,14 @@ const mockFiles: FileInfo[] = [
   {
     relative_path: "b.jpg",
     filename: "b.jpg",
+    media_kind: "image" as const,
     date_modified: 200,
     date_created: 200,
   },
   {
     relative_path: "a.jpg",
     filename: "a.jpg",
+    media_kind: "image" as const,
     date_modified: 100,
     date_created: 100,
   },

@@ -42,6 +42,7 @@ function renderTargetDraftRow(
         {
           relative_path: "1.jpg",
           filename: "1.jpg",
+          media_kind: "image" as const,
           date_modified: null,
           date_created: null,
         },
@@ -82,6 +83,7 @@ describe("FileRow", () => {
       {
         relative_path: "1.jpg",
         filename: "1.jpg",
+        media_kind: "image" as const,
         date_modified: null,
         date_created: null,
       },
@@ -124,6 +126,7 @@ describe("FileRow", () => {
           {
             relative_path: "1.jpg",
             filename: "1.jpg",
+            media_kind: "image" as const,
             date_modified: null,
             date_created: null,
           },
@@ -156,6 +159,7 @@ describe("FileRow", () => {
       {
         relative_path: "1.jpg",
         filename: "1.jpg",
+        media_kind: "image" as const,
         date_modified: null,
         date_created: null,
       },
@@ -205,6 +209,7 @@ describe("FileRow", () => {
       {
         relative_path: "1.jpg",
         filename: "1.jpg",
+        media_kind: "image" as const,
         date_modified: null,
         date_created: null,
       },
@@ -264,6 +269,7 @@ describe("FileRow", () => {
           {
             relative_path: "1.jpg",
             filename: "1.jpg",
+            media_kind: "image" as const,
             date_modified: null,
             date_created: null,
           },
@@ -310,6 +316,7 @@ describe("FileRow", () => {
           {
             relative_path: "1.jpg",
             filename: "1.jpg",
+            media_kind: "image" as const,
             date_modified: null,
             date_created: null,
           },

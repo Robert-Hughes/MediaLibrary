@@ -45,6 +45,7 @@ export function makeFile(overrides: Partial<FileInfo> = {}): FileInfo {
   return {
     relative_path,
     filename: relative_path.split("/").pop() ?? relative_path,
+    media_kind: "image" as const,
     date_modified: null,
     date_created: null,
     ...overrides,

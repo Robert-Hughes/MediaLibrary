@@ -25,6 +25,7 @@ const mockFiles: FileInfo[] = [
   {
     relative_path: "a.jpg",
     filename: "a.jpg",
+    media_kind: "image" as const,
     date_modified: 100,
     date_created: 100,
   },
