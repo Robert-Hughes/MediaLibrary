@@ -402,11 +402,19 @@ export function GalleryView({
           className="gallery-image-area"
           data-testid="gallery-image-area"
           ref={areaRef}
-          onWheel={handleWheel}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUpOrLeave}
-          onMouseLeave={handleMouseUpOrLeave}
+          onWheel={file.media_kind === "image" ? handleWheel : undefined}
+          onMouseDown={
+            file.media_kind === "image" ? handleMouseDown : undefined
+          }
+          onMouseMove={
+            file.media_kind === "image" ? handleMouseMove : undefined
+          }
+          onMouseUp={
+            file.media_kind === "image" ? handleMouseUpOrLeave : undefined
+          }
+          onMouseLeave={
+            file.media_kind === "image" ? handleMouseUpOrLeave : undefined
+          }
           style={{ overflow: "hidden" }}
         >
           {loading ? (
@@ -416,22 +424,38 @@ export function GalleryView({
               data-testid="gallery-spinner"
             />
           ) : imageSrc ? (
-            <img
-              src={imageSrc}
-              alt={file.relative_path}
-              className="gallery-image"
-              data-testid="gallery-image"
-              style={{
-                transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
-                transition: isDragging ? "none" : "transform 0.1s ease-out",
-                cursor:
-                  scale > 1 ? (isDragging ? "grabbing" : "grab") : "default",
-              }}
-              draggable={false}
-            />
+            file.media_kind === "image" ? (
+              <img
+                src={imageSrc}
+                alt={file.relative_path}
+                className="gallery-image"
+                data-testid="gallery-image"
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
+                  transition: isDragging ? "none" : "transform 0.1s ease-out",
+                  cursor:
+                    scale > 1 ? (isDragging ? "grabbing" : "grab") : "default",
+                }}
+                draggable={false}
+              />
+            ) : file.media_kind === "audio" ? (
+              <audio
+                src={imageSrc}
+                className="gallery-audio"
+                data-testid="gallery-audio"
+                controls
+              />
+            ) : (
+              <video
+                src={imageSrc}
+                className="gallery-video"
+                data-testid="gallery-video"
+                controls
+              />
+            )
           ) : (
             <div className="gallery-error" data-testid="gallery-error">
-              Could not load image
+              Could not load file
             </div>
           )}
         </div>
