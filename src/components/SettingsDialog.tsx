@@ -435,7 +435,7 @@ export function SettingsDialog({ onClose }: Props) {
                 >
                   {APPLY_BATCH_SIZE_OPTIONS.map((value) => (
                     <option key={value} value={value}>
-                      {value === 8 ? `${value} (recommended)` : value}
+                      {value === 32 ? `${value} (recommended)` : value}
                     </option>
                   ))}
                 </select>
@@ -472,7 +472,7 @@ export function SettingsDialog({ onClose }: Props) {
                 >
                   {CONCURRENCY_OPTIONS.map((value) => (
                     <option key={value} value={value}>
-                      {value === 4 ? `${value} (recommended)` : value}
+                      {value === 8 ? `${value} (recommended)` : value}
                     </option>
                   ))}
                 </select>
