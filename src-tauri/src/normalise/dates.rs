@@ -275,28 +275,39 @@ fn datetime_from_value(
     })
 }
 
+fn date_from_value(value: Option<&MetadataValue>) -> Option<DateValue> {
+    match value? {
+        MetadataValue::Date(date) => Some(date.clone()),
+        MetadataValue::Text(text) => parse_date_str(text),
+        _ => None,
+    }
+}
+
+fn time_from_value(value: Option<&MetadataValue>) -> Option<TimeValue> {
+    match value? {
+        MetadataValue::Time(time) => Some(time.clone()),
+        MetadataValue::Text(text) => parse_time_str(text),
+        _ => None,
+    }
+}
+
 fn split_datetime_from_values(
     date_value: Option<&MetadataValue>,
     time_value: Option<&MetadataValue>,
     related_offset: Option<UtcOffsetValue>,
     related_subsecond: Option<String>,
 ) -> Option<ComparableTimestamp> {
-    let date = match date_value? {
-        MetadataValue::Date(d) => d.clone(),
-        MetadataValue::Text(s) => parse_date_str(s)?,
-        _ => return None,
-    };
-    let mut time = match time_value {
-        Some(MetadataValue::Time(t)) => t.clone(),
-        Some(MetadataValue::Text(s)) => parse_time_str(s)?,
-        None => TimeValue {
+    let date = date_from_value(date_value)?;
+    let mut time = match time_from_value(time_value) {
+        Some(time) => time,
+        None if time_value.is_none() => TimeValue {
             hour: 0,
             minute: 0,
             second: 0,
             subsecond: None,
             offset: None,
         },
-        _ => return None,
+        None => return None,
     };
     if time.subsecond.is_none() {
         time.subsecond = related_subsecond;
@@ -326,6 +337,8 @@ fn process_date_subgroup(
     existing_exif: Option<&ComparableTimestamp>,
     existing_xmp: Option<&ComparableTimestamp>,
     existing_iptc: Option<&ComparableTimestamp>,
+    effective_iptc_date: Option<&MetadataValue>,
+    effective_iptc_time: Option<&MetadataValue>,
     canonical_override: Option<&ComparableTimestamp>,
     exif_target_id: SchemaDefinitionId,
     xmp_target_id: SchemaDefinitionId,
@@ -375,25 +388,21 @@ fn process_date_subgroup(
             set_edit(MetadataValue::DateTime(canonical.with_effective_offset())),
         );
     }
-    let existing_iptc_offset = existing_iptc.and_then(ComparableTimestamp::effective_offset);
+    // The combined IPTC timestamp above is enriched with the related EXIF
+    // subsecond solely for canonical selection and conflict detection. For
+    // idempotency, compare each split IPTC field against its own current
+    // effective value so target projection remains observable.
+    let iptc_date = canonical.date();
+    let effective_iptc_time = time_from_value(effective_iptc_time);
+    let existing_iptc_offset = effective_iptc_time
+        .as_ref()
+        .and_then(|time| time.offset.as_ref());
     let iptc_time = canonical.time_with_iptc_offset(existing_iptc_offset, iptc_fallback_offset);
-    // Subsecond is intentionally excluded: the IPTC projection above
-    // always sets subsecond = None, but the existing IPTC timestamp may
-    // carry a subsecond value inherited from a related EXIF SubSecTime*
-    // tag during input construction.  Comparing it would cause a churn
-    // rewrite every time even though the on-disk IPTC time is correct.
-    let iptc_matches = existing_iptc.map(|v| {
-        v.datetime.date == canonical.datetime.date
-            && v.datetime.time.hour == iptc_time.hour
-            && v.datetime.time.minute == iptc_time.minute
-            && v.datetime.time.second == iptc_time.second
-            && v.datetime.time.offset == iptc_time.offset
-    }) == Some(true);
-    if !iptc_matches {
-        edits.insert(
-            iptc_date_id,
-            set_edit(MetadataValue::Date(canonical.date())),
-        );
+
+    if date_from_value(effective_iptc_date).as_ref() != Some(&iptc_date) {
+        edits.insert(iptc_date_id, set_edit(MetadataValue::Date(iptc_date)));
+    }
+    if effective_iptc_time.as_ref() != Some(&iptc_time) {
         edits.insert(iptc_time_id, set_edit(MetadataValue::Time(iptc_time)));
     }
 
@@ -564,6 +573,8 @@ fn normalise_dates_inner(
         exif_h1.as_ref(),
         xmp_h1.as_ref(),
         iptc_h1.as_ref(),
+        input.iptc_date_created.as_ref(),
+        input.iptc_time_created.as_ref(),
         canonical_override.as_ref(),
         known_ids::date_time_original(),
         known_ids::xmp_date_created(),
@@ -604,6 +615,8 @@ fn normalise_dates_inner(
         exif_h2.as_ref(),
         xmp_h2.as_ref(),
         iptc_h2.as_ref(),
+        input.iptc_digital_creation_date.as_ref(),
+        input.iptc_digital_creation_time.as_ref(),
         None,
         known_ids::create_date(),
         known_ids::xmp_create_date(),
@@ -1077,7 +1090,7 @@ mod tests {
     }
 
     #[test]
-    fn iptc_subsecond_existing_value_is_noop() {
+    fn clean_iptc_value_with_related_subsecond_is_noop() {
         // When IPTC already has the correct h/m/s/offset, no IPTC drafts
         // should be emitted — even though the canonical carries subsecond.
         let input = DatesInput {
@@ -1094,19 +1107,110 @@ mod tests {
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, None);
-        // The only expected drafts are for EXIF (no subsecond currently)
-        // and XMP (no subsecond currently). IPTC should be a noop.
-        if let Some(ref g) = out.output {
-            assert!(
-                !g.edits.contains_key(&crate::known_ids::iptc_date_created()),
-                "IPTC date should not be rewritten: {:?}",
-                g.edits
-            );
-            assert!(
-                !g.edits.contains_key(&crate::known_ids::iptc_time_created()),
-                "IPTC time should not be rewritten: {:?}",
-                g.edits
-            );
-        }
+        assert!(
+            out.output.is_none(),
+            "clean IPTC projection must not churn: {:?}",
+            out.output
+        );
+    }
+
+    #[test]
+    fn stale_iptc_subsecond_draft_is_reprojected_without_rewriting_date() {
+        let input = DatesInput {
+            date_time_original: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("456".into()), None),
+            ))),
+            photoshop_date_created: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("456".into()), None),
+            ))),
+            iptc_date_created: Some(date(2024, 6, 15)),
+            iptc_time_created: Some(MetadataValue::Time(time_value(
+                14,
+                30,
+                45,
+                Some("456".into()),
+                None,
+            ))),
+            ..Default::default()
+        };
+
+        let output = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .expect("stale IPTC time draft must be reprojected");
+
+        assert!(
+            !output
+                .edits
+                .contains_key(&crate::known_ids::iptc_date_created()),
+            "already-correct IPTC date must not be rewritten: {:?}",
+            output.edits
+        );
+        let time = edit_value(&output, "IPTC:TimeCreated");
+        assert_eq!(display(time), "14:30:45");
+    }
+
+    #[test]
+    fn iptc_split_fields_are_compared_independently() {
+        let input = DatesInput {
+            date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            photoshop_date_created: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            iptc_date_created: Some(date(2024, 6, 14)),
+            iptc_time_created: Some(time(14, 30, 45, None)),
+            ..Default::default()
+        };
+
+        let output = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .expect("incorrect IPTC date must be reprojected");
+
+        assert_eq!(
+            display(edit_value(&output, "IPTC:DateCreated")),
+            "2024-06-15"
+        );
+        assert!(
+            !output
+                .edits
+                .contains_key(&crate::known_ids::iptc_time_created()),
+            "already-correct IPTC time must not be rewritten: {:?}",
+            output.edits
+        );
+    }
+    #[test]
+    fn stale_digital_creation_subsecond_draft_is_reprojected_without_rewriting_date() {
+        let input = DatesInput {
+            create_date: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("456".into()), None),
+            ))),
+            xmp_create_date: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("456".into()), None),
+            ))),
+            iptc_digital_creation_date: Some(date(2024, 6, 15)),
+            iptc_digital_creation_time: Some(MetadataValue::Time(time_value(
+                14,
+                30,
+                45,
+                Some("456".into()),
+                None,
+            ))),
+            ..Default::default()
+        };
+
+        let output = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .expect("stale IPTC digital creation time draft must be reprojected");
+
+        assert!(
+            !output
+                .edits
+                .contains_key(&crate::known_ids::iptc_digital_creation_date()),
+            "already-correct IPTC digital creation date must not be rewritten: {:?}",
+            output.edits
+        );
+        let time = edit_value(&output, "IPTC:DigitalCreationTime");
+        assert_eq!(display(time), "14:30:45");
     }
 }
