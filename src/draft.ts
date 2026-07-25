@@ -21,7 +21,7 @@ export function formatMetadataValue({
   if (enumLabel !== null) return enumLabel;
 
   if (schemaId) {
-    const tagFormatted = formatKnownPhotoTag(schemaId, value);
+    const tagFormatted = formatKnownFileTag(schemaId, value);
     if (tagFormatted !== null) return tagFormatted;
 
     const flashFormatted = formatFlash(schemaId, value);
@@ -150,7 +150,7 @@ function formatFlash(
   return describeFlashCode(decodeFlashCode(numericCode));
 }
 
-function formatKnownPhotoTag(
+function formatKnownFileTag(
   id: SchemaDefinitionId,
   v: MetadataValue | null | undefined,
 ): string | null {

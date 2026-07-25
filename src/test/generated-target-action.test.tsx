@@ -8,7 +8,7 @@ import type {
   SchemaDefinitionId,
 } from "../types";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto } from "./factories";
+import { makeFile } from "./factories";
 
 function occurrence(
   id: SchemaDefinitionId,
@@ -62,7 +62,7 @@ async function loadedFile(
   } = {},
 ) {
   const mock = createMockTauriApi();
-  mock.pickFolderResolves("/photos");
+  mock.pickFolderResolves("/files");
   const api = options.targetLoadFails
     ? {
         ...mock.api,
@@ -75,11 +75,11 @@ async function loadedFile(
   const hook = renderHook(() => useMediaLibrary(api));
   await act(async () => hook.result.current[1].openFolder());
   await act(async () => {
-    mock.emitPhotoFound(makePhoto({ relative_path: "photo.jpg" }));
+    mock.emitFileFound(makeFile({ relative_path: "file.jpg" }));
     mock.emitScanComplete();
     if (options.emitMetadata !== false) {
       mock.emitImageMetadataReady(
-        "photo.jpg",
+        "file.jpg",
         {},
         undefined,
         options.occurrences ?? [],
@@ -121,7 +121,7 @@ describe("generated target-aware production action", () => {
 
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [],
       );
@@ -143,7 +143,7 @@ describe("generated target-aware production action", () => {
     let stageResult;
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [],
       );
@@ -161,7 +161,7 @@ describe("generated target-aware production action", () => {
     let stageResult;
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [],
       );
@@ -179,7 +179,7 @@ describe("generated target-aware production action", () => {
     let stageResult;
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
       );
@@ -192,7 +192,7 @@ describe("generated target-aware production action", () => {
 
     await act(async () => {
       await expect(
-        result.current[1].applyDraftEdits("photo.jpg"),
+        result.current[1].applyDraftEdits("file.jpg"),
       ).rejects.toThrow("Target-aware drafts could not be loaded safely");
     });
     expect(
@@ -227,7 +227,7 @@ describe("generated target-aware production action", () => {
     );
     consoleError.mockRestore();
     await act(async () => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "broken.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "broken.jpg" }));
       mock.emitScanComplete();
     });
     expect(result.current[0].kind).toBe("loaded");
@@ -236,7 +236,7 @@ describe("generated target-aware production action", () => {
 
     await act(async () => result.current[1].openRecent("/valid"));
     await act(async () => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "valid.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "valid.jpg" }));
       mock.emitScanComplete();
       mock.emitImageMetadataReady("valid.jpg", {}, undefined, []);
     });
@@ -263,7 +263,7 @@ describe("generated target-aware production action", () => {
     let stageResult;
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
       );
@@ -278,7 +278,7 @@ describe("generated target-aware production action", () => {
     let stageResult;
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
       );
@@ -288,7 +288,7 @@ describe("generated target-aware production action", () => {
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind !== "loaded") return;
-    const entries = Object.values(state.targetDraftEdits["photo.jpg"] ?? {});
+    const entries = Object.values(state.targetDraftEdits["file.jpg"] ?? {});
     expect(entries).toHaveLength(1);
     expect(entries[0].target).toEqual({
       kind: "NewProperty",
@@ -307,7 +307,7 @@ describe("generated target-aware production action", () => {
   it("stages multiple files with one store notification and autosave", async () => {
     const { mock, result } = await loadedFile();
     await act(async () => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "second.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "second.jpg" }));
       mock.emitImageMetadataReady("second.jpg", {}, undefined, []);
       await new Promise((resolve) => setTimeout(resolve, 250));
     });
@@ -323,7 +323,7 @@ describe("generated target-aware production action", () => {
     act(() => {
       stageResults = result.current[1].applyGeneratedMetadataDraftBatches([
         {
-          relativePath: "photo.jpg",
+          relativePath: "file.jpg",
           producer: { kind: "describe" },
           edits: [generated(ID.mlibAiDescription, "first")],
         },
@@ -343,7 +343,7 @@ describe("generated target-aware production action", () => {
     expect(notifications).toBe(1);
     expect(saveCount(mock, "save_metadata_draft_edits") - savesBefore).toBe(1);
     expect(Object.keys(state.targetDraftEditsStore.getAllMetadata())).toEqual(
-      expect.arrayContaining(["photo.jpg", "second.jpg"]),
+      expect.arrayContaining(["file.jpg", "second.jpg"]),
     );
   });
 
@@ -352,21 +352,21 @@ describe("generated target-aware production action", () => {
     const { result } = await loadedFile({ occurrences: [item] });
     act(() => {
       result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
       );
     });
     const state = result.current[0];
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
-    expect(
-      Object.values(state.targetDraftEdits["photo.jpg"])[0].target,
-    ).toEqual({
-      kind: "ExistingOccurrence",
-      occurrence_id: item.id,
-      schema_id: ID.mlibAiDescription,
-      write_target: item.write_target,
-    });
+    expect(Object.values(state.targetDraftEdits["file.jpg"])[0].target).toEqual(
+      {
+        kind: "ExistingOccurrence",
+        occurrence_id: item.id,
+        schema_id: ID.mlibAiDescription,
+        write_target: item.write_target,
+      },
+    );
   });
 
   it("uses one atomic store notification and save for a multi-field file batch", async () => {
@@ -380,7 +380,7 @@ describe("generated target-aware production action", () => {
     const before = saveCount(mock, "save_metadata_draft_edits");
     act(() => {
       result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [
           generated(ID.mlibAiDescription, "description"),
@@ -406,7 +406,7 @@ describe("generated target-aware production action", () => {
     let stageResult;
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "same")],
       );
@@ -423,7 +423,7 @@ describe("generated target-aware production action", () => {
     let stageResult;
     act(() => {
       stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [
           generated(ID.mlibAiDescription, "valid"),
@@ -434,14 +434,14 @@ describe("generated target-aware production action", () => {
     expect(stageResult).toMatchObject({ kind: "failure" });
     const state = result.current[0];
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
-    expect(state.targetDraftEdits["photo.jpg"]).toBeUndefined();
+    expect(state.targetDraftEdits["file.jpg"]).toBeUndefined();
     expect(saveCount(mock, "save_metadata_draft_edits") - before).toBe(0);
   });
   it("readiness prevents work while occurrences are loading", async () => {
     const { mock, result } = await loadedFile({ emitMetadata: false });
     let ready;
     act(() => {
-      ready = result.current[1].canStageGeneratedMetadata(["photo.jpg"]);
+      ready = result.current[1].canStageGeneratedMetadata(["file.jpg"]);
     });
     expect(ready).toBe(false);
     expect(
@@ -458,7 +458,7 @@ describe("generated target-aware production action", () => {
     const { result } = await loadedFile({ emitMetadata: false });
     let ready;
     act(() => {
-      ready = result.current[1].canOpenBulkMetadataEditor(["photo.jpg"]);
+      ready = result.current[1].canOpenBulkMetadataEditor(["file.jpg"]);
     });
 
     expect(ready).toBe(false);
@@ -468,7 +468,7 @@ describe("generated target-aware production action", () => {
       state.applicationErrors[state.applicationErrors.length - 1],
     ).toMatchObject({
       error_type: "metadata-target-bulk-readiness",
-      affected_files: ["photo.jpg"],
+      affected_files: ["file.jpg"],
     });
     expect(
       state.applicationErrors[state.applicationErrors.length - 1]
@@ -481,7 +481,7 @@ describe("generated target-aware production action", () => {
     const entry = generated(ID.mlibAiDescription, "generated");
     act(() => {
       result.current[1].applyGeneratedMetadataDraftBatch(
-        "photo.jpg",
+        "file.jpg",
         { kind: "describe" },
         [entry],
       );

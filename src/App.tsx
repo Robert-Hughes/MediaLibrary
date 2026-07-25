@@ -17,7 +17,7 @@ import { ThumbnailStore, ImageMetadataOccurrencesStore } from "./types";
 import type { AppState } from "./types";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
-import { PhotoList } from "./components/PhotoList";
+import { FileList } from "./components/FileList";
 import { GalleryView } from "./components/GalleryView";
 import { FullMapView } from "./components/FullMapView";
 import { StatusBar } from "./components/StatusBar";
@@ -47,7 +47,7 @@ import {
   buildNormaliseItems,
   metadataOccurrencesStoreLookup,
 } from "./utils/buildNormaliseItems";
-import { sortPhotos, shouldSuspendSorting } from "./utils/sorting";
+import { sortFiles, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
@@ -110,23 +110,23 @@ function LoadedView({
     metadataRemaining,
   );
 
-  // We show photos in arrival order whenever sorting is suspended — both
+  // We show files in arrival order whenever sorting is suspended — both
   // during the directory walk and (for image-metadata sorts) while ExifTool
   // is still streaming results.  Without this gate, an active image-column
   // sort would re-run on every metadata batch (~50–125 full sorts per scan).
-  const sortedPhotos = useMemo(
+  const sortedFiles = useMemo(
     () =>
       sortingDisabled
-        ? state.photos
-        : sortPhotos(
-            state.photos,
+        ? state.files
+        : sortFiles(
+            state.files,
             state.sortConfig,
             state.imageMetadataOccurrences,
           ),
     // metadataVersion is the invalidation signal for image-metadata sorts
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      state.photos,
+      state.files,
       state.sortConfig,
       state.metadataVersion,
       state.imageMetadataOccurrences,
@@ -175,32 +175,32 @@ function LoadedView({
   // results, draft edits) refreshes results without the App needing to
   // forward each change.  See `src/hooks/useSearchWorker.ts`.
   const { matched: searchMatched, pending: searchPending } = useSearchWorker({
-    photos: sortedPhotos,
+    files: sortedFiles,
     imageMetadataOccurrencesStore: state.imageMetadataOccurrences,
     targetDraftEditsStore: state.targetDraftEditsStore,
     query: listSearchQuery,
     createWorker: createSearchWorker,
   });
 
-  const displayPhotos = useMemo(() => {
-    if (searchMatched === null) return sortedPhotos;
-    return sortedPhotos.filter((p) => searchMatched.has(p.relative_path));
-  }, [sortedPhotos, searchMatched]);
-  const bulkEditPhotos = useMemo(() => {
+  const displayFiles = useMemo(() => {
+    if (searchMatched === null) return sortedFiles;
+    return sortedFiles.filter((p) => searchMatched.has(p.relative_path));
+  }, [sortedFiles, searchMatched]);
+  const bulkEditFiles = useMemo(() => {
     if (bulkEditPaths === null) return [];
     const byPath = new Map(
-      state.photos.map((photo) => [photo.relative_path, photo]),
+      state.files.map((file) => [file.relative_path, file]),
     );
     return bulkEditPaths.flatMap((path) => {
-      const photo = byPath.get(path);
-      return photo ? [photo] : [];
+      const file = byPath.get(path);
+      return file ? [file] : [];
     });
-  }, [bulkEditPaths, state.photos]);
+  }, [bulkEditPaths, state.files]);
 
   useEffect(() => {
-    const len = displayPhotos.length;
+    const len = displayFiles.length;
     if (state.selectedIndex !== null && state.selectedIndex >= len) {
-      actions.selectPhoto(null);
+      actions.selectFile(null);
     }
     if (
       state.galleryIndex !== null &&
@@ -208,18 +208,18 @@ function LoadedView({
     ) {
       actions.closeGallery();
     }
-  }, [displayPhotos.length, state.selectedIndex, state.galleryIndex, actions]);
+  }, [displayFiles.length, state.selectedIndex, state.galleryIndex, actions]);
 
   const onShowInExplorer = useCallback(
     async (index: number) => {
-      const photo = displayPhotos[index];
-      if (!photo) return;
+      const file = displayFiles[index];
+      if (!file) return;
       await invoke("show_in_explorer", {
         folder: state.folder,
-        relativePath: photo.relative_path,
+        relativePath: file.relative_path,
       });
     },
-    [displayPhotos, state.folder],
+    [displayFiles, state.folder],
   );
 
   const onCopyPaths = useCallback(
@@ -239,15 +239,15 @@ function LoadedView({
 
   const onGalleryNavigate = useCallback(
     (delta: -1 | 1) => {
-      actions.navigateGallery(delta, { listLength: displayPhotos.length });
+      actions.navigateGallery(delta, { listLength: displayFiles.length });
     },
-    [actions, displayPhotos.length],
+    [actions, displayFiles.length],
   );
 
   const listSearchActive = listSearchQueryIsActive(listSearchQuery);
   const emptySearchMessage =
-    listSearchActive && sortedPhotos.length > 0 && displayPhotos.length === 0
-      ? "No photos match your search."
+    listSearchActive && sortedFiles.length > 0 && displayFiles.length === 0
+      ? "No files match your search."
       : null;
 
   const draftCounts = useMemo(() => {
@@ -278,13 +278,13 @@ function LoadedView({
     void state.metadataVersion;
     void metadataRemaining;
     return computeEffectiveMetadataKeyFrequency(
-      state.photos,
+      state.files,
       state.imageMetadataOccurrences,
       state.targetDraftEdits,
     );
   }, [
     showColumnDialog,
-    state.photos,
+    state.files,
     state.imageMetadataOccurrences,
     state.targetDraftEdits,
     state.metadataVersion,
@@ -332,8 +332,8 @@ function LoadedView({
         onSearchQueryChange={setListSearchQuery}
         searching={searchPending}
       />
-      <PhotoList
-        photos={displayPhotos}
+      <FileList
+        files={displayFiles}
         thumbnails={state.thumbnails}
         imageMetadataOccurrences={state.imageMetadataOccurrences}
         targetDraftEdits={state.targetDraftEdits}
@@ -345,10 +345,10 @@ function LoadedView({
         onSortChange={actions.setSortConfig}
         sortingDisabled={sortingDisabled}
         selectedIndex={state.selectedIndex}
-        onSelect={actions.selectPhoto}
+        onSelect={actions.selectFile}
         onShowInExplorer={onShowInExplorer}
         onVisibilityChange={actions.prioritizeQueues}
-        onPhotoOpen={actions.openGallery}
+        onFileOpen={actions.openGallery}
         onSelectColumns={() => setShowColumnDialog(true)}
         searchQuery={listSearchQuery}
         emptySearchMessage={emptySearchMessage}
@@ -397,10 +397,10 @@ function LoadedView({
         onShowOnMap={setFullMapPaths}
         onSelectionCountChange={setSelectionCount}
       />
-      {bulkEditPaths !== null && bulkEditPhotos.length > 0 && (
+      {bulkEditPaths !== null && bulkEditFiles.length > 0 && (
         <BulkMetadataEditorDialog
           key={bulkEditPaths.join("\n")}
-          photos={bulkEditPhotos}
+          files={bulkEditFiles}
           imageMetadataOccurrences={state.imageMetadataOccurrences}
           targetDraftEdits={state.targetDraftEdits}
           onPreview={(request) =>
@@ -412,9 +412,9 @@ function LoadedView({
           onClose={() => setBulkEditPaths(null)}
         />
       )}
-      {state.galleryIndex !== null && displayPhotos.length > 0 && (
+      {state.galleryIndex !== null && displayFiles.length > 0 && (
         <GalleryView
-          photos={displayPhotos}
+          files={displayFiles}
           currentIndex={state.galleryIndex}
           folderPath={state.folder}
           onClose={actions.closeGallery}
@@ -423,7 +423,7 @@ function LoadedView({
           imageMetadataOccurrences={state.imageMetadataOccurrences}
           targetDraftEdits={
             state.targetDraftEdits[
-              displayPhotos[state.galleryIndex].relative_path
+              displayFiles[state.galleryIndex].relative_path
             ]
           }
           targetDraftPersistence={state.targetDraftPersistence}
@@ -472,7 +472,7 @@ function LoadedView({
             normalise.actions.start(state.folder, items, [...initialGroups]);
           }}
           onShowInFileExplorer={(relPath) => {
-            const idx = displayPhotos.findIndex(
+            const idx = displayFiles.findIndex(
               (p) => p.relative_path === relPath,
             );
             if (idx >= 0) void onShowInExplorer(idx);
@@ -483,7 +483,7 @@ function LoadedView({
       {fullMapPaths && (
         <FullMapView
           relativePaths={fullMapPaths}
-          photos={state.photos}
+          files={state.files}
           thumbnails={state.thumbnails}
           imageMetadataOccurrences={state.imageMetadataOccurrences}
           targetDraftEdits={state.targetDraftEdits}
@@ -518,8 +518,8 @@ function LoadedView({
         />
       )}
       <StatusBar
-        photoCount={displayPhotos.length}
-        photoCountTotal={listSearchActive ? sortedPhotos.length : undefined}
+        fileCount={displayFiles.length}
+        fileCountTotal={listSearchActive ? sortedFiles.length : undefined}
         scanning={state.scanning}
         metadataProgress={state.metadataProgress}
         selectedCount={selectionCount}
@@ -778,9 +778,9 @@ export default function App() {
             onSelectColumns={() => setShowColumnDialog(true)}
             onOpenSettings={() => setShowSettingsDialog(true)}
           />
-          <PhotoList
+          <FileList
             targetDraftEdits={{}}
-            photos={[]}
+            files={[]}
             thumbnails={new ThumbnailStore()}
             imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
             visibleColumns={state.visibleColumns}
@@ -791,11 +791,11 @@ export default function App() {
             onSelect={() => {}}
             onShowInExplorer={() => Promise.resolve()}
             onVisibilityChange={() => {}}
-            onPhotoOpen={() => {}}
+            onFileOpen={() => {}}
             onSelectColumns={() => setShowColumnDialog(true)}
           />
           <StatusBar
-            photoCount={0}
+            fileCount={0}
             scanning={true}
             metadataProgress={null}
             selectedCount={0}

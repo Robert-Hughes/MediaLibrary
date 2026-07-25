@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhotos } from "./factories";
+import { makeFiles } from "./factories";
 
 describe("Performance: Large folder handling", () => {
   beforeEach(() => {
@@ -14,7 +14,7 @@ describe("Performance: Large folder handling", () => {
     vi.useRealTimers();
   });
 
-  it("handles 1000 photos with metadata updates correctly", async () => {
+  it("handles 1000 files with metadata updates correctly", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/large-folder");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -23,13 +23,13 @@ describe("Performance: Large folder handling", () => {
       await result.current[1].openFolder();
     });
 
-    // Emit 1000 photos in batches of 50 (simulating backend behavior)
+    // Emit 1000 files in batches of 50 (simulating backend behavior)
     for (let i = 0; i < 20; i++) {
-      const batch = makePhotos(
-        Array.from({ length: 50 }, (_, j) => `photo-${i * 50 + j}.jpg`),
+      const batch = makeFiles(
+        Array.from({ length: 50 }, (_, j) => `file-${i * 50 + j}.jpg`),
       );
       act(() => {
-        batch.forEach((photo) => mock.emitPhotoFound(photo));
+        batch.forEach((file) => mock.emitFileFound(file));
       });
       if (i === 0) {
         await act(async () => {
@@ -44,12 +44,12 @@ describe("Performance: Large folder handling", () => {
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind !== "loaded") return;
-    expect(state.photos).toHaveLength(1000);
+    expect(state.files).toHaveLength(1000);
 
-    for (let i = 0; i < state.photos.length; i++) {
-      const photo = state.photos[i];
+    for (let i = 0; i < state.files.length; i++) {
+      const file = state.files[i];
       act(() => {
-        mock.emitImageMetadataReady(photo.relative_path, {
+        mock.emitImageMetadataReady(file.relative_path, {
           "IFD0:Model": { kind: "Text", value: "Test Camera" },
           "ExifIFD:DateTimeOriginal": {
             kind: "Text",
@@ -70,15 +70,15 @@ describe("Performance: Large folder handling", () => {
 
     expect(state.metadataProgress.getRemaining()).toBe(0);
     // Spot-check that metadata is actually stored
-    expect(state.imageMetadataOccurrences.get("photo-0.jpg")).not.toBe(
+    expect(state.imageMetadataOccurrences.get("file-0.jpg")).not.toBe(
       "loading",
     );
-    expect(state.imageMetadataOccurrences.get("photo-999.jpg")).not.toBe(
+    expect(state.imageMetadataOccurrences.get("file-999.jpg")).not.toBe(
       "loading",
     );
   });
 
-  it("batches photo_found events correctly", async () => {
+  it("batches file_found events correctly", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/test-folder");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -87,14 +87,14 @@ describe("Performance: Large folder handling", () => {
       await result.current[1].openFolder();
     });
 
-    // Emit 100 photos individually
+    // Emit 100 files individually
     for (let i = 0; i < 100; i++) {
       act(() => {
-        mock.emitPhotoFound(makePhotos([`photo-${i}.jpg`])[0]);
+        mock.emitFileFound(makeFiles([`file-${i}.jpg`])[0]);
       });
     }
 
-    // First photo should flush immediately
+    // First file should flush immediately
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10);
     });
@@ -109,7 +109,7 @@ describe("Performance: Large folder handling", () => {
 
     state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.photos).toHaveLength(100);
+      expect(state.files).toHaveLength(100);
     }
   });
 
@@ -122,13 +122,13 @@ describe("Performance: Large folder handling", () => {
       await result.current[1].openFolder();
     });
 
-    // Add 100 photos
-    const photos = makePhotos(
-      Array.from({ length: 100 }, (_, i) => `photo-${i}.jpg`),
+    // Add 100 files
+    const files = makeFiles(
+      Array.from({ length: 100 }, (_, i) => `file-${i}.jpg`),
     );
-    photos.forEach((photo) =>
+    files.forEach((file) =>
       act(() => {
-        mock.emitPhotoFound(photo);
+        mock.emitFileFound(file);
       }),
     );
     await act(async () => {
@@ -144,10 +144,10 @@ describe("Performance: Large folder handling", () => {
       notificationCount++;
     });
 
-    // Emit metadata for all photos
+    // Emit metadata for all files
     for (let i = 0; i < 100; i++) {
       act(() => {
-        mock.emitImageMetadataReady(`photo-${i}.jpg`, {
+        mock.emitImageMetadataReady(`file-${i}.jpg`, {
           "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });
@@ -178,13 +178,13 @@ describe("Performance: Large folder handling", () => {
       await result.current[1].openFolder();
     });
 
-    // Add 100 photos
-    const photos = makePhotos(
-      Array.from({ length: 100 }, (_, i) => `photo-${i}.jpg`),
+    // Add 100 files
+    const files = makeFiles(
+      Array.from({ length: 100 }, (_, i) => `file-${i}.jpg`),
     );
-    photos.forEach((photo) =>
+    files.forEach((file) =>
       act(() => {
-        mock.emitPhotoFound(photo);
+        mock.emitFileFound(file);
       }),
     );
     await act(async () => {
@@ -197,7 +197,7 @@ describe("Performance: Large folder handling", () => {
     // Emit thumbnails rapidly
     for (let i = 0; i < 100; i++) {
       act(() => {
-        mock.emitThumbnailReady(`photo-${i}.jpg`, "base64data");
+        mock.emitThumbnailReady(`file-${i}.jpg`, "base64data");
       });
     }
 
@@ -207,9 +207,9 @@ describe("Performance: Large folder handling", () => {
     });
 
     // Verify thumbnails were stored (check a few samples)
-    expect(state.thumbnails.get("photo-0.jpg")).toBe("base64data");
-    expect(state.thumbnails.get("photo-50.jpg")).toBe("base64data");
-    expect(state.thumbnails.get("photo-99.jpg")).toBe("base64data");
+    expect(state.thumbnails.get("file-0.jpg")).toBe("base64data");
+    expect(state.thumbnails.get("file-50.jpg")).toBe("base64data");
+    expect(state.thumbnails.get("file-99.jpg")).toBe("base64data");
   });
 
   it("maintains correct metadata progress count during incremental loading", async () => {
@@ -221,13 +221,13 @@ describe("Performance: Large folder handling", () => {
       await result.current[1].openFolder();
     });
 
-    // Add 50 photos
-    const batch1 = makePhotos(
-      Array.from({ length: 50 }, (_, i) => `photo-${i}.jpg`),
+    // Add 50 files
+    const batch1 = makeFiles(
+      Array.from({ length: 50 }, (_, i) => `file-${i}.jpg`),
     );
-    batch1.forEach((photo) =>
+    batch1.forEach((file) =>
       act(() => {
-        mock.emitPhotoFound(photo);
+        mock.emitFileFound(file);
       }),
     );
     await act(async () => {
@@ -240,10 +240,10 @@ describe("Performance: Large folder handling", () => {
     // Initial remaining should be 50
     expect(state.metadataProgress.getRemaining()).toBe(50);
 
-    // Load metadata for 25 photos
+    // Load metadata for 25 files
     for (let i = 0; i < 25; i++) {
       act(() => {
-        mock.emitImageMetadataReady(`photo-${i}.jpg`, {
+        mock.emitImageMetadataReady(`file-${i}.jpg`, {
           "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });
@@ -255,13 +255,13 @@ describe("Performance: Large folder handling", () => {
     // Should show 25 remaining
     expect(state.metadataProgress.getRemaining()).toBe(25);
 
-    // Add 50 more photos
-    const batch2 = makePhotos(
-      Array.from({ length: 50 }, (_, i) => `photo-${i + 50}.jpg`),
+    // Add 50 more files
+    const batch2 = makeFiles(
+      Array.from({ length: 50 }, (_, i) => `file-${i + 50}.jpg`),
     );
-    batch2.forEach((photo) =>
+    batch2.forEach((file) =>
       act(() => {
-        mock.emitPhotoFound(photo);
+        mock.emitFileFound(file);
       }),
     );
     await act(async () => {
@@ -274,7 +274,7 @@ describe("Performance: Large folder handling", () => {
     // Load all remaining metadata
     for (let i = 25; i < 100; i++) {
       act(() => {
-        mock.emitImageMetadataReady(`photo-${i}.jpg`, {
+        mock.emitImageMetadataReady(`file-${i}.jpg`, {
           "IFD0:Model": { kind: "Text", value: "Camera" },
         });
       });

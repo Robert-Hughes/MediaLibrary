@@ -2,7 +2,7 @@
 ///
 /// Workers call `pop()` — it blocks until an item is available or `finish()`
 /// has been called. The frontend calls `prioritize()` to move visible paths
-/// to the front so on-screen photos are processed first.
+/// to the front so on-screen files are processed first.
 use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex};
 
@@ -340,7 +340,7 @@ mod tests {
         // Feed items in after workers are (likely) blocking.
         std::thread::sleep(std::time::Duration::from_millis(10));
         for i in 0..50 {
-            q.push(format!("photo_{i}.jpg"));
+            q.push(format!("file_{i}.jpg"));
         }
         q.finish();
 
@@ -386,7 +386,7 @@ mod tests {
 
         let q = Arc::new(WorkQueue::new(vec![]));
         for i in 0..100 {
-            q.push(format!("photo_{i}.jpg"));
+            q.push(format!("file_{i}.jpg"));
         }
         q.finish();
 

@@ -21,7 +21,7 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       index.clear();
       return;
     case "INIT_PHOTOS":
-      for (const photo of msg.photos) index.setPhoto(photo);
+      for (const file of msg.files) index.setFile(file);
       return;
     case "INIT_OCCURRENCES":
       index.setSchemaLabels(msg.schemaLabels);
@@ -34,7 +34,7 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       for (const entry of msg.entries) index.setDrafts(entry.path, entry.edits);
       return;
     case "UPSERT_PHOTO":
-      index.setPhoto(msg.photo);
+      index.setFile(msg.file);
       return;
     case "UPSERT_OCCURRENCES":
       index.setSchemaLabels(msg.schemaLabels);

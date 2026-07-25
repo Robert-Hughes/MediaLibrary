@@ -22,7 +22,7 @@ import {
   metadataDraftTargetToken,
 } from "../utils/metadataDraftTarget";
 import { metadataOccurrenceIdToken } from "../utils/metadataOccurrenceId";
-import { makePhoto } from "./factories";
+import { makeFile } from "./factories";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -32,7 +32,7 @@ import {
   _setWritableSchemaDefinitionsCache,
 } from "../hooks/useWritableSchemaDefinitions";
 
-const photo = makePhoto({ relative_path: "exact-row.jpg" });
+const file = makeFile({ relative_path: "exact-row.jpg" });
 const schemaId: SchemaDefinitionId = {
   table: "Exif::Main",
   tag_id: "282",
@@ -118,7 +118,7 @@ function stagedNewProperty() {
     value: { kind: "Text", value: "draft title" },
   };
   const store = new TargetDraftEditsStore();
-  store.setMetadataTarget(photo.relative_path, target, edit);
+  store.setMetadataTarget(file.relative_path, target, edit);
   return { schema, info, target, edit, store };
 }
 
@@ -147,7 +147,7 @@ function stagedGpsNewProperty(group1 = "CustomGPS") {
     value: { kind: "Real", value: 51.5 },
   };
   const store = new TargetDraftEditsStore();
-  store.setMetadataTarget(photo.relative_path, target, edit);
+  store.setMetadataTarget(file.relative_path, target, edit);
   return { info, target, edit, store };
 }
 
@@ -229,10 +229,10 @@ function gpsExistingOccurrence(): MetadataOccurrence {
 function targetDrafts(source: MetadataOccurrence, edit: MetadataDraftEdit) {
   const target = exactTarget(source);
   const store = new TargetDraftEditsStore();
-  store.setMetadataTarget(photo.relative_path, target, edit);
+  store.setMetadataTarget(file.relative_path, target, edit);
   return {
     target,
-    drafts: store.getMetadataFile(photo.relative_path),
+    drafts: store.getMetadataFile(file.relative_path),
   };
 }
 
@@ -260,7 +260,7 @@ function renderPane(options: {
   };
   const pane = (next: typeof options) => (
     <DetailsPane
-      photo={photo}
+      file={file}
 
       occurrences={next.occurrences ?? [occurrenceA]}
       targetDraftEdits={next.targetDraftEdits}
@@ -373,7 +373,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
     const { target, store } = stagedNewProperty();
     renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     const { name, value } = tooltipCells(rowForNewPropertyTarget(target));
 
@@ -416,13 +416,13 @@ describe("DetailsPane exact target-owned row presentation", () => {
         tag_name: staged.target.write_target.tag_name.toLowerCase(),
       },
     };
-    staged.store.setMetadataTarget(photo.relative_path, conflictingTarget, {
+    staged.store.setMetadataTarget(file.relative_path, conflictingTarget, {
       intent: "Set",
       value: { kind: "Integer", value: 301 },
     });
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: staged.store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: staged.store.getMetadataFile(file.relative_path),
     });
 
     const row = rowForNewPropertyTarget(staged.target);
@@ -631,7 +631,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
     if (current.kind !== "targetable") throw new Error(current.reason);
     const staleStore = new TargetDraftEditsStore();
     staleStore.setMetadataTarget(
-      photo.relative_path,
+      file.relative_path,
       {
         ...current.target,
         write_target: { ...current.target.write_target, group1: "IFD1" },
@@ -640,7 +640,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
     );
     renderPane({
       occurrences: [occurrenceA, occurrenceB],
-      targetDraftEdits: staleStore.getMetadataFile(photo.relative_path),
+      targetDraftEdits: staleStore.getMetadataFile(file.relative_path),
     });
     const staleRows = existingOccurrenceRows();
     expect(staleRows).toHaveLength(2);
@@ -814,7 +814,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
       targetDraftEdits: (() => {
         const store = new TargetDraftEditsStore();
         store.setMetadataTarget(
-          photo.relative_path,
+          file.relative_path,
           {
             kind: "NewProperty",
             schema_id: schemaId,
@@ -826,7 +826,7 @@ describe("DetailsPane exact target-owned row presentation", () => {
           },
           { intent: "Set", value: { kind: "Integer", value: 301 } },
         );
-        return store.getMetadataFile(photo.relative_path);
+        return store.getMetadataFile(file.relative_path);
       })(),
     });
     const row = existingOccurrenceRows()[0];
@@ -980,7 +980,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       const { drafts } = targetDrafts(occurrenceA, edit);
       const rendered = render(
         <DetailsPane
-          photo={photo}
+          file={file}
 
           occurrences={[occurrenceA]}
           targetDraftEdits={drafts}
@@ -1114,13 +1114,13 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
         tag_name: "Title",
       },
     };
-    store.setMetadataTarget(photo.relative_path, newTarget, {
+    store.setMetadataTarget(file.relative_path, newTarget, {
       intent: "Set",
       value: { kind: "Text", value: "draft title" },
     });
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     const row = screen.getByText("draft title").closest("tr")!;
     fireEvent.contextMenu(row);
@@ -1161,7 +1161,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const { target, store } = stagedNewProperty();
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     const row = screen.getByText("draft title").closest("tr")!;
     fireEvent.contextMenu(row);
@@ -1199,7 +1199,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const { target, store } = stagedGpsNewProperty();
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     const row = screen.getByText("GPSLatitude").closest("tr")!;
     fireEvent.contextMenu(row);
@@ -1229,7 +1229,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     registerGpsTagInfos();
     renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
 
     fireEvent.contextMenu(rowForNewPropertyTarget(target));
@@ -1245,13 +1245,13 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const staleTarget = exactTarget(occurrence);
     staleTarget.write_target.group1 = "StaleGPS";
     const store = new TargetDraftEditsStore();
-    store.setMetadataTarget(photo.relative_path, staleTarget, {
+    store.setMetadataTarget(file.relative_path, staleTarget, {
       intent: "Set",
       value: { kind: "Real", value: 52 },
     });
     renderPane({
       occurrences: [occurrence],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
 
     fireEvent.contextMenu(rowForOccurrence(occurrence));
@@ -1280,7 +1280,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const { target, store } = stagedGpsNewProperty();
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     view.onSetNewPropertyDraft.mockResolvedValueOnce(false);
     fireEvent.contextMenu(screen.getByText("GPSLatitude").closest("tr")!);
@@ -1303,7 +1303,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const { store } = stagedNewProperty();
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     view.onSetNewPropertyDraft.mockResolvedValueOnce(false);
     fireEvent.contextMenu(screen.getByText("draft title").closest("tr")!);
@@ -1320,7 +1320,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const { store } = stagedNewProperty();
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     fireEvent.contextMenu(screen.getByText("draft title").closest("tr")!);
     await userEvent.click(screen.getByRole("button", { name: "Edit value…" }));
@@ -1336,7 +1336,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const { schema, target, edit, store } = stagedNewProperty();
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     fireEvent.contextMenu(screen.getByText("draft title").closest("tr")!);
     await userEvent.click(screen.getByRole("button", { name: "Edit value…" }));
@@ -1346,10 +1346,10 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       write_target: { ...target.write_target, group1: "XMP-sibling" },
     };
     const replacementStore = new TargetDraftEditsStore();
-    replacementStore.setMetadataTarget(photo.relative_path, sibling, edit);
+    replacementStore.setMetadataTarget(file.relative_path, sibling, edit);
     view.rerenderPane({
       occurrences: [],
-      targetDraftEdits: replacementStore.getMetadataFile(photo.relative_path),
+      targetDraftEdits: replacementStore.getMetadataFile(file.relative_path),
     });
     await userEvent.click(screen.getByTestId("value-edit-save"));
 
@@ -1365,7 +1365,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     const { target, edit, store } = stagedGpsNewProperty();
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     fireEvent.contextMenu(screen.getByText("GPSLatitude").closest("tr")!);
     await userEvent.click(screen.getByRole("button", { name: "Edit value…" }));
@@ -1376,13 +1376,13 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     };
     const replacementStore = new TargetDraftEditsStore();
     replacementStore.setMetadataTarget(
-      photo.relative_path,
+      file.relative_path,
       defaultSibling,
       edit,
     );
     view.rerenderPane({
       occurrences: [],
-      targetDraftEdits: replacementStore.getMetadataFile(photo.relative_path),
+      targetDraftEdits: replacementStore.getMetadataFile(file.relative_path),
     });
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
 
@@ -1401,10 +1401,10 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       ...structuredClone(target),
       write_target: { ...target.write_target, group1: "XMP-sibling" },
     };
-    store.setMetadataTarget(photo.relative_path, sibling, edit);
+    store.setMetadataTarget(file.relative_path, sibling, edit);
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     expect(newPropertyRows()).toHaveLength(2);
     fireEvent.contextMenu(rowForNewPropertyTarget(sibling));
@@ -1422,10 +1422,10 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       ...structuredClone(target),
       write_target: { ...target.write_target, group1: "CustomGPS2" },
     };
-    store.setMetadataTarget(photo.relative_path, sibling, edit);
+    store.setMetadataTarget(file.relative_path, sibling, edit);
     const view = renderPane({
       occurrences: [],
-      targetDraftEdits: store.getMetadataFile(photo.relative_path),
+      targetDraftEdits: store.getMetadataFile(file.relative_path),
     });
     expect(newPropertyRows()).toHaveLength(2);
     fireEvent.contextMenu(rowForNewPropertyTarget(sibling));

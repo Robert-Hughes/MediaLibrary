@@ -6,7 +6,7 @@
  * estimate phase in v1 — opens straight to the per-group checkbox
  * confirm panel. Verifies:
  *
- *   * Right-clicking a selected photo shows the "Normalise Metadata…"
+ *   * Right-clicking a selected file shows the "Normalise Metadata…"
  *     menu entry and clicking opens the progress dialog.
  *   * Awaiting-confirm panel exposes the v1 group checkboxes.
  *   * Confirm sends the per-image `groupInputs` + final `enabledGroups`
@@ -25,7 +25,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, mockGeneratedDraftEntries } from "./factories";
+import { makeFile, mockGeneratedDraftEntries } from "./factories";
 import type {
   MetadataValue,
   NormaliseGroup,
@@ -49,20 +49,20 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
 }));
 
-async function openFolderWithPhoto(
+async function openFolderWithFile(
   rel = "test.jpg",
   metadata: Record<string, MetadataValue> = {},
 ) {
-  const photo = makePhoto({ relative_path: rel });
+  const file = makeFile({ relative_path: rel });
   const user = userEvent.setup();
-  mockApiInstance.pickFolderResolves("/photos");
+  mockApiInstance.pickFolderResolves("/files");
   render(<App />);
   await act(async () => {
     await new Promise((r) => setTimeout(r, 50));
   });
   await user.click(screen.getByTestId("open-folder-btn"));
   await act(async () => {
-    mockApiInstance.emitPhotoFound(photo);
+    mockApiInstance.emitFileFound(file);
   });
   await act(async () => {
     mockApiInstance.emitScanComplete();
@@ -73,7 +73,7 @@ async function openFolderWithPhoto(
   await act(async () => {
     await new Promise((r) => setTimeout(r, 250));
   });
-  return { user, photo };
+  return { user, file };
 }
 
 beforeEach(() => {
@@ -111,7 +111,7 @@ describe("Metadata-normalisation flow", () => {
       (relPath) => ({ relPath }) as NormaliseRequestItem,
     );
 
-    act(() => result.current.actions.start("/photos", items, ["title"]));
+    act(() => result.current.actions.start("/files", items, ["title"]));
     await waitFor(() =>
       expect(result.current.state.phase).toBe("awaiting-confirm"),
     );
@@ -166,7 +166,7 @@ describe("Metadata-normalisation flow", () => {
     );
     const item = { relPath: "test.jpg" } as NormaliseRequestItem;
 
-    act(() => result.current.actions.start("/photos", [item], ["keywords"]));
+    act(() => result.current.actions.start("/files", [item], ["keywords"]));
     await waitFor(() =>
       expect(result.current.state.phase).toBe("awaiting-confirm"),
     );
@@ -183,8 +183,8 @@ describe("Metadata-normalisation flow", () => {
     expect(result.current.state.enabledGroups).toEqual(["title"]);
   });
 
-  it("right-clicking a selected photo opens the dialog with per-group checkboxes", async () => {
-    await openFolderWithPhoto("test.jpg", {
+  it("right-clicking a selected file opens the dialog with per-group checkboxes", async () => {
+    await openFolderWithFile("test.jpg", {
       "XMP-dc:Subject": {
         kind: "List",
         value: {
@@ -196,7 +196,7 @@ describe("Metadata-normalisation flow", () => {
         },
       },
     });
-    const row = screen.getByTestId("photo-row");
+    const row = screen.getByTestId("file-row");
     fireEvent.click(row);
     fireEvent.contextMenu(row);
     const entry = await screen.findByRole("button", {
@@ -272,7 +272,7 @@ describe("Metadata-normalisation flow", () => {
       },
     };
 
-    await openFolderWithPhoto("test.jpg", {
+    await openFolderWithFile("test.jpg", {
       "XMP-dc:Subject": {
         kind: "List",
         value: {
@@ -281,7 +281,7 @@ describe("Metadata-normalisation flow", () => {
         },
       },
     });
-    const row = screen.getByTestId("photo-row");
+    const row = screen.getByTestId("file-row");
     fireEvent.click(row);
     fireEvent.contextMenu(row);
     const entry = await screen.findByRole("button", {
@@ -329,7 +329,7 @@ describe("Metadata-normalisation flow", () => {
   });
 
   it("confirm button is disabled when no groups are enabled", async () => {
-    await openFolderWithPhoto("test.jpg", {
+    await openFolderWithFile("test.jpg", {
       "XMP-dc:Subject": {
         kind: "List",
         value: {
@@ -338,7 +338,7 @@ describe("Metadata-normalisation flow", () => {
         },
       },
     });
-    const row = screen.getByTestId("photo-row");
+    const row = screen.getByTestId("file-row");
     fireEvent.click(row);
     fireEvent.contextMenu(row);
     const entry = await screen.findByRole("button", {
@@ -368,8 +368,8 @@ describe("Metadata-normalisation flow", () => {
   });
 
   it("cancelling from the confirm panel closes the dialog without invoking the backend", async () => {
-    await openFolderWithPhoto("test.jpg", {});
-    const row = screen.getByTestId("photo-row");
+    await openFolderWithFile("test.jpg", {});
+    const row = screen.getByTestId("file-row");
     fireEvent.click(row);
     fireEvent.contextMenu(row);
     const entry = await screen.findByRole("button", {

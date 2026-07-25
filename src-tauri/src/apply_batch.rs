@@ -1137,9 +1137,9 @@ mod tests {
 
         let target = new_target("270");
         let persistence =
-            FakePersistence::new(Ok(drafts(&[("photo.jpg", entry(target.clone(), "draft"))])));
+            FakePersistence::new(Ok(drafts(&[("file.jpg", entry(target.clone(), "draft"))])));
         let apply = FakeApply::new([(
-            "photo.jpg".to_string(),
+            "file.jpg".to_string(),
             outcome(
                 None,
                 vec![target_outcome(&target, MetadataDraftReconciliation::Keep)],
@@ -1148,7 +1148,7 @@ mod tests {
 
         let result = run_apply_metadata_draft_edits_with(
             dir.path().to_str().unwrap(),
-            &["photo.jpg".to_string()],
+            &["file.jpg".to_string()],
             &persistence,
             &apply,
             &RealDraftReconciler,
@@ -1676,11 +1676,11 @@ mod tests {
         let ifd0 = existing_target("282", "JPEG-APP1-IFD0");
         let ifd1 = existing_target("282", "JPEG-APP1-IFD1");
         let persistence = FakePersistence::new(Ok(drafts(&[
-            ("photo.jpg", entry(ifd0.clone(), "first")),
-            ("photo.jpg", entry(ifd1.clone(), "second")),
+            ("file.jpg", entry(ifd0.clone(), "first")),
+            ("file.jpg", entry(ifd1.clone(), "second")),
         ])));
         let apply = FakeApply::new([(
-            "photo.jpg".into(),
+            "file.jpg".into(),
             outcome(
                 None,
                 vec![
@@ -1693,7 +1693,7 @@ mod tests {
 
         let result = run_apply_metadata_draft_edits_with(
             "folder",
-            &["photo.jpg".into()],
+            &["file.jpg".into()],
             &persistence,
             &apply,
             &RealDraftReconciler,

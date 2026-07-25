@@ -3,7 +3,7 @@
  * Unit tests for the GPS resolver used by the reverse-geocode flow.
  *
  * The resolver is the seam where "what should the geocoder see for
- * this photo?" is decided. The plan §2 requires drafts to win over
+ * this file?" is decided. The plan §2 requires drafts to win over
  * on-disk metadata so a user who has fixed a wrong GPS but not yet
  * applied it sees their correction sent to Nominatim. These tests
  * pin that contract.

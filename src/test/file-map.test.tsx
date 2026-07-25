@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import L from "leaflet";
-import { PhotoMap } from "../components/PhotoMap";
+import { FileMap } from "../components/FileMap";
 
 const mapInstance = {
   on: vi.fn().mockReturnThis(),
@@ -55,7 +55,7 @@ vi.mock("leaflet", () => ({
 
 vi.mock("leaflet.markercluster", () => ({}));
 
-describe("PhotoMap", () => {
+describe("FileMap", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     markerInstances.length = 0;
@@ -65,7 +65,7 @@ describe("PhotoMap", () => {
 
   it("renders non-interactive thumbnail markers and fits all locations", () => {
     render(
-      <PhotoMap
+      <FileMap
         fitRequest={0}
         items={[
           {
@@ -126,7 +126,7 @@ describe("PhotoMap", () => {
 
   it("escapes the identifier shown by a thumbnail marker tooltip", () => {
     render(
-      <PhotoMap
+      <FileMap
         fitRequest={0}
         items={[
           {
@@ -146,7 +146,7 @@ describe("PhotoMap", () => {
   });
 
   it("ignores Leaflet's transient cluster position when sizing the footprint", () => {
-    render(<PhotoMap fitRequest={0} items={[]} />);
+    render(<FileMap fitRequest={0} items={[]} />);
 
     const options = vi.mocked(L.markerClusterGroup).mock.calls[0][0];
     const createIcon = options?.iconCreateFunction;
@@ -168,14 +168,14 @@ describe("PhotoMap", () => {
     };
 
     expect(icon.html).toContain('style="width:100px;height:100px"');
-    expect(icon.html).toContain('aria-label="3 photos"');
-    expect(icon.className).toBe("photo-map-cluster");
+    expect(icon.html).toContain('aria-label="3 files"');
+    expect(icon.className).toBe("file-map-cluster");
     expect(icon.iconSize).toEqual([100, 100]);
     expect(icon.iconAnchor).toEqual([50, 50]);
   });
 
-  it("keeps the count badge full-sized for photos at identical coordinates", () => {
-    render(<PhotoMap fitRequest={0} items={[]} />);
+  it("keeps the count badge full-sized for files at identical coordinates", () => {
+    render(<FileMap fitRequest={0} items={[]} />);
 
     const createIcon = vi.mocked(L.markerClusterGroup).mock.calls[0][0]
       ?.iconCreateFunction;
@@ -196,21 +196,21 @@ describe("PhotoMap", () => {
 
     expect(icon.html).toContain('style="width:0px;height:0px"');
     expect(icon.html).toContain(
-      'aria-label="2 photos at identical coordinates"',
+      'aria-label="2 files at identical coordinates"',
     );
-    expect(icon.className).toContain("photo-map-cluster--identical");
+    expect(icon.className).toContain("file-map-cluster--identical");
     expect(icon.iconSize).toEqual([36, 36]);
   });
 
   it("crossfades replaced icons and clears ghosts when another zoom starts", () => {
     vi.useFakeTimers();
     try {
-      render(<PhotoMap fitRequest={0} items={[]} />);
-      const mapElement = document.querySelector<HTMLElement>(".photo-map");
+      render(<FileMap fitRequest={0} items={[]} />);
+      const mapElement = document.querySelector<HTMLElement>(".file-map");
       const replaced = document.createElement("div");
-      replaced.className = "photo-map-cluster";
+      replaced.className = "file-map-cluster";
       const retained = document.createElement("div");
-      retained.className = "photo-map-marker";
+      retained.className = "file-map-marker";
       mapElement?.append(replaced, retained);
 
       const zoomEndHandlers = mapInstance.on.mock.calls
@@ -221,15 +221,15 @@ describe("PhotoMap", () => {
       zoomEndHandlers[0]();
       replaced.remove();
       const entering = document.createElement("div");
-      entering.className = "photo-map-cluster";
+      entering.className = "file-map-cluster";
       mapElement?.append(entering);
       zoomEndHandlers[1]();
 
       expect(
-        mapElement?.querySelector(".photo-map-icon--departing"),
+        mapElement?.querySelector(".file-map-icon--departing"),
       ).toBeInTheDocument();
-      expect(entering).toHaveClass("photo-map-icon--entering");
-      expect(retained).not.toHaveClass("photo-map-icon--entering");
+      expect(entering).toHaveClass("file-map-icon--entering");
+      expect(retained).not.toHaveClass("file-map-icon--entering");
 
       const zoomStart = mapInstance.on.mock.calls.find(
         ([event]) => event === "zoomstart",
@@ -237,18 +237,18 @@ describe("PhotoMap", () => {
       zoomStart?.();
 
       expect(
-        mapElement?.querySelector(".photo-map-icon--departing"),
+        mapElement?.querySelector(".file-map-icon--departing"),
       ).not.toBeInTheDocument();
-      expect(entering).not.toHaveClass("photo-map-icon--entering");
+      expect(entering).not.toHaveClass("file-map-icon--entering");
     } finally {
       vi.runOnlyPendingTimers();
       vi.useRealTimers();
     }
   });
 
-  it("centres a single photo at local zoom", () => {
+  it("centres a single file at local zoom", () => {
     render(
-      <PhotoMap
+      <FileMap
         fitRequest={0}
         items={[
           {
@@ -269,7 +269,7 @@ describe("PhotoMap", () => {
   it("fits the real map instance after a Strict Mode effect replay", () => {
     render(
       <StrictMode>
-        <PhotoMap
+        <FileMap
           fitRequest={0}
           items={[
             {

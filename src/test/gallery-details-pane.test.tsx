@@ -18,8 +18,8 @@ import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
 
 import { ImageMetadataOccurrencesStore } from "../types";
-import { makePhotos, mockMetadata } from "./factories";
-import type { PhotoInfo } from "../types";
+import { makeFiles, mockMetadata } from "./factories";
+import type { FileInfo } from "../types";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -28,7 +28,7 @@ import {
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
-const PHOTOS: PhotoInfo[] = makePhotos([
+const PHOTOS: FileInfo[] = makeFiles([
   "2024/a.jpg",
   "2024/b.jpg",
   "2024/c.jpg",
@@ -43,9 +43,9 @@ async function renderGallery(
   const onDiscardTargetDraftBatch = vi.fn();
 
   const props = {
-    photos: PHOTOS,
+    files: PHOTOS,
     currentIndex: 0,
-    folderPath: "/photos",
+    folderPath: "/files",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: fakeLoad,
@@ -245,7 +245,7 @@ describe("Gallery details pane toggle", () => {
 });
 
 describe("Gallery details pane content", () => {
-  it("displays OS metadata for the current photo", async () => {
+  it("displays OS metadata for the current file", async () => {
     await renderGallery({ currentIndex: 0 });
 
     await userEvent.click(screen.getByTestId("gallery-info-toggle"));
@@ -318,7 +318,7 @@ describe("Gallery details pane content", () => {
     fireEvent.contextMenu(screen.getByText("Canon"));
     await user.click(await screen.findByRole("button", { name: /^Edit/ }));
 
-    const gallery = screen.getByRole("dialog", { name: "Photo gallery" });
+    const gallery = screen.getByRole("dialog", { name: "File gallery" });
     const editor = screen.getByRole("dialog", { name: "Edit IFD0:Make" });
     act(() => {
       editor.dispatchEvent(
@@ -350,7 +350,7 @@ describe("Gallery details pane content", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("arrow keys still navigate photos when details pane is open", async () => {
+  it("arrow keys still navigate files when details pane is open", async () => {
     const onNavigate = vi.fn();
     await renderGallery({ onNavigate });
 

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type {
-  PhotoInfo,
+  FileInfo,
   SchemaDefinitionId,
   SortConfig,
   VisibleColumn,
@@ -12,7 +12,7 @@ import type {
   TargetDraftEditsByFile,
 } from "../targetDraftEdits";
 import { ContextMenu } from "./ContextMenu";
-import { PhotoRow } from "./PhotoRow";
+import { FileRow } from "./FileRow";
 import { ResizeHandle } from "./ResizeHandle";
 import { nextSortConfig } from "../utils/sorting";
 import { useColumnResize } from "../hooks/useColumnResize";
@@ -21,8 +21,8 @@ import {
   type ColumnDragOver,
 } from "../hooks/useColumnReorder";
 import { useRowSelection } from "../hooks/useRowSelection";
-import { PhotoListContextMenu } from "./PhotoListContextMenu";
-import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
+import { FileListContextMenu } from "./FileListContextMenu";
+import { selectVisibleNeedingLoad } from "../utils/fileListHelpers";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { useTagInfos } from "../hooks/useTagInfo";
 import {
@@ -35,7 +35,7 @@ export type ColumnContextTarget =
   | { kind: "os"; key: string; label: string }
   | { kind: "image"; id: SchemaDefinitionId; label: string };
 interface Props {
-  photos: PhotoInfo[];
+  files: FileInfo[];
   thumbnails: ThumbnailStore;
   imageMetadataOccurrences: ImageMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftEditsByFile;
@@ -52,11 +52,11 @@ interface Props {
   onSelect: (index: number | null) => void;
   onShowInExplorer: (index: number) => void;
   onVisibilityChange: (visiblePaths: string[]) => void;
-  onPhotoOpen: (index: number) => void;
+  onFileOpen: (index: number) => void;
   onSelectColumns?: () => void;
   /** Case-insensitive substring match highlighting in visible cells. */
   searchQuery?: string;
-  /** Shown in the grid body when `photos` is empty but the folder is not (search had no hits). */
+  /** Shown in the grid body when `files` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
   onDiscardAllEdits?: (fileRelativePaths: string[]) => void;
   onApplyEdits?: (fileRelativePaths: string[]) => void;
@@ -68,9 +68,9 @@ interface Props {
   onNormalise?: (fileRelativePaths: string[]) => void;
   /** Copy absolute paths for the given relative paths to the clipboard. */
   onCopyPaths?: (fileRelativePaths: string[]) => void;
-  /** Open the bulk metadata editor for the selected photos. */
+  /** Open the bulk metadata editor for the selected files. */
   onBulkEdit?: (fileRelativePaths: string[]) => void;
-  /** Open the selected photos in the full map view. */
+  /** Open the selected files in the full map view. */
   onShowOnMap?: (fileRelativePaths: string[]) => void;
   /** Notified whenever the multi-selection size changes. */
   onSelectionCountChange?: (count: number) => void;
@@ -177,7 +177,7 @@ const KIND_LABELS: Record<VisibleColumn["kind"], string> = {
   image: "Image",
 };
 
-function PhotoListHeader(props: HeaderProps) {
+function FileListHeader(props: HeaderProps) {
   const {
     visibleColumns,
     sortConfig,
@@ -312,8 +312,8 @@ function PhotoListHeader(props: HeaderProps) {
     </>
   );
 }
-export function PhotoList({
-  photos,
+export function FileList({
+  files,
   thumbnails,
   imageMetadataOccurrences,
   targetDraftEdits,
@@ -328,7 +328,7 @@ export function PhotoList({
   onSelect,
   onShowInExplorer,
   onVisibilityChange,
-  onPhotoOpen,
+  onFileOpen,
   onSelectColumns,
   searchQuery = "",
   emptySearchMessage = null,
@@ -370,12 +370,12 @@ export function PhotoList({
   const onVisibilityChangeRef = useRef(onVisibilityChange);
   onVisibilityChangeRef.current = onVisibilityChange;
 
-  const photosRef = useRef(photos);
-  photosRef.current = photos;
+  const filesRef = useRef(files);
+  filesRef.current = files;
 
   // Set up virtualizer
   const rowVirtualizer = useVirtualizer({
-    count: photos.length,
+    count: files.length,
     getScrollElement: () => listRef.current,
     estimateSize: () => rowHeight, // Matches --row-height below.
     overscan: 10, // Render 10 extra rows above/below viewport for smooth scrolling
@@ -406,9 +406,9 @@ export function PhotoList({
     const updateVisible = () => {
       const newVisible = new Set<string>();
       for (const virtualItem of virtualItems) {
-        const photo = photosRef.current[virtualItem.index];
-        if (photo) {
-          newVisible.add(photo.relative_path);
+        const file = filesRef.current[virtualItem.index];
+        if (file) {
+          newVisible.add(file.relative_path);
         }
       }
 
@@ -425,7 +425,7 @@ export function PhotoList({
     updateVisible();
   }, [virtualItems, thumbnails, imageMetadataOccurrences]);
 
-  // Defensive kickstart: when photos first appear in a scan, notify about the
+  // Defensive kickstart: when files first appear in a scan, notify about the
   // first 30 paths that still need loading.  This runs once per scan so the
   // backend can begin draining the prioritised queue before the virtualizer
   // has measured the DOM.  After this fires, the visibility-tracking effect
@@ -435,14 +435,14 @@ export function PhotoList({
   // instances, which resets the latch and lets the kickstart fire again.
   const kickstartedForStoreRef = useRef<ThumbnailStore | null>(null);
   useEffect(() => {
-    if (photos.length === 0) return;
+    if (files.length === 0) return;
     if (kickstartedForStoreRef.current === thumbnails) return;
     kickstartedForStoreRef.current = thumbnails;
 
     const initialPaths: string[] = [];
-    const limit = Math.min(30, photos.length);
+    const limit = Math.min(30, files.length);
     for (let i = 0; i < limit; i++) {
-      const path = photos[i].relative_path;
+      const path = files[i].relative_path;
       if (
         thumbnails.get(path) === "loading" ||
         imageMetadataOccurrences.get(path) === "loading"
@@ -454,7 +454,7 @@ export function PhotoList({
     if (initialPaths.length > 0) {
       onVisibilityChange(initialPaths);
     }
-  }, [photos, thumbnails, imageMetadataOccurrences, onVisibilityChange]);
+  }, [files, thumbnails, imageMetadataOccurrences, onVisibilityChange]);
 
   useEffect(() => {
     if (selectedIndex !== null && listRef.current) {
@@ -465,10 +465,10 @@ export function PhotoList({
 
   const { selectedIndices, handleRowSelect, handleRowContextMenu } =
     useRowSelection({
-      photosLength: photos.length,
+      filesLength: files.length,
       selectedIndex,
       onSelect,
-      onPhotoOpen,
+      onFileOpen,
       listRef,
       rowHeight,
       onSelectionCountChange,
@@ -534,7 +534,7 @@ export function PhotoList({
   };
 
   // The grid template is exposed to descendants via the --grid-columns CSS
-  // variable.  PhotoRow reads it via var(--grid-columns) so column-width
+  // variable.  FileRow reads it via var(--grid-columns) so column-width
   // changes don't invalidate every memoised row's props.
   const gridColumns = buildGridTemplate(visibleColumns, effectiveWidths);
   const gridStyle = {
@@ -545,10 +545,10 @@ export function PhotoList({
     "--thumb-height": `${thumbnailHeight}px`,
   } as React.CSSProperties;
 
-  if (photos.length === 0) {
+  if (files.length === 0) {
     return (
       <div
-        className="photo-table-wrapper"
+        className="file-table-wrapper"
         ref={listRef}
         onClick={() => {
           setContextMenu(null);
@@ -557,18 +557,18 @@ export function PhotoList({
         onDragOver={handleWrapperDragOver}
       >
         <div
-          className="photo-grid"
+          className="file-grid"
           data-testid={
-            emptySearchMessage ? "photo-list-search-empty" : "photo-list-empty"
+            emptySearchMessage ? "file-list-search-empty" : "file-list-empty"
           }
           role="grid"
           style={gridStyle}
         >
-          <PhotoListHeader {...headerProps} />
+          <FileListHeader {...headerProps} />
           <div
             className="grid-body"
             data-testid={
-              emptySearchMessage ? "photo-list-search-empty-message" : undefined
+              emptySearchMessage ? "file-list-search-empty-message" : undefined
             }
             style={{
               gridColumn: "1 / -1",
@@ -595,7 +595,7 @@ export function PhotoList({
 
   return (
     <div
-      className="photo-table-wrapper"
+      className="file-table-wrapper"
       ref={listRef}
       onClick={() => {
         setContextMenu(null);
@@ -604,12 +604,12 @@ export function PhotoList({
       onDragOver={handleWrapperDragOver}
     >
       <div
-        className="photo-grid"
-        data-testid="photo-list"
+        className="file-grid"
+        data-testid="file-list"
         role="grid"
         style={gridStyle}
       >
-        <PhotoListHeader {...headerProps} />
+        <FileListHeader {...headerProps} />
 
         {/* Virtual rows container */}
         <div
@@ -622,22 +622,22 @@ export function PhotoList({
           }}
         >
           {virtualItems.map((virtualRow) => {
-            const photo = photos[virtualRow.index];
+            const file = files[virtualRow.index];
             return (
-              <PhotoRow
-                key={photo.relative_path}
-                photo={photo}
+              <FileRow
+                key={file.relative_path}
+                file={file}
                 index={virtualRow.index}
                 selected={selectedIndices.has(virtualRow.index)}
                 thumbnails={thumbnails}
                 imageMetadataOccurrences={imageMetadataOccurrences}
                 targetDraftEdits={
-                  targetDraftEdits[photo.relative_path] ??
+                  targetDraftEdits[file.relative_path] ??
                   EMPTY_TARGET_DRAFT_COLLECTION
                 }
                 visibleColumns={visibleColumns}
                 onSelect={handleRowSelect}
-                onPhotoOpen={onPhotoOpen}
+                onFileOpen={onFileOpen}
                 onContextMenu={handleContextMenu}
                 virtualStart={virtualRow.start}
                 searchQuery={searchQuery}
@@ -648,14 +648,14 @@ export function PhotoList({
       </div>
 
       {contextMenu && (
-        <PhotoListContextMenu
+        <FileListContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
           contextMenuIndex={contextMenu.index}
           selectedIndices={selectedIndices}
-          photos={photos}
+          files={files}
           targetDraftEdits={targetDraftEdits}
-          onPhotoOpen={onPhotoOpen}
+          onFileOpen={onFileOpen}
           onShowInExplorer={onShowInExplorer}
           onCopyPaths={onCopyPaths}
           onBulkEdit={onBulkEdit}

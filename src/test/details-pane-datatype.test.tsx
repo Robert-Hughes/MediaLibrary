@@ -14,7 +14,7 @@ import type {
 } from "../types";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import { makePhoto } from "./factories";
+import { makeFile } from "./factories";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
@@ -24,7 +24,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve(null)),
 }));
 
-const photo = makePhoto({ relative_path: "datatype.jpg" });
+const file = makeFile({ relative_path: "datatype.jpg" });
 
 function schemaId(tagId: string): SchemaDefinitionId {
   return { table: "Test::Datatype", tag_id: tagId };
@@ -77,14 +77,14 @@ function exactDraft(source: MetadataOccurrence, edit: MetadataDraftEdit) {
   const target = existingOccurrenceTargetFromOccurrence(source);
   if (target.kind !== "targetable") throw new Error(target.reason);
   const store = new TargetDraftEditsStore();
-  store.setMetadataTarget(photo.relative_path, target.target, edit);
-  return store.getMetadataFile(photo.relative_path);
+  store.setMetadataTarget(file.relative_path, target.target, edit);
+  return store.getMetadataFile(file.relative_path);
 }
 
 function newPropertyDraft(id: SchemaDefinitionId, edit: MetadataDraftEdit) {
   const store = new TargetDraftEditsStore();
   store.setMetadataTarget(
-    photo.relative_path,
+    file.relative_path,
     {
       kind: "NewProperty",
       schema_id: id,
@@ -96,7 +96,7 @@ function newPropertyDraft(id: SchemaDefinitionId, edit: MetadataDraftEdit) {
     },
     edit,
   );
-  return store.getMetadataFile(photo.relative_path);
+  return store.getMetadataFile(file.relative_path);
 }
 
 function renderExisting(options: {
@@ -110,7 +110,7 @@ function renderExisting(options: {
   const item = occurrence(tag, options.value);
   render(
     <DetailsPane
-      photo={photo}
+      file={file}
 
       occurrences={[item]}
       targetDraftEdits={
@@ -136,7 +136,7 @@ function renderNewProperty(options: {
   _setTagInfoCacheEntry(options.id, tag);
   render(
     <DetailsPane
-      photo={photo}
+      file={file}
 
       occurrences={[]}
       targetDraftEdits={newPropertyDraft(options.id, options.edit)}

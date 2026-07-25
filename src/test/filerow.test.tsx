@@ -8,7 +8,7 @@ import {
   testId,
 } from "./factories";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { MetadataTargetDraftEntry, MetadataOccurrence } from "../types";
 import {
@@ -36,9 +36,9 @@ function renderTargetDraftRow(
   else metadata.set("1.jpg", occurrences);
 
   render(
-    <PhotoList
+    <FileList
       targetDraftEdits={mockTargetDraftsByFile({ "1.jpg": entries })}
-      photos={[
+      files={[
         {
           relative_path: "1.jpg",
           filename: "1.jpg",
@@ -55,19 +55,19 @@ function renderTargetDraftRow(
       onSelect={vi.fn()}
       onShowInExplorer={vi.fn()}
       onVisibilityChange={vi.fn()}
-      onPhotoOpen={vi.fn()}
+      onFileOpen={vi.fn()}
     />,
   );
 }
 
-describe("PhotoRow", () => {
+describe("FileRow", () => {
   beforeEach(() => {
     _clearTagInfoCache();
     _setTagInfoCacheEntry("IFD0:Model", null);
     _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", null);
   });
 
-  it("renders PhotoList with photos without crashing", () => {
+  it("renders FileList with files without crashing", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new ImageMetadataOccurrencesStore();
 
@@ -78,7 +78,7 @@ describe("PhotoRow", () => {
       occurrencesFromMetadataCollection(mockMetadata({ Model: "Nikon" })),
     );
 
-    const photos = [
+    const files = [
       {
         relative_path: "1.jpg",
         filename: "1.jpg",
@@ -88,9 +88,9 @@ describe("PhotoRow", () => {
     ];
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}
         visibleColumns={[
@@ -105,7 +105,7 @@ describe("PhotoRow", () => {
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
+        onFileOpen={vi.fn()}
         onSelectColumns={vi.fn()}
       />,
     );
@@ -118,9 +118,9 @@ describe("PhotoRow", () => {
     metadata.set("1.jpg", []);
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={[
+        files={[
           {
             relative_path: "1.jpg",
             filename: "1.jpg",
@@ -137,22 +137,22 @@ describe("PhotoRow", () => {
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
+        onFileOpen={vi.fn()}
       />,
     );
 
-    expect(document.querySelector(".photo-thumb-img")).not.toBeNull();
+    expect(document.querySelector(".file-thumb-img")).not.toBeNull();
   });
 
   it("rows read gridTemplateColumns from a CSS custom property, not from props", () => {
     // Regression: gridColumns used to be a per-render string passed to every
-    // memoised PhotoRow.  A column-resize drag (which fires setLiveWidths on
+    // memoised FileRow.  A column-resize drag (which fires setLiveWidths on
     // every pointermove) would change that string and re-render every visible
     // row.  The fix is to set --grid-columns on a parent and have rows read it
     // via var(--grid-columns) — a constant string that never changes per render.
     const thumbnails = new ThumbnailStore();
     const metadata = new ImageMetadataOccurrencesStore();
-    const photos = [
+    const files = [
       {
         relative_path: "1.jpg",
         filename: "1.jpg",
@@ -164,9 +164,9 @@ describe("PhotoRow", () => {
     metadata.add("1.jpg");
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}
         visibleColumns={[
@@ -180,16 +180,16 @@ describe("PhotoRow", () => {
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
+        onFileOpen={vi.fn()}
         onSelectColumns={vi.fn()}
       />,
     );
 
-    const row = screen.getByTestId("photo-row") as HTMLElement;
+    const row = screen.getByTestId("file-row") as HTMLElement;
     expect(row.style.gridTemplateColumns).toBe("var(--grid-columns)");
 
     // The grid container exposes the variable so descendants can resolve it.
-    const grid = screen.getByTestId("photo-list");
+    const grid = screen.getByTestId("file-list");
     expect(grid.style.getPropertyValue("--grid-columns")).not.toBe("");
   });
 
@@ -201,7 +201,7 @@ describe("PhotoRow", () => {
     thumbnails.set("1.jpg", "base64string");
     metadata.set("1.jpg", []);
 
-    const photos = [
+    const files = [
       {
         relative_path: "1.jpg",
         filename: "1.jpg",
@@ -211,9 +211,9 @@ describe("PhotoRow", () => {
     ];
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}
         visibleColumns={[imgCol("IFD0:Model")]}
@@ -223,7 +223,7 @@ describe("PhotoRow", () => {
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
+        onFileOpen={vi.fn()}
         onSelectColumns={vi.fn()}
       />,
     );
@@ -258,9 +258,9 @@ describe("PhotoRow", () => {
     );
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={[
+        files={[
           {
             relative_path: "1.jpg",
             filename: "1.jpg",
@@ -277,7 +277,7 @@ describe("PhotoRow", () => {
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
+        onFileOpen={vi.fn()}
         onSelectColumns={vi.fn()}
       />,
     );
@@ -304,9 +304,9 @@ describe("PhotoRow", () => {
     );
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={[
+        files={[
           {
             relative_path: "1.jpg",
             filename: "1.jpg",
@@ -323,7 +323,7 @@ describe("PhotoRow", () => {
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
+        onFileOpen={vi.fn()}
         onSelectColumns={vi.fn()}
       />,
     );

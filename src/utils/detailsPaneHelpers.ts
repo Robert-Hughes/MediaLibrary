@@ -1,4 +1,4 @@
-import type { PhotoInfo } from "../types";
+import type { FileInfo } from "../types";
 import { formatMetadataValue as formatSemanticMetadataValue } from "../draft";
 
 export const formatMetadataValue = (
@@ -12,13 +12,11 @@ export function formatTimestamp(ts: number | null): string {
 }
 
 /** OS-level metadata entries available from the directory walk. */
-export function getOsEntries(
-  photo: PhotoInfo,
-): Array<[string, string, string]> {
+export function getOsEntries(file: FileInfo): Array<[string, string, string]> {
   return [
-    ["Filename", photo.filename, "filename"],
-    ["Relative Path", photo.relative_path, "relative_path"],
-    ["Date Modified", formatTimestamp(photo.date_modified), "date_modified"],
-    ["Date Created", formatTimestamp(photo.date_created), "date_created"],
+    ["Filename", file.filename, "filename"],
+    ["Relative Path", file.relative_path, "relative_path"],
+    ["Date Modified", formatTimestamp(file.date_modified), "date_modified"],
+    ["Date Created", formatTimestamp(file.date_created), "date_created"],
   ];
 }

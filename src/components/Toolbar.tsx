@@ -1,13 +1,13 @@
 interface Props {
   folder: string;
-  photoCount: number;
+  fileCount: number;
   onOpenFolder: () => void;
   onCloseFolder: () => void;
 }
 
 export function Toolbar({
   folder,
-  photoCount,
+  fileCount,
   onOpenFolder,
   onCloseFolder,
 }: Props) {
@@ -22,7 +22,7 @@ export function Toolbar({
       </span>
       <span className="toolbar-spacer" />
       <span className="toolbar-count" data-testid="toolbar-count">
-        {photoCount} photo{photoCount === 1 ? "" : "s"}
+        {fileCount} file{fileCount === 1 ? "" : "s"}
       </span>
       <div className="toolbar-divider" />
       <button

@@ -348,7 +348,7 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     // Plan §4 done-panel labels include `cache_io`. The runner emits
     // exactly one such row when the end-of-batch cache save closure
     // returns an Err, with a sentinel relative_path so the frontend
-    // can label it without showing a real photo path. No network
+    // can label it without showing a real file path. No network
     // call is needed for this test — the item is served from the
     // cache.
     let mut cache = cache_with_entry(51.5, -0.1, "Westminster");
@@ -369,7 +369,7 @@ async fn cache_io_save_failure_appears_as_synthetic_failure_row() {
     )
     .await;
 
-    // The photo itself succeeded — cache hit.
+    // The file itself succeeded — cache hit.
     assert_eq!(outcome.summary.n_succeeded_from_cache, 1);
 
     // And there's an extra synthetic failure row for the save miss.

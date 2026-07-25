@@ -48,11 +48,11 @@ export interface MetadataRemovalPreview {
 export type MetadataRemovalFilesPreview =
   | {
       kind: "ready";
-      photoCount: number;
-      affectedPhotoCount: number;
+      fileCount: number;
+      affectedFileCount: number;
       existingFieldsToDelete: number;
       stagedCreationsToCancel: number;
-      noOpPhotoCount: number;
+      noOpFileCount: number;
     }
   | {
       kind: "blocked";
@@ -461,10 +461,10 @@ export function previewMetadataRemovalFiles(input: {
     };
   }
 
-  let affectedPhotoCount = 0;
+  let affectedFileCount = 0;
   let existingFieldsToDelete = 0;
   let stagedCreationsToCancel = 0;
-  let noOpPhotoCount = 0;
+  let noOpFileCount = 0;
 
   for (const relativePath of paths) {
     try {
@@ -476,9 +476,9 @@ export function previewMetadataRemovalFiles(input: {
       existingFieldsToDelete += preview.existingFieldsToDelete;
       stagedCreationsToCancel += preview.stagedCreationsToCancel;
       if (preview.affectedCount === 0) {
-        noOpPhotoCount += 1;
+        noOpFileCount += 1;
       } else {
-        affectedPhotoCount += 1;
+        affectedFileCount += 1;
       }
     } catch (error) {
       return {
@@ -491,10 +491,10 @@ export function previewMetadataRemovalFiles(input: {
 
   return {
     kind: "ready",
-    photoCount: paths.length,
-    affectedPhotoCount,
+    fileCount: paths.length,
+    affectedFileCount,
     existingFieldsToDelete,
     stagedCreationsToCancel,
-    noOpPhotoCount,
+    noOpFileCount,
   };
 }

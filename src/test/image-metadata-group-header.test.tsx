@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { PhotoInfo } from "../types";
+import type { FileInfo } from "../types";
 import { imgCol, osCol } from "./factories";
 
 const defaultSortProps = {
@@ -11,32 +11,32 @@ const defaultSortProps = {
   onSortChange: () => {},
 };
 
-const mockPhotos: PhotoInfo[] = [
+const mockFiles: FileInfo[] = [
   {
-    relative_path: "photo1.jpg",
-    filename: "photo1.jpg",
+    relative_path: "file1.jpg",
+    filename: "file1.jpg",
     date_modified: 1640995200,
     date_created: 1640995200,
   },
 ];
 
-function makeStores(photos: PhotoInfo[]) {
+function makeStores(files: FileInfo[]) {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  photos.forEach((p) => {
+  files.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   });
   return { thumbnails, imageMetadata };
 }
 
-describe("PhotoList per-column kind labels", () => {
+describe("FileList per-column kind labels", () => {
   it("shows 'Image' label above each image-metadata column header", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    const { thumbnails, imageMetadata } = makeStores(mockFiles);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -48,7 +48,7 @@ describe("PhotoList per-column kind labels", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(screen.getByText("Image")).toBeInTheDocument();
@@ -56,11 +56,11 @@ describe("PhotoList per-column kind labels", () => {
   });
 
   it("does not render any 'Image' kind label when no image columns are enabled", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    const { thumbnails, imageMetadata } = makeStores(mockFiles);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[osCol("date_modified")]}
@@ -69,7 +69,7 @@ describe("PhotoList per-column kind labels", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(screen.queryByText("Image")).not.toBeInTheDocument();
@@ -79,9 +79,9 @@ describe("PhotoList per-column kind labels", () => {
     const thumbnails = new ThumbnailStore();
     const imageMetadata = new ImageMetadataOccurrencesStore();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={[]}
+        files={[]}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
@@ -90,7 +90,7 @@ describe("PhotoList per-column kind labels", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(screen.queryByText("Image")).not.toBeInTheDocument();
@@ -98,11 +98,11 @@ describe("PhotoList per-column kind labels", () => {
   });
 
   it("formats Preview and Path with the same two-line header layout", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    const { thumbnails, imageMetadata } = makeStores(mockFiles);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
@@ -111,7 +111,7 @@ describe("PhotoList per-column kind labels", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
 
@@ -135,11 +135,11 @@ describe("PhotoList per-column kind labels", () => {
   });
 
   it("renders one 'Image' label per image column when multiple image columns are enabled", () => {
-    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    const { thumbnails, imageMetadata } = makeStores(mockFiles);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -151,21 +151,21 @@ describe("PhotoList per-column kind labels", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(screen.getAllByText("Image")).toHaveLength(2);
   });
 });
 
-describe("PhotoList kind-label context menu", () => {
+describe("FileList kind-label context menu", () => {
   it("shows context menu when right-clicking an 'OS' kind label", async () => {
     const onSelectColumns = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    const { thumbnails, imageMetadata } = makeStores(mockFiles);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -177,7 +177,7 @@ describe("PhotoList kind-label context menu", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
         onSelectColumns={onSelectColumns}
       />,
     );
@@ -189,11 +189,11 @@ describe("PhotoList kind-label context menu", () => {
 
   it("shows context menu when right-clicking an 'Image' kind label", async () => {
     const onSelectColumns = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    const { thumbnails, imageMetadata } = makeStores(mockFiles);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
@@ -202,7 +202,7 @@ describe("PhotoList kind-label context menu", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
         onSelectColumns={onSelectColumns}
       />,
     );
@@ -216,11 +216,11 @@ describe("PhotoList kind-label context menu", () => {
 
   it("clicking Select Columns from a kind-label context menu invokes onSelectColumns", async () => {
     const onSelectColumns = vi.fn();
-    const { thumbnails, imageMetadata } = makeStores(mockPhotos);
+    const { thumbnails, imageMetadata } = makeStores(mockFiles);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -232,7 +232,7 @@ describe("PhotoList kind-label context menu", () => {
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
         {...defaultSortProps}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
         onSelectColumns={onSelectColumns}
       />,
     );

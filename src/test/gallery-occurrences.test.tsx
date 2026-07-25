@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataOccurrencesStore } from "../types";
 import type { MetadataOccurrence, TagInfo } from "../types";
-import { makePhotos } from "./factories";
+import { makeFiles } from "./factories";
 import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
-const photos = makePhotos(["a.jpg", "b.jpg"]);
+const files = makeFiles(["a.jpg", "b.jpg"]);
 const tagInfo: TagInfo = {
   id: { table: "Exif::Main", tag_id: "282" },
   group: "IFD0",
@@ -44,8 +44,8 @@ function occurrence(
 
 function props(imageMetadataOccurrences: ImageMetadataOccurrencesStore) {
   return {
-    photos,
-    folderPath: "/photos",
+    files,
+    folderPath: "/files",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: async () => "data:image/jpeg;base64,FAKE",
@@ -63,7 +63,7 @@ describe("Gallery occurrence-store subscription", () => {
 
   it("rerenders from the current path and follows navigation subscriptions", async () => {
     const occurrences = new ImageMetadataOccurrencesStore();
-    for (const photo of photos) occurrences.add(photo.relative_path);
+    for (const file of files) occurrences.add(file.relative_path);
 
     const subscribe = vi.spyOn(occurrences, "subscribe");
     const base = props(occurrences);
@@ -95,7 +95,7 @@ describe("Gallery occurrence-store subscription", () => {
     render(
       <GalleryView
         {...props(occurrences)}
-        photos={[photos[0]]}
+        files={[files[0]]}
         currentIndex={0}
       />,
     );
@@ -112,7 +112,7 @@ describe("Gallery occurrence-store subscription", () => {
     render(
       <GalleryView
         {...props(occurrences)}
-        photos={[photos[0]]}
+        files={[files[0]]}
         currentIndex={0}
       />,
     );

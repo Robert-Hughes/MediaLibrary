@@ -9,7 +9,7 @@ interface Props {
   searchQuery?: string;
   onSearchQueryChange?: (q: string) => void;
   /** True while the off-thread search worker is processing the current query
-   *  or refreshing results after a photo/metadata/draft change.  Renders an
+   *  or refreshing results after a file/metadata/draft change.  Renders an
    *  inline spinner next to the search box. */
   searching?: boolean;
 }
@@ -74,7 +74,7 @@ export function MenuBar({
                 placeholder="Path, file dates, image metadata…"
                 value={searchQuery ?? ""}
                 onChange={(e) => onSearchQueryChange(e.target.value)}
-                aria-label="Search photos"
+                aria-label="Search files"
               />
               {searching && (
                 <span

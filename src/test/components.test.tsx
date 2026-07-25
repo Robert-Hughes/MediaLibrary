@@ -7,14 +7,14 @@ import {
 } from "./tagInfoTestHelpers";
 import { WelcomeScreen } from "../components/WelcomeScreen";
 import { MenuBar } from "../components/MenuBar";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ColumnSelectionDialog } from "../components/ColumnSelectionDialog";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { PhotoInfo } from "../types";
+import type { FileInfo } from "../types";
 import {
   imgCol,
-  makePhoto,
-  makePhotos,
+  makeFile,
+  makeFiles,
   mockMetadata,
   osCol,
   testId,
@@ -24,37 +24,37 @@ import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeStores(
-  photos: PhotoInfo[],
+  files: FileInfo[],
   thumbOverrides: Record<string, string> = {},
 ) {
   const thumbs = new ThumbnailStore();
-  thumbs.reset(photos.map((p) => p.relative_path));
+  thumbs.reset(files.map((p) => p.relative_path));
   for (const [k, v] of Object.entries(thumbOverrides)) thumbs.set(k, v);
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  photos.forEach((p) => imageMetadata.add(p.relative_path));
+  files.forEach((p) => imageMetadata.add(p.relative_path));
   return { thumbs, imageMetadata };
 }
 
 function renderList(
-  photos: PhotoInfo[],
+  files: FileInfo[],
   opts: {
     thumbOverrides?: Record<string, string>;
     selectedIndex?: number | null;
     onSelect?: (i: number | null) => void;
-    onPhotoOpen?: (i: number) => void;
+    onFileOpen?: (i: number) => void;
     onShowInExplorer?: (i: number) => void;
     visibleColumns?: import("../types").VisibleColumn[];
     onSelectColumns?: () => void;
   } = {},
 ) {
   const { thumbs, imageMetadata } = makeStores(
-    photos,
+    files,
     opts.thumbOverrides ?? {},
   );
   render(
-    <PhotoList
+    <FileList
       targetDraftEdits={{}}
-      photos={photos}
+      files={files}
       thumbnails={thumbs}
       imageMetadataOccurrences={imageMetadata}
       visibleColumns={
@@ -70,7 +70,7 @@ function renderList(
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
       onVisibilityChange={() => {}}
-      onPhotoOpen={opts.onPhotoOpen ?? (() => {})}
+      onFileOpen={opts.onFileOpen ?? (() => {})}
       onSelectColumns={opts.onSelectColumns ?? (() => {})}
     />,
   );
@@ -108,7 +108,7 @@ describe("WelcomeScreen", () => {
   });
 
   it("shows recent folders when provided", () => {
-    const recent = ["/photos/2023", "/photos/2024"];
+    const recent = ["/files/2023", "/files/2024"];
     render(
       <WelcomeScreen
         onOpenFolder={noop}
@@ -118,7 +118,7 @@ describe("WelcomeScreen", () => {
     );
     expect(screen.getByTestId("recent-folders")).toBeInTheDocument();
     expect(screen.getAllByTestId("recent-folder-item")).toHaveLength(2);
-    expect(screen.getByText("/photos/2023")).toBeInTheDocument();
+    expect(screen.getByText("/files/2023")).toBeInTheDocument();
   });
 
   it("calls onOpenRecent when a recent item is clicked", async () => {
@@ -126,12 +126,12 @@ describe("WelcomeScreen", () => {
     render(
       <WelcomeScreen
         onOpenFolder={noop}
-        recentFolders={["/photos/old"]}
+        recentFolders={["/files/old"]}
         onOpenRecent={handler}
       />,
     );
     await userEvent.click(screen.getByTestId("recent-folder-item"));
-    expect(handler).toHaveBeenCalledWith("/photos/old");
+    expect(handler).toHaveBeenCalledWith("/files/old");
   });
 });
 
@@ -173,19 +173,19 @@ describe("MenuBar", () => {
   });
 });
 
-// ── PhotoList ─────────────────────────────────────────────────────────────────
+// ── FileList ─────────────────────────────────────────────────────────────────
 
-describe("PhotoList", () => {
+describe("FileList", () => {
   beforeEach(() => {
     _clearTagInfoCache();
     _setTagInfoCacheEntry("IFD0:Model", null);
   });
-  it("shows empty message when no photos", () => {
+  it("shows empty message when no files", () => {
     const { thumbs, imageMetadata } = makeStores([]);
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={[]}
+        files={[]}
         thumbnails={thumbs}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -198,21 +198,21 @@ describe("PhotoList", () => {
         onSelect={noop}
         onShowInExplorer={noop}
         onVisibilityChange={noop}
-        onPhotoOpen={noop}
+        onFileOpen={noop}
         onSelectColumns={noop}
       />,
     );
-    expect(screen.getByTestId("photo-list-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("file-list-empty")).toBeInTheDocument();
   });
 
-  it("renders a row for each photo", () => {
-    renderList(makePhotos(["a.jpg", "b.png", "c.gif"]));
-    expect(screen.getAllByTestId("photo-row")).toHaveLength(3);
+  it("renders a row for each file", () => {
+    renderList(makeFiles(["a.jpg", "b.png", "c.gif"]));
+    expect(screen.getAllByTestId("file-row")).toHaveLength(3);
   });
 
   it("displays the relative path", () => {
-    renderList([makePhoto({ relative_path: "vacation/beach.jpg" })]);
-    expect(screen.getByTestId("photo-path")).toHaveTextContent(
+    renderList([makeFile({ relative_path: "vacation/beach.jpg" })]);
+    expect(screen.getByTestId("file-path")).toHaveTextContent(
       "vacation/beach.jpg",
     );
   });
@@ -220,13 +220,13 @@ describe("PhotoList", () => {
   // ── Image metadata cells ───────────────────────────────────────────────────
 
   it("shows spinner in Image Metadata cells while metadata is loading", () => {
-    renderList([makePhoto({ relative_path: "a.jpg" })]);
+    renderList([makeFile({ relative_path: "a.jpg" })]);
     expect(screen.getByTestId("metadata-loading")).toBeInTheDocument();
   });
 
   it("shows metadata value after it arrives", () => {
-    const photos = [makePhoto({ relative_path: "a.jpg" })];
-    const { thumbs, imageMetadata } = makeStores(photos);
+    const files = [makeFile({ relative_path: "a.jpg" })];
+    const { thumbs, imageMetadata } = makeStores(files);
     act(() => {
       imageMetadata.set(
         "a.jpg",
@@ -236,9 +236,9 @@ describe("PhotoList", () => {
       );
     });
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbs}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -252,7 +252,7 @@ describe("PhotoList", () => {
         onSelect={noop}
         onShowInExplorer={noop}
         onVisibilityChange={noop}
-        onPhotoOpen={noop}
+        onFileOpen={noop}
         onSelectColumns={noop}
       />,
     );
@@ -264,40 +264,40 @@ describe("PhotoList", () => {
 
   it("calls onSelect with the correct index when a row is clicked", async () => {
     const onSelect = vi.fn();
-    const photos = makePhotos(["a.jpg", "b.jpg"]);
-    renderList(photos, { onSelect });
+    const files = makeFiles(["a.jpg", "b.jpg"]);
+    renderList(files, { onSelect });
 
-    const rows = screen.getAllByTestId("photo-row");
+    const rows = screen.getAllByTestId("file-row");
     await userEvent.click(rows[1]);
     expect(onSelect).toHaveBeenCalledWith(1);
   });
 
-  it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
-    const onPhotoOpen = vi.fn();
-    const photos = makePhotos(["a.jpg", "b.jpg"]);
-    renderList(photos, { onPhotoOpen });
+  it("calls onFileOpen with the correct index when a row is double-clicked", async () => {
+    const onFileOpen = vi.fn();
+    const files = makeFiles(["a.jpg", "b.jpg"]);
+    renderList(files, { onFileOpen });
 
-    const rows = screen.getAllByTestId("photo-row");
+    const rows = screen.getAllByTestId("file-row");
     await userEvent.dblClick(rows[1]);
-    expect(onPhotoOpen).toHaveBeenCalledWith(1);
+    expect(onFileOpen).toHaveBeenCalledWith(1);
   });
 
   it("applies selected class to the correct row", () => {
-    const photos = makePhotos(["a.jpg", "b.jpg"]);
-    renderList(photos, { selectedIndex: 1 });
+    const files = makeFiles(["a.jpg", "b.jpg"]);
+    renderList(files, { selectedIndex: 1 });
 
-    const rows = screen.getAllByTestId("photo-row");
-    expect(rows[0]).not.toHaveClass("photo-row--selected");
-    expect(rows[1]).toHaveClass("photo-row--selected");
+    const rows = screen.getAllByTestId("file-row");
+    expect(rows[0]).not.toHaveClass("file-row--selected");
+    expect(rows[1]).toHaveClass("file-row--selected");
   });
 
   // ── Context Menu ───────────────────────────────────────────────────────────
 
   it("opens context menu on right click", async () => {
-    const photos = makePhotos(["a.jpg"]);
-    renderList(photos);
+    const files = makeFiles(["a.jpg"]);
+    renderList(files);
 
-    const row = screen.getByTestId("photo-row");
+    const row = screen.getByTestId("file-row");
     fireEvent.contextMenu(row);
 
     expect(screen.getByTestId("context-menu")).toBeInTheDocument();

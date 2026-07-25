@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi, type MockTauriApi } from "./mockTauriApi";
-import { makePhoto, makePhotos, testId } from "./factories";
+import { makeFile, makeFiles, testId } from "./factories";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataApplyFileResult,
@@ -17,7 +17,7 @@ import {
   family7GroupFromRuntimeTagId,
   family7GroupFromSchemaId,
 } from "../utils/metadataWriteTarget";
-import { sortPhotos } from "../utils/sorting";
+import { sortFiles } from "../utils/sorting";
 
 async function expectConsoleErrorMessages(
   expected: readonly string[],
@@ -201,63 +201,63 @@ describe("useMediaLibrary", () => {
 
   it("adds folder to recent list when opened", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos/new");
+    mock.pickFolderResolves("/files/new");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
-    expect(result.current[0].recentFolders).toEqual(["/photos/new"]);
+    expect(result.current[0].recentFolders).toEqual(["/files/new"]);
   });
 
-  it("transitions to loaded on first photo_found", async () => {
+  it("transitions to loaded on first file_found", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
   });
 
-  it("appends photos as photo_found events arrive (batched)", async () => {
+  it("appends files as file_found events arrive (batched)", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "c.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "c.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
     });
     const state = result.current[0];
-    if (state.kind === "loaded") expect(state.photos).toHaveLength(3);
+    if (state.kind === "loaded") expect(state.files).toHaveLength(3);
   });
 
   it("imageMetadataRemaining decrements when image_metadata_ready fires", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -278,13 +278,13 @@ describe("useMediaLibrary", () => {
 
   it("stores canonical metadata from image_metadata_ready", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -317,14 +317,14 @@ describe("useMediaLibrary", () => {
 
   it("navigateGallery increments and decrements", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
-    makePhotos(["a.jpg", "b.jpg", "c.jpg"]).forEach((p) =>
+    makeFiles(["a.jpg", "b.jpg", "c.jpg"]).forEach((p) =>
       act(() => {
-        mock.emitPhotoFound(p);
+        mock.emitFileFound(p);
       }),
     );
     await act(async () => {
@@ -347,14 +347,14 @@ describe("useMediaLibrary", () => {
 
   it("navigateGallery respects listLength when clamping", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
-    makePhotos(["a.jpg", "b.jpg", "c.jpg"]).forEach((p) =>
+    makeFiles(["a.jpg", "b.jpg", "c.jpg"]).forEach((p) =>
       act(() => {
-        mock.emitPhotoFound(p);
+        mock.emitFileFound(p);
       }),
     );
     await act(async () => {
@@ -377,14 +377,14 @@ describe("useMediaLibrary", () => {
 
   it("navigateGallery clamps at boundaries", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
-    makePhotos(["a.jpg", "b.jpg"]).forEach((p) =>
+    makeFiles(["a.jpg", "b.jpg"]).forEach((p) =>
       act(() => {
-        mock.emitPhotoFound(p);
+        mock.emitFileFound(p);
       }),
     );
     await act(async () => {
@@ -408,19 +408,19 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
   });
 
-  it("selectPhoto updates selectedIndex", async () => {
+  it("selectFile updates selectedIndex", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
 
     act(() => {
-      result.current[1].selectPhoto(0);
+      result.current[1].selectFile(0);
     });
     expect(result.current[0].kind).toBe("loaded");
     if (result.current[0].kind === "loaded") {
@@ -430,13 +430,13 @@ describe("useMediaLibrary", () => {
 
   it("openGallery also sets selectedIndex", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
 
     act(() => {
@@ -451,14 +451,14 @@ describe("useMediaLibrary", () => {
 
   it("navigateGallery syncs selectedIndex", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
-    makePhotos(["a.jpg", "b.jpg"]).forEach((p) =>
+    makeFiles(["a.jpg", "b.jpg"]).forEach((p) =>
       act(() => {
-        mock.emitPhotoFound(p);
+        mock.emitFileFound(p);
       }),
     );
     await act(async () => {
@@ -481,14 +481,14 @@ describe("useMediaLibrary", () => {
 
   it("showInExplorer passes folder and relativePath separately to the backend and is called once", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("C:/MyPhotos");
+    mock.pickFolderResolves("C:/MyFiles");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "nature/sunset.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "nature/sunset.jpg" }));
     });
 
     await act(async () => {
@@ -500,14 +500,14 @@ describe("useMediaLibrary", () => {
     );
     expect(explorerCalls).toHaveLength(1);
     expect(explorerCalls[0].args).toEqual({
-      folder: "C:/MyPhotos",
+      folder: "C:/MyFiles",
       relativePath: "nature/sunset.jpg",
     });
   });
 
   it("scan_error during loading resets state to idle", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
@@ -522,15 +522,15 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
-  it("scan_error after photos have loaded resets state to idle", async () => {
+  it("scan_error after files have loaded resets state to idle", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -547,13 +547,13 @@ describe("useMediaLibrary", () => {
 
   it("scan_error with a stale scan_id does not reset an in-progress scan", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -569,14 +569,14 @@ describe("useMediaLibrary", () => {
 
   it("thumbnail failures (null) set thumbnail store to 'failed'", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -597,13 +597,13 @@ describe("useMediaLibrary", () => {
 
   it("worker_error events append to applicationErrors when loaded", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -636,13 +636,13 @@ describe("useMediaLibrary", () => {
 
   it("dismissError removes the error at the given index", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -679,13 +679,13 @@ describe("useMediaLibrary", () => {
     // array (and React state) without bound.  Cap at 20 and keep the most
     // recent ones since they're the ones the user can act on.
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -731,19 +731,19 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
-  it("photo_found events with a stale scan_id are ignored", async () => {
+  it("file_found events with a stale scan_id are ignored", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     const currentScanId = mock.currentScanId;
 
-    // Emit a photo_found with a different (stale) scan_id
+    // Emit a file_found with a different (stale) scan_id
     act(() => {
-      mock.emitPhotoFound(
-        makePhoto({ relative_path: "stale.jpg" }),
+      mock.emitFileFound(
+        makeFile({ relative_path: "stale.jpg" }),
         currentScanId - 1,
       );
     });
@@ -751,13 +751,13 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    // Stale photo should not have been added; state should still be loading
+    // Stale file should not have been added; state should still be loading
     expect(result.current[0].kind).toBe("loading");
 
-    // A current-scan photo should be accepted
+    // A current-scan file should be accepted
     act(() => {
-      mock.emitPhotoFound(
-        makePhoto({ relative_path: "fresh.jpg" }),
+      mock.emitFileFound(
+        makeFile({ relative_path: "fresh.jpg" }),
         currentScanId,
       );
     });
@@ -767,20 +767,20 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.photos).toHaveLength(1);
-      expect(state.photos[0].relative_path).toBe("fresh.jpg");
+      expect(state.files).toHaveLength(1);
+      expect(state.files[0].relative_path).toBe("fresh.jpg");
     }
   });
 
   it("image_metadata_ready and thumbnail_ready with a stale scan_id are ignored", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -814,13 +814,13 @@ describe("useMediaLibrary", () => {
     // Worker_error currently doesn't filter by scan_id; this documents that.
     // If that behaviour changes, this test will need updating.
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -842,21 +842,21 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("photo_found events after closeFolder are ignored", async () => {
+  it("file_found events after closeFolder are ignored", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     act(() => {
       result.current[1].closeFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -864,7 +864,7 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
-  it("scan_complete with zero photos transitions from loading to loaded", async () => {
+  it("scan_complete with zero files transitions from loading to loaded", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/empty");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -880,21 +880,21 @@ describe("useMediaLibrary", () => {
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind === "loaded") {
-      expect(state.photos).toEqual([]);
+      expect(state.files).toEqual([]);
       expect(state.scanning).toBe(false);
       expect(state.folder).toBe("/empty");
     }
   });
 
-  it("scan_complete after photos arrive sets scanning to false", async () => {
+  it("scan_complete after files arrive sets scanning to false", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -913,20 +913,20 @@ describe("useMediaLibrary", () => {
 
   it("sortConfig persists across scan_complete (App applies sort once scanning ends)", async () => {
     // We assert at the hook level that scanning flips false on scan_complete
-    // and sortConfig is preserved.  App.tsx skips sortPhotos while scanning
+    // and sortConfig is preserved.  App.tsx skips sortFiles while scanning
     // is true and runs it once when scanning becomes false — the test in
-    // column-sorting verifies the PhotoList side of that contract.
+    // column-sorting verifies the FileList side of that contract.
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -959,13 +959,13 @@ describe("useMediaLibrary", () => {
 
   it("resetColumnWidths clears all stored widths", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -996,13 +996,13 @@ describe("useMediaLibrary", () => {
 
   it("metadataVersion increments only when sorted by an image metadata column", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -1030,7 +1030,7 @@ describe("useMediaLibrary", () => {
       });
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -1054,7 +1054,7 @@ describe("useMediaLibrary", () => {
       });
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "c.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "c.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -1073,11 +1073,11 @@ describe("useMediaLibrary", () => {
   });
 
   it("closeFolder cancels pending batch timers and drops buffered events", async () => {
-    // Buffer photos that are sitting in photoBufferRef waiting for the 100ms
+    // Buffer files that are sitting in fileBufferRef waiting for the 100ms
     // batch flush.  closeFolder should drop them so a stale flush doesn't
     // try to apply them after the user has left the folder.
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
@@ -1085,18 +1085,18 @@ describe("useMediaLibrary", () => {
 
     // Get past the loading→loaded transition so we're in a state with timers.
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    // Queue more photos that are sitting in the buffer behind the timer.
+    // Queue more files that are sitting in the buffer behind the timer.
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "c.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "c.jpg" }));
     });
 
     // Close before the timer fires.
@@ -1114,7 +1114,7 @@ describe("useMediaLibrary", () => {
 
   it("closeFolder invokes stop_scan on the backend", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
@@ -1131,16 +1131,16 @@ describe("useMediaLibrary", () => {
 
   it("starting a new scan stops the old one and discards old events", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos/first");
+    mock.pickFolderResolves("/files/first");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "old1.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "old1.jpg" }));
     });
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "old2.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "old2.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -1148,10 +1148,10 @@ describe("useMediaLibrary", () => {
 
     const oldScanId = mock.currentScanId;
 
-    // Start a new scan via openRecent — clears photo list and gets a new scan_id
+    // Start a new scan via openRecent — clears file list and gets a new scan_id
     mock.invocations.length = 0;
     await act(async () => {
-      await result.current[1].openRecent("/photos/second");
+      await result.current[1].openRecent("/files/second");
     });
     expect(mock.currentScanId).not.toBe(oldScanId);
 
@@ -1164,8 +1164,8 @@ describe("useMediaLibrary", () => {
 
     // Late events from the previous scan must be ignored
     act(() => {
-      mock.emitPhotoFound(
-        makePhoto({ relative_path: "leftover.jpg" }),
+      mock.emitFileFound(
+        makeFile({ relative_path: "leftover.jpg" }),
         oldScanId,
       );
     });
@@ -1173,9 +1173,9 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    // New scan: emit a photo to confirm it lands
+    // New scan: emit a file to confirm it lands
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "new1.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "new1.jpg" }));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -1183,17 +1183,17 @@ describe("useMediaLibrary", () => {
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.folder).toBe("/photos/second");
-      expect(state.photos.map((p) => p.relative_path)).toEqual(["new1.jpg"]);
+      expect(state.folder).toBe("/files/second");
+      expect(state.files.map((p) => p.relative_path)).toEqual(["new1.jpg"]);
     }
   });
 
   it("retains colliding occurrences while the schema-keyed projection stays blank and progress increments once", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
-    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })));
+    act(() => mock.emitFileFound(makeFile({ relative_path: "a.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
 
     const schemaId = testId("IFD0:XResolution");
@@ -1288,10 +1288,10 @@ describe("useMediaLibrary", () => {
 
   it("empty failed-file payloads clear occurrence loading", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
-    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "failed.jpg" })));
+    act(() => mock.emitFileFound(makeFile({ relative_path: "failed.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
     act(() => mock.emitImageMetadataReady("failed.jpg", {}));
     await act(async () => vi.advanceTimersByTimeAsync(250));
@@ -1307,7 +1307,7 @@ describe("useMediaLibrary", () => {
     mock.pickFolderResolves("/first");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
-    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" })));
+    act(() => mock.emitFileFound(makeFile({ relative_path: "a.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
     const oldScanId = mock.currentScanId;
     const firstState = result.current[0];
@@ -1347,7 +1347,7 @@ describe("useMediaLibrary", () => {
     expect(firstState.imageMetadataOccurrences.get("a.jpg")).toBe("loading");
 
     await act(async () => result.current[1].openRecent("/second"));
-    act(() => mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" })));
+    act(() => mock.emitFileFound(makeFile({ relative_path: "b.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
     const replacement = result.current[0];
     if (replacement.kind === "loaded") {
@@ -1374,8 +1374,8 @@ describe("useMediaLibrary", () => {
       },
       { intent: "Set", value: { kind: "Text", value: "pending" } },
     );
-    mock.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
-    mock.pickFolderResolves("/photos");
+    mock.targetDraftEditsByFolder["/files"] = store.getAllMetadata();
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -1399,12 +1399,12 @@ describe("useMediaLibrary", () => {
   });
   it("invalidates image sorting for target-aware progress exactly once when the final result is identical", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => {
-      mock.emitPhotoFound(makePhoto({ relative_path: "a.jpg" }));
-      mock.emitPhotoFound(makePhoto({ relative_path: "b.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
     await act(async () => vi.advanceTimersByTimeAsync(150));
     act(() => {
@@ -1431,11 +1431,11 @@ describe("useMediaLibrary", () => {
     let state = result.current[0];
     if (state.kind !== "loaded") return;
     expect(
-      sortPhotos(
-        state.photos,
+      sortFiles(
+        state.files,
         state.sortConfig,
         state.imageMetadataOccurrences,
-      ).map((photo) => photo.relative_path),
+      ).map((file) => file.relative_path),
     ).toEqual(["b.jpg", "a.jpg"]);
     const progressResult = targetDraftResult(
       "a.jpg",
@@ -1463,17 +1463,17 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     expect(state.metadataVersion).toBe(1);
     expect(
-      sortPhotos(
-        state.photos,
+      sortFiles(
+        state.files,
         state.sortConfig,
         state.imageMetadataOccurrences,
-      ).map((photo) => photo.relative_path),
+      ).map((file) => file.relative_path),
     ).toEqual(["a.jpg", "b.jpg"]);
   });
 
   it("invalidates target-aware final-only metadata and invalidates again for a genuinely different final result", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -1534,7 +1534,7 @@ describe("useMediaLibrary", () => {
 
   it("does not bump metadataVersion for a draft-only target-aware result", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -1558,7 +1558,7 @@ describe("useMediaLibrary", () => {
 
   it("treats a valid empty target-aware load as writable", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -1592,7 +1592,7 @@ describe("useMediaLibrary", () => {
   it("enforces the complete direct NewProperty mutation boundary", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -1936,7 +1936,7 @@ describe("useMediaLibrary", () => {
 
   it("atomically moves a New Property draft and preserves its semantic edit", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -2054,7 +2054,7 @@ describe("useMediaLibrary", () => {
 
   it("logs and rejects an attempted New Property schema change without showing an application error", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -2121,7 +2121,7 @@ describe("useMediaLibrary", () => {
       .spyOn(console, "error")
       .mockImplementation(() => {});
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -2259,7 +2259,7 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "stale" },
     };
 
-    await act(async () => result.current[1].openRecent("/photos"));
+    await act(async () => result.current[1].openRecent("/files"));
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "shared.jpg");
     const deferred = deferNextTagInfoLookup(mock);
@@ -2272,7 +2272,7 @@ describe("useMediaLibrary", () => {
       );
     });
 
-    await act(async () => result.current[1].openRecent("/photos"));
+    await act(async () => result.current[1].openRecent("/files"));
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "shared.jpg");
     await act(async () => {
@@ -2283,7 +2283,7 @@ describe("useMediaLibrary", () => {
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
     if (state.kind !== "loaded") return;
-    expect(state.folder).toBe("/photos");
+    expect(state.folder).toBe("/files");
     expect(
       state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
     ).toBeUndefined();
@@ -2307,7 +2307,7 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "stale" },
     };
 
-    await act(async () => result.current[1].openRecent("/photos"));
+    await act(async () => result.current[1].openRecent("/files"));
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "closed.jpg");
     const deferred = deferNextTagInfoLookup(mock);
@@ -2393,7 +2393,7 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "current" },
     };
 
-    await act(async () => result.current[1].openRecent("/photos"));
+    await act(async () => result.current[1].openRecent("/files"));
     act(() => mock.emitScanComplete());
     await publishOccurrences(mock, "current.jpg");
     const deferred = deferNextTagInfoLookup(mock);
@@ -2459,7 +2459,7 @@ describe("useMediaLibrary", () => {
       return state.targetDraftEditsStore;
     };
 
-    await act(async () => result.current[1].openRecent("/photos"));
+    await act(async () => result.current[1].openRecent("/files"));
     act(() => mock.emitScanComplete());
 
     const appearedId = testId("XMP-test:AppearedDuringLookup");
@@ -2590,7 +2590,7 @@ describe("useMediaLibrary", () => {
 
   it("target verification actions use the exact replacement slot and target-aware persistence only", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -2752,7 +2752,7 @@ describe("useMediaLibrary", () => {
       intent: "Set",
       value: { kind: "Text", value: "requested" },
     });
-    mock.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
+    mock.targetDraftEditsByFolder["/files"] = store.getAllMetadata();
     const fileResult: MetadataApplyFileResult = {
       relative_path: path,
       applied: false,
@@ -2783,7 +2783,7 @@ describe("useMediaLibrary", () => {
     };
     mock.targetApplyProgressResultsByPath[path] = fileResult;
     mock.targetApplyFinalResultsByPath[path] = structuredClone(fileResult);
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -2831,7 +2831,7 @@ describe("useMediaLibrary", () => {
 
   it("removes selected complete metadata targets without widening to their schema", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -3070,11 +3070,11 @@ describe("useMediaLibrary", () => {
   });
   it("reports strict target-aware load failure, preserves it, then switches safely", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const api = {
       ...mock.api,
       invoke: (cmd: string, args?: Record<string, unknown>) =>
-        cmd === "load_metadata_draft_edits" && args?.folderPath === "/photos"
+        cmd === "load_metadata_draft_edits" && args?.folderPath === "/files"
           ? Promise.reject(new Error("invalid schema version"))
           : mock.api.invoke(cmd, args),
     };
@@ -3126,7 +3126,7 @@ describe("useMediaLibrary", () => {
     expect(
       mock.invocations.some(
         ({ cmd, args }) =>
-          cmd === "save_metadata_draft_edits" && args?.folderPath === "/photos",
+          cmd === "save_metadata_draft_edits" && args?.folderPath === "/files",
       ),
     ).toBe(false);
   });

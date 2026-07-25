@@ -3,13 +3,13 @@ import type {
   ImageMetadataEntry,
   ImageMetadataOccurrencesStore,
   MetadataDraftEdit,
-  PhotoInfo,
+  FileInfo,
   ThumbnailStore,
   VisibleColumn,
   SchemaDefinitionId,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
-import { formatPhotoRowDate } from "../utils/photoDate";
+import { formatFileRowDate } from "../utils/fileDate";
 import { HighlightedText } from "./HighlightedText";
 import { Spinner } from "./Spinner";
 import { formatMetadataValue } from "../draft";
@@ -93,14 +93,14 @@ function MetadataCellContent({
   );
 }
 
-function osValue(photo: PhotoInfo, key: string): number | null {
-  if (key === "date_modified") return photo.date_modified;
-  if (key === "date_created") return photo.date_created;
+function osValue(file: FileInfo, key: string): number | null {
+  if (key === "date_modified") return file.date_modified;
+  if (key === "date_created") return file.date_created;
   return null;
 }
 
 interface RowProps {
-  photo: PhotoInfo;
+  file: FileInfo;
   index: number;
   selected: boolean;
   thumbnails: ThumbnailStore;
@@ -111,13 +111,13 @@ interface RowProps {
     index: number,
     modifiers: { ctrl: boolean; shift: boolean },
   ) => void;
-  onPhotoOpen: (index: number) => void;
+  onFileOpen: (index: number) => void;
   onContextMenu: (e: React.MouseEvent, index: number) => void;
   virtualStart: number;
   searchQuery?: string;
 }
-export const PhotoRow = memo(function PhotoRow({
-  photo,
+export const FileRow = memo(function FileRow({
+  file,
   index,
   selected,
   thumbnails,
@@ -125,29 +125,29 @@ export const PhotoRow = memo(function PhotoRow({
   targetDraftEdits,
   visibleColumns,
   onSelect,
-  onPhotoOpen,
+  onFileOpen,
   onContextMenu,
   virtualStart,
   searchQuery = "",
 }: RowProps) {
   const subscribeThumb = useCallback(
-    (cb: () => void) => thumbnails.subscribe(photo.relative_path, cb),
-    [thumbnails, photo.relative_path],
+    (cb: () => void) => thumbnails.subscribe(file.relative_path, cb),
+    [thumbnails, file.relative_path],
   );
   const getThumbSnapshot = useCallback(
-    () => thumbnails.get(photo.relative_path),
-    [thumbnails, photo.relative_path],
+    () => thumbnails.get(file.relative_path),
+    [thumbnails, file.relative_path],
   );
   const thumbnail = useSyncExternalStore(subscribeThumb, getThumbSnapshot);
 
   const subscribeOccurrences = useCallback(
     (callback: () => void) =>
-      imageMetadataOccurrences.subscribe(photo.relative_path, callback),
-    [imageMetadataOccurrences, photo.relative_path],
+      imageMetadataOccurrences.subscribe(file.relative_path, callback),
+    [imageMetadataOccurrences, file.relative_path],
   );
   const getOccurrencesSnapshot = useCallback(
-    () => imageMetadataOccurrences.get(photo.relative_path),
-    [imageMetadataOccurrences, photo.relative_path],
+    () => imageMetadataOccurrences.get(file.relative_path),
+    [imageMetadataOccurrences, file.relative_path],
   );
   const occurrences = useSyncExternalStore(
     subscribeOccurrences,
@@ -180,8 +180,8 @@ export const PhotoRow = memo(function PhotoRow({
     [onSelect, index],
   );
   const handleDoubleClick = useCallback(
-    () => onPhotoOpen(index),
-    [onPhotoOpen, index],
+    () => onFileOpen(index),
+    [onFileOpen, index],
   );
   const handleContextMenuEvent = useCallback(
     (e: React.MouseEvent) => onContextMenu(e, index),
@@ -190,7 +190,7 @@ export const PhotoRow = memo(function PhotoRow({
 
   const targetDraftCount = Object.keys(targetDraftEdits).length;
   const hasDrafts = targetDraftCount > 0;
-  const rowClass = `photo-row ${index % 2 === 0 ? "photo-row--even" : "photo-row--odd"} ${selected ? "photo-row--selected" : ""}`;
+  const rowClass = `file-row ${index % 2 === 0 ? "file-row--even" : "file-row--odd"} ${selected ? "file-row--selected" : ""}`;
 
   // Index of the first image-metadata cell — used to place exactly one spinner
   // per row while metadata is loading (per-cell spinners were O(rows × cols)).
@@ -199,8 +199,8 @@ export const PhotoRow = memo(function PhotoRow({
   return (
     <div
       className={rowClass}
-      data-testid="photo-row"
-      data-path={photo.relative_path}
+      data-testid="file-row"
+      data-path={file.relative_path}
       data-index={index}
       onClick={handleSelect}
       onDoubleClick={handleDoubleClick}
@@ -216,22 +216,22 @@ export const PhotoRow = memo(function PhotoRow({
       }}
     >
       <div className="grid-cell grid-cell-thumb">
-        <div className="photo-thumb">
+        <div className="file-thumb">
           {src ? (
-            <img src={src} alt="" className="photo-thumb-img" />
+            <img src={src} alt="" className="file-thumb-img" />
           ) : isLoading ? (
-            <div className="photo-thumb-spinner">
-              <Spinner className="photo-thumb-spin-inner" />
+            <div className="file-thumb-spinner">
+              <Spinner className="file-thumb-spin-inner" />
             </div>
           ) : (
-            <div className="photo-thumb-placeholder" />
+            <div className="file-thumb-placeholder" />
           )}
         </div>
       </div>
       <div
         className="grid-cell grid-cell-path"
         data-col="relative_path"
-        data-testid="photo-path"
+        data-testid="file-path"
       >
         <div
           style={{
@@ -241,9 +241,9 @@ export const PhotoRow = memo(function PhotoRow({
             textOverflow: "ellipsis",
           }}
         >
-          <span className="photo-cell-text">
+          <span className="file-cell-text">
             <CellContent
-              text={photo.relative_path}
+              text={file.relative_path}
               draftValue={undefined}
               searchQuery={searchQuery}
             />
@@ -263,9 +263,9 @@ export const PhotoRow = memo(function PhotoRow({
         if (col.kind === "os") {
           const testId =
             col.key === "date_modified"
-              ? "photo-date-modified"
+              ? "file-date-modified"
               : col.key === "date_created"
-                ? "photo-date-created"
+                ? "file-date-created"
                 : undefined;
           return (
             <div
@@ -275,7 +275,7 @@ export const PhotoRow = memo(function PhotoRow({
               data-testid={testId}
             >
               <CellContent
-                text={formatPhotoRowDate(osValue(photo, col.key))}
+                text={formatFileRowDate(osValue(file, col.key))}
                 draftValue={undefined}
                 searchQuery={searchQuery}
               />

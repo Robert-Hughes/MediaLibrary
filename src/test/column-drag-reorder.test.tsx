@@ -1,8 +1,8 @@
 import { render, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { PhotoInfo, VisibleColumn } from "../types";
+import type { FileInfo, VisibleColumn } from "../types";
 import { imgCol, osCol } from "./factories";
 
 const BEFORE = -1;
@@ -21,7 +21,7 @@ function doDrop(el: HTMLElement, clientX: number) {
   );
 }
 
-const mockPhotos: PhotoInfo[] = [
+const mockFiles: FileInfo[] = [
   {
     relative_path: "a.jpg",
     filename: "a.jpg",
@@ -38,7 +38,7 @@ const defaultSortProps = {
 function makeStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  mockPhotos.forEach((p) => {
+  mockFiles.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   });
@@ -52,9 +52,9 @@ describe("column header draggable attribute", () => {
   it("image metadata column headers are draggable", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
@@ -63,7 +63,7 @@ describe("column header draggable attribute", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -74,9 +74,9 @@ describe("column header draggable attribute", () => {
   it("OS metadata column headers are draggable", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
@@ -85,7 +85,7 @@ describe("column header draggable attribute", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -96,9 +96,9 @@ describe("column header draggable attribute", () => {
   it("path column is NOT draggable", () => {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
@@ -107,7 +107,7 @@ describe("column header draggable attribute", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     expect(
@@ -120,9 +120,9 @@ describe("metadata column reorder insertion", () => {
   function setup(onColumnsReorder = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -136,7 +136,7 @@ describe("metadata column reorder insertion", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     const headers = () =>
@@ -209,9 +209,9 @@ describe("OS metadata column reorder insertion", () => {
   function setup(onColumnsReorder = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
@@ -221,7 +221,7 @@ describe("OS metadata column reorder insertion", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     const headers = () =>
@@ -260,9 +260,9 @@ describe("metadata column header gridColumn positions follow visibleColumns orde
   function renderWithOrder(visibleColumns: VisibleColumn[]) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={visibleColumns}
@@ -271,7 +271,7 @@ describe("metadata column header gridColumn positions follow visibleColumns orde
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     const headers = Array.from(
@@ -316,9 +316,9 @@ describe("cross-kind drop is allowed (unified columns)", () => {
     const onColumnsReorder = vi.fn();
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -332,7 +332,7 @@ describe("cross-kind drop is allowed (unified columns)", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     const all = Array.from(
@@ -358,9 +358,9 @@ describe("drag-over drop indicator", () => {
   function setup() {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
@@ -370,7 +370,7 @@ describe("drag-over drop indicator", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     const headers = () =>
@@ -470,9 +470,9 @@ describe("combined metadata header interactions", () => {
   function setup(onColumnsReorder = vi.fn(), onSortChange = vi.fn()) {
     const { thumbnails, imageMetadata } = makeStores();
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={mockPhotos}
+        files={mockFiles}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -487,7 +487,7 @@ describe("combined metadata header interactions", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     const metadataHeaders = () =>

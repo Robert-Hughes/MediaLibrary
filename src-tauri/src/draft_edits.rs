@@ -304,7 +304,7 @@ mod tests {
         let old = dir.path().join(OLD_DRAFT_FILE_NAME);
         let bytes = b"historical\r\nbytes\0\xff";
         std::fs::write(&old, bytes).unwrap();
-        let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None)])]);
+        let drafts = HashMap::from([("file.jpg".to_string(), vec![new_property(None)])]);
         save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         assert_eq!(std::fs::read(old).unwrap(), bytes);
     }
@@ -312,7 +312,7 @@ mod tests {
     #[test]
     fn removed_display_field_is_omitted_from_json() {
         let dir = tempdir().unwrap();
-        let drafts = HashMap::from([("photo.jpg".to_string(), vec![new_property(None)])]);
+        let drafts = HashMap::from([("file.jpg".to_string(), vec![new_property(None)])]);
         save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         let contents = std::fs::read_to_string(dir.path().join(TARGET_DRAFT_FILE_NAME)).unwrap();
         assert!(!contents.contains("\"display\""));
@@ -322,7 +322,7 @@ mod tests {
     fn exact_targets_survive_round_trip() {
         let dir = tempdir().unwrap();
         let drafts = HashMap::from([(
-            "photo.jpg".to_string(),
+            "file.jpg".to_string(),
             vec![existing(None, "IFD0"), existing(None, "IFD1")],
         )]);
         save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
@@ -336,15 +336,15 @@ mod tests {
     fn existing_and_new_identities_and_index_absence_round_trip() {
         let dir = tempdir().unwrap();
         let drafts = HashMap::from([(
-            "photo.jpg".to_string(),
+            "file.jpg".to_string(),
             vec![existing(None, "IFD0"), new_property(Some(0))],
         )]);
         save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).unwrap();
         let loaded = load_metadata_draft_edits(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, drafts);
         assert_ne!(
-            loaded["photo.jpg"][0].target.slot(),
-            loaded["photo.jpg"][1].target.slot()
+            loaded["file.jpg"][0].target.slot(),
+            loaded["file.jpg"][1].target.slot()
         );
     }
 
@@ -354,7 +354,7 @@ mod tests {
         let target = dir.path().join(TARGET_DRAFT_FILE_NAME);
         std::fs::write(&target, b"preserve me").unwrap();
         let duplicate = new_property(None);
-        let drafts = HashMap::from([("photo.jpg".to_string(), vec![duplicate.clone(), duplicate])]);
+        let drafts = HashMap::from([("file.jpg".to_string(), vec![duplicate.clone(), duplicate])]);
         assert!(save_metadata_draft_edits(dir.path().to_str().unwrap(), &drafts).is_err());
         assert_eq!(std::fs::read(target).unwrap(), b"preserve me");
     }

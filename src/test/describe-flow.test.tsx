@@ -18,7 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, mockGeneratedDraftEntries } from "./factories";
+import { makeFile, mockGeneratedDraftEntries } from "./factories";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -35,17 +35,17 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   ask: vi.fn().mockResolvedValue(true),
 }));
 
-async function openFolderWithPhoto(rel = "test.jpg") {
-  const photo = makePhoto({ relative_path: rel });
+async function openFolderWithFile(rel = "test.jpg") {
+  const file = makeFile({ relative_path: rel });
   const user = userEvent.setup();
-  mockApiInstance.pickFolderResolves("/photos");
+  mockApiInstance.pickFolderResolves("/files");
   render(<App />);
   await act(async () => {
     await new Promise((r) => setTimeout(r, 50));
   });
   await user.click(screen.getByTestId("open-folder-btn"));
   await act(async () => {
-    mockApiInstance.emitPhotoFound(photo);
+    mockApiInstance.emitFileFound(file);
   });
   await act(async () => {
     mockApiInstance.emitScanComplete();
@@ -58,7 +58,7 @@ async function openFolderWithPhoto(rel = "test.jpg") {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 250));
   });
-  return { user, photo };
+  return { user, file };
 }
 
 beforeEach(() => {
@@ -84,7 +84,7 @@ describe("SettingsDialog", () => {
       metadata_apply_concurrency: 4,
       thumbnail_concurrency: 8,
     };
-    const { user } = await openFolderWithPhoto();
+    const { user } = await openFolderWithFile();
 
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
     const apiKeyInput = await screen.findByTestId("settings-api-key-input");
@@ -199,7 +199,7 @@ describe("SettingsDialog", () => {
       "gpt-5.4-nano": 0.00053,
     };
     mockApiInstance.recommendedModels = ["gpt-4o", "gpt-5.4-nano"];
-    const { user } = await openFolderWithPhoto();
+    const { user } = await openFolderWithFile();
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
     const select = (await screen.findByTestId(
       "settings-model-select",
@@ -220,7 +220,7 @@ describe("SettingsDialog", () => {
   });
 
   it("warning text near the API key field is visible (replaces consent dialog)", async () => {
-    await openFolderWithPhoto();
+    await openFolderWithFile();
     const { user } = { user: userEvent.setup() };
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
     await screen.findByTestId("settings-api-key-input");
@@ -236,8 +236,8 @@ describe("AI-description flow", () => {
    * button. Returns the user-event session so callers can drive the dialog.
    */
   async function startAiDescription(rel = "test.jpg") {
-    const { user, photo } = await openFolderWithPhoto(rel);
-    const row = screen.getByTestId("photo-row");
+    const { user, file } = await openFolderWithFile(rel);
+    const row = screen.getByTestId("file-row");
     await user.dblClick(row);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -248,7 +248,7 @@ describe("AI-description flow", () => {
       await new Promise((r) => setTimeout(r, 50));
     });
     const aiBtn = await screen.findByTestId("details-pane-generate-ai-btn");
-    return { user, photo, aiBtn };
+    return { user, file, aiBtn };
   }
 
   it("walks through estimating → awaiting-confirm → running → done", async () => {
@@ -334,7 +334,7 @@ describe("AI-description flow", () => {
 
     expect(done).toHaveTextContent(/1 succeeded/i);
     expect(screen.queryByTestId("describe-failure-list")).toBeNull();
-    expect(mockApiInstance.targetDraftEditsByFolder["/photos"] ?? {}).toEqual(
+    expect(mockApiInstance.targetDraftEditsByFolder["/files"] ?? {}).toEqual(
       {},
     );
     expect(
@@ -399,7 +399,7 @@ describe("AI-description flow", () => {
     await screen.findByTestId("describe-done-summary");
 
     const targetDrafts =
-      mockApiInstance.targetDraftEditsByFolder["/photos"]?.["test.jpg"] ?? {};
+      mockApiInstance.targetDraftEditsByFolder["/files"]?.["test.jpg"] ?? {};
     expect(
       Object.values(targetDrafts).some(
         ({ target }) => target.schema_id.tag_id === "AIDescription",
@@ -505,7 +505,7 @@ describe("AI-description flow", () => {
   it("surfaces the overwrite notice inside the dialog when an AI description already exists", async () => {
     // The notice replaced the old pre-dialog ask() warning. It appears
     // in the awaiting-confirm panel only when the selection includes
-    // photos whose AIDescription is already set in metadata or drafts.
+    // files whose AIDescription is already set in metadata or drafts.
     mockApiInstance.settings = {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
@@ -526,9 +526,9 @@ describe("AI-description flow", () => {
       model: "gpt-4o",
       estimateMode: "heuristic",
     };
-    const { user, photo } = await openFolderWithPhoto("test.jpg");
+    const { user, file } = await openFolderWithFile("test.jpg");
     await act(async () => {
-      mockApiInstance.emitImageMetadataReady(photo.relative_path, {
+      mockApiInstance.emitImageMetadataReady(file.relative_path, {
         "XMP-mlib:AIDescription": {
           kind: "Text",
           value: "older description",
@@ -539,7 +539,7 @@ describe("AI-description flow", () => {
       await new Promise((r) => setTimeout(r, 100));
     });
 
-    const row = screen.getByTestId("photo-row");
+    const row = screen.getByTestId("file-row");
     await user.dblClick(row);
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));

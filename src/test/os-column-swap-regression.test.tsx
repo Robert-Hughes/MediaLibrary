@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { PhotoInfo, VisibleColumn } from "../types";
+import type { FileInfo, VisibleColumn } from "../types";
 
-const photos: PhotoInfo[] = [
+const files: FileInfo[] = [
   // distinct timestamps so the rendered cells differ
   {
     relative_path: "a.jpg",
@@ -17,7 +17,7 @@ const photos: PhotoInfo[] = [
 function makeStores() {
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  photos.forEach((p) => {
+  files.forEach((p) => {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   });
@@ -27,9 +27,9 @@ function makeStores() {
 function renderWith(visibleColumns: VisibleColumn[]) {
   const { thumbnails, imageMetadata } = makeStores();
   return render(
-    <PhotoList
+    <FileList
       targetDraftEdits={{}}
-      photos={photos}
+      files={files}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}
       visibleColumns={visibleColumns}
@@ -39,7 +39,7 @@ function renderWith(visibleColumns: VisibleColumn[]) {
       onSelect={() => {}}
       onShowInExplorer={() => {}}
       onVisibilityChange={() => {}}
-      onPhotoOpen={() => {}}
+      onFileOpen={() => {}}
     />,
   );
 }
@@ -50,8 +50,8 @@ describe("OS metadata column swap regression", () => {
       { key: "date_modified", kind: "os" },
       { key: "date_created", kind: "os" },
     ]);
-    const modifiedCell = screen.getByTestId("photo-date-modified");
-    const createdCell = screen.getByTestId("photo-date-created");
+    const modifiedCell = screen.getByTestId("file-date-modified");
+    const createdCell = screen.getByTestId("file-date-created");
     expect(
       modifiedCell.compareDocumentPosition(createdCell) &
         Node.DOCUMENT_POSITION_FOLLOWING,
@@ -65,8 +65,8 @@ describe("OS metadata column swap regression", () => {
       { key: "date_created", kind: "os" },
       { key: "date_modified", kind: "os" },
     ]);
-    const modifiedCell = screen.getByTestId("photo-date-modified");
-    const createdCell = screen.getByTestId("photo-date-created");
+    const modifiedCell = screen.getByTestId("file-date-modified");
+    const createdCell = screen.getByTestId("file-date-created");
     expect(
       createdCell.compareDocumentPosition(modifiedCell) &
         Node.DOCUMENT_POSITION_FOLLOWING,

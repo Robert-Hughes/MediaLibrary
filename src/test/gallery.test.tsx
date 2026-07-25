@@ -6,32 +6,32 @@ import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GalleryView } from "../components/GalleryView";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhotos } from "./factories";
-import type { PhotoInfo } from "../types";
+import { makeFiles } from "./factories";
+import type { FileInfo } from "../types";
 
-const PHOTOS: PhotoInfo[] = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
+const PHOTOS: FileInfo[] = makeFiles(["a.jpg", "b.jpg", "c.jpg"]);
 
-function makeStore(photos: PhotoInfo[]) {
+function makeStore(files: FileInfo[]) {
   const s = new ThumbnailStore();
-  s.reset(photos.map((p) => p.relative_path));
+  s.reset(files.map((p) => p.relative_path));
   return s;
 }
 
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 describe("GalleryView", () => {
-  it("renders the current photo path in the caption", async () => {
+  it("renders the current file path in the caption", async () => {
     render(
       <GalleryView
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={1}
-        folderPath="/photos"
+        folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
         imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
@@ -47,9 +47,9 @@ describe("GalleryView", () => {
       <GalleryView
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={1}
-        folderPath="/photos"
+        folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
         imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
@@ -67,9 +67,9 @@ describe("GalleryView", () => {
       <GalleryView
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={0}
-        folderPath="/photos"
+        folderPath="/files"
         onClose={() => {}}
         onNavigate={() => {}}
         imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
@@ -86,9 +86,9 @@ describe("GalleryView", () => {
       <GalleryView
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={0}
-        folderPath="/photos"
+        folderPath="/files"
         onClose={onClose}
         onNavigate={vi.fn()}
         imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
@@ -96,7 +96,7 @@ describe("GalleryView", () => {
       />,
     );
     const dialog = await screen.findByRole("dialog", {
-      name: "Photo gallery",
+      name: "File gallery",
     });
     expect(dialog).toHaveClass("modal-dialog", "gallery-dialog");
 
@@ -115,9 +115,9 @@ describe("GalleryView", () => {
       <GalleryView
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={0}
-        folderPath="/photos"
+        folderPath="/files"
         onClose={onClose}
         onNavigate={vi.fn()}
         imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
@@ -135,9 +135,9 @@ describe("GalleryView", () => {
       <GalleryView
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={0}
-        folderPath="/photos"
+        folderPath="/files"
         onClose={onClose}
         onNavigate={vi.fn()}
         imageMetadataOccurrences={new ImageMetadataOccurrencesStore()}
@@ -158,15 +158,15 @@ describe("useMediaLibrary gallery state", () => {
     vi.useRealTimers();
   });
 
-  it("galleryIndex starts as null after first photo_found", async () => {
+  it("galleryIndex starts as null after first file_found", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(PHOTOS[0]);
+      mock.emitFileFound(PHOTOS[0]);
     });
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
@@ -175,13 +175,13 @@ describe("useMediaLibrary gallery state", () => {
 
   it("openGallery sets the correct index", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      mock.emitPhotoFound(PHOTOS[0]);
+      mock.emitFileFound(PHOTOS[0]);
     });
 
     act(() => {
@@ -193,13 +193,13 @@ describe("useMediaLibrary gallery state", () => {
 
   it("navigateGallery(1) increments the index", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/photos");
+    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
     act(() => {
-      PHOTOS.forEach((p) => mock.emitPhotoFound(p));
+      PHOTOS.forEach((p) => mock.emitFileFound(p));
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
@@ -215,19 +215,19 @@ describe("useMediaLibrary gallery state", () => {
   });
 });
 
-describe("PhotoList interaction", () => {
+describe("FileList interaction", () => {
   function renderList(
-    photos: PhotoInfo[],
-    onPhotoOpen: (i: number) => void,
+    files: FileInfo[],
+    onFileOpen: (i: number) => void,
     onSelect: (i: number | null) => void,
   ) {
-    const thumbs = makeStore(photos);
+    const thumbs = makeStore(files);
     const imageMetadata = new ImageMetadataOccurrencesStore();
-    photos.forEach((p) => imageMetadata.add(p.relative_path));
+    files.forEach((p) => imageMetadata.add(p.relative_path));
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbs}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[
@@ -240,26 +240,26 @@ describe("PhotoList interaction", () => {
         onSelect={onSelect}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={onPhotoOpen}
+        onFileOpen={onFileOpen}
         onSelectColumns={() => {}}
       />,
     );
   }
 
-  it("calls onPhotoOpen with the correct index when a row is double-clicked", async () => {
-    const onPhotoOpen = vi.fn();
-    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
-    renderList(photos, onPhotoOpen, () => {});
-    const rows = screen.getAllByTestId("photo-row");
+  it("calls onFileOpen with the correct index when a row is double-clicked", async () => {
+    const onFileOpen = vi.fn();
+    const files = makeFiles(["a.jpg", "b.jpg", "c.jpg"]);
+    renderList(files, onFileOpen, () => {});
+    const rows = screen.getAllByTestId("file-row");
     await userEvent.dblClick(rows[1]);
-    expect(onPhotoOpen).toHaveBeenCalledWith(1);
+    expect(onFileOpen).toHaveBeenCalledWith(1);
   });
 
   it("calls onSelect with the correct index when a row is clicked", async () => {
     const onSelect = vi.fn();
-    const photos = makePhotos(["a.jpg", "b.jpg", "c.jpg"]);
-    renderList(photos, () => {}, onSelect);
-    const rows = screen.getAllByTestId("photo-row");
+    const files = makeFiles(["a.jpg", "b.jpg", "c.jpg"]);
+    renderList(files, () => {}, onSelect);
+    const rows = screen.getAllByTestId("file-row");
     await userEvent.click(rows[2]);
     expect(onSelect).toHaveBeenCalledWith(2);
   });

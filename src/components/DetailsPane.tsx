@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   MetadataDraftEdit,
-  PhotoInfo,
+  FileInfo,
   ImageMetadataOccurrencesState,
   MetadataDraftTarget,
   MetadataOccurrence,
@@ -92,7 +92,7 @@ type EditDialogState =
     };
 
 interface Props {
-  photo: PhotoInfo;
+  file: FileInfo;
   /** Authoritative occurrences are the sole metadata state. */
   occurrences: ImageMetadataOccurrencesState;
   /** Exact-target drafts for New Property and exact existing occurrence rows. */
@@ -119,7 +119,7 @@ interface Props {
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
   /**
-   * Trigger the AI-description flow for this photo. Wired by App so the
+   * Trigger the AI-description flow for this file. Wired by App so the
    * progress dialog can live at the app level rather than per-pane.
    * Optional so DetailsPane keeps rendering when the parent doesn't wire
    * the feature (e.g. read-only contexts, older tests).
@@ -140,13 +140,13 @@ interface Props {
    */
   onNormalise?: () => void;
   /**
-   * Reveal this photo in the host file manager. Same backend pathway as
+   * Reveal this file in the host file manager. Same backend pathway as
    * the list-view context menu's "Show in File Explorer" entry — the
    * App-level callback owns the index/path lookup so DetailsPane stays
-   * agnostic about how the photo is addressed.
+   * agnostic about how the file is addressed.
    */
   onShowInFileExplorer?: () => void;
-  /** Open this photo in the app-level full map view. */
+  /** Open this file in the app-level full map view. */
   onOpenFullMap?: () => void;
 }
 
@@ -398,7 +398,7 @@ function DetailsGroupContextMenu({
     if (!Array.isArray(occurrences)) {
       return {
         blocked:
-          "Authoritative metadata occurrences are still loading. Retry after this photo has finished loading.",
+          "Authoritative metadata occurrences are still loading. Retry after this file has finished loading.",
       };
     }
     if (removalTargets.length === 0) {
@@ -542,7 +542,7 @@ function DetailsGroupContextMenu({
 }
 
 export function DetailsPane({
-  photo,
+  file,
   occurrences,
   targetDraftEdits,
   targetDraftPersistence = { status: "ready" },
@@ -657,7 +657,7 @@ export function DetailsPane({
     [detailsSearch],
   );
 
-  const osEntries = useMemo(() => getOsEntries(photo), [photo]);
+  const osEntries = useMemo(() => getOsEntries(file), [file]);
   const displayIds = useMemo(() => {
     const byToken = new Map<string, SchemaDefinitionId>();
     if (metadata !== undefined) {
@@ -1162,8 +1162,8 @@ export function DetailsPane({
                   const editCount = totalDraftCount;
                   const confirmed = await confirmApplyEdits({
                     editCount,
-                    target: "this photo",
-                    photoCount: 1,
+                    target: "this file",
+                    fileCount: 1,
                   });
                   if (confirmed) onApplyEdits();
                 }}
@@ -1186,11 +1186,11 @@ export function DetailsPane({
                 const editCount = totalDraftCount;
                 const confirmed = await confirmDiscardEdits({
                   editCount,
-                  scope: "this photo",
+                  scope: "this file",
                 });
                 if (confirmed) onDiscardAllEdits();
               }}
-              title="Discard all edits for this photo"
+              title="Discard all edits for this file"
             >
               Discard all edits
             </button>
@@ -1649,7 +1649,7 @@ export function DetailsPane({
               ? undefined
               : occurrences
           }
-          filename={photo.filename}
+          filename={file.filename}
           initialTarget={newPropertyDestinationInitial?.target}
           pendingTargets={Object.values(targetDraftEdits ?? {}).map(
             (entry) => entry.target,

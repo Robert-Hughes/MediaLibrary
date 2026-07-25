@@ -18,7 +18,7 @@ locationXmp: string | null,
  */
 locationIptc: string | null, 
 /**
- * `XMP-photoshop:City` (primary).
+ * `XMP-fileshop:City` (primary).
  */
 cityXmp: string | null, 
 /**
@@ -26,7 +26,7 @@ cityXmp: string | null,
  */
 cityIptc: string | null, 
 /**
- * `XMP-photoshop:State` (primary).
+ * `XMP-fileshop:State` (primary).
  */
 stateXmp: string | null, 
 /**
@@ -34,7 +34,7 @@ stateXmp: string | null,
  */
 stateIptc: string | null, 
 /**
- * `XMP-photoshop:Country` (primary).
+ * `XMP-fileshop:Country` (primary).
  */
 countryXmp: string | null, 
 /**

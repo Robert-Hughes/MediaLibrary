@@ -17,7 +17,7 @@ export function WelcomeScreen({
         className="welcome-logo"
       />
       <h1 className="welcome-title">Media Library</h1>
-      <p className="welcome-subtitle">Open a folder to browse your photos</p>
+      <p className="welcome-subtitle">Open a folder to browse your files</p>
       <button
         className="btn-primary"
         onClick={onOpenFolder}

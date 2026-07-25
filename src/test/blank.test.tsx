@@ -1,15 +1,15 @@
 import { render } from "@testing-library/react";
 import { describe, it, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import { imgCol } from "./factories";
 
-describe("PhotoList", () => {
+describe("FileList", () => {
   it("renders without crashing", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new ImageMetadataOccurrencesStore();
 
-    const photos = [
+    const files = [
       {
         relative_path: "1.jpg",
         filename: "1.jpg",
@@ -19,9 +19,9 @@ describe("PhotoList", () => {
     ];
 
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={metadata}
         visibleColumns={[
@@ -36,7 +36,7 @@ describe("PhotoList", () => {
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
-        onPhotoOpen={vi.fn()}
+        onFileOpen={vi.fn()}
         onSelectColumns={vi.fn()}
       />,
     );

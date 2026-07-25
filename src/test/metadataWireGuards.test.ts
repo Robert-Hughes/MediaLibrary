@@ -372,17 +372,17 @@ describe("targetDraftsFromUnknownWire", () => {
         /expected an object/,
       );
     }
-    expect(() => targetDraftsFromUnknownWire({ "photo.jpg": {} })).toThrow(
-      /photo\.jpg.*expected an array/,
+    expect(() => targetDraftsFromUnknownWire({ "file.jpg": {} })).toThrow(
+      /file\.jpg.*expected an array/,
     );
   });
 
   it("reports the path and index of an invalid entry", () => {
     expect(() =>
       targetDraftsFromUnknownWire({
-        "folder/photo.jpg": [entry(), { target: existing(), edit: {} }],
+        "folder/file.jpg": [entry(), { target: existing(), edit: {} }],
       }),
-    ).toThrow(/folder\/photo\.jpg.*array index 1/);
+    ).toThrow(/folder\/file\.jpg.*array index 1/);
   });
 
   it("rejects one bad sibling without returning a partial collection", () => {
@@ -410,9 +410,9 @@ describe("targetDraftsFromUnknownWire", () => {
   it("creates a correctly keyed target-aware collection", () => {
     const target = existing();
     const loaded = targetDraftsFromUnknownWire({
-      "photo.jpg": [entry(target)],
+      "file.jpg": [entry(target)],
     });
-    expect(loaded["photo.jpg"][metadataDraftTargetSlotToken(target)]).toEqual(
+    expect(loaded["file.jpg"][metadataDraftTargetSlotToken(target)]).toEqual(
       entry(target),
     );
   });

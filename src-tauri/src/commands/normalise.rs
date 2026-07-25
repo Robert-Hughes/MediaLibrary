@@ -249,7 +249,7 @@ fn count_overwrites_for_group(
             Some(b) => {
                 scalar(
                     crate::known_ids::xmp_headline(),
-                    b.photoshop_headline.as_deref(),
+                    b.fileshop_headline.as_deref(),
                 ) + scalar(
                     crate::known_ids::iptc_headline(),
                     b.iptc_headline.as_deref(),
@@ -304,7 +304,7 @@ fn count_overwrites_for_group(
                     b.date_time_original.as_ref(),
                 ) + scalar_value(
                     crate::known_ids::xmp_date_created(),
-                    b.photoshop_date_created.as_ref(),
+                    b.fileshop_date_created.as_ref(),
                 ) + scalar_value(
                     crate::known_ids::iptc_date_created(),
                     b.iptc_date_created.as_ref(),

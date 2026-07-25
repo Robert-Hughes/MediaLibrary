@@ -1,12 +1,12 @@
 /**
- * Coverage for the PhotoList "Reverse Geocode…" context-menu entry.
+ * Coverage for the FileList "Reverse Geocode…" context-menu entry.
  *
  * The pre-click overwrite warning has moved into
  * GeocodeProgressDialog's awaiting-confirm panel (see
  * geocode-progress-dialog.test.tsx). This file now only pins the
  * context-menu entry's local responsibilities:
  *
- *   - the entry is always shown when one or more photos are selected;
+ *   - the entry is always shown when one or more files are selected;
  *   - count suffix follows the same shape as Generate AI Description;
  *   - clicking the entry invokes `onGeocode` with the selected paths
  *     directly — no `ask()` round-trip.
@@ -14,7 +14,7 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 import type { MetadataTargetDraftEntry } from "../types";
 import {
@@ -37,15 +37,15 @@ async function getAskMock() {
 }
 
 interface SetupOptions {
-  photoCount?: number;
+  fileCount?: number;
   metadataByPath?: Record<string, Parameters<typeof mockMetadata>[0]>;
   targetDraftEntriesByPath?: Record<string, MetadataTargetDraftEntry[]>;
   onGeocode?: (paths: string[]) => void;
 }
 
 function setup(opts: SetupOptions = {}) {
-  const n = opts.photoCount ?? 5;
-  const photos = Array.from({ length: n }, (_, i) => ({
+  const n = opts.fileCount ?? 5;
+  const files = Array.from({ length: n }, (_, i) => ({
     relative_path: `${i}.jpg`,
     filename: `${i}.jpg`,
     date_modified: null,
@@ -54,7 +54,7 @@ function setup(opts: SetupOptions = {}) {
 
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  for (const p of photos) {
+  for (const p of files) {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   }
@@ -70,11 +70,11 @@ function setup(opts: SetupOptions = {}) {
   const onGeocode = vi.fn(opts.onGeocode ?? (() => {}));
 
   render(
-    <PhotoList
+    <FileList
       targetDraftEdits={mockTargetDraftsByFile(
         opts.targetDraftEntriesByPath ?? {},
       )}
-      photos={photos}
+      files={files}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}
       visibleColumns={[]}
@@ -84,7 +84,7 @@ function setup(opts: SetupOptions = {}) {
       onSelect={() => {}}
       onShowInExplorer={() => {}}
       onVisibilityChange={() => {}}
-      onPhotoOpen={() => {}}
+      onFileOpen={() => {}}
       onApplyEdits={() => {}}
       onDiscardAllEdits={() => {}}
       onGenerateAiDescription={() => {}}
@@ -96,17 +96,17 @@ function setup(opts: SetupOptions = {}) {
 }
 
 function rows() {
-  return screen.getAllByTestId("photo-row");
+  return screen.getAllByTestId("file-row");
 }
 
-describe("PhotoList: Reverse Geocode context-menu entry", () => {
+describe("FileList: Reverse Geocode context-menu entry", () => {
   beforeEach(async () => {
     cleanup();
     const ask = await getAskMock();
     ask.mockClear();
   });
 
-  it("entry is visible when a single photo is selected, even with no GPS", async () => {
+  it("entry is visible when a single file is selected, even with no GPS", async () => {
     setup();
     fireEvent.click(rows()[2]);
     fireEvent.contextMenu(rows()[2]);
@@ -123,14 +123,14 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     fireEvent.click(rows()[4], { ctrlKey: true });
     fireEvent.contextMenu(rows()[4]);
     const entry = await screen.findByRole("button", {
-      name: "Reverse Geocode… (3 photos)",
+      name: "Reverse Geocode… (3 files)",
     });
     expect(entry).toBeInTheDocument();
   });
 
   it("entry is hidden when onGeocode is not wired", async () => {
     const n = 3;
-    const photos = Array.from({ length: n }, (_, i) => ({
+    const files = Array.from({ length: n }, (_, i) => ({
       relative_path: `${i}.jpg`,
       filename: `${i}.jpg`,
       date_modified: null,
@@ -138,14 +138,14 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     }));
     const thumbnails = new ThumbnailStore();
     const imageMetadata = new ImageMetadataOccurrencesStore();
-    for (const p of photos) {
+    for (const p of files) {
       thumbnails.add(p.relative_path);
       imageMetadata.add(p.relative_path);
     }
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
@@ -155,7 +155,7 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     fireEvent.click(rows()[0]);
@@ -181,12 +181,12 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     expect(onGeocode).toHaveBeenCalledWith(["1.jpg", "2.jpg"]);
   });
 
-  it("invokes onGeocode directly even when every selected photo carries location data", async () => {
+  it("invokes onGeocode directly even when every selected file carries location data", async () => {
     // The overwrite warning now lives in the dialog — the menu entry
     // fires the callback unconditionally.
     const { onGeocode } = setup({
       metadataByPath: {
-        "1.jpg": { "XMP-photoshop:City": "London" },
+        "1.jpg": { "XMP-fileshop:City": "London" },
         "2.jpg": { "IPTC:Country-PrimaryLocationName": "France" },
       },
     });
@@ -202,7 +202,7 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     expect(onGeocode).toHaveBeenCalledWith(["1.jpg", "2.jpg"]);
   });
 
-  it("invokes onGeocode directly when only some selected photos carry location data", async () => {
+  it("invokes onGeocode directly when only some selected files carry location data", async () => {
     const { onGeocode } = setup({
       metadataByPath: { "2.jpg": { "XMP-iptcCore:Location": "Big Ben" } },
     });
@@ -223,7 +223,7 @@ describe("PhotoList: Reverse Geocode context-menu entry", () => {
     const { onGeocode } = setup({
       targetDraftEntriesByPath: {
         "0.jpg": [
-          newPropertyTargetDraft("XMP-photoshop:State", {
+          newPropertyTargetDraft("XMP-fileshop:State", {
             intent: "Set",
             value: { kind: "Text", value: "Bavaria" },
           }),

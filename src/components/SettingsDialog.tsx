@@ -40,7 +40,7 @@ export function SettingsDialog({ onClose }: Props) {
   const [perImageCosts, setPerImageCosts] = useState<Record<string, number>>(
     {},
   );
-  /** Model id → per-photo cost for the metadata-normaliser worst case
+  /** Model id → per-file cost for the metadata-normaliser worst case
    *  (both Group B and Group C fire). Plan §6. */
   const [normaliseCosts, setNormaliseCosts] = useState<Record<string, number>>(
     {},
@@ -278,7 +278,7 @@ export function SettingsDialog({ onClose }: Props) {
                     const c = normaliseCosts[m];
                     const label =
                       c !== undefined
-                        ? `${m} (${formatPerImageCost(c)} per photo when AI fires)`
+                        ? `${m} (${formatPerImageCost(c)} per file when AI fires)`
                         : m;
                     return (
                       <option key={m} value={m}>

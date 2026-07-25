@@ -4,9 +4,9 @@ import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
 import { ImageMetadataOccurrencesStore } from "../types";
 
-import { makePhotos } from "./factories";
+import { makeFiles } from "./factories";
 
-const PHOTOS = makePhotos(["a.jpg", "b.jpg"]);
+const PHOTOS = makeFiles(["a.jpg", "b.jpg"]);
 const fakeLoad = async (_path: string) => "data:image/jpeg;base64,FAKE";
 
 function renderGallery(
@@ -16,9 +16,9 @@ function renderGallery(
   const onDiscardTargetDraftBatch = vi.fn();
 
   const props = {
-    photos: PHOTOS,
+    files: PHOTOS,
     currentIndex: 0,
-    folderPath: "/photos",
+    folderPath: "/files",
     onClose: vi.fn(),
     onNavigate: vi.fn(),
     loadImage: fakeLoad,
@@ -117,7 +117,7 @@ describe("Gallery Zoom and Pan", () => {
     expect(image).toHaveStyle({ transform: "translate(0px, 0px) scale(1)" });
   });
 
-  it("resets zoom and pan when navigating to a different photo", async () => {
+  it("resets zoom and pan when navigating to a different file", async () => {
     const onClose = vi.fn();
     const onNavigate = vi.fn();
     const onRemoveMetadataTargets = vi.fn();
@@ -125,9 +125,9 @@ describe("Gallery Zoom and Pan", () => {
 
     const { rerender } = render(
       <GalleryView
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={0}
-        folderPath="/photos"
+        folderPath="/files"
         onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}
@@ -146,9 +146,9 @@ describe("Gallery Zoom and Pan", () => {
     // Navigate
     rerender(
       <GalleryView
-        photos={PHOTOS}
+        files={PHOTOS}
         currentIndex={1} // Changed
-        folderPath="/photos"
+        folderPath="/files"
         onClose={onClose}
         onNavigate={onNavigate}
         loadImage={fakeLoad}

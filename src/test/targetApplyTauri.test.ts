@@ -8,7 +8,7 @@ import {
   type TargetApplyTauriApi,
 } from "../targetApplyTauri";
 
-const fileResult = (relativePath = "photo.jpg"): MetadataApplyFileResult => ({
+const fileResult = (relativePath = "file.jpg"): MetadataApplyFileResult => ({
   relative_path: relativePath,
   applied: true,
   error: null,
@@ -92,7 +92,7 @@ describe("inactive target-aware apply invocation", () => {
       applyTargetDraftEdits(
         { invoke: vi.fn(async () => batchResult()) },
         "folder",
-        ["photo.jpg"],
+        ["file.jpg"],
       ),
     ).resolves.toEqual(batchResult());
     await expect(
@@ -108,7 +108,7 @@ describe("inactive target-aware apply invocation", () => {
     const raw = duplicateOccurrenceBatchResult();
     await expect(
       applyTargetDraftEdits({ invoke: vi.fn(async () => raw) }, "folder", [
-        "photo.jpg",
+        "file.jpg",
       ]),
     ).rejects.toThrow(/duplicate occurrence ID.*indexes 0 and 1/);
     expect(raw.files[0].fresh_image_metadata?.occurrences).toHaveLength(2);

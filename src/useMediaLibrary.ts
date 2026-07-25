@@ -6,12 +6,12 @@ import {
 } from "./types";
 import type {
   AppState,
-  PhotoFoundPayload,
+  FileFoundPayload,
   ImageMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
   ApplicationErrorPayload,
-  PhotoInfo,
+  FileInfo,
   SortConfig,
   VisibleColumn,
   MetadataApplyResult,
@@ -108,7 +108,7 @@ export interface MediaLibraryActions {
   openRecent: (folder: string) => Promise<void>;
   closeFolder: () => void;
   prioritizeQueues: (visiblePaths: string[]) => void;
-  selectPhoto: (index: number | null) => void;
+  selectFile: (index: number | null) => void;
   showInExplorer: (index: number) => Promise<void>;
   openGallery: (index: number) => void;
   closeGallery: () => void;
@@ -321,7 +321,7 @@ export function useMediaLibrary(
   // are useful, so each stream coalesces into batched flushes (see
   // scheduleBatchedFlush). Refs (not state) because the buffers are
   // imperative scratch space, not part of the render cycle.
-  const photoBufferRef = useRef<PhotoInfo[]>([]);
+  const fileBufferRef = useRef<FileInfo[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
 
@@ -432,7 +432,7 @@ export function useMediaLibrary(
       // shutdown or setup step can yield.
       scanLifecycleGenerationRef.current += 1;
       // Wait for event listeners to be registered before starting the scan so
-      // photo_found / scan_complete events are never missed.  The latch is a
+      // file_found / scan_complete events are never missed.  The latch is a
       // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
       await listenersReadyRef.current;
       await targetDraftSaveQueueRef.current?.flush();
@@ -452,7 +452,7 @@ export function useMediaLibrary(
       activeScanIdRef.current = scanId;
 
       // Clear all buffers + timers from any previous scan
-      photoBufferRef.current = [];
+      fileBufferRef.current = [];
       metadataBufferRef.current = [];
       thumbnailBufferRef.current = [];
       isFirstFlushRef.current = true;
@@ -522,10 +522,10 @@ export function useMediaLibrary(
 
     const flushBatch = () => {
       const startedAt = frontendNow();
-      const batch = [...photoBufferRef.current];
-      photoBufferRef.current = [];
+      const batch = [...fileBufferRef.current];
+      fileBufferRef.current = [];
       console.debug(
-        `[photo_found] flushing ${batch.length} photos (total buffer was ${batch.length})`,
+        `[file_found] flushing ${batch.length} files (total buffer was ${batch.length})`,
       );
 
       setAppState((prev) => {
@@ -540,7 +540,7 @@ export function useMediaLibrary(
           return {
             kind: "loaded",
             folder: prev.folder,
-            photos: batch,
+            files: batch,
             thumbnails: thumbnailStoreRef.current,
             imageMetadataOccurrences: imageMetadataOccurrencesStoreRef.current,
             metadataProgress: metadataProgressStoreRef.current,
@@ -568,13 +568,13 @@ export function useMediaLibrary(
 
         if (prev.kind === "loaded") {
           if (batch.length === 0) return prev;
-          const newPhotos = [...prev.photos, ...batch];
-          metadataProgressStoreRef.current.setTotal(newPhotos.length);
-          return { ...prev, photos: newPhotos };
+          const newFiles = [...prev.files, ...batch];
+          metadataProgressStoreRef.current.setTotal(newFiles.length);
+          return { ...prev, files: newFiles };
         }
         return prev;
       });
-      logSlowFrontendOperation("scan-photo-flush", startedAt, {
+      logSlowFrontendOperation("scan-file-flush", startedAt, {
         items: batch.length,
       });
     };
@@ -599,7 +599,7 @@ export function useMediaLibrary(
       metadataProgressStoreRef.current.incrementReceived(batch.length);
 
       // Increment metadataVersion so that any active sort on image metadata fields
-      // causes the sortedPhotos useMemo to recompute.
+      // causes the sortedFiles useMemo to recompute.
       setAppState((prev) => {
         if (prev.kind !== "loaded") return prev;
         if (
@@ -642,20 +642,20 @@ export function useMediaLibrary(
         resolve = r;
       });
 
-      const unlistenFound = await api.listen("photo_found", (raw) => {
+      const unlistenFound = await api.listen("file_found", (raw) => {
         if (cancelled) return;
-        const { scan_id, photos } = raw as PhotoFoundPayload;
+        const { scan_id, files } = raw as FileFoundPayload;
         if (scan_id !== activeScanIdRef.current) return;
-        console.debug(`[photo_found] received ${photos.length} photos`);
+        console.debug(`[file_found] received ${files.length} files`);
 
-        for (const photo of photos) {
-          thumbnailStoreRef.current.add(photo.relative_path);
-          imageMetadataOccurrencesStoreRef.current.add(photo.relative_path);
-          photoBufferRef.current.push(photo);
+        for (const file of files) {
+          thumbnailStoreRef.current.add(file.relative_path);
+          imageMetadataOccurrencesStoreRef.current.add(file.relative_path);
+          fileBufferRef.current.push(file);
         }
 
         scheduleBatchedFlush(
-          photoBufferRef.current.length,
+          fileBufferRef.current.length,
           batchTimerRef,
           isFirstFlushRef,
           flushBatch,
@@ -691,7 +691,7 @@ export function useMediaLibrary(
             return {
               kind: "loaded",
               folder: prev.folder,
-              photos: [],
+              files: [],
               thumbnails: thumbnailStoreRef.current,
               imageMetadataOccurrences:
                 imageMetadataOccurrencesStoreRef.current,
@@ -847,7 +847,7 @@ export function useMediaLibrary(
     }
 
     // Drop any buffered events that haven't been flushed yet.
-    photoBufferRef.current = [];
+    fileBufferRef.current = [];
     metadataBufferRef.current = [];
     thumbnailBufferRef.current = [];
     targetDraftEditsStoreRef.current.resetMetadata({});
@@ -867,7 +867,7 @@ export function useMediaLibrary(
     [api],
   );
 
-  const selectPhoto = useCallback((index: number | null) => {
+  const selectFile = useCallback((index: number | null) => {
     setAppState((prev) =>
       prev.kind === "loaded" ? { ...prev, selectedIndex: index } : prev,
     );
@@ -918,13 +918,13 @@ export function useMediaLibrary(
     async (index: number) => {
       const current = stateRef.current;
       if (current.kind !== "loaded") return;
-      const photo = current.photos[index];
-      if (!photo) return;
+      const file = current.files[index];
+      if (!file) return;
 
       api
         .invoke("show_in_explorer", {
           folder: current.folder,
-          relativePath: photo.relative_path,
+          relativePath: file.relative_path,
         })
         .catch(() => {});
     },
@@ -949,7 +949,7 @@ export function useMediaLibrary(
     (delta: number, options?: { listLength?: number }) => {
       setAppState((prev) => {
         if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
-        const len = options?.listLength ?? prev.photos.length;
+        const len = options?.listLength ?? prev.files.length;
         const nextIndex = Math.max(
           0,
           Math.min(len - 1, prev.galleryIndex + delta),
@@ -2088,7 +2088,7 @@ export function useMediaLibrary(
       openRecent,
       closeFolder,
       prioritizeQueues,
-      selectPhoto,
+      selectFile,
       showInExplorer,
       openGallery,
       closeGallery,
@@ -2126,7 +2126,7 @@ export function useMediaLibrary(
       openRecent,
       closeFolder,
       prioritizeQueues,
-      selectPhoto,
+      selectFile,
       showInExplorer,
       openGallery,
       closeGallery,

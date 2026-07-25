@@ -30,7 +30,7 @@ export function GpsMapOverview({
         }}
         role={onOpenFullMap ? "button" : undefined}
         tabIndex={onOpenFullMap ? 0 : undefined}
-        aria-label={onOpenFullMap ? "Open full map for this photo" : undefined}
+        aria-label={onOpenFullMap ? "Open full map for this file" : undefined}
       >
         <div className="gps-map-overview__item">
           <div className="gps-map-overview__label">World</div>

@@ -238,7 +238,7 @@ describe("planBulkMetadataDraftBatch", () => {
     expect(plan.mutations[1].upserts).toHaveLength(1);
     expect(plan.mutations[1].upserts[0].target.kind).toBe("NewProperty");
     expect(plan.preview).toMatchObject({
-      affectedPhotoCount: 2,
+      affectedFileCount: 2,
       existingOccurrencesSet: 2,
       newPropertiesSet: 1,
     });

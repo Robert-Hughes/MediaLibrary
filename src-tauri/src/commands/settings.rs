@@ -41,7 +41,7 @@ pub fn estimate_per_image_cost_cmd(model: String) -> Result<f64, String> {
         .ok_or_else(|| format!("no pricing entry for model {}", model))
 }
 
-/// Ballpark USD cost of normalising one photo's metadata with `model`,
+/// Ballpark USD cost of normalising one file's metadata with `model`,
 /// assuming both Group B (description merge) and Group C (title) fire
 /// (worst case). Drives the per-model cost preview in the Settings
 /// dialog's normalise-model picker. Plan §6.

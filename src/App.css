@@ -290,7 +290,7 @@ body {
    animation-delay equal to the document timeline time at mount. No JS animation
    queries — see hooks/useSpinnerSync.ts. */
 .spinner,
-.photo-thumb-spin-inner,
+.file-thumb-spin-inner,
 .cell-spinner,
 .status-bar-spinner,
 .scanning-spinner,
@@ -524,16 +524,16 @@ body {
   border-color: var(--text-secondary);
 }
 
-/* ── Photo list / grid ────────────────────────────────────────────────────── */
+/* ── File list / grid ────────────────────────────────────────────────────── */
 
-.photo-table-wrapper {
+.file-table-wrapper {
   flex: 1;
   overflow-y: auto;
   overflow-x: auto;
   position: relative;
 }
 
-.photo-grid {
+.file-grid {
   display: grid;
   /* grid-template-columns set dynamically via inline style */
   width: 100%;
@@ -708,43 +708,43 @@ body {
 }
 
 /* Grid rows */
-.photo-row {
+.file-row {
   display: grid;
   /* grid-template-columns set dynamically via inline style to match parent */
   grid-column: 1 / -1;
 }
 
-.photo-row--even .grid-cell {
+.file-row--even .grid-cell {
   background: var(--surface);
 }
-.photo-row--odd .grid-cell {
+.file-row--odd .grid-cell {
   background: var(--surface-alt);
 }
 
-.photo-row--selected .grid-cell {
+.file-row--selected .grid-cell {
   background: var(--accent-soft) !important;
   color: var(--accent-ink);
 }
 
-.photo-row--selected .grid-cell:first-child {
+.file-row--selected .grid-cell:first-child {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.photo-row--selected .grid-cell-path,
-.photo-row--selected .grid-cell-date {
+.file-row--selected .grid-cell-path,
+.file-row--selected .grid-cell-date {
   color: var(--accent-ink);
 }
 
-.photo-row--selected .cell-spinner {
+.file-row--selected .cell-spinner {
   border-color: color-mix(in oklch, var(--accent) 30%, transparent);
   border-top-color: var(--accent);
 }
 
-.photo-row:hover .grid-cell {
+.file-row:hover .grid-cell {
   background: var(--surface-alt);
 }
 
-.photo-thumb {
+.file-thumb {
   width: calc(100% - 8px);
   height: var(--thumb-height, 36px);
   margin: 4px auto;
@@ -753,20 +753,20 @@ body {
   background: var(--thumb-bg);
 }
 
-.photo-thumb-img {
+.file-thumb-img {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
 }
 
-.photo-thumb-placeholder {
+.file-thumb-placeholder {
   width: 100%;
   height: 100%;
   background: var(--thumb-bg);
 }
 
-.photo-thumb-spinner {
+.file-thumb-spinner {
   width: 100%;
   height: 100%;
   display: flex;
@@ -775,7 +775,7 @@ body {
   background: var(--thumb-bg);
 }
 
-.photo-thumb-spin-inner {
+.file-thumb-spin-inner {
   display: inline-block;
   width: 16px;
   height: 16px;
@@ -819,7 +819,7 @@ body {
   opacity: 0.5;
 }
 
-.photo-list-empty {
+.file-list-empty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1837,31 +1837,31 @@ body {
   min-height: 0;
 }
 
-.photo-map {
+.file-map {
   width: 100%;
   height: 100%;
   background: var(--surface-alt);
   cursor: grab;
 }
 
-.photo-map.leaflet-dragging,
-.photo-map.leaflet-grab:active {
+.file-map.leaflet-dragging,
+.file-map.leaflet-grab:active {
   cursor: grabbing;
 }
 
 /* Keep Leaflet's retained-tile zoom path without a perceptible geometry
    animation. This lets loaded tiles crossfade over the scaled previous level. */
-.photo-map .leaflet-zoom-anim .leaflet-zoom-animated {
+.file-map .leaflet-zoom-anim .leaflet-zoom-animated {
   transition-duration: 1ms;
 }
 
-.photo-map-marker {
+.file-map-marker {
   border: 0;
   background: transparent;
   pointer-events: none;
 }
 
-.photo-map-marker__frame {
+.file-map-marker__frame {
   position: absolute;
   inset: 0 0 10px;
   box-sizing: border-box;
@@ -1875,7 +1875,7 @@ body {
   pointer-events: auto;
 }
 
-.photo-map-marker__image {
+.file-map-marker__image {
   display: block;
   width: 100% !important;
   height: 100% !important;
@@ -1885,12 +1885,12 @@ body {
   object-position: center;
 }
 
-.photo-map-marker__fallback {
+.file-map-marker__fallback {
   color: var(--text-secondary);
   font-size: 22px;
 }
 
-.photo-map-marker__tip {
+.file-map-marker__tip {
   position: absolute;
   left: 18px;
   bottom: 4px;
@@ -1903,14 +1903,14 @@ body {
   box-shadow: 2px 2px 2px rgba(0, 0, 0, 0.25);
 }
 
-.photo-map-cluster {
+.file-map-cluster {
   display: grid;
   place-items: center;
   border: 0;
   background: transparent;
 }
 
-.photo-map-cluster__footprint {
+.file-map-cluster__footprint {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -1924,7 +1924,7 @@ body {
   pointer-events: none;
 }
 
-.photo-map-cluster__badge {
+.file-map-cluster__badge {
   position: relative;
   z-index: 1;
   display: grid;
@@ -1944,40 +1944,40 @@ body {
   pointer-events: none;
 }
 
-.photo-map-cluster:hover .photo-map-cluster__badge,
-.photo-map-cluster:focus-visible .photo-map-cluster__badge {
+.file-map-cluster:hover .file-map-cluster__badge,
+.file-map-cluster:focus-visible .file-map-cluster__badge {
   background: var(--accent-hover);
 }
 
-.photo-map-cluster--identical .photo-map-cluster__badge {
+.file-map-cluster--identical .file-map-cluster__badge {
   background: var(--accent-error);
 }
 
-.photo-map-cluster--identical:hover .photo-map-cluster__badge,
-.photo-map-cluster--identical:focus-visible .photo-map-cluster__badge {
+.file-map-cluster--identical:hover .file-map-cluster__badge,
+.file-map-cluster--identical:focus-visible .file-map-cluster__badge {
   background: color-mix(in srgb, var(--accent-error) 82%, white);
 }
 
-.photo-map-icon--snapshot,
-.photo-map-icon--departing {
+.file-map-icon--snapshot,
+.file-map-icon--departing {
   pointer-events: none !important;
 }
 
-.photo-map-icon--entering {
-  animation: photo-map-icon-fade-in 160ms ease-out both;
+.file-map-icon--entering {
+  animation: file-map-icon-fade-in 160ms ease-out both;
 }
 
-.photo-map-icon--departing {
-  animation: photo-map-icon-fade-out 160ms ease-out both;
+.file-map-icon--departing {
+  animation: file-map-icon-fade-out 160ms ease-out both;
 }
 
-@keyframes photo-map-icon-fade-in {
+@keyframes file-map-icon-fade-in {
   from {
     opacity: 0;
   }
 }
 
-@keyframes photo-map-icon-fade-out {
+@keyframes file-map-icon-fade-out {
   to {
     opacity: 0;
   }

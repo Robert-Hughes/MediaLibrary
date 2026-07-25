@@ -547,11 +547,11 @@ describe("target-aware removal previews", () => {
       }),
     ).toEqual({
       kind: "ready",
-      photoCount: 3,
-      affectedPhotoCount: 2,
+      fileCount: 3,
+      affectedFileCount: 2,
       existingFieldsToDelete: 1,
       stagedCreationsToCancel: 1,
-      noOpPhotoCount: 1,
+      noOpFileCount: 1,
     });
   });
 
@@ -571,11 +571,11 @@ describe("target-aware removal previews", () => {
       }),
     ).toEqual({
       kind: "ready",
-      photoCount: 3,
-      affectedPhotoCount: 3,
+      fileCount: 3,
+      affectedFileCount: 3,
       existingFieldsToDelete: 4,
       stagedCreationsToCancel: 0,
-      noOpPhotoCount: 0,
+      noOpFileCount: 0,
     });
   });
 });

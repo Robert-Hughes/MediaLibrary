@@ -1,19 +1,19 @@
 import { render, screen } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
-import type { PhotoInfo } from "../types";
+import type { FileInfo } from "../types";
 import { imgCol } from "./factories";
 import {
   _clearTagInfoCache,
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 
-const photos: PhotoInfo[] = [
+const files: FileInfo[] = [
   {
-    relative_path: "photo1.jpg",
-    filename: "photo1.jpg",
+    relative_path: "file1.jpg",
+    filename: "file1.jpg",
     date_modified: 1640995200,
     date_created: 1640995200,
   },
@@ -24,15 +24,15 @@ const defaultSortProps = {
   onSortChange: () => {},
 };
 
-describe("PhotoList column header context menu", () => {
+describe("FileList column header context menu", () => {
   let thumbnails: ThumbnailStore;
   let occurrences: ImageMetadataOccurrencesStore;
 
   beforeEach(() => {
     thumbnails = new ThumbnailStore();
     occurrences = new ImageMetadataOccurrencesStore();
-    thumbnails.add("photo1.jpg");
-    occurrences.add("photo1.jpg");
+    thumbnails.add("file1.jpg");
+    occurrences.add("file1.jpg");
     _clearTagInfoCache();
     _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", {
       group: "ExifIFD",
@@ -45,9 +45,9 @@ describe("PhotoList column header context menu", () => {
 
   function renderList(onSelectColumns?: () => void) {
     return render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={occurrences}
         visibleColumns={[
@@ -59,7 +59,7 @@ describe("PhotoList column header context menu", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
         onSelectColumns={onSelectColumns}
       />,
     );

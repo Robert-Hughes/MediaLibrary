@@ -9,14 +9,14 @@ import { SearchIndex } from "../search/searchIndex";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import {
   ImageMetadataOccurrencesStore,
-  type PhotoInfo,
+  type FileInfo,
   type TagInfo,
 } from "../types";
 import type {
   SearchWorkerInbound,
   SearchWorkerOutbound,
 } from "../workers/searchWorkerProtocol";
-import { makePhoto, testId } from "./factories";
+import { makeFile, testId } from "./factories";
 import { invoke } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -35,7 +35,7 @@ class FakeWorker implements SearchWorkerLike {
         this.index.clear();
         break;
       case "INIT_PHOTOS":
-        message.photos.forEach((photo) => this.index.setPhoto(photo));
+        message.files.forEach((file) => this.index.setFile(file));
         break;
       case "INIT_OCCURRENCES":
         this.index.setSchemaLabels(message.schemaLabels);
@@ -50,7 +50,7 @@ class FakeWorker implements SearchWorkerLike {
         );
         break;
       case "UPSERT_PHOTO":
-        this.index.setPhoto(message.photo);
+        this.index.setFile(message.file);
         break;
       case "UPSERT_OCCURRENCES":
         this.index.setOccurrences(
@@ -83,7 +83,7 @@ class FakeWorker implements SearchWorkerLike {
 }
 
 interface HookArgs {
-  photos: PhotoInfo[];
+  files: FileInfo[];
   imageMetadataOccurrencesStore: ImageMetadataOccurrencesStore;
   targetDraftEditsStore: TargetDraftEditsStore;
   query: string;
@@ -92,7 +92,7 @@ interface HookArgs {
 function setup(initial: Partial<HookArgs> = {}) {
   const fake = new FakeWorker();
   const props: HookArgs = {
-    photos: initial.photos ?? [],
+    files: initial.files ?? [],
     imageMetadataOccurrencesStore:
       initial.imageMetadataOccurrencesStore ??
       new ImageMetadataOccurrencesStore(),
@@ -112,10 +112,10 @@ function setup(initial: Partial<HookArgs> = {}) {
   return { fake, props, ...rendered };
 }
 
-const cityId = testId("XMP-photoshop:City");
+const cityId = testId("XMP-fileshop:City");
 const cityInfo: TagInfo = {
   id: cityId,
-  group: "XMP-photoshop",
+  group: "XMP-fileshop",
   name: "City",
   writable: true,
   kind: { kind: "Text" },
@@ -151,9 +151,9 @@ describe("useSearchWorker target-draft projection", () => {
       },
       { intent: "Set", value: { kind: "Text", value: "Reykjavik draft" } },
     );
-    const photo = makePhoto({ relative_path: path, filename: "reserved.jpg" });
+    const file = makeFile({ relative_path: path, filename: "reserved.jpg" });
     const { result, rerender, props } = setup({
-      photos: [photo],
+      files: [file],
       targetDraftEditsStore: drafts,
       query: "Reykjavik draft",
     });
@@ -162,8 +162,8 @@ describe("useSearchWorker target-draft projection", () => {
     );
 
     for (const query of [
-      "XMP::photoshop",
-      "XMP-photoshop:City",
+      "XMP::fileshop",
+      "XMP-fileshop:City",
       "City where the image was made",
       "has:edits",
     ]) {
@@ -176,9 +176,9 @@ describe("useSearchWorker target-draft projection", () => {
 
   it("indexes incremental target updates and removes the last draft for a path", async () => {
     const drafts = new TargetDraftEditsStore();
-    const photo = makePhoto({ relative_path: "a.jpg" });
+    const file = makeFile({ relative_path: "a.jpg" });
     const { result } = setup({
-      photos: [photo],
+      files: [file],
       targetDraftEditsStore: drafts,
       query: "has:edits",
     });
@@ -228,7 +228,7 @@ describe("useSearchWorker target-draft projection", () => {
       .mockResolvedValueOnce([cityInfo]);
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { fake } = setup({
-      photos: [makePhoto({ relative_path: "a.jpg" })],
+      files: [makeFile({ relative_path: "a.jpg" })],
       targetDraftEditsStore: drafts,
     });
     await act(async () => void (await Promise.resolve()));

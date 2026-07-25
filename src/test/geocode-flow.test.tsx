@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
-import { makePhoto, mockGeneratedDraftEntries } from "./factories";
+import { makeFile, mockGeneratedDraftEntries } from "./factories";
 import type {
   MetadataDraftEdit,
   MetadataOccurrence,
@@ -127,24 +127,24 @@ function seedExistingGpsTargets(
       return { target: target.target, edit };
     }),
   );
-  mockApiInstance.targetDraftEditsByFolder["/photos"] = store.getAllMetadata();
+  mockApiInstance.targetDraftEditsByFolder["/files"] = store.getAllMetadata();
 }
 
-async function openFolderAndSelectPhoto(
+async function openFolderAndSelectFile(
   rel = "test.jpg",
   metadata: Record<string, MetadataValue> = {},
   occurrences?: MetadataOccurrence[],
 ) {
-  const photo = makePhoto({ relative_path: rel });
+  const file = makeFile({ relative_path: rel });
   const user = userEvent.setup();
-  mockApiInstance.pickFolderResolves("/photos");
+  mockApiInstance.pickFolderResolves("/files");
   render(<App />);
   await act(async () => {
     await new Promise((r) => setTimeout(r, 50));
   });
   await user.click(screen.getByTestId("open-folder-btn"));
   await act(async () => {
-    mockApiInstance.emitPhotoFound(photo);
+    mockApiInstance.emitFileFound(file);
   });
   await act(async () => {
     mockApiInstance.emitScanComplete();
@@ -160,7 +160,7 @@ async function openFolderAndSelectPhoto(
   await act(async () => {
     await new Promise((r) => setTimeout(r, 250));
   });
-  const row = screen.getByTestId("photo-row");
+  const row = screen.getByTestId("file-row");
   await user.dblClick(row);
   await act(async () => {
     await new Promise((r) => setTimeout(r, 50));
@@ -170,7 +170,7 @@ async function openFolderAndSelectPhoto(
   await act(async () => {
     await new Promise((r) => setTimeout(r, 50));
   });
-  return { user, photo };
+  return { user, file };
 }
 function expectMapCoordinates(lat: number, lon: number) {
   const maps = screen.getAllByTestId("gps-map");
@@ -195,7 +195,7 @@ describe("Reverse-geocoding flow", () => {
     // written and that fields the geocoder doesn't return will be
     // cleared. Pin that copy here so a refactor doesn't quietly drop
     // it.
-    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+    const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5001 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
       "GPS:GPSLongitude": { kind: "Real", value: 0.1262 },
@@ -226,11 +226,11 @@ describe("Reverse-geocoding flow", () => {
             value: { kind: "Text", value: "Big Ben" },
             intent: "Set",
           },
-          "XMP-photoshop:City": {
+          "XMP-fileshop:City": {
             value: { kind: "Text", value: "London" },
             intent: "Set",
           },
-          "XMP-photoshop:State": { value: null, intent: "Delete" },
+          "XMP-fileshop:State": { value: null, intent: "Delete" },
         }),
       },
     ];
@@ -242,7 +242,7 @@ describe("Reverse-geocoding flow", () => {
       nFailed: 0,
     };
 
-    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+    const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5001 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
       "GPS:GPSLongitude": { kind: "Real", value: 0.1262 },
@@ -272,7 +272,7 @@ describe("Reverse-geocoding flow", () => {
 
     // The coherent replacement is staged only in the exact target-aware store.
     const targetDrafts =
-      mockApiInstance.targetDraftEditsByFolder["/photos"]?.["test.jpg"] ?? {};
+      mockApiInstance.targetDraftEditsByFolder["/files"]?.["test.jpg"] ?? {};
     expect(
       Object.values(targetDrafts).some(
         ({ target }) => target.schema_id.tag_id === "Location",
@@ -308,7 +308,7 @@ describe("Reverse-geocoding flow", () => {
       nFailed: 0,
     };
 
-    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+    const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 53.983856 },
       "GPS:GPSLatitudeRef": singletonList({ kind: "Text", value: "N" }),
       "GPS:GPSLongitude": { kind: "Real", value: 1.100918 },
@@ -330,7 +330,7 @@ describe("Reverse-geocoding flow", () => {
     });
   });
 
-  it("sends target-aware staged coordinates from the PhotoList selection action", async () => {
+  it("sends target-aware staged coordinates from the FileList selection action", async () => {
     const rel = "list-target.jpg";
     const occurrences = rawGpsOccurrences();
     seedExistingGpsTargets(rel, occurrences, [
@@ -347,13 +347,13 @@ describe("Reverse-geocoding flow", () => {
         edit: { intent: "Set", value: { kind: "Text", value: "W" } },
       },
     ]);
-    const { user } = await openFolderAndSelectPhoto(
+    const { user } = await openFolderAndSelectFile(
       rel,
       rawGpsMetadata(),
       occurrences,
     );
     await user.click(screen.getByTestId("gallery-close-btn"));
-    const row = screen.getByTestId("photo-row");
+    const row = screen.getByTestId("file-row");
     await user.click(row);
     fireEvent.contextMenu(row);
     await user.click(
@@ -379,7 +379,7 @@ describe("Reverse-geocoding flow", () => {
         edit: { intent: "Delete", value: null },
       },
     ]);
-    const { user } = await openFolderAndSelectPhoto(
+    const { user } = await openFolderAndSelectFile(
       rel,
       rawGpsMetadata(),
       occurrences,
@@ -416,7 +416,7 @@ describe("Reverse-geocoding flow", () => {
     ]);
     const metadata = rawGpsMetadata();
     metadata["GPS:GPSLongitude"] = { kind: "Real", value: 1 };
-    const { user } = await openFolderAndSelectPhoto(rel, metadata, occurrences);
+    const { user } = await openFolderAndSelectFile(rel, metadata, occurrences);
     expectMapCoordinates(-51, -1);
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await user.click(await screen.findByTestId("geocode-confirm-btn"));
@@ -450,7 +450,7 @@ describe("Reverse-geocoding flow", () => {
       nFailed: 0,
     };
 
-    const { user } = await openFolderAndSelectPhoto("test.jpg", {});
+    const { user } = await openFolderAndSelectFile("test.jpg", {});
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     await act(async () => {
       await new Promise((r) => setTimeout(r, 50));
@@ -471,7 +471,7 @@ describe("Reverse-geocoding flow", () => {
   });
 
   it("Cancel before confirm closes the dialog and signals backend", async () => {
-    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+    const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
       "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
@@ -498,7 +498,7 @@ describe("Reverse-geocoding flow", () => {
       dialogModule as unknown as { ask: ReturnType<typeof vi.fn> }
     ).ask;
     askMock.mockClear();
-    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+    const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
       "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
@@ -514,7 +514,7 @@ describe("Reverse-geocoding flow", () => {
   });
 
   it("DetailsPane button shows no overwrite notice when there is no existing location data", async () => {
-    const { user } = await openFolderAndSelectPhoto("test.jpg", {
+    const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
       "GPS:GPSLongitude": { kind: "Real", value: 0.1 },

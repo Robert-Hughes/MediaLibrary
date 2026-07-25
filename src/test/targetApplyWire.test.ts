@@ -60,13 +60,13 @@ const occurrence = (
 
 const imageMetadata = (
   occurrences: MetadataOccurrence[] = [occurrence()],
-  relativePath = "photo.jpg",
+  relativePath = "file.jpg",
 ): ImageMetadata => ({
   relative_path: relativePath,
   occurrences,
 });
 
-const fileResult = (relativePath = "photo.jpg"): MetadataApplyFileResult => ({
+const fileResult = (relativePath = "file.jpg"): MetadataApplyFileResult => ({
   relative_path: relativePath,
   applied: true,
   error: null,
@@ -91,7 +91,7 @@ describe("occurrence-only scanner wire guards", () => {
   it("requires exactly relative_path and occurrences", () => {
     expect(isImageMetadata(imageMetadata())).toBe(true);
     expect(isImageMetadata({ ...imageMetadata(), metadata: [] })).toBe(false);
-    expect(isImageMetadata({ relative_path: "photo.jpg" })).toBe(false);
+    expect(isImageMetadata({ relative_path: "file.jpg" })).toBe(false);
     expect(isImageMetadata({ relative_path: "", occurrences: [] })).toBe(false);
   });
 

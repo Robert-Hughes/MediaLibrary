@@ -76,13 +76,13 @@ function metadataEntryToStringList(v: EffectiveMetadataEntry): string[] {
   return scalar != null && scalar !== "" ? [scalar] : [];
 }
 
-export interface PhotoOccurrencesLookup {
+export interface FileOccurrencesLookup {
   get(relPath: string): ImageMetadataOccurrencesState | undefined;
 }
 
 export function metadataOccurrencesStoreLookup(
   store: ImageMetadataOccurrencesStore,
-): PhotoOccurrencesLookup {
+): FileOccurrencesLookup {
   return { get: (relPath) => store.get(relPath) };
 }
 
@@ -119,7 +119,7 @@ function list(
  * Build one normalise item from the same target-aware effective metadata view
  * shown to the user.
  */
-export function buildNormaliseItemForPhoto(
+export function buildNormaliseItemForFile(
   relPath: string,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
   occurrences?: ImageMetadataOccurrencesState,
@@ -169,7 +169,7 @@ export function buildNormaliseItemForPhoto(
 
   if (groupSet.has("headline")) {
     groupInputs.headline = {
-      photoshopHeadline: scalar(effective, ID.xmpHeadline) ?? null,
+      fileshopHeadline: scalar(effective, ID.xmpHeadline) ?? null,
       iptcHeadline: scalar(effective, ID.iptcHeadline) ?? null,
     };
   }
@@ -222,7 +222,7 @@ export function buildNormaliseItemForPhoto(
       dateTimeOriginal: scalarValue(effective, ID.dateTimeOriginal) ?? null,
       offsetTimeOriginal: scalarValue(effective, ID.offsetTimeOriginal) ?? null,
       subSecTimeOriginal: scalarValue(effective, ID.subSecTimeOriginal) ?? null,
-      photoshopDateCreated: scalarValue(effective, ID.xmpDateCreated) ?? null,
+      fileshopDateCreated: scalarValue(effective, ID.xmpDateCreated) ?? null,
       iptcDateCreated: scalarValue(effective, ID.iptcDateCreated) ?? null,
       iptcTimeCreated: scalarValue(effective, ID.iptcTimeCreated) ?? null,
       createDate: scalarValue(effective, ID.createDate) ?? null,
@@ -245,12 +245,12 @@ export function buildNormaliseItemForPhoto(
 
 export function buildNormaliseItems(
   relPaths: ReadonlyArray<string>,
-  occurrences: PhotoOccurrencesLookup,
+  occurrences: FileOccurrencesLookup,
   targetDrafts: TargetDraftEditsByFile,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
 ): NormaliseRequestItem[] {
   return relPaths.map((relPath) =>
-    buildNormaliseItemForPhoto(
+    buildNormaliseItemForFile(
       relPath,
       enabledGroups,
       occurrences.get(relPath),

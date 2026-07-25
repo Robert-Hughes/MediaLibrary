@@ -9,7 +9,7 @@ const error: ApplicationErrorPayload = {
   severity: "error",
   error_type: "test-error",
   error_message: "Something failed",
-  affected_files: ["photo.jpg"],
+  affected_files: ["file.jpg"],
 };
 
 describe("ErrorBanner top-layer presentation", () => {

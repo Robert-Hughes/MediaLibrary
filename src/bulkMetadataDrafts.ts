@@ -71,9 +71,9 @@ export type BulkMetadataDraftRequest =
     };
 
 export interface BulkMetadataDraftPreview {
-  photoCount: number;
-  affectedPhotoCount: number;
-  noOpPhotoCount: number;
+  fileCount: number;
+  affectedFileCount: number;
+  noOpFileCount: number;
   existingOccurrencesSet: number;
   newPropertiesSet: number;
   existingOccurrencesDeleted: number;
@@ -130,11 +130,11 @@ function fail(
     schemaId === undefined ? undefined : structuredClone(schemaId),
   );
 }
-function emptyPreview(photoCount: number): BulkMetadataDraftPreview {
+function emptyPreview(fileCount: number): BulkMetadataDraftPreview {
   return {
-    photoCount,
-    affectedPhotoCount: 0,
-    noOpPhotoCount: 0,
+    fileCount,
+    affectedFileCount: 0,
+    noOpFileCount: 0,
     existingOccurrencesSet: 0,
     newPropertiesSet: 0,
     existingOccurrencesDeleted: 0,
@@ -632,7 +632,7 @@ export function planBulkMetadataDraftBatch(input: {
   request: BulkMetadataDraftRequest;
 }): BulkMetadataDraftPlan {
   if (input.files.length === 0) {
-    fail("empty-selection", "At least one photo must be selected.");
+    fail("empty-selection", "At least one file must be selected.");
   }
   const seenPaths = new Set<string>();
   for (const file of input.files) {
@@ -656,9 +656,9 @@ export function planBulkMetadataDraftBatch(input: {
       const edit = validateSetRequest(request);
       for (const file of files) {
         const mutation = planSetForFile(file, request, edit.value, preview);
-        if (mutation === null) preview.noOpPhotoCount += 1;
+        if (mutation === null) preview.noOpFileCount += 1;
         else {
-          preview.affectedPhotoCount += 1;
+          preview.affectedFileCount += 1;
           mutations.push(mutation);
         }
       }
@@ -667,9 +667,9 @@ export function planBulkMetadataDraftBatch(input: {
     case "SetGps": {
       for (const file of files) {
         const mutation = planGpsSetForFile(file, request, preview);
-        if (mutation === null) preview.noOpPhotoCount += 1;
+        if (mutation === null) preview.noOpFileCount += 1;
         else {
-          preview.affectedPhotoCount += 1;
+          preview.affectedFileCount += 1;
           mutations.push(mutation);
         }
       }
@@ -683,9 +683,9 @@ export function planBulkMetadataDraftBatch(input: {
           : gpsGroupIds(request.group);
       for (const file of files) {
         const mutation = planDeleteForFile(file, schemaIds, preview);
-        if (mutation === null) preview.noOpPhotoCount += 1;
+        if (mutation === null) preview.noOpFileCount += 1;
         else {
-          preview.affectedPhotoCount += 1;
+          preview.affectedFileCount += 1;
           mutations.push(mutation);
         }
       }

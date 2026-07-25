@@ -10,7 +10,7 @@ import { TargetDraftEditsStore } from "../targetDraftEdits";
 import { computeEffectiveMetadataKeyFrequency } from "../utils/metadataKeyFrequency";
 import { metadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
-import { makePhotos, testId } from "./factories";
+import { makeFiles, testId } from "./factories";
 
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 const title = testId("XMP-dc:Title");
@@ -82,7 +82,7 @@ function counts(
 ) {
   return new Map(
     computeEffectiveMetadataKeyFrequency(
-      makePhotos(paths),
+      makeFiles(paths),
       metadata,
       drafts.getAllMetadata(),
     ).map(({ id, count }) => [schemaDefinitionIdToken(id), count]),
@@ -207,7 +207,7 @@ describe("computeEffectiveMetadataKeyFrequency", () => {
     ).toBe(1);
   });
 
-  it("ignores stale drafts outside the current photo list", () => {
+  it("ignores stale drafts outside the current file list", () => {
     const { metadata, drafts } = setup(["a.jpg"]);
     metadata.set("a.jpg", occurrencesFromMetadataCollection(committed()));
     drafts.setMetadataTarget(

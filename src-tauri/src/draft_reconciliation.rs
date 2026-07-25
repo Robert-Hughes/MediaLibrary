@@ -952,7 +952,7 @@ mod tests {
         let created = entry(new_target(schema("103")), "created");
         let replacement = existing_target("a-replacement", "XMP", schema("103"));
         let drafts = MetadataTargetDraftsByFile::from([(
-            "album/photo.jpg".to_owned(),
+            "album/file.jpg".to_owned(),
             vec![
                 cleared.clone(),
                 created.clone(),
@@ -962,7 +962,7 @@ mod tests {
         )]);
         let reconciled = reconcile_metadata_draft_file(
             &drafts,
-            "album/photo.jpg",
+            "album/file.jpg",
             &[
                 blocked(&blocked_entry.target),
                 replace(&created.target, replacement.clone()),
@@ -977,7 +977,7 @@ mod tests {
         let loaded = load_metadata_draft_edits(first_dir.path().to_str().unwrap()).unwrap();
         assert_eq!(loaded, reconciled);
 
-        let loaded_entries = &loaded["album/photo.jpg"];
+        let loaded_entries = &loaded["album/file.jpg"];
         assert!(!loaded_entries
             .iter()
             .any(|item| item.target == cleared.target));
@@ -1000,7 +1000,7 @@ mod tests {
             .find(|line| !line.starts_with("//"))
             .unwrap();
         let json: serde_json::Value = serde_json::from_str(data_line).unwrap();
-        assert_eq!(json["relative_path"], "album/photo.jpg");
+        assert_eq!(json["relative_path"], "album/file.jpg");
         assert!(json["edits"]
             .as_array()
             .unwrap()

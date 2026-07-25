@@ -3,7 +3,7 @@ import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type { NormaliseGroup } from "../types";
 import {
-  buildNormaliseItemForPhoto,
+  buildNormaliseItemForFile,
   buildNormaliseItems,
 } from "../utils/buildNormaliseItems";
 import { mockMetadata } from "./factories";
@@ -30,7 +30,7 @@ describe("target-aware normalise inputs", () => {
         },
       }),
     );
-    const item = buildNormaliseItemForPhoto(
+    const item = buildNormaliseItemForFile(
       "x.jpg",
       ["keywords", "description"],
       occurrences,

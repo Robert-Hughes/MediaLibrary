@@ -1,5 +1,5 @@
 /**
- * Coverage for the PhotoList "Normalise Metadata…" context-menu entry.
+ * Coverage for the FileList "Normalise Metadata…" context-menu entry.
  *
  * Plan §13 places the overwrite warning inside the
  * NormaliseProgressDialog rather than a pre-click `ask()` (the dialog
@@ -9,7 +9,7 @@
  */
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { PhotoList } from "../components/PhotoList";
+import { FileList } from "../components/FileList";
 import { ThumbnailStore, ImageMetadataOccurrencesStore } from "../types";
 
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -20,13 +20,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 interface SetupOptions {
-  photoCount?: number;
+  fileCount?: number;
   onNormalise?: (paths: string[]) => void;
 }
 
 function setup(opts: SetupOptions = {}) {
-  const n = opts.photoCount ?? 5;
-  const photos = Array.from({ length: n }, (_, i) => ({
+  const n = opts.fileCount ?? 5;
+  const files = Array.from({ length: n }, (_, i) => ({
     relative_path: `${i}.jpg`,
     filename: `${i}.jpg`,
     date_modified: null,
@@ -34,15 +34,15 @@ function setup(opts: SetupOptions = {}) {
   }));
   const thumbnails = new ThumbnailStore();
   const imageMetadata = new ImageMetadataOccurrencesStore();
-  for (const p of photos) {
+  for (const p of files) {
     thumbnails.add(p.relative_path);
     imageMetadata.add(p.relative_path);
   }
   const onNormalise = vi.fn(opts.onNormalise ?? (() => {}));
   render(
-    <PhotoList
+    <FileList
       targetDraftEdits={{}}
-      photos={photos}
+      files={files}
       thumbnails={thumbnails}
       imageMetadataOccurrences={imageMetadata}
       visibleColumns={[]}
@@ -52,7 +52,7 @@ function setup(opts: SetupOptions = {}) {
       onSelect={() => {}}
       onShowInExplorer={() => {}}
       onVisibilityChange={() => {}}
-      onPhotoOpen={() => {}}
+      onFileOpen={() => {}}
       onApplyEdits={() => {}}
       onDiscardAllEdits={() => {}}
       onGenerateAiDescription={() => {}}
@@ -64,15 +64,15 @@ function setup(opts: SetupOptions = {}) {
 }
 
 function rows() {
-  return screen.getAllByTestId("photo-row");
+  return screen.getAllByTestId("file-row");
 }
 
-describe("PhotoList: Normalise Metadata context-menu entry", () => {
+describe("FileList: Normalise Metadata context-menu entry", () => {
   beforeEach(() => {
     cleanup();
   });
 
-  it("entry is visible when a single photo is selected", async () => {
+  it("entry is visible when a single file is selected", async () => {
     setup();
     fireEvent.click(rows()[2]);
     fireEvent.contextMenu(rows()[2]);
@@ -89,7 +89,7 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
     fireEvent.click(rows()[4], { ctrlKey: true });
     fireEvent.contextMenu(rows()[4]);
     const entry = await screen.findByRole("button", {
-      name: "Normalise Metadata… (3 photos)",
+      name: "Normalise Metadata… (3 files)",
     });
     expect(entry).toBeInTheDocument();
   });
@@ -109,7 +109,7 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
 
   it("entry is hidden when onNormalise is not wired", async () => {
     const n = 3;
-    const photos = Array.from({ length: n }, (_, i) => ({
+    const files = Array.from({ length: n }, (_, i) => ({
       relative_path: `${i}.jpg`,
       filename: `${i}.jpg`,
       date_modified: null,
@@ -117,14 +117,14 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
     }));
     const thumbnails = new ThumbnailStore();
     const imageMetadata = new ImageMetadataOccurrencesStore();
-    for (const p of photos) {
+    for (const p of files) {
       thumbnails.add(p.relative_path);
       imageMetadata.add(p.relative_path);
     }
     render(
-      <PhotoList
+      <FileList
         targetDraftEdits={{}}
-        photos={photos}
+        files={files}
         thumbnails={thumbnails}
         imageMetadataOccurrences={imageMetadata}
         visibleColumns={[]}
@@ -134,7 +134,7 @@ describe("PhotoList: Normalise Metadata context-menu entry", () => {
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
-        onPhotoOpen={() => {}}
+        onFileOpen={() => {}}
       />,
     );
     fireEvent.click(rows()[0]);

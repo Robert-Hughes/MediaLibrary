@@ -21,7 +21,7 @@ use tempfile::tempdir;
 fn make_dummy_jpgs(dir: &std::path::Path, n: usize) -> Vec<String> {
     (0..n)
         .map(|i| {
-            let name = format!("photo_{i:04}.jpg");
+            let name = format!("file_{i:04}.jpg");
             fs::write(dir.join(&name), b"x").unwrap();
             name
         })
@@ -83,9 +83,9 @@ fn walk_feeds_queues_and_workers_drain_them_with_no_loss() {
         scanner::scan_folder(
             &root,
             walk_cancel,
-            |photo| {
-                walk_metadata.push(photo.relative_path.clone());
-                walk_thumb.push(photo.relative_path);
+            |file| {
+                walk_metadata.push(file.relative_path.clone());
+                walk_thumb.push(file.relative_path);
             },
             |_| {},
         );
@@ -145,9 +145,9 @@ fn cancellation_during_walk_shuts_pipeline_down_cleanly() {
         scanner::scan_folder(
             &root,
             walk_cancel,
-            |photo| {
-                walk_metadata.push(photo.relative_path.clone());
-                walk_thumb.push(photo.relative_path);
+            |file| {
+                walk_metadata.push(file.relative_path.clone());
+                walk_thumb.push(file.relative_path);
             },
             |_| {},
         );
@@ -178,18 +178,18 @@ fn prioritize_during_active_scan_moves_visible_paths_to_front() {
     // then prioritize a subset and verify the next pops match the priority order.
     let q = Arc::new(WorkQueue::new(vec![]));
     for i in 0..100 {
-        q.push(format!("photo_{i:04}.jpg"));
+        q.push(format!("file_{i:04}.jpg"));
     }
 
     // User scrolls and the visible paths are 50, 51, 52 (mid-list).
-    let visible: Vec<String> = (50..53).map(|i| format!("photo_{i:04}.jpg")).collect();
+    let visible: Vec<String> = (50..53).map(|i| format!("file_{i:04}.jpg")).collect();
     q.prioritize(&visible);
 
     // Next three pops should be the prioritized items in order.
-    assert_eq!(q.pop(), Some("photo_0050.jpg".into()));
-    assert_eq!(q.pop(), Some("photo_0051.jpg".into()));
-    assert_eq!(q.pop(), Some("photo_0052.jpg".into()));
+    assert_eq!(q.pop(), Some("file_0050.jpg".into()));
+    assert_eq!(q.pop(), Some("file_0051.jpg".into()));
+    assert_eq!(q.pop(), Some("file_0052.jpg".into()));
 
     // The next pop should fall back to the original order, with priority items removed.
-    assert_eq!(q.pop(), Some("photo_0000.jpg".into()));
+    assert_eq!(q.pop(), Some("file_0000.jpg".into()));
 }

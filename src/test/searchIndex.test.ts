@@ -63,7 +63,7 @@ const drafts = (entries: Record<string, MetadataDraftEdit>) =>
 
 function seed(idx: SearchIndex) {
   for (const path of ["a.jpg", "b.jpg", "sub/c.jpg"]) {
-    idx.setPhoto({
+    idx.setFile({
       relative_path: path,
       filename: path.split("/").slice(-1)[0]!,
       date_modified: 1_700_000_000,
@@ -249,12 +249,12 @@ describe("SearchIndex", () => {
     expect(matchedSet(idx, "muffin")).toEqual(new Set());
   });
 
-  it("handles deletion, clear and photo upserts", () => {
+  it("handles deletion, clear and file upserts", () => {
     const idx = new SearchIndex();
     seed(idx);
     idx.deletePath("a.jpg");
     expect(matchedSet(idx, "a.jpg")).toEqual(new Set());
-    idx.setPhoto({
+    idx.setFile({
       relative_path: "b.jpg",
       filename: "renamed.jpg",
       date_modified: null,

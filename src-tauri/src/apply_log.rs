@@ -445,10 +445,10 @@ mod tests {
         let record_with_zero_index = existing_audit(Some(0), "zero index");
         append_target_metadata_entries(
             dir.path().to_str().unwrap(),
-            "photo.jpg",
+            "file.jpg",
             &[record_without_index, record_with_zero_index],
             &TargetDraftPersistenceOutcome::PersistenceFailed {
-                error: "target-aware draft persistence failed for photo.jpg: disk full".into(),
+                error: "target-aware draft persistence failed for file.jpg: disk full".into(),
             },
         )
         .unwrap();
@@ -457,11 +457,11 @@ mod tests {
         let entry = &entries[0];
         assert_eq!(entry["schema_version"], 1);
         assert_eq!(entry["identity_model"], "TargetDraft");
-        assert_eq!(entry["relative_path"], "photo.jpg");
+        assert_eq!(entry["relative_path"], "file.jpg");
         assert_eq!(entry["draft_persistence"]["kind"], "PersistenceFailed");
         assert_eq!(
             entry["draft_persistence"]["error"],
-            "target-aware draft persistence failed for photo.jpg: disk full"
+            "target-aware draft persistence failed for file.jpg: disk full"
         );
         assert_eq!(entry["target"]["kind"], "ExistingOccurrence");
         assert_eq!(

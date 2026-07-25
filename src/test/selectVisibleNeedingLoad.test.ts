@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
-import { selectVisibleNeedingLoad } from "../utils/photoListHelpers";
+import { selectVisibleNeedingLoad } from "../utils/fileListHelpers";
 
 function makeStore(loaded: Set<string>) {
   return {
@@ -49,7 +49,7 @@ describe("selectVisibleNeedingLoad", () => {
   });
 
   it("only consults stores for visible paths, not for any wider collection", () => {
-    // Regression: the original notify() iterated photosRef.current (the full
+    // Regression: the original notify() iterated filesRef.current (the full
     // list, up to 10k) and filtered by visibleRef.has().  This test proves the
     // helper only consults the stores for visible paths — i.e. it iterates
     // `visible`, not some broader set.
