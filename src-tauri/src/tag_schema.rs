@@ -1447,9 +1447,7 @@ mod tests {
     fn xmp_datetime_overrides_promote_string_tags_to_datetime() {
         let r = fixture_registry();
         assert!(r.lookup(&test_id("XMP::xmp", "CreateDate")).is_none());
-        assert!(r
-            .lookup(&test_id("XMP::fileshop", "DateCreated"))
-            .is_none());
+        assert!(r.lookup(&test_id("XMP::fileshop", "DateCreated")).is_none());
     }
 
     #[test]
