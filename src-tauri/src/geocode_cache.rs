@@ -65,7 +65,10 @@ pub struct CachedResult {
     pub postcode: Option<String>,
 }
 
-pub const CACHE_VERSION: u32 = 1;
+// Version 2 invalidates results fetched without an explicit language
+// preference. Reusing those entries would preserve local-script place
+// names after the geocoder switched to English output.
+pub const CACHE_VERSION: u32 = 2;
 
 /// Compute great-circle distance between two coordinate pairs, in metres.
 ///
@@ -93,16 +96,16 @@ pub fn load(app_data_dir: &Path) -> GeocodeCacheFile {
     let path = cache_path(app_data_dir);
     let bytes = match fs::read(&path) {
         Ok(b) => b,
-        Err(_) => return GeocodeCacheFile::default_v1(),
+        Err(_) => return GeocodeCacheFile::empty_current(),
     };
     match serde_json::from_slice::<GeocodeCacheFile>(&bytes) {
         Ok(f) if f.version == CACHE_VERSION => f,
-        _ => GeocodeCacheFile::default_v1(),
+        _ => GeocodeCacheFile::empty_current(),
     }
 }
 
 impl GeocodeCacheFile {
-    pub fn default_v1() -> Self {
+    pub fn empty_current() -> Self {
         Self {
             version: CACHE_VERSION,
             entries: Vec::new(),
@@ -172,7 +175,7 @@ mod tests {
 
     #[test]
     fn lookup_returns_match_within_radius() {
-        let mut c = GeocodeCacheFile::default_v1();
+        let mut c = GeocodeCacheFile::empty_current();
         c.entries.push(GeocodeCacheEntry {
             lat: 51.5001,
             lon: -0.1262,
@@ -195,7 +198,7 @@ mod tests {
 
     #[test]
     fn upsert_replaces_nearby_entry() {
-        let mut c = GeocodeCacheFile::default_v1();
+        let mut c = GeocodeCacheFile::empty_current();
         let mk = |lat: f64, name: &str| GeocodeCacheEntry {
             lat,
             lon: -0.1262,
@@ -220,7 +223,7 @@ mod tests {
     #[test]
     fn save_then_load_round_trips() {
         let dir = tempfile::tempdir().unwrap();
-        let mut c = GeocodeCacheFile::default_v1();
+        let mut c = GeocodeCacheFile::empty_current();
         c.upsert(GeocodeCacheEntry {
             lat: 1.0,
             lon: 2.0,
@@ -258,6 +261,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = cache_path(dir.path());
         fs::write(&path, br#"{"version": 999, "entries": []}"#).unwrap();
+        let c = load(dir.path());
+        assert_eq!(c.entries.len(), 0);
+        assert_eq!(c.version, CACHE_VERSION);
+    }
+
+    #[test]
+    fn load_invalidates_pre_language_preference_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = cache_path(dir.path());
+        fs::write(&path, br#"{"version": 1, "entries": []}"#).unwrap();
         let c = load(dir.path());
         assert_eq!(c.entries.len(), 0);
         assert_eq!(c.version, CACHE_VERSION);

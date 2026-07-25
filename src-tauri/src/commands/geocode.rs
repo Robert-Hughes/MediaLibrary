@@ -28,7 +28,7 @@ pub async fn geocode_images_cmd(
     let app_data = app_data_dir(&app).ok();
     let mut cache = match &app_data {
         Some(dir) => geocode_cache::load(dir),
-        None => geocode_cache::GeocodeCacheFile::default_v1(),
+        None => geocode_cache::GeocodeCacheFile::empty_current(),
     };
 
     log::info!("[geocode] starting total={}", items.len());
