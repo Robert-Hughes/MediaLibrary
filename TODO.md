@@ -1,6 +1,12 @@
 Current
 =======
 
+- Reverse geocode
+  - Using GeocodeJSON for betterness and should fix Minato/Tokyo - in progress 
+  - Store data in LocationCreated struct?
+  - Normalize between LocationCreated and the existing 5 fields?
+  - Store exact GeocodeJSON results in an mlib tag, so can be properly normalised later (like AIDescription)?
+
 - 2010 folder (and possibly others)
   - Remove all description/title/keywords fields so can be regenerated
   - Remove wrong GPS data (coords + the lower-level geocoded fields, leave higher-level London, UK etc.) from photos (several different clusters)
