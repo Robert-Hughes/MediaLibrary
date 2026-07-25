@@ -42,11 +42,14 @@ Features
 - Feature for facial/person recognition?
 - Support deletion of photos (make sure all the various in-memory stores are updated)
 - Reload/refresh folder button? (Equivalent to close + open)
-- Consider adding FLAC support. Not sure what this would mean.
-  - Exiftool already supports FLAC (and other audio formats), so a lot of stuff should "just work"
-  - Where in the app do we use the word photo/image/picture/jpeg/etc
-  - Basic audio player for the gallery view (no auto-play, no auto-advance to next track on finish, just enough to show the user which track this is)
+- Audio/video support
+  - Check audio/video player in gallery works
+  - A better gallery experience would handle <audio>/<video> error events and show a clear message such as:
+  - Thumbnails:
+    - audio: embedded album artwork?
+    - video: embedded thumbnail or generated frame?
+  - Kind-based search and filtering
+  - Media kind badge (or similar) on files
   - Column selections probably want to be different - different defaults, remember last-used in separate place
     - Could auto-detect if this is a "picture" folder or a "audio" folder and make a few tweaks based on that
-  - AI describe, reverse geocode don't apply. But normalize metadata could but might need new groups defining.
-- How are videos handled by exiftool? Can we?
+  - Normalize metadata could but might need new groups defining.
