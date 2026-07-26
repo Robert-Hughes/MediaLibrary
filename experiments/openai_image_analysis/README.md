@@ -1,6 +1,7 @@
 # OpenAI Experiments
 
-Rust app for experimenting with OpenAI's Responses API, specifically for combining images and text.
+Rust app for experimenting with OpenAI's Responses API. It supports image
+description and location-normalization evaluations.
 
 ## Setup
 
@@ -35,12 +36,41 @@ The app will:
 2. Show the text-only request structure
 3. If images are configured, send a combined text+image request and print the response
 
+## Location normalization
+
+The location mode reads raw GeocodeJSON and JSONv2 evidence from a
+`MediaLibraryTargetApplyLog.jsonl`, deduplicates identical evidence pairs, and
+runs the production (`baseline`) or candidate (`strict`) prompt. Repeating each
+request makes output instability visible.
+
+```sh
+cargo run -- \
+  --model gpt-5.6-luna \
+  --location-apply-log "D:\Pictures\MediaLibraryTargetApplyLog.jsonl" \
+  --location-case "IMG_0001.jpg" \
+  --location-case "IMG_0002.jpg" \
+  --location-prompt strict \
+  --repeat 3 \
+  --location-output location-results.jsonl
+```
+
+Omit `--location-case` to evaluate every unique evidence pair in the log. Use
+`--yes` for an unattended run after reviewing the request count. The output
+JSONL records the model, prompt variant, repetition, structured result, token
+usage, and any error for each call.
+
+Location experiments allow up to 1,000 output tokens because reasoning models
+count hidden reasoning against `max_output_tokens`; a 250-token cap can be
+exhausted before the structured answer is emitted.
+
 ## Key Functions
 
 - `build_response_request()` - Builds request with text + multiple images
 - `build_text_only_request()` - Simple text-only request for comparison
 - `call_responses_api()` - Makes the actual API call
 - `ImageInput::from_file()` - Loads an image file and converts to base64
+- `load_location_cases()` - Extracts and deduplicates evidence from an apply log
+- `run_location_experiment()` - Runs repeated prompt/model location evaluations
 
 ## Dependencies
 
