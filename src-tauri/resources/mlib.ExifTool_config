@@ -13,6 +13,8 @@
 #   AIModel          - model id that produced the description
 #   AIGeneratedAt    - generation timestamp (XMP DateTime)
 #   AIPromptVersion  - prompt+schema version string for staleness detection
+#   ReverseGeocodeGeocodeJSON - exact Nominatim GeocodeJSON reverse response
+#   ReverseGeocodeJSONv2      - exact Nominatim JSONv2 reverse response
 
 %Image::ExifTool::UserDefined = (
     'Image::ExifTool::XMP::Main' => {
@@ -40,6 +42,8 @@
         %Image::ExifTool::XMP::dateTimeInfo,
     },
     AIPromptVersion  => { },
+    ReverseGeocodeGeocodeJSON => { },
+    ReverseGeocodeJSONv2      => { },
 );
 
 1; #end

@@ -139,7 +139,7 @@ function AwaitingConfirmPanel({
     <>
       <div className="dialog-hint" data-testid="geocode-confirm-summary">
         Ready to reverse-geocode {state.total} {word} using OpenStreetMap
-        Nominatim GeocodeJSON.
+        Nominatim GeocodeJSON and JSONv2 evidence.
       </div>
       <div
         style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
@@ -149,20 +149,23 @@ function AwaitingConfirmPanel({
         <strong>not</strong> uploaded. There is no cost.
       </div>
       <div style={{ marginTop: 12, fontSize: 12 }}>
-        One structured draft tag will be proposed per image:
+        Two raw evidence tags will be proposed per image:
         <ul style={{ marginTop: 6, paddingLeft: 18, lineHeight: 1.5 }}>
           <li>
-            <code>XMP-iptcExt:LocationCreated</code>
+            <code>XMP-mlib:ReverseGeocodeGeocodeJSON</code>
+          </li>
+          <li>
+            <code>XMP-mlib:ReverseGeocodeJSONv2</code>
           </li>
         </ul>
       </div>
       <div
         style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
       >
-        The structure records the original photo coordinates and the address
-        members Nominatim can map accurately. Existing EXIF GPS is not modified.
-        Use Normalise Location to project its compatible members to older
-        XMP/IIM fields. Nothing is written until you apply drafts.
+        These fields preserve Nominatim&apos;s responses verbatim. Existing
+        location and EXIF GPS fields are not modified. Use Normalise Location to
+        interpret the evidence into LocationCreated and its older XMP/IIM
+        mirrors. Nothing is written until you apply drafts.
       </div>
       {overwriteInfo && (
         <OverwriteNotice
@@ -170,14 +173,14 @@ function AwaitingConfirmPanel({
           input={{
             existingCount: overwriteInfo.existingCount,
             totalCount: overwriteInfo.totalCount,
-            title: "Overwrite location data?",
+            title: "Overwrite reverse-geocode evidence?",
             subjectSingular: "image",
             subjectPlural: "images",
-            dataPhrase: "location data",
+            dataPhrase: "reverse-geocode evidence",
             actionSingle:
-              "Reverse-geocoding will replace LocationCreated with a draft; EXIF GPS coordinates and legacy location fields are not touched.",
+              "Reverse-geocoding will replace the GeocodeJSON and JSONv2 evidence drafts; LocationCreated, EXIF GPS, and legacy location fields are not touched.",
             actionPluralPartial:
-              "Reverse-geocoding will replace LocationCreated with drafts for those images; EXIF GPS coordinates and legacy location fields are not touched.",
+              "Reverse-geocoding will replace the GeocodeJSON and JSONv2 evidence drafts for those images; LocationCreated, EXIF GPS, and legacy location fields are not touched.",
           }}
         />
       )}

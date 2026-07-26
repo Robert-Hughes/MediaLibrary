@@ -16,6 +16,7 @@ import { formatMetadataValue } from "../draft";
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
+import { resolveGps } from "./resolveGps";
 
 type EffectiveMetadataEntry = MetadataValue | null;
 
@@ -108,6 +109,17 @@ function scalarValue(
   return isMetadataValue(value) ? value : undefined;
 }
 
+function real(
+  metadata: MetadataCollection | undefined,
+  id: SchemaDefinitionId,
+): number | undefined {
+  const value = readEffectiveTag(metadata, id);
+  if (value?.kind === "Real" || value?.kind === "Integer") {
+    return value.value;
+  }
+  return undefined;
+}
+
 function list(
   metadata: MetadataCollection | undefined,
   id: SchemaDefinitionId,
@@ -185,8 +197,17 @@ export function buildNormaliseItemForFile(
   }
 
   if (groupSet.has("location")) {
+    // Use the same GPS resolver as maps and reverse geocoding so EXIF
+    // hemisphere references (notably W/S) are applied consistently.
+    const gps = resolveGps(undefined, effective);
     groupInputs.location = {
       locationCreated: scalarValue(effective, ID.xmpLocationCreated) ?? null,
+      geocodeJson: scalar(effective, ID.mlibReverseGeocodeGeocodeJson) ?? null,
+      jsonV2: scalar(effective, ID.mlibReverseGeocodeJsonV2) ?? null,
+      gpsLatitude: gps.lat,
+      gpsLongitude: gps.lon,
+      gpsAltitude: real(effective, ID.gpsAltitude) ?? null,
+      gpsAltitudeRef: real(effective, ID.gpsAltitudeRef) ?? null,
       locationXmp: scalar(effective, ID.xmpLocation) ?? null,
       locationIptc: scalar(effective, ID.iptcSubLocation) ?? null,
       cityXmp: scalar(effective, ID.xmpCity) ?? null,

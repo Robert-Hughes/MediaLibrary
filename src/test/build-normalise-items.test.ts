@@ -63,6 +63,34 @@ describe("target-aware normalise inputs", () => {
     expect(items[0].groupInputs.title?.title).toBe("from-target");
   });
 
+  it("passes raw geocode evidence and camera coordinates to Location", () => {
+    const occurrences = occurrencesFromMetadataCollection(
+      mockMetadata({
+        "XMP-mlib:ReverseGeocodeGeocodeJSON": '{"features":[]}',
+        "XMP-mlib:ReverseGeocodeJSONv2": '{"display_name":"Ely"}',
+        "GPS:GPSLatitude": { kind: "Real", value: 52.4 },
+        "GPS:GPSLongitude": { kind: "Real", value: 0.26 },
+        "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+        "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
+        "GPS:GPSAltitude": { kind: "Real", value: 12.5 },
+        "GPS:GPSAltitudeRef": { kind: "Integer", value: 0 },
+      }),
+    );
+    const item = buildNormaliseItemForFile(
+      "ely.jpg",
+      ["location"],
+      occurrences,
+    );
+    expect(item.groupInputs.location).toMatchObject({
+      geocodeJson: '{"features":[]}',
+      jsonV2: '{"display_name":"Ely"}',
+      gpsLatitude: 52.4,
+      gpsLongitude: -0.26,
+      gpsAltitude: 12.5,
+      gpsAltitudeRef: 0,
+    });
+  });
+
   it("keeps missing groups populated with neutral values", () => {
     const items = buildNormaliseItems(
       ["unknown.jpg"],

@@ -479,8 +479,10 @@ export interface NormaliseGroupOutcomeCounts {
 export interface NormaliseEstimateAiTokenBreakdown {
   descriptionInputTokens: number;
   titleInputTokens: number;
+  locationInputTokens: number;
   descriptionCallCount: number;
   titleCallCount: number;
+  locationCallCount: number;
 }
 
 export interface NormaliseEstimatePricing {
@@ -499,20 +501,25 @@ export interface NormaliseEstimatePricing {
 export interface NormaliseEstimate {
   nImagesWithAiB: number;
   nImagesWithAiC: number;
+  nImagesWithAiG: number;
   nImagesNoAi: number;
   totalInputTokens: number;
   predictedCostUsd: number;
   upperBoundCostUsd: number;
   model: string;
+  locationModel: string;
   perGroupOutcomes: Partial<
     Record<NormaliseGroup, NormaliseGroupOutcomeCounts>
   >;
   aiTokenBreakdown: NormaliseEstimateAiTokenBreakdown | null;
   pricing: NormaliseEstimatePricing | null;
+  locationPricing: NormaliseEstimatePricing | null;
   expectedOutPerCallB: number;
   maxOutPerCallB: number;
   expectedOutPerCallC: number;
   maxOutPerCallC: number;
+  expectedOutPerCallG: number;
+  maxOutPerCallG: number;
 }
 
 export interface DescribeFailure {
@@ -634,7 +641,8 @@ export const ALL_NORMALISE_GROUPS: readonly NormaliseGroup[] = [
 ];
 
 export const GEOCODE_TARGET_TAGS: readonly SchemaDefinitionId[] = [
-  ID.xmpLocationCreated,
+  ID.mlibReverseGeocodeGeocodeJson,
+  ID.mlibReverseGeocodeJsonV2,
 ] as const;
 
 export type GeocodePhase = "awaiting-confirm" | "running" | "done";

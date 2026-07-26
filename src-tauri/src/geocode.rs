@@ -1,15 +1,14 @@
 //! Reverse-geocoding pipeline.
 //!
 //! Given `(lat, lon)` for a file, call OpenStreetMap Nominatim's
-//! GeocodeJSON endpoint and compose one IPTC Extension `LocationCreated`
-//! structure. The normaliser owns projection to the less detailed legacy
-//! XMP/IIM location fields.
+//! GeocodeJSON and JSONv2 endpoints and preserve both exact response bodies
+//! in `XMP-mlib`. Normalize Metadata later interprets that evidence into the
+//! canonical IPTC Extension `LocationCreated` structure.
 //!
 //! ## Coherent-replacement rule (important!)
 //!
-//! `compose_geocode_edits` replaces the whole repeatable structure with
-//! exactly one item. This makes the operation atomic: omitted members
-//! cannot leave stale values behind.
+//! `compose_geocode_edits` replaces both evidence fields together. It never
+//! writes `LocationCreated` or the ten legacy location mirrors.
 //!
 //! ## All-empty result is a failure, not a success
 //!
@@ -28,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::country_code::xmp_country_code_projection;
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
-use crate::metadata_value::{ListKind, MetadataValue};
+use crate::metadata_value::MetadataValue;
 use crate::{known_ids, tag_schema::SchemaDefinitionId};
 
 // ── Wire types for the geocode_images_cmd Tauri command ─────────────────────
@@ -291,58 +290,27 @@ impl GeocodeSource {
 /// Build the set of target tag keys that geocoding writes drafts for.
 /// Returned in a stable order purely for readability; semantically it's
 /// a set.
-pub fn geocode_target_tags() -> [SchemaDefinitionId; 1] {
-    [known_ids::xmp_location_created()]
+pub fn geocode_target_tags() -> [SchemaDefinitionId; 2] {
+    [
+        known_ids::mlib_reverse_geocode_geocode_json(),
+        known_ids::mlib_reverse_geocode_json_v2(),
+    ]
 }
 
-/// Compose draft edits for a geocoded image.
-///
-/// Emits one Set draft containing a one-item Bag of Location structures.
-/// Callers must NOT call this for an all-
-/// empty `AddressFields`: that case is the `nominatim_empty` failure
-/// and writes no drafts (see file-level doc-comment "All-empty result
-/// is a failure, not a success").
-pub fn compose_geocode_edits(addr: &AddressFields) -> SchemaMetadataEditMap {
-    debug_assert!(
-        addr.has_any_usable(),
-        "compose_geocode_edits called on an empty address — callers must \
-         surface nominatim_empty as a failure instead. See file-level \
-         doc-comment."
-    );
-
-    let mut fields = std::collections::BTreeMap::new();
-    let mut put_text = |name: &str, value: Option<&str>| {
-        if let Some(value) = value {
-            fields.insert(name.into(), MetadataValue::Text(value.into()));
-        }
-    };
-    put_text("Sublocation", addr.location.as_deref());
-    put_text("City", addr.city.as_deref());
-    put_text("ProvinceState", addr.state.as_deref());
-    put_text("CountryName", addr.country.as_deref());
-    put_text("CountryCode", addr.country_code.as_deref());
-    if let Some(location_id) = addr.location_id.as_deref() {
-        fields.insert(
-            "LocationId".into(),
-            MetadataValue::List {
-                list_kind: ListKind::Bag,
-                items: vec![MetadataValue::Text(location_id.into())],
-            },
-        );
-    }
-    fields.insert("GPSLatitude".into(), MetadataValue::Real(addr.gps_latitude));
-    fields.insert(
-        "GPSLongitude".into(),
-        MetadataValue::Real(addr.gps_longitude),
-    );
+/// Compose the two raw-evidence drafts for a geocoded image.
+pub fn compose_geocode_edits(geocode_json: &str, json_v2: &str) -> SchemaMetadataEditMap {
     let mut edits = SchemaMetadataEditMap::new();
     edits.insert(
-        known_ids::xmp_location_created(),
+        known_ids::mlib_reverse_geocode_geocode_json(),
         MetadataDraftEdit {
-            value: Some(MetadataValue::List {
-                list_kind: ListKind::Bag,
-                items: vec![MetadataValue::Struct(fields)],
-            }),
+            value: Some(MetadataValue::Text(geocode_json.to_string())),
+            intent: EditIntent::Set,
+        },
+    );
+    edits.insert(
+        known_ids::mlib_reverse_geocode_json_v2(),
+        MetadataDraftEdit {
+            value: Some(MetadataValue::Text(json_v2.to_string())),
             intent: EditIntent::Set,
         },
     );
@@ -450,7 +418,8 @@ impl GeocodeError {
 
 #[derive(Debug, Clone)]
 pub struct GeocodeResult {
-    pub address: AddressFields,
+    pub geocode_json: String,
+    pub json_v2: String,
     pub display_name: String,
     pub source: GeocodeSource,
     pub query_lat: f64,
@@ -462,6 +431,7 @@ pub struct NominatimReverseResponse {
     pub zoom: u8,
     pub address: GeocodeJsonAddress,
     pub preview: String,
+    pub raw_body: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -563,7 +533,42 @@ pub async fn nominatim_reverse(
             .map(|feature| feature.properties.geocoding)
             .unwrap_or_default(),
         preview,
+        raw_body: text,
     })
+}
+
+/// Fetch the companion JSONv2 response for the zoom selected by the
+/// GeocodeJSON fallback loop. The response body is deliberately not mapped:
+/// it is durable evidence for the Normalize AI step.
+pub async fn nominatim_reverse_jsonv2(
+    client: &GeocodeClient,
+    lat: f64,
+    lon: f64,
+    zoom: u8,
+) -> Result<String, GeocodeError> {
+    let url = format!(
+        "{}/reverse?format=jsonv2&lat={:.7}&lon={:.7}&zoom={}&addressdetails=1",
+        client.nominatim_base, lat, lon, zoom
+    );
+    let resp = client
+        .http
+        .get(&url)
+        .query(&[("accept-language", NOMINATIM_ACCEPT_LANGUAGE)])
+        .send()
+        .await
+        .map_err(|e| GeocodeError::Network(e.to_string()))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(GeocodeError::Http {
+            status: status.as_u16(),
+            body: text,
+        });
+    }
+    serde_json::from_str::<serde_json::Value>(&text).map_err(|e| {
+        GeocodeError::Network(format!("nominatim bad JSONv2 JSON: {} (body: {})", e, text))
+    })?;
+    Ok(text)
 }
 
 /// Cache → Nominatim. The rate limiter is borrowed `&mut` so a single
@@ -588,16 +593,8 @@ pub async fn geocode_one(
     if let Some(entry) = cache.lookup(lat, lon) {
         let r = entry.result.clone();
         return Ok(GeocodeResult {
-            address: AddressFields {
-                location: r.location,
-                city: r.city,
-                state: r.state,
-                country: r.country,
-                country_code: r.country_code,
-                location_id: r.location_id,
-                gps_latitude: lat,
-                gps_longitude: lon,
-            },
+            geocode_json: r.geocode_json,
+            json_v2: r.json_v2,
             display_name: r.display_name,
             source: GeocodeSource::Cache,
             query_lat: lat,
@@ -605,7 +602,7 @@ pub async fn geocode_one(
         });
     }
 
-    let mut selected: Option<(GeocodeJsonAddress, AddressFields, u8)> = None;
+    let mut selected: Option<(AddressFields, u8, String)> = None;
     let mut empty_previews: Vec<String> = Vec::new();
     for zoom in NOMINATIM_REVERSE_ZOOMS {
         if cancelled() {
@@ -620,7 +617,7 @@ pub async fn geocode_one(
         let response = nominatim_reverse(client, lat, lon, *zoom).await?;
         let parsed = map_geocodejson(&response.address, lat, lon);
         if parsed.has_any_usable() {
-            selected = Some((response.address, parsed, response.zoom));
+            selected = Some((parsed, response.zoom, response.raw_body));
             break;
         }
         log::warn!(
@@ -633,7 +630,7 @@ pub async fn geocode_one(
         empty_previews.push(format!("zoom {}: {}", response.zoom, response.preview));
     }
 
-    let (_geocoding, parsed, selected_zoom) = match selected {
+    let (parsed, selected_zoom, geocode_json) = match selected {
         Some(result) => result,
         None => {
             let zooms = NOMINATIM_REVERSE_ZOOMS
@@ -660,6 +657,15 @@ pub async fn geocode_one(
         selected_zoom
     );
 
+    if cancelled() {
+        return Err(GeocodeError::Cancelled);
+    }
+    limiter.wait_nominatim().await;
+    if cancelled() {
+        return Err(GeocodeError::Cancelled);
+    }
+    let json_v2 = nominatim_reverse_jsonv2(client, lat, lon, selected_zoom).await?;
+
     let display_name = parsed.display_name();
     let entry = GeocodeCacheEntry {
         lat,
@@ -668,18 +674,15 @@ pub async fn geocode_one(
         source: source.as_str().into(),
         result: CachedResult {
             display_name: display_name.clone(),
-            location: parsed.location.clone(),
-            city: parsed.city.clone(),
-            state: parsed.state.clone(),
-            country: parsed.country.clone(),
-            country_code: parsed.country_code.clone(),
-            location_id: parsed.location_id.clone(),
+            geocode_json: geocode_json.clone(),
+            json_v2: json_v2.clone(),
         },
     };
     cache.upsert(entry);
 
     Ok(GeocodeResult {
-        address: parsed,
+        geocode_json,
+        json_v2,
         display_name,
         source,
         query_lat: lat,
@@ -842,7 +845,7 @@ where
 
         match geocode_one(client, cache, &mut limiter, cancel_flag, lat, lon).await {
             Ok(result) => {
-                let edits = compose_geocode_edits(&result.address);
+                let edits = compose_geocode_edits(&result.geocode_json, &result.json_v2);
                 log::info!(
                     "[geocode] ({}/{}) ok {} source={} display={}",
                     current,
@@ -1009,61 +1012,33 @@ mod tests {
     }
 
     #[test]
-    fn compose_geocode_edits_writes_set_drafts_for_present_fields() {
-        let addr = AddressFields {
-            location: Some("Tower of London".into()),
-            city: Some("London".into()),
-            state: None,
-            country: Some("United Kingdom".into()),
-            country_code: Some("GB".into()),
-            location_id: Some("https://www.openstreetmap.org/node/1".into()),
-            gps_latitude: 51.5,
-            gps_longitude: -0.07,
-        };
-        let edits = compose_geocode_edits(&addr);
-        assert_eq!(edits.len(), 1);
-        let edit = &edits[&known_ids::xmp_location_created()];
-        assert!(matches!(edit.intent, EditIntent::Set));
-        match &edit.value {
-            Some(MetadataValue::List { items, .. }) => {
-                let MetadataValue::Struct(fields) = &items[0] else {
-                    panic!("expected Location struct")
-                };
-                assert_eq!(
-                    fields.get("Sublocation"),
-                    Some(&MetadataValue::Text("Tower of London".into()))
-                );
-                assert_eq!(fields.get("GPSLatitude"), Some(&MetadataValue::Real(51.5)));
-                assert_eq!(
-                    fields.get("GPSLongitude"),
-                    Some(&MetadataValue::Real(-0.07))
-                );
-            }
-            other => panic!("expected one-item LocationCreated bag, got {other:?}"),
-        }
+    fn compose_geocode_edits_writes_both_raw_responses_verbatim() {
+        let geocode_json = "{\n  \"features\": []\n}";
+        let json_v2 = "{\"display_name\":\"Tower of London\"}";
+        let edits = compose_geocode_edits(geocode_json, json_v2);
+        assert_eq!(edits.len(), 2);
+        assert_eq!(
+            edits[&known_ids::mlib_reverse_geocode_geocode_json()].value,
+            Some(MetadataValue::Text(geocode_json.into()))
+        );
+        assert_eq!(
+            edits[&known_ids::mlib_reverse_geocode_json_v2()].value,
+            Some(MetadataValue::Text(json_v2.into()))
+        );
+        assert!(edits
+            .values()
+            .all(|edit| matches!(edit.intent, EditIntent::Set)));
     }
 
     #[test]
-    fn compose_geocode_edits_omits_unknown_members_inside_atomic_structure() {
-        let addr = AddressFields {
-            country: Some("X".into()),
-            ..AddressFields::default()
-        };
-        let edits = compose_geocode_edits(&addr);
-        let Some(MetadataValue::List { items, .. }) =
-            &edits[&known_ids::xmp_location_created()].value
-        else {
-            panic!("expected LocationCreated")
-        };
-        let MetadataValue::Struct(fields) = &items[0] else {
-            panic!("expected struct")
-        };
+    fn geocode_targets_only_the_two_evidence_fields() {
         assert_eq!(
-            fields.get("CountryName"),
-            Some(&MetadataValue::Text("X".into()))
+            geocode_target_tags(),
+            [
+                known_ids::mlib_reverse_geocode_geocode_json(),
+                known_ids::mlib_reverse_geocode_json_v2(),
+            ]
         );
-        assert!(!fields.contains_key("City"));
-        assert!(!edits.contains_key(&known_ids::xmp_city()));
     }
 
     #[test]
@@ -1107,6 +1082,26 @@ mod tests {
         let parsed = map_geocodejson(&raw.address, 51.5, -0.07);
         assert_eq!(parsed.location.as_deref(), Some("Tower of London"));
         assert_eq!(parsed.country_code.as_deref(), Some("GB"));
+    }
+
+    #[tokio::test]
+    async fn nominatim_reverse_jsonv2_preserves_exact_body() {
+        let server = MockServer::start().await;
+        let body = "{\n  \"display_name\": \"Ely\",\n  \"address\": {\"country_code\":\"gb\"}\n}";
+        Mock::given(method("GET"))
+            .and(path("/reverse"))
+            .and(query_param("format", "jsonv2"))
+            .and(query_param("zoom", "16"))
+            .and(query_param("accept-language", NOMINATIM_ACCEPT_LANGUAGE))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(body, "application/json"))
+            .mount(&server)
+            .await;
+
+        let client = GeocodeClient::with_base(server.uri());
+        let raw = nominatim_reverse_jsonv2(&client, 52.4, 0.26, 16)
+            .await
+            .unwrap();
+        assert_eq!(raw, body);
     }
 
     #[tokio::test]
@@ -1177,8 +1172,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.source, GeocodeSource::Nominatim);
-        assert_eq!(result.address.city.as_deref(), Some("York"));
-        assert_eq!(result.address.country_code.as_deref(), Some("GB"));
+        assert!(result.geocode_json.contains("York"));
+        assert!(!result.json_v2.is_empty());
         assert_eq!(cache.entries.len(), 1);
         assert!((cache.entries[0].lat - 53.983856).abs() < 1e-6);
         assert!((cache.entries[0].lon + 1.100918).abs() < 1e-6);
@@ -1217,7 +1212,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(result.address.city.as_deref(), Some("York"));
+        assert!(result.geocode_json.contains("York"));
     }
 
     #[tokio::test]
@@ -1233,12 +1228,9 @@ mod tests {
             source: "nominatim".into(),
             result: CachedResult {
                 display_name: "Westminster, London".into(),
-                location: Some("Big Ben".into()),
-                city: Some("London".into()),
-                state: None,
-                country: Some("United Kingdom".into()),
-                country_code: Some("GB".into()),
-                location_id: Some("https://www.openstreetmap.org/node/1".into()),
+                geocode_json: r#"{"features":[{"properties":{"geocoding":{"name":"Big Ben"}}}]}"#
+                    .into(),
+                json_v2: r#"{"display_name":"Big Ben, London"}"#.into(),
             },
         });
         // Bogus URL — must NOT be hit.
@@ -1249,7 +1241,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(result.source, GeocodeSource::Cache);
-        assert_eq!(result.address.location.as_deref(), Some("Big Ben"));
+        assert!(result.geocode_json.contains("Big Ben"));
     }
 
     #[tokio::test]

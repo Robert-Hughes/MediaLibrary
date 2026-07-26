@@ -154,12 +154,10 @@ fn cache_with_entry(lat: f64, lon: f64, city: &str) -> GeocodeCacheFile {
         source: "nominatim".into(),
         result: CachedResult {
             display_name: city.into(),
-            location: None,
-            city: Some(city.into()),
-            state: None,
-            country: Some("United Kingdom".into()),
-            country_code: Some("GB".into()),
-            location_id: None,
+            geocode_json: format!(
+                r#"{{"features":[{{"properties":{{"geocoding":{{"city":"{city}"}}}}}}]}}"#
+            ),
+            json_v2: format!(r#"{{"display_name":"{city}"}}"#),
         },
     });
     c

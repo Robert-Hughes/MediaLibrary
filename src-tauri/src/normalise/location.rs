@@ -11,8 +11,9 @@
 //! padding. No AI or place-name normalization is used.
 
 use super::{
-    collapse_whitespace_single_line, text_edit, truncate_at_word, GroupOutput, LocationContext,
-    LocationInput,
+    collapse_whitespace_single_line, text_edit, truncate_at_word, AiCallUsage, GroupOutput,
+    LocationAiResult, LocationContext, LocationInput, LocationResolvePrompt, NormaliseAiClient,
+    NormaliseAiError,
 };
 use crate::country_code::{
     canonical_country_code, canonical_iptc_country_code_readback, iptc_country_code_projection,
@@ -251,6 +252,270 @@ pub struct LocationOutcome {
     pub output: Option<GroupOutput>,
     pub n_xmp_iim_conflict: u32,
     pub n_location_created_ambiguous: u32,
+    pub ai_fired: bool,
+    pub ai_error: Option<NormaliseAiError>,
+    pub ai_usage: Option<AiCallUsage>,
+    pub canonical: Option<LocationContext>,
+}
+
+fn evidence_text(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+}
+
+fn location_evidence_prompt(input: &LocationInput) -> Option<LocationResolvePrompt> {
+    let geocode_json = evidence_text(&input.geocode_json);
+    let json_v2 = evidence_text(&input.json_v2);
+    (geocode_json.is_some() || json_v2.is_some()).then_some(LocationResolvePrompt {
+        geocode_json,
+        json_v2,
+    })
+}
+
+fn normalise_optional_text(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| canonicalise_location_text(&value))
+        .filter(|value| !value.is_empty())
+}
+
+fn raw_json(input: &Option<String>) -> Option<serde_json::Value> {
+    serde_json::from_str(input.as_deref()?).ok()
+}
+
+fn valid_country_code(value: &str) -> Option<String> {
+    let code = canonicalise_country_code(value);
+    (code.len() == 2 && code.chars().all(|c| c.is_ascii_alphabetic())).then_some(code)
+}
+
+/// CountryCode is an identifier, not a naming judgement. Copy it only when
+/// every response that supplies one agrees; omit it on conflict.
+fn deterministic_country_code(input: &LocationInput) -> Option<String> {
+    let mut values = Vec::new();
+    if let Some(value) = raw_json(&input.geocode_json)
+        .and_then(|v| {
+            v.pointer("/features/0/properties/geocoding/country_code")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .and_then(|v| valid_country_code(&v))
+    {
+        values.push(value);
+    }
+    if let Some(value) = raw_json(&input.json_v2)
+        .and_then(|v| {
+            v.pointer("/address/country_code")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .and_then(|v| valid_country_code(&v))
+    {
+        values.push(value);
+    }
+    values.sort();
+    values.dedup();
+    (values.len() == 1).then(|| values.remove(0))
+}
+
+fn osm_location_id(osm_type: &str, osm_id: u64) -> Option<String> {
+    let kind = match osm_type.to_ascii_lowercase().as_str() {
+        "n" | "node" => "node",
+        "w" | "way" => "way",
+        "r" | "relation" => "relation",
+        _ => return None,
+    };
+    Some(format!("https://www.openstreetmap.org/{kind}/{osm_id}"))
+}
+
+fn deterministic_location_ids(input: &LocationInput) -> Vec<String> {
+    let mut ids = Vec::new();
+    if let Some(value) = raw_json(&input.geocode_json) {
+        if let (Some(osm_type), Some(osm_id)) = (
+            value
+                .pointer("/features/0/properties/geocoding/osm_type")
+                .and_then(serde_json::Value::as_str),
+            value
+                .pointer("/features/0/properties/geocoding/osm_id")
+                .and_then(serde_json::Value::as_u64),
+        ) {
+            if let Some(id) = osm_location_id(osm_type, osm_id) {
+                ids.push(id);
+            }
+        }
+    }
+    if let Some(value) = raw_json(&input.json_v2) {
+        if let (Some(osm_type), Some(osm_id)) = (
+            value.get("osm_type").and_then(serde_json::Value::as_str),
+            value.get("osm_id").and_then(serde_json::Value::as_u64),
+        ) {
+            if let Some(id) = osm_location_id(osm_type, osm_id) {
+                ids.push(id);
+            }
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+fn location_created_from_ai(
+    input: &LocationInput,
+    result: LocationAiResult,
+) -> Option<(MetadataValue, LocationContext)> {
+    let sublocation = normalise_optional_text(result.sublocation);
+    let city = normalise_optional_text(result.city);
+    let state = normalise_optional_text(result.province_state);
+    let country = normalise_optional_text(result.country_name);
+    let world_region = normalise_optional_text(result.world_region);
+    let location_name = normalise_optional_text(result.location_name);
+    let country_code = deterministic_country_code(input);
+
+    if sublocation.is_none()
+        && city.is_none()
+        && state.is_none()
+        && country.is_none()
+        && world_region.is_none()
+        && location_name.is_none()
+        && country_code.is_none()
+    {
+        return None;
+    }
+
+    let mut fields = BTreeMap::new();
+    for (key, value) in [
+        ("Sublocation", sublocation.as_deref()),
+        ("City", city.as_deref()),
+        ("ProvinceState", state.as_deref()),
+        ("CountryName", country.as_deref()),
+        ("CountryCode", country_code.as_deref()),
+        ("WorldRegion", world_region.as_deref()),
+    ] {
+        if let Some(value) = value {
+            fields.insert(key.into(), MetadataValue::Text(value.into()));
+        }
+    }
+    if let Some(value) = location_name {
+        fields.insert(
+            "LocationName".into(),
+            MetadataValue::LangAlt(BTreeMap::from([("x-default".into(), value)])),
+        );
+    }
+    let location_ids = deterministic_location_ids(input);
+    if !location_ids.is_empty() {
+        fields.insert(
+            "LocationId".into(),
+            MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: location_ids.into_iter().map(MetadataValue::Text).collect(),
+            },
+        );
+    }
+    if let Some(value) = input.gps_latitude {
+        fields.insert("GPSLatitude".into(), MetadataValue::Real(value));
+    }
+    if let Some(value) = input.gps_longitude {
+        fields.insert("GPSLongitude".into(), MetadataValue::Real(value));
+    }
+    if let Some(value) = input.gps_altitude {
+        fields.insert("GPSAltitude".into(), MetadataValue::Real(value));
+    }
+    if let Some(value) = input.gps_altitude_ref {
+        fields.insert(
+            "GPSAltitudeRef".into(),
+            MetadataValue::Integer(i64::from(value)),
+        );
+    }
+
+    let context = LocationContext {
+        location: sublocation,
+        city,
+        state,
+        country,
+    };
+    Some((
+        MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![MetadataValue::Struct(fields)],
+        },
+        context,
+    ))
+}
+
+/// Group G AI wrapper. Existing LocationCreated remains authoritative; raw
+/// evidence is interpreted only when the canonical structure is absent.
+pub async fn normalise_location_with_ai(
+    input: &LocationInput,
+    ai: Option<&dyn NormaliseAiClient>,
+) -> LocationOutcome {
+    match read_location_created(input.location_created.as_ref()) {
+        StructuredLocation::One(_) | StructuredLocation::Ambiguous => {
+            let mut outcome = normalise_location(input);
+            let context = derive_location_canonical(input);
+            if context != LocationContext::default() {
+                outcome.canonical = Some(context);
+            }
+            return outcome;
+        }
+        StructuredLocation::Absent => {}
+    }
+
+    let Some(prompt) = location_evidence_prompt(input) else {
+        let mut outcome = normalise_location(input);
+        let context = derive_location_canonical(input);
+        if context != LocationContext::default() {
+            outcome.canonical = Some(context);
+        }
+        return outcome;
+    };
+
+    let Some(client) = ai else {
+        return LocationOutcome {
+            ai_error: Some(NormaliseAiError::key_missing()),
+            ..Default::default()
+        };
+    };
+    match client.resolve_location(prompt).await {
+        Ok((result, usage)) => {
+            let Some((value, canonical)) = location_created_from_ai(input, result) else {
+                return LocationOutcome {
+                    ai_fired: true,
+                    ai_usage: Some(usage),
+                    ..Default::default()
+                };
+            };
+            let mut edits = SchemaMetadataEditMap::new();
+            edits.insert(
+                known_ids::xmp_location_created(),
+                MetadataDraftEdit {
+                    value: Some(value),
+                    intent: EditIntent::Set,
+                },
+            );
+            // Project the newly-created canonical structure through the same
+            // deterministic helper used for pre-existing LocationCreated.
+            let projected_input = LocationInput {
+                location_created: edits[&known_ids::xmp_location_created()].value.clone(),
+                ..input.clone()
+            };
+            if let Some(projected) = normalise_location(&projected_input).output {
+                edits.extend(projected.edits);
+            }
+            LocationOutcome {
+                output: Some(GroupOutput { edits }),
+                ai_fired: true,
+                ai_usage: Some(usage),
+                canonical: Some(canonical),
+                ..Default::default()
+            }
+        }
+        Err(error) => LocationOutcome {
+            ai_usage: error.usage.clone(),
+            ai_error: Some(error),
+            ..Default::default()
+        },
+    }
 }
 
 /// Run Group G (Location) normalisation for one image.
@@ -324,8 +589,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         }
         return LocationOutcome {
             output: (!edits.is_empty()).then_some(GroupOutput { edits }),
-            n_xmp_iim_conflict: 0,
-            n_location_created_ambiguous: 0,
+            ..Default::default()
         };
     }
 
@@ -439,7 +703,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             Some(GroupOutput { edits })
         },
         n_xmp_iim_conflict: conflicts,
-        n_location_created_ambiguous: 0,
+        ..Default::default()
     }
 }
 
@@ -791,5 +1055,149 @@ mod tests {
             ..Default::default()
         };
         assert!(normalise_location(&post).output.is_none());
+    }
+
+    struct LocationMock {
+        result: LocationAiResult,
+    }
+
+    #[async_trait::async_trait]
+    impl NormaliseAiClient for LocationMock {
+        async fn merge_description(
+            &self,
+            _prompt: super::super::DescriptionMergePrompt,
+        ) -> Result<(String, AiCallUsage), NormaliseAiError> {
+            unreachable!("location test must not call description AI")
+        }
+
+        async fn generate_title(
+            &self,
+            _prompt: super::super::TitleGenPrompt,
+        ) -> Result<(String, AiCallUsage), NormaliseAiError> {
+            unreachable!("location test must not call title AI")
+        }
+
+        async fn resolve_location(
+            &self,
+            _prompt: LocationResolvePrompt,
+        ) -> Result<(LocationAiResult, AiCallUsage), NormaliseAiError> {
+            Ok((self.result.clone(), AiCallUsage::default()))
+        }
+    }
+
+    fn ai_evidence_input() -> LocationInput {
+        LocationInput {
+            geocode_json: Some(
+                r#"{"features":[{"properties":{"geocoding":{"osm_type":"node","osm_id":42,"country_code":"jp"}}}]}"#
+                    .into(),
+            ),
+            json_v2: Some(
+                r#"{"osm_type":"node","osm_id":42,"address":{"country_code":"jp"}}"#.into(),
+            ),
+            gps_latitude: Some(35.62857),
+            gps_longitude: Some(139.7367),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn raw_evidence_creates_location_and_projects_legacy_fields() {
+        let input = ai_evidence_input();
+        let ai = LocationMock {
+            result: LocationAiResult {
+                sublocation: Some("Sengaku-ji".into()),
+                city: Some("Minato, Tokyo".into()),
+                province_state: Some("Tokyo".into()),
+                country_name: Some("Japan".into()),
+                world_region: Some("East Asia".into()),
+                location_name: None,
+            },
+        };
+        let outcome = normalise_location_with_ai(&input, Some(&ai)).await;
+        assert!(outcome.ai_fired);
+        assert!(outcome.ai_error.is_none());
+        let output = outcome.output.expect("AI result should produce drafts");
+        assert_eq!(s(&output, "XMP-photoshop:City"), "Minato, Tokyo");
+        assert_eq!(s(&output, "IPTC:Country-PrimaryLocationName"), "Japan");
+        assert_eq!(s(&output, "XMP-iptcCore:CountryCode"), "JP");
+
+        let Some(MetadataValue::List { items, .. }) =
+            &output.edits[&known_ids::xmp_location_created()].value
+        else {
+            panic!("expected LocationCreated bag")
+        };
+        let MetadataValue::Struct(fields) = &items[0] else {
+            panic!("expected LocationCreated struct")
+        };
+        assert_eq!(
+            fields.get("GPSLatitude"),
+            Some(&MetadataValue::Real(35.62857))
+        );
+        assert_eq!(
+            fields.get("WorldRegion"),
+            Some(&MetadataValue::Text("East Asia".into()))
+        );
+        assert_eq!(
+            fields.get("LocationId"),
+            Some(&MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![MetadataValue::Text(
+                    "https://www.openstreetmap.org/node/42".into()
+                )],
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn existing_location_created_is_trusted_even_when_evidence_exists() {
+        let input = LocationInput {
+            location_created: Some(structured(&[("City", "Ely")])),
+            geocode_json: Some(r#"{"features":[]}"#.into()),
+            ..Default::default()
+        };
+        let ai = LocationMock {
+            result: LocationAiResult {
+                city: Some("Wrong".into()),
+                ..Default::default()
+            },
+        };
+        let outcome = normalise_location_with_ai(&input, Some(&ai)).await;
+        assert!(!outcome.ai_fired);
+        assert_eq!(s(&outcome.output.unwrap(), "XMP-photoshop:City"), "Ely");
+    }
+
+    #[tokio::test]
+    async fn one_nonempty_evidence_field_is_enough_to_call_ai() {
+        let input = LocationInput {
+            json_v2: Some(r#"{"display_name":"Ely"}"#.into()),
+            ..Default::default()
+        };
+        let ai = LocationMock {
+            result: LocationAiResult {
+                city: Some("Ely".into()),
+                ..Default::default()
+            },
+        };
+        let outcome = normalise_location_with_ai(&input, Some(&ai)).await;
+        assert!(outcome.ai_fired);
+        assert_eq!(s(&outcome.output.unwrap(), "XMP-photoshop:City"), "Ely");
+    }
+
+    #[tokio::test]
+    async fn conflicting_country_codes_are_not_guessed() {
+        let mut input = ai_evidence_input();
+        input.json_v2 = Some(r#"{"address":{"country_code":"gb"}}"#.into());
+        let ai = LocationMock {
+            result: LocationAiResult {
+                country_name: Some("Japan".into()),
+                ..Default::default()
+            },
+        };
+        let output = normalise_location_with_ai(&input, Some(&ai))
+            .await
+            .output
+            .unwrap();
+        assert!(!output.edits.contains_key(&known_ids::xmp_country_code()));
+        assert!(!output.edits.contains_key(&known_ids::iptc_country_code()));
     }
 }

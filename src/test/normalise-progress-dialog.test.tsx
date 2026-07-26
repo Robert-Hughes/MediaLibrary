@@ -46,11 +46,13 @@ function mockEstimate(
   return {
     nImagesWithAiB: 0,
     nImagesWithAiC: 0,
+    nImagesWithAiG: 0,
     nImagesNoAi: 1,
     totalInputTokens: 0,
     predictedCostUsd: 0,
     upperBoundCostUsd: 0,
     model: "",
+    locationModel: "",
     perGroupOutcomes: {
       keywords: { ...allActive },
       creator: { ...allActive },
@@ -67,10 +69,13 @@ function mockEstimate(
     },
     aiTokenBreakdown: null,
     pricing: null,
+    locationPricing: null,
     expectedOutPerCallB: 250,
     maxOutPerCallB: 400,
     expectedOutPerCallC: 15,
     maxOutPerCallC: 30,
+    expectedOutPerCallG: 100,
+    maxOutPerCallG: 250,
     ...over,
   };
 }
@@ -392,8 +397,10 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       aiTokenBreakdown: {
         descriptionInputTokens: 4000,
         titleInputTokens: 0,
+        locationInputTokens: 0,
         descriptionCallCount: 4,
         titleCallCount: 0,
+        locationCallCount: 0,
       },
       pricing: { inputPer1M: 1.0, outputPer1M: 4.0 },
       model: "gpt-test",
@@ -425,6 +432,34 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(screen.getByTestId("normalise-cost-preview")).toHaveTextContent(
       /No AI calls required/,
     );
+  });
+
+  it("prices location calls with the separately configured model", () => {
+    const est = mockEstimate({
+      nImagesWithAiG: 2,
+      locationModel: "gpt-location-test",
+      aiTokenBreakdown: {
+        descriptionInputTokens: 0,
+        titleInputTokens: 0,
+        locationInputTokens: 2000,
+        descriptionCallCount: 0,
+        titleCallCount: 0,
+        locationCallCount: 2,
+      },
+      locationPricing: { inputPer1M: 1.0, outputPer1M: 4.0 },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ enabledGroups: ["location"], estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    const preview = screen.getByTestId("normalise-cost-preview");
+    expect(preview).toHaveTextContent(/2 location resolutions/);
+    expect(preview).toHaveTextContent(/gpt-location-test/);
   });
 
   it("cost preview shows missing-key notice when AI rows selected but no pricing", () => {

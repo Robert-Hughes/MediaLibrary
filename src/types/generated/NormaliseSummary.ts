@@ -20,14 +20,14 @@ nSkippedAllNormalised: number,
  */
 perGroup: { [key in NormaliseGroup]?: PerGroupStats }, 
 /**
- * Sum of USD cost across every AI call (description + title)
+ * Sum of USD cost across every AI call (description + title + location)
  * emitted by this batch. Driven by the audit-log writer in
  * `lib.rs`, which has access to the pricing table.
  */
 aiCostTotalUsd: number, 
 /**
  * Total successful + failed AI calls across the batch
- * (description + title). Matches the number of rows appended to
+ * (description + title + location). Matches the number of rows appended to
  * the audit log JSONL.
  */
 aiCallsTotal: number, };

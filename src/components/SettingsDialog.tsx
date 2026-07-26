@@ -45,6 +45,9 @@ export function SettingsDialog({ onClose }: Props) {
   const [normaliseCosts, setNormaliseCosts] = useState<Record<string, number>>(
     {},
   );
+  const [locationNormaliseCosts, setLocationNormaliseCosts] = useState<
+    Record<string, number>
+  >({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -97,6 +100,23 @@ export function SettingsDialog({ onClose }: Props) {
           }
         }
         setNormaliseCosts(nCosts);
+
+        const lResults = await Promise.allSettled(
+          ms.map((m) =>
+            invoke<number>("estimate_per_image_location_normalise_cost_cmd", {
+              model: m,
+            }).then((cost) => [m, cost] as const),
+          ),
+        );
+        if (cancelled) return;
+        const lCosts: Record<string, number> = {};
+        for (const r of lResults) {
+          if (r.status === "fulfilled") {
+            const [m, c] = r.value;
+            lCosts[m] = c;
+          }
+        }
+        setLocationNormaliseCosts(lCosts);
       } catch (e) {
         if (!cancelled) setLoadError(String(e));
       }
@@ -253,6 +273,50 @@ export function SettingsDialog({ onClose }: Props) {
                   image bytes. Metadata normalisation may still take a moment in
                   fast mode because it locally checks which fields and AI
                   branches would change.
+                </div>
+              </section>
+
+              <section style={{ marginBottom: 16 }}>
+                <h3 style={{ marginBottom: 6 }}>Location normalisation</h3>
+                <label
+                  style={{ display: "block", fontSize: 12, marginBottom: 4 }}
+                >
+                  Model (text-only)
+                </label>
+                <select
+                  data-testid="settings-normalise-location-model-select"
+                  value={settings.normalise_location_model}
+                  onChange={(e) =>
+                    persist({
+                      ...settings,
+                      normalise_location_model: e.target.value,
+                    })
+                  }
+                  style={{ width: "100%", padding: 6 }}
+                >
+                  {models.map((m) => {
+                    const c = locationNormaliseCosts[m];
+                    const label =
+                      c !== undefined
+                        ? `${m} (${formatPerImageCost(c)} per location)`
+                        : m;
+                    return (
+                      <option key={m} value={m}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Used only when GeocodeJSON or JSONv2 evidence exists and
+                  LocationCreated is absent. This setting is separate so
+                  location-name quality can be compared independently.
                 </div>
               </section>
 

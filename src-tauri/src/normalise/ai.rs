@@ -1,10 +1,10 @@
-//! AI infrastructure shared by Group B (Description) and Group C
-//! (Title).
+//! AI infrastructure shared by Group B (Description), Group C (Title),
+//! and Group G (Location).
 //!
 //! `NormaliseAiClient` is the injection seam — production wires
 //! `OpenAiNormaliseClient` (see `openai_normalise.rs`); tests
 //! substitute in mocks. `CapturingAiClient` is a deterministic stand-in
-//! used by the cost-estimate phase to walk Group B / Group C without
+//! used by the cost-estimate phase to walk Groups B / C / G without
 //! dispatching real HTTP calls.
 //!
 //! `NormaliseAuditEntry` is the JSONL row shape persisted by the
@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Typed AI failure surfaced by Group B / Group C up to the dispatcher.
+/// Typed AI failure surfaced by Groups B / C / G up to the dispatcher.
 /// Mapped to a `BatchFailureKind` so per-image failure rows preserve
 /// the failure mode (rate-limit, transport, bad JSON, missing key).
 #[derive(Debug, Clone)]
@@ -47,6 +47,7 @@ impl NormaliseAiError {
         } else if detail.starts_with("missing output[")
             || detail.starts_with("bad description JSON")
             || detail.starts_with("bad title JSON")
+            || detail.starts_with("bad location JSON")
             || detail.starts_with("bad JSON")
         {
             K::AiSchemaInvalid
@@ -148,6 +149,29 @@ pub struct TitleGenPrompt {
     pub keywords: Vec<String>,
 }
 
+/// Raw reverse-geocode evidence supplied verbatim to the location resolver.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct LocationResolvePrompt {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geocode_json: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_v2: Option<String>,
+}
+
+/// Human-facing LocationCreated members selected or composed by AI. Factual
+/// identifiers and camera coordinates are added deterministically by the app.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationAiResult {
+    pub sublocation: Option<String>,
+    pub city: Option<String>,
+    pub province_state: Option<String>,
+    pub country_name: Option<String>,
+    pub world_region: Option<String>,
+    pub location_name: Option<String>,
+}
+
 /// Trait that an injected AI client implements for Group B (and Group
 /// C). Tests substitute a mock; production wires
 /// `OpenAiNormaliseClient` (see `openai_normalise.rs`).
@@ -167,6 +191,17 @@ pub trait NormaliseAiClient: Send + Sync {
         &self,
         prompt: TitleGenPrompt,
     ) -> Result<(String, AiCallUsage), NormaliseAiError>;
+
+    /// Resolve raw Nominatim responses into the human-facing members of one
+    /// canonical LocationCreated structure.
+    async fn resolve_location(
+        &self,
+        _prompt: LocationResolvePrompt,
+    ) -> Result<(LocationAiResult, AiCallUsage), NormaliseAiError> {
+        Err(NormaliseAiError::from(
+            "location resolution is not implemented by this AI client",
+        ))
+    }
 }
 
 /// Captures the prompts that would have fired so the estimate phase
@@ -178,6 +213,7 @@ pub trait NormaliseAiClient: Send + Sync {
 pub struct CapturingAiClient {
     pub description_prompts: tokio::sync::Mutex<Vec<DescriptionMergePrompt>>,
     pub title_prompts: tokio::sync::Mutex<Vec<TitleGenPrompt>>,
+    pub location_prompts: tokio::sync::Mutex<Vec<LocationResolvePrompt>>,
 }
 
 #[async_trait::async_trait]
@@ -211,5 +247,20 @@ impl NormaliseAiClient for CapturingAiClient {
             .join(" ");
         self.title_prompts.lock().await.push(p);
         Ok((stand_in, AiCallUsage::default()))
+    }
+
+    async fn resolve_location(
+        &self,
+        p: LocationResolvePrompt,
+    ) -> Result<(LocationAiResult, AiCallUsage), NormaliseAiError> {
+        self.location_prompts.lock().await.push(p);
+        Ok((
+            LocationAiResult {
+                city: Some("Placeholder city".into()),
+                country_name: Some("Placeholder country".into()),
+                ..Default::default()
+            },
+            AiCallUsage::default(),
+        ))
     }
 }

@@ -191,7 +191,7 @@ afterEach(() => {
 
 describe("Reverse-geocoding flow", () => {
   it("walks straight to awaiting-confirm (no estimate phase) and shows the warning copy", async () => {
-    // Pin the single structured target and legacy-projection guidance.
+    // Pin the two evidence targets and Normalize guidance.
     const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5001 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
@@ -209,7 +209,7 @@ describe("Reverse-geocoding flow", () => {
       /Nominatim/,
     );
     expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
-      /XMP-iptcExt:LocationCreated/i,
+      /XMP-mlib:ReverseGeocodeGeocodeJSON/i,
     );
     expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
       /Normalise Location/i,
@@ -222,16 +222,18 @@ describe("Reverse-geocoding flow", () => {
         relativePath: "test.jpg",
         status: "ok",
         edits: mockGeneratedDraftEntries({
-          "XMP-iptcExt:LocationCreated": {
-            value: singletonList({
-              kind: "Struct",
-              value: {
-                Sublocation: { kind: "Text", value: "Big Ben" },
-                City: { kind: "Text", value: "London" },
-                GPSLatitude: { kind: "Real", value: 51.5001 },
-                GPSLongitude: { kind: "Real", value: -0.1262 },
-              },
-            }),
+          "XMP-mlib:ReverseGeocodeGeocodeJSON": {
+            value: {
+              kind: "Text",
+              value: '{"features":[]}',
+            },
+            intent: "Set",
+          },
+          "XMP-mlib:ReverseGeocodeJSONv2": {
+            value: {
+              kind: "Text",
+              value: '{"display_name":"Big Ben, London"}',
+            },
             intent: "Set",
           },
         }),
@@ -272,15 +274,20 @@ describe("Reverse-geocoding flow", () => {
       /Nominatim/,
     );
 
-    // The atomic structure is staged only in the exact target-aware store.
+    // Both exact response bodies are staged in the target-aware store.
     const targetDrafts =
       mockApiInstance.targetDraftEditsByFolder["/files"]?.["test.jpg"] ?? {};
     expect(
       Object.values(targetDrafts).some(
-        ({ target }) => target.schema_id.tag_id === "LocationCreated",
+        ({ target }) => target.schema_id.tag_id === "ReverseGeocodeGeocodeJSON",
       ),
     ).toBe(true);
-    expect(Object.values(targetDrafts)).toHaveLength(1);
+    expect(
+      Object.values(targetDrafts).some(
+        ({ target }) => target.schema_id.tag_id === "ReverseGeocodeJSONv2",
+      ),
+    ).toBe(true);
+    expect(Object.values(targetDrafts)).toHaveLength(2);
   });
 
   it("sends raw GPS Real longitude with W ref as negative to the backend", async () => {
@@ -479,7 +486,7 @@ describe("Reverse-geocoding flow", () => {
     });
   });
 
-  it("DetailsPane button surfaces the overwrite notice inside the dialog when existing location data is present", async () => {
+  it("DetailsPane button surfaces the overwrite notice when reverse-geocode evidence exists", async () => {
     // The overwrite notice now lives in the dialog's awaiting-confirm
     // panel, not in a pre-dialog ask().
     const dialogModule = await import("@tauri-apps/plugin-dialog");
@@ -492,17 +499,17 @@ describe("Reverse-geocoding flow", () => {
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
       "GPS:GPSLongitude": { kind: "Real", value: 0.1 },
       "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
-      "XMP-iptcExt:LocationCreated": singletonList({
-        kind: "Struct",
-        value: { City: { kind: "Text", value: "Existing Place" } },
-      }),
+      "XMP-mlib:ReverseGeocodeGeocodeJSON": {
+        kind: "Text",
+        value: '{"features":[]}',
+      },
     });
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     expect(askMock).not.toHaveBeenCalled();
     const notice = await screen.findByTestId("geocode-overwrite-notice");
-    expect(notice).toHaveTextContent(/Overwrite location data\?/);
-    expect(notice).toHaveTextContent(/already has location data/i);
-    expect(notice).toHaveTextContent(/replace LocationCreated/i);
+    expect(notice).toHaveTextContent(/Overwrite reverse-geocode evidence\?/);
+    expect(notice).toHaveTextContent(/already has reverse-geocode evidence/i);
+    expect(notice).toHaveTextContent(/replace the GeocodeJSON and JSONv2/i);
   });
 
   it("DetailsPane button shows no overwrite notice when there is no existing location data", async () => {

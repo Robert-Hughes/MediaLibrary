@@ -49,6 +49,8 @@ known_ids! {
     mlib_ai_tags => ("UserDefined::mlib", "AITags"), mlib_ai_model => ("UserDefined::mlib", "AIModel"),
     mlib_ai_prompt_version => ("UserDefined::mlib", "AIPromptVersion"),
     mlib_ai_generated_at => ("UserDefined::mlib", "AIGeneratedAt"),
+    mlib_reverse_geocode_geocode_json => ("UserDefined::mlib", "ReverseGeocodeGeocodeJSON"),
+    mlib_reverse_geocode_json_v2 => ("UserDefined::mlib", "ReverseGeocodeJSONv2"),
 }
 
 #[cfg(test)]
@@ -97,6 +99,8 @@ pub fn test_id(label: &str) -> SchemaDefinitionId {
         "XMP-mlib:AIModel" => mlib_ai_model(),
         "XMP-mlib:AIPromptVersion" => mlib_ai_prompt_version(),
         "XMP-mlib:AIGeneratedAt" => mlib_ai_generated_at(),
+        "XMP-mlib:ReverseGeocodeGeocodeJSON" => mlib_reverse_geocode_geocode_json(),
+        "XMP-mlib:ReverseGeocodeJSONv2" => mlib_reverse_geocode_json_v2(),
         other => panic!("no exact test schema identity registered for {other}"),
     }
 }

@@ -19,8 +19,8 @@
 //!
 //! The free-functions / no-state pattern keeps groups testable in
 //! isolation without spinning up a Tauri app, an HTTP client, or the
-//! draft store. AI calls (Group B description merge/generation, Group C title
-//! generation) are fully integrated.
+//! draft store. AI calls for Description, Title, and evidence-backed Location
+//! creation are fully integrated.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -50,15 +50,18 @@ mod title;
 pub use title::{build_title_gen_prompt, normalise_title, TitleOutcome};
 
 mod location;
-pub use location::{derive_location_canonical, normalise_location, LocationOutcome};
+pub use location::{
+    derive_location_canonical, normalise_location, normalise_location_with_ai, LocationOutcome,
+};
 
 mod dates;
 pub use dates::{normalise_dates, DatesOutcome};
 
 mod ai;
 pub use ai::{
-    AiCallUsage, CapturingAiClient, DescriptionMergePrompt, NormaliseAiClient, NormaliseAiError,
-    NormaliseAuditEntry, PerImageAiCall, TitleGenPrompt,
+    AiCallUsage, CapturingAiClient, DescriptionMergePrompt, LocationAiResult,
+    LocationResolvePrompt, NormaliseAiClient, NormaliseAiError, NormaliseAuditEntry,
+    PerImageAiCall, TitleGenPrompt,
 };
 
 mod description;
@@ -262,6 +265,21 @@ pub struct LocationInput {
     /// `XMP-iptcExt:LocationCreated` (canonical structured source).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location_created: Option<MetadataValue>,
+    /// Exact Nominatim GeocodeJSON response recorded by Reverse Geocode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geocode_json: Option<String>,
+    /// Exact Nominatim JSONv2 response recorded by Reverse Geocode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json_v2: Option<String>,
+    /// Camera coordinates copied deterministically into LocationCreated.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gps_latitude: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gps_longitude: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gps_altitude: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gps_altitude_ref: Option<i32>,
     /// `XMP-iptcCore:Location` (primary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub location_xmp: Option<String>,
@@ -665,7 +683,7 @@ pub struct PerGroupStats {
     pub n_dto_from_filename_date_only: u32,
     /// Group H only — date input string was non-empty but unparseable.
     pub n_unparseable_date_inputs: u32,
-    /// Group B / Group C only — AI call returned an error or the key
+    /// Groups B / C / G only — AI call returned an error or the key
     /// was missing.
     pub n_ai_errors: u32,
 }
@@ -850,14 +868,15 @@ pub async fn process_image(
     } else {
         (Vec::new(), Vec::new())
     };
-    let location_context = if needs_location_context && !is_cancelled(cancel) {
-        item.group_inputs
-            .location
-            .as_ref()
-            .map(derive_location_canonical)
-    } else {
-        None
-    };
+    let mut location_context =
+        if needs_location_context && !location_writes_enabled && !is_cancelled(cancel) {
+            item.group_inputs
+                .location
+                .as_ref()
+                .map(derive_location_canonical)
+        } else {
+            None
+        };
     let date_context = if needs_date_context && !is_cancelled(cancel) {
         item.group_inputs
             .dates
@@ -909,9 +928,31 @@ pub async fn process_image(
     );
 
     if write_enabled(NormaliseGroup::Location) {
-        let g = stats.group(NormaliseGroup::Location);
         if let Some(input) = item.group_inputs.location.as_ref() {
-            let outcome = normalise_location(input);
+            let outcome = normalise_location_with_ai(input, ai).await;
+            if outcome.ai_fired {
+                if let Some(usage) = outcome.ai_usage.clone() {
+                    ai_calls.push(PerImageAiCall {
+                        group: "location",
+                        usage,
+                        error: None,
+                    });
+                }
+            }
+            if let Some(error) = outcome.ai_error.clone() {
+                stats.group(NormaliseGroup::Location).n_ai_errors += 1;
+                ai_calls.push(PerImageAiCall {
+                    group: "location",
+                    usage: error.usage.clone().unwrap_or_default(),
+                    error: Some(error.detail.clone()),
+                });
+                if first_ai_error.is_none() {
+                    first_ai_error = Some(error);
+                }
+            }
+            location_context = outcome.canonical.clone();
+            let ai_fired = outcome.ai_fired;
+            let g = stats.group(NormaliseGroup::Location);
             g.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
             g.n_location_created_ambiguous = outcome.n_location_created_ambiguous;
             if outcome.n_xmp_iim_conflict > 0 {
@@ -920,13 +961,17 @@ pub async fn process_image(
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
-                    g.n_normalised_deterministic += 1;
+                    if ai_fired {
+                        g.n_normalised_ai += 1;
+                    } else {
+                        g.n_normalised_deterministic += 1;
+                    }
                 }
                 None => g.n_noop += 1,
             }
         } else {
             log::warn!("[normalise] group location enabled but no input bundle supplied; counting as no-op");
-            g.n_noop += 1;
+            stats.group(NormaliseGroup::Location).n_noop += 1;
         }
     }
 
@@ -1100,12 +1145,12 @@ pub struct NormaliseSummary {
     /// visited; absent keys mean the group was disabled for every
     /// image.
     pub per_group: std::collections::BTreeMap<NormaliseGroup, PerGroupStats>,
-    /// Sum of USD cost across every AI call (description + title)
+    /// Sum of USD cost across every AI call (description + title + location)
     /// emitted by this batch. Driven by the audit-log writer in
     /// `lib.rs`, which has access to the pricing table.
     pub ai_cost_total_usd: f64,
     /// Total successful + failed AI calls across the batch
-    /// (description + title). Matches the number of rows appended to
+    /// (description + title + location). Matches the number of rows appended to
     /// the audit log JSONL.
     pub ai_calls_total: u32,
 }

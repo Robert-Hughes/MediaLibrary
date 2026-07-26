@@ -75,6 +75,7 @@ describe("SettingsDialog", () => {
       openai_api_key: "sk-existing",
       openai_model: "gpt-5.4",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "exact",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -100,6 +101,10 @@ describe("SettingsDialog", () => {
     const estimateModeSelect = screen.getByTestId(
       "settings-ai-cost-estimate-mode-select",
     ) as HTMLSelectElement;
+    const locationModelSelect = screen.getByTestId(
+      "settings-normalise-location-model-select",
+    ) as HTMLSelectElement;
+    expect(locationModelSelect.value).toBe("gpt-5.4-nano");
     expect(estimateModeSelect.value).toBe("exact");
     const describeConcurrencySelect = screen.getByTestId(
       "settings-describe-concurrency-select",
@@ -157,6 +162,11 @@ describe("SettingsDialog", () => {
       await new Promise((r) => setTimeout(r, 10));
     });
     expect(mockApiInstance.settings.openai_model).toBe("gpt-4o");
+
+    await user.selectOptions(locationModelSelect, "gpt-4o");
+    await waitFor(() =>
+      expect(mockApiInstance.settings.normalise_location_model).toBe("gpt-4o"),
+    );
 
     await user.selectOptions(estimateModeSelect, "heuristic");
     await act(async () => {
@@ -256,6 +266,7 @@ describe("AI-description flow", () => {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -355,6 +366,7 @@ describe("AI-description flow", () => {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -462,6 +474,7 @@ describe("AI-description flow", () => {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -510,6 +523,7 @@ describe("AI-description flow", () => {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -565,6 +579,7 @@ describe("AI-description flow", () => {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -594,6 +609,7 @@ describe("AI-description flow", () => {
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,

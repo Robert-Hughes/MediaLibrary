@@ -104,6 +104,7 @@ export interface MockTauriApi {
     openai_api_key: string;
     openai_model: string;
     normalise_metadata_model: string;
+    normalise_location_model: string;
     ai_cost_estimate_mode: "heuristic" | "exact";
     describe_concurrency: number;
     normalise_concurrency: number;
@@ -315,6 +316,7 @@ export function createMockTauriApi(): MockTauriApi {
       openai_api_key: "",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 12,
       normalise_concurrency: 4,
@@ -645,7 +647,8 @@ export function createMockTauriApi(): MockTauriApi {
         emit("normalise_estimate_started", { total });
         const wantsAi =
           enabledGroups.includes("description") ||
-          enabledGroups.includes("title");
+          enabledGroups.includes("title") ||
+          enabledGroups.includes("location");
         // Default outcome map: every group has at least one
         // "deterministic" outcome so the table rows render enabled and
         // the auto-prune in `useNormaliseMetadata` doesn't drop them.
@@ -661,11 +664,13 @@ export function createMockTauriApi(): MockTauriApi {
         emit("normalise_estimate_complete", {
           nImagesWithAiB: 0,
           nImagesWithAiC: 0,
+          nImagesWithAiG: 0,
           nImagesNoAi: total,
           totalInputTokens: 0,
           predictedCostUsd: 0,
           upperBoundCostUsd: 0,
           model: wantsAi ? "gpt-5.4-nano" : "",
+          locationModel: wantsAi ? "gpt-5.4-nano" : "",
           perGroupOutcomes: {
             keywords: { ...detOutcome },
             creator: { ...detOutcome },
@@ -678,10 +683,13 @@ export function createMockTauriApi(): MockTauriApi {
           },
           aiTokenBreakdown: null,
           pricing: null,
+          locationPricing: null,
           expectedOutPerCallB: 250,
           maxOutPerCallB: 400,
           expectedOutPerCallC: 15,
           maxOutPerCallC: 30,
+          expectedOutPerCallG: 100,
+          maxOutPerCallG: 250,
         });
         return;
       }

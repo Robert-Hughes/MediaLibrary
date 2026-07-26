@@ -311,6 +311,47 @@ fn apply_xmp_mlib_ai_description_preserves_utf8() {
 }
 
 #[test]
+fn apply_raw_reverse_geocode_evidence_roundtrips_verbatim() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+    let geocode_json = r#"{"features":[{"properties":{"geocoding":{"name":"Student Recruitment, Marketing, and Admissions"}}}]}"#;
+    let json_v2 = r#"{"display_name":"Minato, Tokyo","note":"backslash: \\ and café"}"#;
+    let edits = vec![
+        medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+            schema_id: medialibrary_tauri_lib::known_ids::mlib_reverse_geocode_geocode_json(),
+            edit: metadata_set(MetadataValue::Text(geocode_json.into())),
+        },
+        medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+            schema_id: medialibrary_tauri_lib::known_ids::mlib_reverse_geocode_json_v2(),
+            edit: metadata_set(MetadataValue::Text(json_v2.into())),
+        },
+    ];
+
+    let outcome = apply_target_file(folder, &rel, edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+
+    let metadata = read_one(dir.path(), &dst);
+    assert_eq!(
+        schema_value(
+            &metadata,
+            &medialibrary_tauri_lib::known_ids::mlib_reverse_geocode_geocode_json(),
+        ),
+        Some(MetadataValue::Text(geocode_json.into()))
+    );
+    assert_eq!(
+        schema_value(
+            &metadata,
+            &medialibrary_tauri_lib::known_ids::mlib_reverse_geocode_json_v2(),
+        ),
+        Some(MetadataValue::Text(json_v2.into()))
+    );
+}
+
+#[test]
 fn new_property_default_destination_roundtrip_is_family7_qualified() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;

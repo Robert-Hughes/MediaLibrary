@@ -40,6 +40,12 @@ pub fn default_normalise_model() -> String {
     "gpt-5.4-nano".to_string()
 }
 
+/// Location-name selection is a separate text-only workload so users can
+/// evaluate quality/cost independently from Description and Title.
+pub fn default_normalise_location_model() -> String {
+    default_normalise_model()
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -106,6 +112,10 @@ pub struct Settings {
     /// nano-class models.
     #[serde(default = "default_normalise_model")]
     pub normalise_metadata_model: String,
+    /// Model id used only when Normalize Metadata must create
+    /// LocationCreated from raw reverse-geocode evidence.
+    #[serde(default = "default_normalise_location_model")]
+    pub normalise_location_model: String,
     /// Shared mode for pre-confirm AI cost estimates. Heuristic is
     /// local-only and fast; Exact preserves the OpenAI `/responses/input_tokens`
     /// preflight.
@@ -140,6 +150,7 @@ impl Default for Settings {
             openai_api_key: String::new(),
             openai_model: default_model(),
             normalise_metadata_model: default_normalise_model(),
+            normalise_location_model: default_normalise_location_model(),
             ai_cost_estimate_mode: default_ai_cost_estimate_mode(),
             describe_concurrency: default_describe_concurrency(),
             normalise_concurrency: default_normalise_concurrency(),
@@ -178,6 +189,12 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
             default_model()
         );
         parsed.openai_model = default_model();
+    }
+    if !RECOMMENDED_MODELS.contains(&parsed.normalise_metadata_model.as_str()) {
+        parsed.normalise_metadata_model = default_normalise_model();
+    }
+    if !RECOMMENDED_MODELS.contains(&parsed.normalise_location_model.as_str()) {
+        parsed.normalise_location_model = default_normalise_location_model();
     }
     clamp_loaded_concurrency("describe_concurrency", &mut parsed.describe_concurrency);
     clamp_loaded_concurrency("normalise_concurrency", &mut parsed.normalise_concurrency);
@@ -232,6 +249,21 @@ fn clamp_loaded_batch_size(name: &str, value: &mut u16) {
 }
 
 fn validate_settings(settings: &Settings) -> Result<(), String> {
+    for (name, model) in [
+        ("openai_model", settings.openai_model.as_str()),
+        (
+            "normalise_metadata_model",
+            settings.normalise_metadata_model.as_str(),
+        ),
+        (
+            "normalise_location_model",
+            settings.normalise_location_model.as_str(),
+        ),
+    ] {
+        if !RECOMMENDED_MODELS.contains(&model) {
+            return Err(format!("{name} must be a recommended model"));
+        }
+    }
     for (name, value) in [
         ("describe_concurrency", settings.describe_concurrency),
         ("normalise_concurrency", settings.normalise_concurrency),
@@ -311,6 +343,7 @@ mod tests {
             openai_api_key: "sk-test-abc".into(),
             openai_model: "gpt-4o".into(),
             normalise_metadata_model: "gpt-5.4-nano".into(),
+            normalise_location_model: "gpt-5.6-luna".into(),
             ai_cost_estimate_mode: AiCostEstimateMode::Exact,
             ..Settings::default()
         };
@@ -372,6 +405,23 @@ mod tests {
     }
 
     #[test]
+    fn unrecommended_location_model_is_snapped_independently() {
+        let dir = tempdir().unwrap();
+        let path = settings_file_path(dir.path());
+        std::fs::write(
+            &path,
+            br#"{"openai_model":"gpt-4o","normalise_metadata_model":"gpt-5.4-nano","normalise_location_model":"unknown"}"#,
+        )
+        .unwrap();
+        let loaded = load_settings(dir.path()).unwrap();
+        assert_eq!(loaded.normalise_metadata_model, "gpt-5.4-nano");
+        assert_eq!(
+            loaded.normalise_location_model,
+            default_normalise_location_model()
+        );
+    }
+
+    #[test]
     fn old_json_without_cost_estimate_mode_defaults_to_heuristic() {
         let dir = tempdir().unwrap();
         let path = settings_file_path(dir.path());
@@ -382,6 +432,10 @@ mod tests {
         .unwrap();
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.ai_cost_estimate_mode, AiCostEstimateMode::Heuristic);
+        assert_eq!(
+            loaded.normalise_location_model,
+            default_normalise_location_model()
+        );
         assert_eq!(loaded.describe_concurrency, default_describe_concurrency());
         assert_eq!(
             loaded.metadata_scan_concurrency,

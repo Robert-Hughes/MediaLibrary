@@ -59,7 +59,7 @@ nDtoFromFilenameDateOnly: number,
  */
 nUnparseableDateInputs: number, 
 /**
- * Group B / Group C only — AI call returned an error or the key
+ * Groups B / C / G only — AI call returned an error or the key
  * was missing.
  */
 nAiErrors: number, };
