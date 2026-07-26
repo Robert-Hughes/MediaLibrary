@@ -1,6 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
+import { DESCRIBE_TARGET_TAGS } from "../generatedTargetDrafts";
+import { _setWritableSchemaDefinitionsCache } from "../hooks/useWritableSchemaDefinitions";
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import type {
   SchemaMetadataEdit,
@@ -54,6 +56,20 @@ const generated = (
   edit: { intent: "Set", value: { kind: "Text", value } },
 });
 
+function installGeneratedSchemaDefinitions(
+  mock: ReturnType<typeof createMockTauriApi>,
+): void {
+  mock.tagInfos = DESCRIBE_TARGET_TAGS.map((id) => ({
+    id: structuredClone(id),
+    group: "XMP-mlib",
+    name: id.tag_id,
+    writable: true,
+    kind: { kind: "Text" },
+    description: null,
+  }));
+  _setWritableSchemaDefinitionsCache(mock.tagInfos);
+}
+
 async function loadedFile(
   options: {
     occurrences?: MetadataOccurrence[];
@@ -62,6 +78,7 @@ async function loadedFile(
   } = {},
 ) {
   const mock = createMockTauriApi();
+  installGeneratedSchemaDefinitions(mock);
   mock.pickFolderResolves("/files");
   const api = options.targetLoadFails
     ? {
@@ -204,6 +221,7 @@ describe("generated target-aware production action", () => {
 
   it("resets a strict load failure when a different folder loads successfully", async () => {
     const mock = createMockTauriApi();
+    installGeneratedSchemaDefinitions(mock);
     mock.pickFolderResolves("/broken");
     let targetLoads = 0;
     const api = {

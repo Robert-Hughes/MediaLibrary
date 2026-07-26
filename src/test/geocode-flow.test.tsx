@@ -23,11 +23,16 @@ import type {
   MetadataValue,
   SchemaDefinitionId,
 } from "../types";
-import { GPS_IDS } from "../metadata/knownIds";
+import { GPS_IDS, KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
+
+const GENERATED_GEOCODE_IDS = [
+  ID.mlibReverseGeocodeGeocodeJson,
+  ID.mlibReverseGeocodeJsonV2,
+] as const;
 
 function singletonList(value: MetadataValue): MetadataValue {
   return { kind: "List", value: { list_kind: "Bag", items: [value] } };
@@ -183,6 +188,14 @@ function expectMapCoordinates(lat: number, lon: number) {
 
 beforeEach(() => {
   mockApiInstance = createMockTauriApi();
+  mockApiInstance.tagInfos = GENERATED_GEOCODE_IDS.map((id) => ({
+    id: structuredClone(id),
+    group: "XMP-mlib",
+    name: id.tag_id,
+    writable: true,
+    kind: { kind: "Text" },
+    description: null,
+  }));
 });
 afterEach(() => {
   vi.clearAllMocks();

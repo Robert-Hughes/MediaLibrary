@@ -163,9 +163,13 @@ historical `MediaLibraryApplyLog.jsonl` is ignored and left unchanged.
 Describe, reverse-geocode and normalise jobs return transient
 `SchemaMetadataEdit` values. The planner resolves each suggestion before a
 target exists: it requires a unique existing occurrence, rejects multiplicity,
-or deliberately creates a New Property target when a valid destination is
-known. Once planned, only an exact matching target owner can be changed;
-same-schema siblings are unrelated.
+or deliberately creates a New Property target from the exact writable
+`TagInfo`. Generated properties use the same schema-derived default-target
+constructor as the Add New Property dialog; they do not have a separate manual
+destination registry. If that exact writable definition is unavailable, the
+generated batch is rejected rather than guessing a destination. Once planned,
+only an exact matching target owner can be changed; same-schema siblings are
+unrelated.
 
 ## Search projection
 

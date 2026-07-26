@@ -4,6 +4,10 @@ import type { TagInfo } from "../types";
 import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
 
 type State = "loading" | TagInfo[];
+type SchemaDefinitionsInvoke = (
+  command: string,
+  args?: Record<string, unknown>,
+) => Promise<unknown>;
 
 let cached: State = "loading";
 let fetched = false;
@@ -13,9 +17,11 @@ function notify() {
   subscribers.forEach((cb) => cb());
 }
 
-async function fetchDefinitions(): Promise<void> {
+async function fetchDefinitions(
+  invokeCommand: SchemaDefinitionsInvoke,
+): Promise<void> {
   try {
-    const result = (await invoke("list_writable_schema_definitions")) as
+    const result = (await invokeCommand("list_writable_schema_definitions")) as
       TagInfo[] | null;
     cached = (result ?? []).filter(tagInfoSupportsMetadataWrite);
   } catch (e) {
@@ -26,20 +32,22 @@ async function fetchDefinitions(): Promise<void> {
 }
 
 /** Returns every exact supported writable definition for Add New Property. */
-export function useWritableSchemaDefinitions(): State {
+export function useWritableSchemaDefinitions(
+  invokeCommand: SchemaDefinitionsInvoke = invoke,
+): State {
   const [, setTick] = useState(0);
 
   useEffect(() => {
     if (!fetched) {
       fetched = true;
-      void fetchDefinitions();
+      void fetchDefinitions(invokeCommand);
     }
     const cb = () => setTick((n) => n + 1);
     subscribers.add(cb);
     return () => {
       subscribers.delete(cb);
     };
-  }, []);
+  }, [invokeCommand]);
 
   return cached;
 }
