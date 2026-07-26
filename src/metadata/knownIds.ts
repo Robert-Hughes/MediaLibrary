@@ -70,6 +70,11 @@ export const KNOWN_METADATA_IDS = {
   mlibAiModel: id("UserDefined::mlib", "AIModel"),
   mlibAiPromptVersion: id("UserDefined::mlib", "AIPromptVersion"),
   mlibAiGeneratedAt: id("UserDefined::mlib", "AIGeneratedAt"),
+  mlibReverseGeocodeGeocodeJson: id(
+    "UserDefined::mlib",
+    "ReverseGeocodeGeocodeJSON",
+  ),
+  mlibReverseGeocodeJsonV2: id("UserDefined::mlib", "ReverseGeocodeJSONv2"),
   offsetTime: id("Exif::Main", "36880"),
   offsetTimeOriginal: id("Exif::Main", "36881"),
   offsetTimeDigitized: id("Exif::Main", "36882"),
@@ -150,6 +155,16 @@ const WRITE_DEFINITIONS: Array<
   [KNOWN_METADATA_IDS.mlibAiModel, "XMP-mlib", "AIModel"],
   [KNOWN_METADATA_IDS.mlibAiPromptVersion, "XMP-mlib", "AIPromptVersion"],
   [KNOWN_METADATA_IDS.mlibAiGeneratedAt, "XMP-mlib", "AIGeneratedAt"],
+  [
+    KNOWN_METADATA_IDS.mlibReverseGeocodeGeocodeJson,
+    "XMP-mlib",
+    "ReverseGeocodeGeocodeJSON",
+  ],
+  [
+    KNOWN_METADATA_IDS.mlibReverseGeocodeJsonV2,
+    "XMP-mlib",
+    "ReverseGeocodeJSONv2",
+  ],
 ];
 
 const WRITE_NAMES = new Map<string, readonly [group1: string, tagName: string]>(

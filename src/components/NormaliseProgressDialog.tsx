@@ -59,6 +59,7 @@ function groupLabel(g: NormaliseGroup): string {
 const AI_GROUPS: ReadonlySet<NormaliseGroup> = new Set([
   "description",
   "title",
+  "location",
 ]);
 
 /**
@@ -79,7 +80,7 @@ function groupBehaviourSummary(g: NormaliseGroup): string {
     case "title":
       return "Writes target fields: XMP-dc:Title and IPTC:ObjectName. Reads description canonical plus keyword and location context. Behaviour: Existing XMP-dc:Title wins; otherwise IPTC:ObjectName wins. If both title targets are empty and Description canonical is available (including newly regenerated Description), calls AI to generate a short title. If both are empty and no description is available, no drafts.";
     case "location":
-      return "Writes target fields: XMP-iptcCore:Location, IPTC:Sub-location, XMP-photoshop:City, IPTC:City, XMP-photoshop:State, IPTC:Province-State, XMP-photoshop:Country, IPTC:Country-PrimaryLocationName, XMP-iptcCore:CountryCode, and IPTC:Country-PrimaryLocationCode. Behaviour: Synchronises XMP↔IPTC mirror pairs; XMP side wins on disagreement. No reverse-geocoding. If both sides of a pair are empty, that pair emits no drafts. No AI.";
+      return "Writes canonical XMP-iptcExt:LocationCreated and projects its five overlapping members to XMP-iptcCore:Location, IPTC:Sub-location, the City pair, the Province/State pair, the Country pair, and the CountryCode pair. If one LocationCreated structure exists, trusts and projects it without AI. If it is absent and XMP-mlib:ReverseGeocodeGeocodeJSON or XMP-mlib:ReverseGeocodeJSONv2 evidence exists, calls AI to resolve human-facing place names, then adds coordinates, country code, and OSM identifiers deterministically. With no reverse-geocode evidence, legacy fields seed LocationCreated deterministically.";
     case "dates":
       return "Writes target fields: ExifIFD:DateTimeOriginal, ExifIFD:CreateDate, XMP-photoshop:DateCreated, IPTC:DateCreated, IPTC:TimeCreated, XMP-xmp:CreateDate, IPTC:DigitalCreationDate, and IPTC:DigitalCreationTime. Reads offset/subsecond fields (ExifIFD:OffsetTimeOriginal, ExifIFD:SubSecTimeOriginal, ExifIFD:OffsetTimeDigitized, ExifIFD:OffsetTime, ExifIFD:SubSecTimeDigitized) and filename fallback input. Behaviour: Normalises dates to ISO 8601; EXIF primary wins on conflict. Falls back to filename matching for shutter time if all shutter-time fields are empty. No AI.";
     case "description":
@@ -164,7 +165,9 @@ interface SelectionCost {
   upperBoundUsd: number | null;
   descriptionCalls: number;
   titleCalls: number;
-  model: string;
+  locationCalls: number;
+  metadataModel: string;
+  locationModel: string;
 }
 
 /**
@@ -179,37 +182,71 @@ function computeCostForSelection(
 ): SelectionCost {
   const descEnabled = enabledGroups.includes("description");
   const titleEnabled = enabledGroups.includes("title");
+  const locationEnabled = enabledGroups.includes("location");
   const breakdown = estimate.aiTokenBreakdown;
   const pricing = estimate.pricing;
+  const locationPricing = estimate.locationPricing;
   const descCalls = descEnabled ? estimate.nImagesWithAiB : 0;
   const titleCalls = titleEnabled ? estimate.nImagesWithAiC : 0;
-  if (!breakdown || !pricing) {
+  const locationCalls = locationEnabled ? estimate.nImagesWithAiG : 0;
+  const needsMetadataPricing = descCalls + titleCalls > 0;
+  const needsLocationPricing = locationCalls > 0;
+  if (
+    !breakdown ||
+    (needsMetadataPricing && !pricing) ||
+    (needsLocationPricing && !locationPricing)
+  ) {
     return {
       predictedUsd: null,
       upperBoundUsd: null,
       descriptionCalls: descCalls,
       titleCalls,
-      model: estimate.model,
+      locationCalls,
+      metadataModel: estimate.model,
+      locationModel: estimate.locationModel,
     };
   }
   const inputTokens =
     (descEnabled ? breakdown.descriptionInputTokens : 0) +
     (titleEnabled ? breakdown.titleInputTokens : 0);
+  const locationInputTokens = locationEnabled
+    ? breakdown.locationInputTokens
+    : 0;
   const predictedOut =
     descCalls * estimate.expectedOutPerCallB +
     titleCalls * estimate.expectedOutPerCallC;
   const upperOut =
     descCalls * estimate.maxOutPerCallB + titleCalls * estimate.maxOutPerCallC;
-  const inputCost = (inputTokens / 1_000_000) * pricing.inputPer1M;
+  const locationPredictedOut = locationCalls * estimate.expectedOutPerCallG;
+  const locationUpperOut = locationCalls * estimate.maxOutPerCallG;
+  const inputCost =
+    pricing == null ? 0 : (inputTokens / 1_000_000) * pricing.inputPer1M;
+  const locationInputCost =
+    locationPricing == null
+      ? 0
+      : (locationInputTokens / 1_000_000) * locationPricing.inputPer1M;
   const predicted =
-    inputCost + (predictedOut / 1_000_000) * pricing.outputPer1M;
-  const upper = inputCost + (upperOut / 1_000_000) * pricing.outputPer1M;
+    inputCost +
+    (pricing == null ? 0 : (predictedOut / 1_000_000) * pricing.outputPer1M) +
+    locationInputCost +
+    (locationPricing == null
+      ? 0
+      : (locationPredictedOut / 1_000_000) * locationPricing.outputPer1M);
+  const upper =
+    inputCost +
+    (pricing == null ? 0 : (upperOut / 1_000_000) * pricing.outputPer1M) +
+    locationInputCost +
+    (locationPricing == null
+      ? 0
+      : (locationUpperOut / 1_000_000) * locationPricing.outputPer1M);
   return {
     predictedUsd: predicted,
     upperBoundUsd: upper,
     descriptionCalls: descCalls,
     titleCalls,
-    model: estimate.model,
+    locationCalls,
+    metadataModel: estimate.model,
+    locationModel: estimate.locationModel,
   };
 }
 
@@ -221,7 +258,8 @@ function CostPreview({
   enabledGroups: readonly NormaliseGroup[];
 }) {
   const cost = computeCostForSelection(estimate, enabledGroups);
-  const hasAi = cost.descriptionCalls + cost.titleCalls > 0;
+  const hasAi =
+    cost.descriptionCalls + cost.titleCalls + cost.locationCalls > 0;
   if (!hasAi) {
     return (
       <div
@@ -243,8 +281,9 @@ function CostPreview({
         data-testid="normalise-cost-preview"
       >
         AI calls required ({cost.descriptionCalls} description AI call,{" "}
-        {cost.titleCalls} title gen) but no OpenAI key is configured — open
-        Settings to enter your key before normalising.
+        {cost.titleCalls} title gen, {cost.locationCalls} location resolution)
+        but no OpenAI key is configured — open Settings to enter your key before
+        normalising.
       </div>
     );
   }
@@ -253,12 +292,23 @@ function CostPreview({
       style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
       data-testid="normalise-cost-preview"
     >
-      AI calls required with model <code>{cost.model}</code>:
+      AI calls required:
       <ul style={{ marginTop: 4, paddingLeft: 18 }}>
         {cost.descriptionCalls > 0 && (
           <li>{cost.descriptionCalls} description AI calls</li>
         )}
         {cost.titleCalls > 0 && <li>{cost.titleCalls} title generations</li>}
+        {cost.locationCalls > 0 && (
+          <li>
+            {cost.locationCalls} location resolutions with{" "}
+            <code>{cost.locationModel}</code>
+          </li>
+        )}
+        {cost.descriptionCalls + cost.titleCalls > 0 && (
+          <li>
+            Description/title model: <code>{cost.metadataModel}</code>
+          </li>
+        )}
       </ul>
       <div>
         <strong>Cost:</strong> {formatCost(cost.predictedUsd)} predicted, up to{" "}

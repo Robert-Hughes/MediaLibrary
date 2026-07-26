@@ -157,6 +157,9 @@ Add `XMP-mlib:*` entries to `tag_schema.rs` overrides table so:
 
 - `AITags`, `AIObjects`, `AIOcrText` → `Bag(Text)`
 - `AIDescription`, `AIInterpretation`, `AIModel`, `AIPromptVersion` → `Text`
+- `ReverseGeocodeGeocodeJSON`, `ReverseGeocodeJSONv2` → `Text` (exact
+  reverse-geocode evidence consumed
+  by Normalize Location)
 - `AIGeneratedAt` → `DateTime`
 
 Existing editors + datatype badges then "just work".

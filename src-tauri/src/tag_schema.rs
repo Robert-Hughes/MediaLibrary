@@ -548,7 +548,7 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
 // Bump this when the logic that converts ExifTool `-listx` XML into our
 // `TagKind` model changes in a way that should invalidate existing schema
 // cache files, even if the ExifTool version itself did not change.
-const TAG_SCHEMA_PARSER_VERSION: u32 = 7;
+const TAG_SCHEMA_PARSER_VERSION: u32 = 9;
 
 fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     let dir = dirs::cache_dir()?;
@@ -810,6 +810,8 @@ fn apply_overrides(tags: &mut BTreeMap<SchemaDefinitionId, TagInfo>) {
         // user-defined namespaces, so the entries here are the only place
         // these tags appear in the schema.
         ("XMP-mlib:AIDescription", || TagKind::Text),
+        ("XMP-mlib:ReverseGeocodeGeocodeJSON", || TagKind::Text),
+        ("XMP-mlib:ReverseGeocodeJSONv2", || TagKind::Text),
         ("XMP-mlib:AIInterpretation", || TagKind::Text),
         ("XMP-mlib:AITags", || TagKind::Bag(Box::new(TagKind::Text))),
         ("XMP-mlib:AIObjects", || {
@@ -1405,7 +1407,7 @@ mod tests {
 
     #[test]
     fn schema_parser_cache_version_is_current() {
-        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 7);
+        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 9);
     }
 
     #[test]
@@ -1686,10 +1688,10 @@ mod tests {
     #[test]
     fn cache_path_sanitises_version_string() {
         let p = cache_path_for("13.57").unwrap();
-        assert!(p.to_string_lossy().contains("tag_schema_p7_13.57.json"));
+        assert!(p.to_string_lossy().contains("tag_schema_p9_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
-        assert!(s.contains("tag_schema_p7_13_57_weird_.json"));
+        assert!(s.contains("tag_schema_p9_13_57_weird_.json"));
         assert!(
             !s.contains('/') || s.contains("MediaLibrary"),
             "no stray slashes in version segment"

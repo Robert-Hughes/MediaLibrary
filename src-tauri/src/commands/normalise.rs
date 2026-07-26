@@ -34,12 +34,14 @@ struct NormaliseEstimateProgressPayload {
     total: usize,
     relative_path: String,
     /// Token total preflighted for this image across any AI calls that
-    /// would fire (Group B + Group C).
+    /// would fire (Groups B, C, and G).
     input_tokens: u32,
     /// True when this image would invoke Group B (description merge).
     fires_description_ai: bool,
     /// True when this image would invoke Group C (title generation).
     fires_title_ai: bool,
+    /// True when this image would invoke Group G location resolution.
+    fires_location_ai: bool,
 }
 
 #[derive(Clone, Serialize, Default)]
@@ -61,8 +63,10 @@ struct PerGroupOutcomeCounts {
 struct EstimateAiTokenBreakdown {
     description_input_tokens: u64,
     title_input_tokens: u64,
+    location_input_tokens: u64,
     description_call_count: u32,
     title_call_count: u32,
+    location_call_count: u32,
 }
 
 #[derive(Clone, Serialize)]
@@ -81,11 +85,13 @@ struct EstimatePricing {
 struct NormaliseEstimateCompletePayload {
     n_images_with_ai_b: u32,
     n_images_with_ai_c: u32,
+    n_images_with_ai_g: u32,
     n_images_no_ai: u32,
     total_input_tokens: u64,
     predicted_cost_usd: f64,
     upper_bound_cost_usd: f64,
     model: String,
+    location_model: String,
     /// Per-group outcome counts collected by walking every image
     /// through every group (regardless of user selection). Powers the
     /// confirm-phase outcome table; selection changes recompute cost
@@ -100,11 +106,14 @@ struct NormaliseEstimateCompletePayload {
     /// Pricing constants for the configured model. `None` when no
     /// preflight ran (no key, or no AI prompts captured).
     pricing: Option<EstimatePricing>,
+    location_pricing: Option<EstimatePricing>,
     /// Output-token caps for client-side cost recomputation.
     expected_out_per_call_b: u32,
     max_out_per_call_b: u32,
     expected_out_per_call_c: u32,
     max_out_per_call_c: u32,
+    expected_out_per_call_g: u32,
+    max_out_per_call_g: u32,
 }
 
 #[derive(Clone, Serialize)]
@@ -128,6 +137,7 @@ fn count_overwrites_for_group(
     edits: &crate::draft_edits::SchemaMetadataEditMap,
     fires_description_ai: bool,
     fires_title_ai: bool,
+    fires_location_ai: bool,
 ) -> u32 {
     use crate::draft_edits::EditIntent;
     use crate::metadata_value::MetadataValue;
@@ -136,6 +146,7 @@ fn count_overwrites_for_group(
     let assume_ai = match group {
         G::Description => fires_description_ai,
         G::Title => fires_title_ai,
+        G::Location => fires_location_ai,
         _ => false,
     };
 
@@ -383,18 +394,29 @@ pub async fn estimate_normalise_cost_cmd(
     // selects an AI group.
     let preflight = match make_openai_client(&app) {
         Ok((client, settings)) => {
-            let model = settings.normalise_metadata_model.clone();
-            match openai_describe::pricing_for(&model) {
-                Some(p) => Some((
-                    openai_normalise::OpenAiNormaliseClient::new(client, model.clone()),
-                    model,
-                    p,
+            let metadata_model = settings.normalise_metadata_model.clone();
+            let location_model = settings.normalise_location_model.clone();
+            match (
+                openai_describe::pricing_for(&metadata_model),
+                openai_describe::pricing_for(&location_model),
+            ) {
+                (Some(metadata_pricing), Some(location_pricing)) => Some((
+                    openai_normalise::OpenAiNormaliseClient::with_models(
+                        client,
+                        metadata_model.clone(),
+                        location_model.clone(),
+                    ),
+                    metadata_model,
+                    metadata_pricing,
+                    location_model,
+                    location_pricing,
                     settings.ai_cost_estimate_mode,
                 )),
-                None => {
+                _ => {
                     log::warn!(
-                        "[normalise] estimate: no pricing entry for model {}; skipping preflight",
-                        model
+                        "[normalise] estimate: missing pricing for metadata model {} or location model {}; skipping preflight",
+                        metadata_model,
+                        location_model
                     );
                     None
                 }
@@ -410,8 +432,10 @@ pub async fn estimate_normalise_cost_cmd(
         BTreeMap::new();
     let mut description_input_tokens: u64 = 0;
     let mut title_input_tokens: u64 = 0;
+    let mut location_input_tokens: u64 = 0;
     let mut n_images_with_ai_b: u32 = 0;
     let mut n_images_with_ai_c: u32 = 0;
+    let mut n_images_with_ai_g: u32 = 0;
     let mut n_images_no_ai: u32 = 0;
     for (index, item) in items.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
@@ -431,8 +455,10 @@ pub async fn estimate_normalise_cost_cmd(
 
         let description_prompts = capturing.description_prompts.lock().await.clone();
         let title_prompts = capturing.title_prompts.lock().await.clone();
+        let location_prompts = capturing.location_prompts.lock().await.clone();
         let fires_description_ai = !description_prompts.is_empty();
         let fires_title_ai = !title_prompts.is_empty();
+        let fires_location_ai = !location_prompts.is_empty();
 
         // Roll per-image stats into the outcome map. PerGroupStats
         // counters are 0/1 at the per-image scale; this turns them
@@ -454,12 +480,13 @@ pub async fn estimate_normalise_cost_cmd(
                     &edits,
                     fires_description_ai,
                     fires_title_ai,
+                    fires_location_ai,
                 );
             }
         }
 
         let mut per_image_input_tokens: u32 = 0;
-        if let Some((normalise_client, _, _, estimate_mode)) = preflight.as_ref() {
+        if let Some((normalise_client, _, _, _, _, estimate_mode)) = preflight.as_ref() {
             for prompt in &description_prompts {
                 let n = match estimate_mode {
                     AiCostEstimateMode::Heuristic => {
@@ -508,6 +535,31 @@ pub async fn estimate_normalise_cost_cmd(
                 title_input_tokens += n as u64;
                 per_image_input_tokens = per_image_input_tokens.saturating_add(n);
             }
+            for prompt in &location_prompts {
+                let n = match estimate_mode {
+                    AiCostEstimateMode::Heuristic => {
+                        openai_normalise::HEURISTIC_LOCATION_INPUT_TOKENS
+                    }
+                    AiCostEstimateMode::Exact => {
+                        let body = normalise_client.location_request_body(prompt);
+                        normalise_client
+                            .count_input_tokens(&body)
+                            .await
+                            .map_err(|e| {
+                                let _ = app.emit(
+                                    "normalise_estimate_error",
+                                    NormaliseEstimateErrorPayload {
+                                        relative_path: item.rel_path.clone(),
+                                        message: e.clone(),
+                                    },
+                                );
+                                format!("{}: {}", item.rel_path, e)
+                            })?
+                    }
+                };
+                location_input_tokens += n as u64;
+                per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+            }
         }
 
         if fires_description_ai {
@@ -516,7 +568,10 @@ pub async fn estimate_normalise_cost_cmd(
         if fires_title_ai {
             n_images_with_ai_c += 1;
         }
-        if !fires_description_ai && !fires_title_ai {
+        if fires_location_ai {
+            n_images_with_ai_g += 1;
+        }
+        if !fires_description_ai && !fires_title_ai && !fires_location_ai {
             n_images_no_ai += 1;
         }
 
@@ -529,6 +584,7 @@ pub async fn estimate_normalise_cost_cmd(
                 input_tokens: per_image_input_tokens,
                 fires_description_ai,
                 fires_title_ai,
+                fires_location_ai,
             },
         );
     }
@@ -540,39 +596,62 @@ pub async fn estimate_normalise_cost_cmd(
     let max_out_per_call_b: u32 = openai_normalise::DESCRIPTION_OUTPUT_TOKENS;
     let expected_out_per_call_c: u32 = openai_normalise::EXPECTED_TITLE_OUTPUT_TOKENS;
     let max_out_per_call_c: u32 = openai_normalise::TITLE_OUTPUT_TOKENS;
+    let expected_out_per_call_g: u32 = openai_normalise::EXPECTED_LOCATION_OUTPUT_TOKENS;
+    let max_out_per_call_g: u32 = openai_normalise::LOCATION_OUTPUT_TOKENS;
 
-    let total_input_tokens = description_input_tokens + title_input_tokens;
-    let (predicted_cost, upper_bound, model_out, pricing_out, breakdown_out) =
-        if let Some((_, model, pricing, _)) = preflight.as_ref() {
-            let (predicted, upper) = openai_normalise::estimate_normalise_cost_from_tokens(
+    let total_input_tokens = description_input_tokens + title_input_tokens + location_input_tokens;
+    let (
+        predicted_cost,
+        upper_bound,
+        model_out,
+        location_model_out,
+        pricing_out,
+        location_pricing_out,
+        breakdown_out,
+    ) = if let Some((_, model, pricing, location_model, location_pricing, _)) = preflight.as_ref() {
+        let (metadata_predicted, metadata_upper) =
+            openai_normalise::estimate_normalise_cost_from_tokens(
                 model,
                 description_input_tokens,
                 title_input_tokens,
                 n_images_with_ai_b,
                 n_images_with_ai_c,
             )?;
-            (
-                predicted,
-                upper,
-                model.clone(),
-                Some(EstimatePricing {
-                    input_per_1m: pricing.input_per_1m,
-                    output_per_1m: pricing.output_per_1m,
-                }),
-                Some(EstimateAiTokenBreakdown {
-                    description_input_tokens,
-                    title_input_tokens,
-                    description_call_count: n_images_with_ai_b,
-                    title_call_count: n_images_with_ai_c,
-                }),
-            )
-        } else {
-            (0.0, 0.0, String::new(), None, None)
-        };
+        let (location_predicted, location_upper) =
+            openai_normalise::estimate_location_cost_from_tokens(
+                location_model,
+                location_input_tokens,
+                n_images_with_ai_g,
+            )?;
+        (
+            metadata_predicted + location_predicted,
+            metadata_upper + location_upper,
+            model.clone(),
+            location_model.clone(),
+            Some(EstimatePricing {
+                input_per_1m: pricing.input_per_1m,
+                output_per_1m: pricing.output_per_1m,
+            }),
+            Some(EstimatePricing {
+                input_per_1m: location_pricing.input_per_1m,
+                output_per_1m: location_pricing.output_per_1m,
+            }),
+            Some(EstimateAiTokenBreakdown {
+                description_input_tokens,
+                title_input_tokens,
+                location_input_tokens,
+                description_call_count: n_images_with_ai_b,
+                title_call_count: n_images_with_ai_c,
+                location_call_count: n_images_with_ai_g,
+            }),
+        )
+    } else {
+        (0.0, 0.0, String::new(), String::new(), None, None, None)
+    };
 
     log::info!(
-        "[normalise] estimate complete b={} c={} no_ai={} input_tokens={} predicted=${:.6} upper=${:.6}",
-        n_images_with_ai_b, n_images_with_ai_c, n_images_no_ai,
+        "[normalise] estimate complete b={} c={} g={} no_ai={} input_tokens={} predicted=${:.6} upper=${:.6}",
+        n_images_with_ai_b, n_images_with_ai_c, n_images_with_ai_g, n_images_no_ai,
         total_input_tokens, predicted_cost, upper_bound,
     );
     let _ = app.emit(
@@ -580,18 +659,23 @@ pub async fn estimate_normalise_cost_cmd(
         NormaliseEstimateCompletePayload {
             n_images_with_ai_b,
             n_images_with_ai_c,
+            n_images_with_ai_g,
             n_images_no_ai,
             total_input_tokens,
             predicted_cost_usd: predicted_cost,
             upper_bound_cost_usd: upper_bound,
             model: model_out,
+            location_model: location_model_out,
             per_group_outcomes,
             ai_token_breakdown: breakdown_out,
             pricing: pricing_out,
+            location_pricing: location_pricing_out,
             expected_out_per_call_b,
             max_out_per_call_b,
             expected_out_per_call_c,
             max_out_per_call_c,
+            expected_out_per_call_g,
+            max_out_per_call_g,
         },
     );
     normalise_state.clear();
@@ -625,17 +709,19 @@ pub async fn normalise_metadata_cmd(
         enabled_groups
     );
 
-    // Plan §1 Group B / Group C require an OpenAI key when their AI
+    // Plan §1 Groups B / C / G require an OpenAI key when their AI
     // branches fire. We construct the client up-front when either group
     // is enabled; per-image AI failures surface as failure rows instead
     // of aborting the batch.
     let wants_ai = enabled_groups.contains(&normalise::NormaliseGroup::Description)
-        || enabled_groups.contains(&normalise::NormaliseGroup::Title);
+        || enabled_groups.contains(&normalise::NormaliseGroup::Title)
+        || enabled_groups.contains(&normalise::NormaliseGroup::Location);
     let ai_client: Option<openai_normalise::OpenAiNormaliseClient> = if wants_ai {
         match make_openai_client(&app) {
-            Ok((client, settings)) => Some(openai_normalise::OpenAiNormaliseClient::new(
+            Ok((client, settings)) => Some(openai_normalise::OpenAiNormaliseClient::with_models(
                 client,
                 settings.normalise_metadata_model.clone(),
+                settings.normalise_location_model.clone(),
             )),
             Err(e) => {
                 log::warn!(
@@ -725,12 +811,6 @@ pub async fn normalise_metadata_cmd(
                 if let Ok(app_dir) = app_data_dir(&app) {
                     let log_path = app_dir.join("normalise_audit.jsonl");
                     let now = chrono::Utc::now().to_rfc3339();
-                    let model_name = ai_client_arc
-                        .as_ref()
-                        .as_ref()
-                        .map(|c| c.model().to_string())
-                        .unwrap_or_default();
-                    let pricing = openai_describe::pricing_for(&model_name);
                     // Conflict-counter rows (user-requested archaeology).
                     if loc_conflicts > 0 {
                         let entry = normalise::NormaliseAuditEntry {
@@ -766,6 +846,19 @@ pub async fn normalise_metadata_cmd(
                         let _ = batch_audit_log::append(&log_path, &entry);
                     }
                     for call in &ai_calls {
+                        let model_name = ai_client_arc
+                            .as_ref()
+                            .as_ref()
+                            .map(|client| {
+                                if call.group == "location" {
+                                    client.location_model()
+                                } else {
+                                    client.model()
+                                }
+                            })
+                            .unwrap_or_default()
+                            .to_string();
+                        let pricing = openai_describe::pricing_for(&model_name);
                         let cost = pricing.map(|p| call.usage.cost(&p)).unwrap_or(0.0);
                         log::info!(
                             "[normalise] ai_call path={} group={} status={} input_tokens={} cached_tokens={} cache_write_tokens={} output_tokens={} reasoning_tokens={} non_reasoning_output_tokens={} service_tier={} reasoning_effort={} cost_usd={}",
@@ -784,7 +877,7 @@ pub async fn normalise_metadata_cmd(
                         );
                         let entry = normalise::NormaliseAuditEntry {
                             ts: now.clone(),
-                            model: model_name.clone(),
+                            model: model_name,
                             prompt_version: openai_normalise::NORMALISE_PROMPT_VERSION.to_string(),
                             group: call.group.to_string(),
                             input_tokens: call.usage.input_tokens,
@@ -810,13 +903,19 @@ pub async fn normalise_metadata_cmd(
                 } else {
                     // No app-data dir: still record cost into the summary
                     // so the done panel doesn't lose the AI-cost total.
-                    let model_name = ai_client_arc
-                        .as_ref()
-                        .as_ref()
-                        .map(|c| c.model().to_string())
-                        .unwrap_or_default();
-                    let pricing = openai_describe::pricing_for(&model_name);
                     for call in &ai_calls {
+                        let model_name = ai_client_arc
+                            .as_ref()
+                            .as_ref()
+                            .map(|client| {
+                                if call.group == "location" {
+                                    client.location_model()
+                                } else {
+                                    client.model()
+                                }
+                            })
+                            .unwrap_or_default();
+                        let pricing = openai_describe::pricing_for(model_name);
                         let cost = pricing.map(|p| call.usage.cost(&p)).unwrap_or(0.0);
                         summary.record_ai_call(cost);
                     }

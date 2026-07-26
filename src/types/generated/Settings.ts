@@ -20,6 +20,11 @@ openai_model: string,
  */
 normalise_metadata_model: string, 
 /**
+ * Model id used only when Normalize Metadata must create
+ * LocationCreated from raw reverse-geocode evidence.
+ */
+normalise_location_model: string, 
+/**
  * Shared mode for pre-confirm AI cost estimates. Heuristic is
  * local-only and fast; Exact preserves the OpenAI `/responses/input_tokens`
  * preflight.

@@ -13,6 +13,18 @@ export type LocationInput = {
  */
 locationCreated: MetadataValue | null, 
 /**
+ * Exact Nominatim GeocodeJSON response recorded by Reverse Geocode.
+ */
+geocodeJson: string | null, 
+/**
+ * Exact Nominatim JSONv2 response recorded by Reverse Geocode.
+ */
+jsonV2: string | null, 
+/**
+ * Camera coordinates copied deterministically into LocationCreated.
+ */
+gpsLatitude: number | null, gpsLongitude: number | null, gpsAltitude: number | null, gpsAltitudeRef: number | null, 
+/**
  * `XMP-iptcCore:Location` (primary).
  */
 locationXmp: string | null, 

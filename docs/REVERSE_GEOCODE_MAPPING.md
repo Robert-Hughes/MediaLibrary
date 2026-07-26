@@ -1,47 +1,103 @@
-# Reverse-Geocode Metadata Mapping
+# Reverse-Geocode Evidence and Location Normalization
 
-MediaLibrary requests Nominatim's GeocodeJSON response in English and replaces
-`XMP-iptcExt:LocationCreated` with exactly one structured location. Reverse
-Geocode does not write the older flat XMP/IPTC fields; Normalise Location
-projects the compatible members to them.
+## Why the API responses are not mapped directly
 
-## GeocodeJSON to LocationCreated
+Nominatim GeocodeJSON and JSONv2 are views over the same selected OSM feature,
+but their formatters assign address hierarchy rows differently. Neither
+formatter is universally better for photographic metadata:
 
-| LocationCreated member        | GeocodeJSON source                 | Reason                                                                                        |
-| ----------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
-| `Sublocation`                 | `name`, else `street`              | The selected named feature is the most specific place; a street is the conservative fallback. |
-| `City`                        | `city`                             | `locality`, `district`, and `county` have different meanings and are not promoted.            |
-| `ProvinceState`               | `state`, else `admin.level4`       | The numbered admin hierarchy is the only structural state fallback.                           |
-| `CountryName`                 | `country`                          | GeocodeJSON's normalized country label.                                                       |
-| `CountryCode`                 | uppercase `country_code`           | ISO 3166-1 alpha-2 semantic value.                                                            |
-| `LocationId`                  | OSM URL from `osm_type` + `osm_id` | A stable, inspectable identifier for the selected feature.                                    |
-| `GPSLatitude`, `GPSLongitude` | original photo/query coordinates   | Feature geometry may be a centroid or entrance; it must not replace the camera position.      |
+- JSONv2 called Ely the city where GeocodeJSON called East Cambridgeshire the
+  city and Ely the district.
+- GeocodeJSON preserved Tokyo as the city/state where JSONv2 called Minato the
+  city and exposed Tokyo only as `JP-13`.
+- both formats can select a nearby feature that is technically suitable for
+  reverse lookup but is not the venue a person would use to describe a photo.
 
-`LocationName` and `WorldRegion` remain unset because GeocodeJSON does not
-provide an unambiguous mapping for them. There are no place-specific aliases
-or corrections (including no London special case).
+Hard-coded field precedence therefore encodes accidental formatter semantics.
+Place-specific corrections such as a London rule are explicitly excluded.
+Instead, Reverse Geocode preserves both raw responses and Normalize Metadata
+performs the semantic interpretation.
 
-The whole `LocationCreated` bag is replaced atomically with one structure.
-Omitted members therefore cannot retain stale data from an earlier geocode.
-An all-empty civic result is a failure and creates no draft.
+## Evidence storage
 
-## Normalisation contract
+The exact response bodies are stored independently:
 
-`LocationCreated` is repeatable in IPTC Extension. MediaLibrary uses it as the
-canonical source only when exactly one structure is present:
+| Read-only normalization input        | Meaning                             |
+| ------------------------------------ | ----------------------------------- |
+| `XMP-mlib:ReverseGeocodeGeocodeJSON` | Exact `format=geocodejson` response |
+| `XMP-mlib:ReverseGeocodeJSONv2`      | Exact `format=jsonv2` response      |
 
-- its five overlapping members (`Sublocation`, `City`, `ProvinceState`,
-  `CountryName`, `CountryCode`) are projected to the five XMP/IIM pairs;
-- a missing member clears both corresponding flat fields;
-- GPS and `LocationId` remain only in the structure;
-- multiple or malformed structures are left unchanged because selecting one
-  would discard meaning.
+Two plain text fields were chosen over a wrapper structure or one field per
+Nominatim property. This keeps the XMP contract small, retains fields that may
+become useful later, and lets the model reason over the provider formats
+without MediaLibrary maintaining another partial address schema.
 
-When `LocationCreated` is absent, the existing XMP-wins conflict policy derives
-the five semantic values from the flat pairs, creates one structure containing
-only those values, and synchronizes the pairs. This makes the next pass
-idempotent.
+## Normalize Location decision order
 
-The cache is version 4 because it stores the structured candidate, including
-the OSM identifier. Older projections are discarded rather than mixed with the
-new semantics.
+1. If exactly one valid `LocationCreated` structure exists, it is
+   authoritative. AI is not called, even when newer evidence exists.
+2. If `LocationCreated` is absent and either evidence field is non-empty, the
+   configured location-normalization model receives the available response
+   strings verbatim and returns the human-facing members.
+3. If neither evidence field exists, the existing five XMP/IIM pairs seed
+   `LocationCreated` deterministically; XMP wins a disagreement.
+4. Multiple or malformed `LocationCreated` structures remain a manual
+   ambiguity. AI must not discard or silently choose one.
+
+This mirrors Title normalization: AI fills a missing canonical value from
+available evidence, but an existing canonical value is trusted. No additional
+model/prompt provenance is written. Clearing `LocationCreated` is therefore
+the explicit way to request reinterpretation of stored evidence.
+
+## AI and deterministic responsibilities
+
+The AI returns nullable human-facing strings:
+
+- `Sublocation`
+- `City`
+- `ProvinceState`
+- `CountryName`
+- `WorldRegion`
+- `LocationName`
+
+The system prompt defines their IPTC meanings, requests English or commonly
+anglicised names, permits supported combinations such as `Minato, Tokyo`, and
+requires null rather than invention when the responses do not support a
+field. A strict OpenAI Structured Outputs schema enforces the response shape;
+schema compliance does not replace semantic testing, which is why the model
+is a user setting.
+
+MediaLibrary deterministically supplies:
+
+- `GPSLatitude`, `GPSLongitude`, `GPSAltitude`, and `GPSAltitudeRef` from the
+  photo metadata;
+- `LocationId` as the deduplicated bag of valid OSM identities exposed by
+  either response;
+- `CountryCode` only when the valid ISO 3166-1 alpha-2 values supplied by the
+  responses agree.
+
+## Legacy projection
+
+After creating or reading canonical `LocationCreated`, Normalize projects its
+five overlapping members:
+
+| `LocationCreated` | XMP mirror                 | IPTC/IIM mirror                    |
+| ----------------- | -------------------------- | ---------------------------------- |
+| `Sublocation`     | `XMP-iptcCore:Location`    | `IPTC:Sub-location`                |
+| `City`            | `XMP-photoshop:City`       | `IPTC:City`                        |
+| `ProvinceState`   | `XMP-photoshop:State`      | `IPTC:Province-State`              |
+| `CountryName`     | `XMP-photoshop:Country`    | `IPTC:Country-PrimaryLocationName` |
+| `CountryCode`     | `XMP-iptcCore:CountryCode` | `IPTC:Country-PrimaryLocationCode` |
+
+Projection is deliberately deterministic: values are copied, whitespace and
+country-code representation are normalized, and only the required 32-character
+IPTC Sublocation limit loses detail. Richer members remain in
+`LocationCreated` because the legacy fields have no equivalents.
+
+## Known consequence
+
+If both responses select `Winged Figure` and no response mentions John Lewis,
+the model cannot recover John Lewis from those two inputs. Existing legacy
+fields are deliberately not supplied to the AI when reverse-geocode evidence
+is present; fresh evidence wins only while `LocationCreated` is absent. This
+trade-off keeps the prompt contract simple and predictable.

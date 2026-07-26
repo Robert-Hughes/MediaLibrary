@@ -109,6 +109,10 @@ mod tests {
             "config must declare AIDescription field"
         );
         assert!(
+            s.contains("ReverseGeocodeGeocodeJSON") && s.contains("ReverseGeocodeJSONv2"),
+            "config must declare both raw reverse-geocode evidence fields"
+        );
+        assert!(
             s.contains("medialibrary.local/ns/"),
             "namespace URI must be present"
         );

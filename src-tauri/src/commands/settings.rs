@@ -50,3 +50,10 @@ pub fn estimate_per_image_normalise_cost_cmd(model: String) -> Result<f64, Strin
     openai_normalise::typical_normalise_cost_per_image(&model)
         .ok_or_else(|| format!("no pricing entry for model {}", model))
 }
+
+/// Ballpark cost for the distinct location-resolution AI call.
+#[tauri::command]
+pub fn estimate_per_image_location_normalise_cost_cmd(model: String) -> Result<f64, String> {
+    openai_normalise::typical_location_normalise_cost_per_image(&model)
+        .ok_or_else(|| format!("no pricing entry for model {}", model))
+}

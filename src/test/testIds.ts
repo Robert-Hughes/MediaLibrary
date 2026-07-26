@@ -46,6 +46,8 @@ const known: Record<string, SchemaDefinitionId> = {
   "XMP-mlib:AIObjects": ID.mlibAiObjects,
   "XMP-mlib:AIOcrText": ID.mlibAiOcrText,
   "XMP-mlib:AITags": ID.mlibAiTags,
+  "XMP-mlib:ReverseGeocodeGeocodeJSON": ID.mlibReverseGeocodeGeocodeJson,
+  "XMP-mlib:ReverseGeocodeJSONv2": ID.mlibReverseGeocodeJsonV2,
   "IPTC:ObjectName": ID.iptcObjectName,
   "IPTC:Keywords": ID.iptcKeywords,
   "IPTC:DateCreated": ID.iptcDateCreated,

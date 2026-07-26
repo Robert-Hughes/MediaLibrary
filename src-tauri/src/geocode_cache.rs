@@ -57,17 +57,16 @@ pub struct GeocodeCacheEntry {
 #[serde(rename_all = "camelCase")]
 pub struct CachedResult {
     pub display_name: String,
-    pub location: Option<String>,
-    pub city: Option<String>,
-    pub state: Option<String>,
-    pub country: Option<String>,
-    pub country_code: Option<String>,
-    pub location_id: Option<String>,
+    /// Exact response bodies are cached so a cache hit produces the same
+    /// durable evidence drafts as a live pair of Nominatim requests.
+    pub geocode_json: String,
+    pub json_v2: String,
 }
 
-// Version 4 stores the structured LocationCreated candidate (including the
-// stable OSM identifier) and invalidates v3's ten-field projection.
-pub const CACHE_VERSION: u32 = 4;
+// Version 5 stores the two raw response bodies rather than a prematurely
+// interpreted LocationCreated candidate. Normalize Metadata owns that
+// interpretation, optionally using AI.
+pub const CACHE_VERSION: u32 = 5;
 
 /// Compute great-circle distance between two coordinate pairs, in metres.
 ///
@@ -182,12 +181,8 @@ mod tests {
             source: "nominatim".into(),
             result: CachedResult {
                 display_name: "Westminster".into(),
-                location: None,
-                city: Some("Westminster".into()),
-                state: None,
-                country: None,
-                country_code: None,
-                location_id: None,
+                geocode_json: r#"{"features":[]}"#.into(),
+                json_v2: r#"{"display_name":"Westminster"}"#.into(),
             },
         });
         let hit = c.lookup(51.5002, -0.1262);
@@ -205,12 +200,8 @@ mod tests {
             source: "nominatim".into(),
             result: CachedResult {
                 display_name: name.into(),
-                location: None,
-                city: None,
-                state: None,
-                country: None,
-                country_code: None,
-                location_id: None,
+                geocode_json: format!(r#"{{"name":"{name}"}}"#),
+                json_v2: format!(r#"{{"display_name":"{name}"}}"#),
             },
         };
         c.upsert(mk(51.5001, "first"));
@@ -230,18 +221,15 @@ mod tests {
             source: "nominatim".into(),
             result: CachedResult {
                 display_name: "X".into(),
-                location: Some("Tower".into()),
-                city: Some("London".into()),
-                state: None,
-                country: Some("United Kingdom".into()),
-                country_code: Some("GB".into()),
-                location_id: Some("https://www.openstreetmap.org/node/1".into()),
+                geocode_json: r#"{"features":[{"properties":{"geocoding":{"name":"Tower"}}}]}"#
+                    .into(),
+                json_v2: r#"{"display_name":"Tower, London"}"#.into(),
             },
         });
         save(dir.path(), &c).unwrap();
         let back = load(dir.path());
         assert_eq!(back.entries.len(), 1);
-        assert_eq!(back.entries[0].result.location.as_deref(), Some("Tower"));
+        assert!(back.entries[0].result.geocode_json.contains("Tower"));
         assert_eq!(back.entries[0].source, "nominatim");
     }
 
@@ -290,6 +278,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = cache_path(dir.path());
         fs::write(&path, br#"{"version": 3, "entries": []}"#).unwrap();
+        let c = load(dir.path());
+        assert_eq!(c.entries.len(), 0);
+        assert_eq!(c.version, CACHE_VERSION);
+    }
+
+    #[test]
+    fn load_invalidates_pre_raw_evidence_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = cache_path(dir.path());
+        fs::write(&path, br#"{"version": 4, "entries": []}"#).unwrap();
         let c = load(dir.path());
         assert_eq!(c.entries.len(), 0);
         assert_eq!(c.version, CACHE_VERSION);

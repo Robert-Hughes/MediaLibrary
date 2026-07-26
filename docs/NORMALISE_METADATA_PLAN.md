@@ -240,19 +240,21 @@ No AI.
 
 ### Group G — Location (LocationCreated canonical)
 
-| Role       | Field                              | Datatype                               |
-| ---------- | ---------------------------------- | -------------------------------------- |
-| Canonical  | `XMP-iptcExt:LocationCreated`      | bag of Location structures             |
-| Projection | `XMP-iptcCore:Location`            | string                                 |
-| Derivative | `IPTC:Sub-location`                | string                                 |
-| Projection | `XMP-photoshop:City`               | string                                 |
-| Derivative | `IPTC:City`                        | string                                 |
-| Projection | `XMP-photoshop:State`              | string                                 |
-| Derivative | `IPTC:Province-State`              | string                                 |
-| Projection | `XMP-photoshop:Country`            | string                                 |
-| Derivative | `IPTC:Country-PrimaryLocationName` | string                                 |
-| Projection | `XMP-iptcCore:CountryCode`         | string (ISO 3166-1 alpha-2, uppercase) |
-| Derivative | `IPTC:Country-PrimaryLocationCode` | fixed-width legacy IPTC projection     |
+| Role       | Field                                | Datatype                               |
+| ---------- | ------------------------------------ | -------------------------------------- |
+| Canonical  | `XMP-iptcExt:LocationCreated`        | bag of Location structures             |
+| AI input   | `XMP-mlib:ReverseGeocodeGeocodeJSON` | exact Nominatim response text          |
+| AI input   | `XMP-mlib:ReverseGeocodeJSONv2`      | exact Nominatim response text          |
+| Projection | `XMP-iptcCore:Location`              | string                                 |
+| Derivative | `IPTC:Sub-location`                  | string                                 |
+| Projection | `XMP-photoshop:City`                 | string                                 |
+| Derivative | `IPTC:City`                          | string                                 |
+| Projection | `XMP-photoshop:State`                | string                                 |
+| Derivative | `IPTC:Province-State`                | string                                 |
+| Projection | `XMP-photoshop:Country`              | string                                 |
+| Derivative | `IPTC:Country-PrimaryLocationName`   | string                                 |
+| Projection | `XMP-iptcCore:CountryCode`           | string (ISO 3166-1 alpha-2, uppercase) |
+| Derivative | `IPTC:Country-PrimaryLocationCode`   | fixed-width legacy IPTC projection     |
 
 When exactly one LocationCreated structure exists, its `Sublocation`, `City`,
 `ProvinceState`, `CountryName`, and `CountryCode` members are canonical and
@@ -261,9 +263,19 @@ corresponding flat fields. Other structured members such as GPS and
 `LocationId` are preserved in LocationCreated and have no flat projection.
 Multiple structures are ambiguous and produce no drafts.
 
-When LocationCreated is absent, the five pairs are read independently using
-the existing XMP-wins conflict policy. Their canonical values create one
-LocationCreated structure and are also synchronized across each pair.
+When LocationCreated is absent and either raw reverse-geocode evidence field
+is present, Group G uses its configured AI model to interpret the two response
+strings. AI supplies only the human-facing names (`Sublocation`, `City`,
+`ProvinceState`, `CountryName`, `WorldRegion`, and `LocationName`).
+Coordinates come from the photo, OSM LocationIds come from the responses, and
+CountryCode is copied only when the supplied valid alpha-2 codes agree. The
+completed structure then follows the same deterministic projection path as an
+existing LocationCreated.
+
+When LocationCreated and reverse-geocode evidence are both absent, the five
+pairs are read independently using the existing XMP-wins conflict policy.
+Their canonical values create one LocationCreated structure and are also
+synchronized across each pair.
 
 **Country-code projection.** `XMP-iptcCore:CountryCode` stores the normal
 alpha-2 semantic value, e.g. `GB`. `IPTC:Country-PrimaryLocationCode` stores
@@ -281,11 +293,11 @@ conversion and does not use an ISO lookup table.
    projections to both (handles e.g. `gb` vs `GB`, and `GB` vs `GB ` for
    CountryCode).
 4. Both non-empty AND distinct after canonicalisation → primary (XMP side)
-   wins. Recorded in stats as `n_location_xmp_iim_conflict`. No AI —
-   never AI-merge place names.
+   wins. Recorded in stats as `n_location_xmp_iim_conflict`. This fallback is
+   used only when no canonical structure or reverse-geocode evidence exists.
 
-Reverse Geocode writes only LocationCreated; Group G is the explicit step that
-projects it for older consumers.
+Reverse Geocode writes only the two `XMP-mlib` evidence fields. Group G is the
+explicit semantic interpretation and legacy-projection step.
 
 ### Group H — Dates
 
@@ -443,6 +455,11 @@ Picker UI mirrors the existing `ai_describe_model` setting; instead of
 showing the estimated cost to describe one file, the dropdown shows the
 estimated cost to **normalise** one file's metadata when AI is required.
 
+Location uses a second setting, `normalise_location_model`, with the same
+recommended-model picker and default. It is separate because reverse-geocode
+hierarchy selection is a distinct quality/cost experiment from description
+merging and title generation.
+
 **Settings dropdown preview cost.** At settings-time there is no
 selection to dry-run, so the dropdown uses a synthetic typical-cost-per-
 file helper mirroring describe's
@@ -482,8 +499,13 @@ The dropdown label format matches describe: `gpt-5.4-nano (≈ $0.0001 per photo
 1. Group B AI generation — when all Description target sources are empty but AI-derived context exists.
 2. Group B AI merge — when Description target sources conflict.
 3. Group C AI title generation — when all Group C targets are empty and Description canonical is available (including newly regenerated Description).
+4. Group G AI location resolution — when LocationCreated is absent and at
+   least one of `XMP-mlib:ReverseGeocodeGeocodeJSON` or
+   `XMP-mlib:ReverseGeocodeJSONv2` is non-empty.
 
-Nothing else. All other normalisation is deterministic string processing.
+Existing LocationCreated always suppresses the Group G call. All projection,
+coordinates, country-code agreement, and OSM identifier construction remain
+deterministic.
 
 **Group B prompt.**
 
@@ -550,18 +572,25 @@ User message:
 
 Output: `{"title": string}`.
 
+**Group G prompt.** The two response strings are supplied verbatim and clearly
+labelled. The system prompt defines the IPTC meaning of each human-facing
+member, requests English or commonly anglicised names, allows supported
+combinations such as `Minato, Tokyo`, and requires null for unsupported
+fields. Structured output returns nullable `sublocation`, `city`,
+`provinceState`, `countryName`, `worldRegion`, and `locationName` values.
+
 **Image bytes are never sent.** All visual content is assumed already
 distilled into `XMP-mlib:AIDescription` via the AI Describe feature; users
 who want richer descriptions should run AI Describe first.
 
 **Cost audit.** Each AI call appends a JSONL row to a normaliser audit log
 in the same style as `describe_log.rs`. Fields: timestamp, model,
-prompt_version, group (`description` / `title`), input token count, output
+prompt_version, group (`description` / `title` / `location`), input token count, output
 token count, cost, error (if any), relative_path. The user can compare
 before/after manually if they want.
 
-**Prompt version.** Initial `"v1"`. Bumped when either prompt or schema
-changes; audit-log entries retain old version strings for archaeology.
+**Prompt version.** Current `"v3"`. Bumped when any prompt or schema changes;
+audit-log entries retain old version strings for archaeology.
 
 ## 7. Cost estimation
 
@@ -714,9 +743,10 @@ failure list; non-AI groups for that image still write their drafts.
 
 ### Settings entry
 
-Add `normalise_metadata_model` to the settings dialog. Same UI component as
-`ai_describe_model` but the per-file cost preview uses the
-normalise estimator.
+The settings dialog exposes `normalise_metadata_model` for Description/Title
+and `normalise_location_model` for Location. Both use the same recommended
+model list and local per-file cost helpers; the run estimator prices each call
+with the model configured for that group.
 
 ## 10. Done-panel stats
 
@@ -852,9 +882,11 @@ Context menu entry: `Normalise Metadata…` next to `Reverse Geocode…` and
   - Group D: primary wins; no AI; no generation from description.
   - Group E: union with order preservation; no name normalisation.
   - Group F: longest-wins fallback for derivatives only.
-  - Group G: one LocationCreated projects to five XMP↔IIM pairs, missing
-    members clear their pairs, multiple structures are left unresolved, and
-    absent LocationCreated is seeded from the legacy XMP-wins policy.
+  - Group G: existing LocationCreated suppresses AI and projects to five
+    XMP↔IIM pairs; raw evidence with missing LocationCreated invokes AI once;
+    one evidence field is sufficient; identifiers/GPS/country code remain
+    deterministic; multiple structures are unresolved; without evidence,
+    legacy fields seed LocationCreated using XMP-wins.
   - Group H: H1 / H2 sync; ISO normalisation with and without offset;
     sub-second preservation; IPTC date/time split; filename regex table
     (each pattern); date-only fallback writes 00:00:00 + flags stat;

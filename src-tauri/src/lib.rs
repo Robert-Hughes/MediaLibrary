@@ -1302,6 +1302,7 @@ pub fn run() {
             commands::settings::list_recommended_models,
             commands::settings::estimate_per_image_cost_cmd,
             commands::settings::estimate_per_image_normalise_cost_cmd,
+            commands::settings::estimate_per_image_location_normalise_cost_cmd,
             commands::describe::estimate_describe_cost_cmd,
             commands::describe::describe_images_cmd,
             commands::describe::cancel_describe_cmd,
