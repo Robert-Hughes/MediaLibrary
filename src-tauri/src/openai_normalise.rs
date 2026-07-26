@@ -25,11 +25,12 @@ use crate::normalise::{
 };
 use crate::openai_describe::OpenAiClient;
 use crate::openai_http::OpenAiHttp;
+use crate::openai_request::{apply_responses_model_parameters, LOW_REASONING_EFFORT};
 
 /// Version stamp recorded in the audit log per AI call. Bump when
 /// either prompt or schema changes; old log entries retain the prior
 /// string for archaeology.
-pub const NORMALISE_PROMPT_VERSION: &str = "v3";
+pub const NORMALISE_PROMPT_VERSION: &str = "v4";
 
 const DESCRIPTION_SYSTEM_PROMPT: &str = "You generate or normalise a factual photo description for a personal media library. \
 Produce a single factual paragraph in `x-default` English. \
@@ -45,23 +46,24 @@ const TITLE_SYSTEM_PROMPT: &str = "You generate a short photo title. \
 ≤8 words. Title case. No trailing punctuation. \
 Use the description as the primary source; use location and keywords for disambiguation.";
 
-const LOCATION_SYSTEM_PROMPT: &str = "You resolve two raw Nominatim reverse-geocode responses into the human-facing members of one IPTC Extension LocationCreated structure for a personal photo library. \
-Return English or commonly anglicised place names. Reconcile the GeocodeJSON and JSONv2 hierarchies using their full contents and ordinary geographic meaning; neither format has automatic precedence. \
-Sublocation is the specific named venue, building, landmark, campus area, street, or neighbourhood where the photo was made. \
-City is the useful human-facing settlement or metropolitan locality; it need not follow Nominatim's field label mechanically, and may combine supported components such as `Minato, Tokyo` when that is clearest. \
-ProvinceState is the first useful regional or state-level division above City. \
+const LOCATION_SYSTEM_PROMPT: &str = "You convert two raw Nominatim reverse-geocode responses into canonical human-facing members of one IPTC Extension LocationCreated structure for a personal photo library. \
+Return English or commonly anglicised place names. Reconcile GeocodeJSON and JSONv2 using their full contents; neither format has automatic precedence. \
+Produce stable metadata: identical evidence must map to the same names and formatting. Preserve supported proper-name spelling. Do not add explanatory words, parenthetical glosses, or alternate phrasings. \
+LocationName is only a distinct named venue, building, landmark, or geographic feature. Return null for an ordinary address, road, path, neighbourhood, or settlement, and return null if the value would duplicate Sublocation or another field. \
+Sublocation is the most specific useful place containing the photo after any distinct LocationName: prefer a supported house-number-plus-road address, then a road or path, then a neighbourhood or suburb. Use one concise value. Join a house number and road with one space, such as `55 Impala Drive`; never put a comma between them. Do not append City, ProvinceState, or CountryName, and do not repeat LocationName. \
+City must be a supported populated place or metropolitan locality. Prefer city, then town, then village or municipality. Never put a county, council district, state district, province, state, or region in City. A supported ward or borough may be combined with its metropolitan city, such as `Minato, Tokyo`, only when that is the clearest ordinary locality. \
+ProvinceState is the supported first-order state, province, or region above City. Prefer an explicit state or admin-level-4 equivalent. Do not use a county or state district when a first-order division is available. \
 CountryName is the conventional English country name. \
-WorldRegion is a broad geographic region such as Europe or East Asia, but must be null unless it is directly supported or unambiguous from the supplied country. \
-LocationName is a useful overall name for the created location, but should be null when it would merely duplicate another field. \
-Use only facts supported by the responses. Return null for a field that cannot be set accurately. Do not return coordinates, country codes, or identifiers; the application supplies those deterministically.";
+WorldRegion is a broad geographic region such as Europe or East Asia. Set it when the supplied country makes it unambiguous; otherwise return null. \
+Use only facts supported by the responses. Return null for any field that cannot be set accurately. Do not return coordinates, country codes, or identifiers; the application supplies those deterministically.";
 
 /// Output-token caps for cost-estimation purposes. Mirror plan §6.
 pub const DESCRIPTION_OUTPUT_TOKENS: u32 = 400;
 pub const TITLE_OUTPUT_TOKENS: u32 = 30;
-pub const LOCATION_OUTPUT_TOKENS: u32 = 250;
+pub const LOCATION_OUTPUT_TOKENS: u32 = 1_000;
 pub const EXPECTED_DESCRIPTION_OUTPUT_TOKENS: u32 = 250;
 pub const EXPECTED_TITLE_OUTPUT_TOKENS: u32 = 15;
-pub const EXPECTED_LOCATION_OUTPUT_TOKENS: u32 = 100;
+pub const EXPECTED_LOCATION_OUTPUT_TOKENS: u32 = 150;
 pub const HEURISTIC_DESCRIPTION_INPUT_TOKENS: u32 = 800;
 pub const HEURISTIC_TITLE_INPUT_TOKENS: u32 = 300;
 pub const HEURISTIC_LOCATION_INPUT_TOKENS: u32 = 2_000;
@@ -189,7 +191,7 @@ fn build_request_body(
     schema_name: &str,
     max_output_tokens: u32,
 ) -> serde_json::Value {
-    serde_json::json!({
+    let mut request = serde_json::json!({
         "model": model,
         "service_tier": "default",
         "input": [
@@ -204,10 +206,10 @@ fn build_request_body(
                 "strict": true
             }
         },
-        "temperature": 0,
-        "top_p": 1,
         "max_output_tokens": max_output_tokens,
-    })
+    });
+    apply_responses_model_parameters(&mut request, model, None);
+    request
 }
 
 fn description_schema() -> serde_json::Value {
@@ -250,6 +252,19 @@ fn location_schema() -> serde_json::Value {
             "locationName": nullable_string()
         }
     })
+}
+
+fn build_location_request_body(model: &str, user_payload: serde_json::Value) -> serde_json::Value {
+    let mut request = build_request_body(
+        model,
+        LOCATION_SYSTEM_PROMPT,
+        user_payload,
+        location_schema(),
+        "location_resolution",
+        LOCATION_OUTPUT_TOKENS,
+    );
+    apply_responses_model_parameters(&mut request, model, Some(LOW_REASONING_EFFORT));
+    request
 }
 
 /// Extract the structured-output payload from a `/responses` JSON body.
@@ -295,14 +310,7 @@ impl OpenAiNormaliseClient {
 
     pub fn location_request_body(&self, prompt: &LocationResolvePrompt) -> serde_json::Value {
         let user_payload = serde_json::to_value(prompt).unwrap_or(serde_json::json!({}));
-        build_request_body(
-            &self.location_model,
-            LOCATION_SYSTEM_PROMPT,
-            user_payload,
-            location_schema(),
-            "location_resolution",
-            LOCATION_OUTPUT_TOKENS,
-        )
+        build_location_request_body(&self.location_model, user_payload)
     }
 
     pub fn model(&self) -> &str {
@@ -406,14 +414,7 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
     ) -> Result<(LocationAiResult, AiCallUsage), NormaliseAiError> {
         let user_payload = serde_json::to_value(&prompt)
             .map_err(|e| NormaliseAiError::from(format!("serialise location prompt: {}", e)))?;
-        let body = build_request_body(
-            &self.location_model,
-            LOCATION_SYSTEM_PROMPT,
-            user_payload,
-            location_schema(),
-            "location_resolution",
-            LOCATION_OUTPUT_TOKENS,
-        );
+        let body = build_location_request_body(&self.location_model, user_payload);
         let response = post_responses(&self.http, &body)
             .await
             .map_err(NormaliseAiError::from)?;
@@ -494,6 +495,10 @@ mod tests {
             json_v2: None,
         });
         assert_eq!(body["model"], "gpt-5.6-luna");
+        assert_eq!(body["max_output_tokens"], LOCATION_OUTPUT_TOKENS);
+        assert_eq!(body["reasoning"]["effort"], LOW_REASONING_EFFORT);
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
         assert_eq!(body["text"]["format"]["name"], "location_resolution");
         assert_eq!(body["text"]["format"]["strict"], true);
         assert_eq!(
@@ -515,6 +520,10 @@ mod tests {
             .as_str()
             .unwrap()
             .contains(r#"\"features\""#));
+        assert!(body["input"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Never put a county"));
     }
 
     #[test]
