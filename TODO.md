@@ -2,8 +2,8 @@ Current
 =======
 
 - ReverseGeocoding improvements
-  - UTF-8 normalisation (e.g. for Japan locations)
-  - Improved model and prompt for normalising location fields. Re-run on older photos to check.
+  - UTF-8 normalisation (e.g. for Japan locations). Caused problem when needing to create CodedCharacterSet from scratch, fixing now
+  - Improved model and prompt for normalising location fields. Re-run on older photos to check. Bad on tower bridge photo D:\OneDrive\Pictures\2010\Image0535.jpg. Testing new improvements to the prompt now.
 
 - Check all photos at the end
   - Any missing GPS?
