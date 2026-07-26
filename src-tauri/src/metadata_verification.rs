@@ -37,6 +37,15 @@ pub(crate) fn verify_set_value(
     {
         return ("Match".to_string(), None);
     }
+    if key == &crate::known_ids::iptc_coded_character_set()
+        && observed.is_some_and(|actual| iptc_utf8_marker_values_match(actual, expected))
+    {
+        // ExifTool may expose the printable write alias (`UTF8`) or the raw
+        // IIM escape sequence (`ESC % G`) depending on the read mode. They
+        // are the same declaration and must not leave a successful
+        // conversion draft stuck in mismatch reconciliation.
+        return ("Match".to_string(), None);
+    }
     if observed.is_some_and(|value| metadata_strict_eq(value, expected)) {
         return ("Match".to_string(), None);
     }
@@ -137,6 +146,14 @@ fn iptc_country_code_values_match(actual: &MetadataValue, expected: &MetadataVal
         }
         _ => false,
     }
+}
+
+fn iptc_utf8_marker_values_match(actual: &MetadataValue, expected: &MetadataValue) -> bool {
+    fn is_utf8(value: &MetadataValue) -> bool {
+        matches!(value, MetadataValue::Text(text) if text == "UTF8" || text == "\u{1b}%G")
+    }
+
+    is_utf8(actual) && is_utf8(expected)
 }
 
 fn metadata_list_contains_all(
@@ -577,6 +594,21 @@ mod tests {
         assert_eq!(
             verify_set_value(&other, Some(&expected), Some(&padded), None).0,
             "Mismatch"
+        );
+    }
+
+    #[test]
+    fn iptc_utf8_alias_and_raw_escape_marker_verify_as_equal() {
+        let key = crate::known_ids::iptc_coded_character_set();
+        let alias = MetadataValue::Text("UTF8".to_string());
+        let raw = MetadataValue::Text("\u{1b}%G".to_string());
+        assert_eq!(
+            verify_set_value(&key, Some(&alias), Some(&raw), None).0,
+            "Match"
+        );
+        assert_eq!(
+            verify_set_value(&key, Some(&raw), Some(&alias), None).0,
+            "Match"
         );
     }
 

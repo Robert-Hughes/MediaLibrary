@@ -52,6 +52,8 @@ function groupLabel(g: NormaliseGroup): string {
       return "Dates";
     case "description":
       return "Description";
+    case "iptc_utf8":
+      return "IPTC UTF-8";
   }
 }
 
@@ -85,6 +87,8 @@ function groupBehaviourSummary(g: NormaliseGroup): string {
       return "Writes target fields: ExifIFD:DateTimeOriginal, ExifIFD:CreateDate, XMP-photoshop:DateCreated, IPTC:DateCreated, IPTC:TimeCreated, XMP-xmp:CreateDate, IPTC:DigitalCreationDate, and IPTC:DigitalCreationTime. Reads offset/subsecond fields (ExifIFD:OffsetTimeOriginal, ExifIFD:SubSecTimeOriginal, ExifIFD:OffsetTimeDigitized, ExifIFD:OffsetTime, ExifIFD:SubSecTimeDigitized) and filename fallback input. Behaviour: Normalises dates to ISO 8601; EXIF primary wins on conflict. Falls back to filename matching for shutter time if all shutter-time fields are empty. No AI.";
     case "description":
       return "Writes target fields: XMP-dc:Description, IFD0:ImageDescription, and IPTC:Caption-Abstract. Reads read-only AI inputs: XMP-mlib:AIDescription, XMP-mlib:AIInterpretation, XMP-mlib:AIOcrText, and XMP-mlib:AIObjects; and context: canonical keywords, location, and date. Behaviour: Calls AI to merge description targets on disagreement, or to generate from AI context when targets are empty. If no target or AI context exists, no drafts.";
+    case "iptc_utf8":
+      return "Writes IPTC:CodedCharacterSet=UTF8. When applied, the write planner also rewrites existing non-ASCII IPTC text using its current effective value because changing the marker alone does not transcode existing bytes. No AI.";
   }
 }
 
@@ -330,7 +334,7 @@ function emptyCounts() {
 }
 
 /**
- * Per-group outcome table. Rows = the 8 normalise groups; columns =
+ * Per-group outcome table. Rows = the normalise groups; columns =
  * the four outcome buckets. Rows where every image is a no-op are
  * auto-disabled (and excluded from the selection) since enabling them
  * would be a no-op anyway. Conflict cell renders red when non-zero.

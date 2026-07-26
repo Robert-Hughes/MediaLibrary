@@ -97,6 +97,33 @@ For each requested file, the backend:
 8. persists the reconciled target map; and
 9. appends a target-aware audit record.
 
+### IPTC IIM character-set safety
+
+IPTC IIM text is safe for non-ASCII writes only when the effective
+`IPTC:CodedCharacterSet` for that apply is UTF-8 (`UTF8`, corresponding to
+the raw `ESC % G` marker). Before planning any non-ASCII IPTC property write,
+the backend evaluates that marker using authoritative metadata plus only the
+drafts included in the current apply. If the effective marker is missing,
+ambiguous or anything other than UTF-8, planning rejects that property with
+an error directing the user to the **IPTC UTF-8** normalisation group. ASCII
+IPTC writes and deletes are unaffected.
+
+The normalisation group stages an ordinary
+`IPTC:CodedCharacterSet=UTF8` draft. When an apply changes the marker to
+UTF-8, the planner derives same-value writes for existing non-ASCII IPTC
+occurrences that are otherwise untouched. This apparently redundant behavior
+is required because changing the marker does not make ExifTool transcode
+existing IPTC bytes; without the rewrites, legacy bytes would merely be
+reinterpreted as UTF-8. Explicit drafts in the current apply take precedence,
+including list edits, which are rendered as a complete replacement while the
+conversion is taking place. Drafts still staged in the application but not
+selected for this apply are intentionally invisible to the planner.
+
+Derived rewrites are transient write-plan targets. They are read back and
+verified like explicit targets, and the target-aware audit records the
+derivation reason and physical arguments. They are not stored as drafts and
+do not participate in user-draft reconciliation.
+
 A LangAlt `Set` replaces the complete map: the writer clears the parent first,
 then emits one language-qualified assignment for every intended member. This
 removes omitted languages. Ordinary strict readback verification applies

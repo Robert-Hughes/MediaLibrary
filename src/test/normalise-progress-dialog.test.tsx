@@ -20,6 +20,7 @@ const allGroups: NormaliseGroup[] = [
   "keywords",
   "creator",
   "copyright",
+  "iptc_utf8",
   "location",
   "dates",
   "description",
@@ -57,6 +58,7 @@ function mockEstimate(
       keywords: { ...allActive },
       creator: { ...allActive },
       copyright: { ...allActive },
+      iptc_utf8: { ...allActive },
       headline: { ...allActive },
       title: { ...allActive, nNormalisedAi: 1, nNormalisedDeterministic: 0 },
       location: { ...allActive },
@@ -137,6 +139,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     expect(onSet.mock.calls[0][0]).toEqual([
       "creator",
       "copyright",
+      "iptc_utf8",
       "location",
       "dates",
       "description",

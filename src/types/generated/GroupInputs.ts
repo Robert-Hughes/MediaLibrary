@@ -4,6 +4,7 @@ import type { CreatorInput } from "./CreatorInput";
 import type { DatesInput } from "./DatesInput";
 import type { DescriptionInput } from "./DescriptionInput";
 import type { HeadlineInput } from "./HeadlineInput";
+import type { IptcUtf8Input } from "./IptcUtf8Input";
 import type { KeywordsInput } from "./KeywordsInput";
 import type { LocationInput } from "./LocationInput";
 import type { TitleInput } from "./TitleInput";
@@ -50,4 +51,10 @@ dates: DatesInput | null,
 /**
  * Group B (Description) sources.
  */
-description: DescriptionInput | null, };
+description: DescriptionInput | null, 
+/**
+ * IPTC UTF-8 conversion marker state. The group emits only the
+ * CodedCharacterSet draft; apply planning derives the physical rewrites
+ * needed to preserve existing non-ASCII IPTC text.
+ */
+iptcUtf8: IptcUtf8Input | null, };

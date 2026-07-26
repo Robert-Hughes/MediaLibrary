@@ -1080,6 +1080,7 @@ mod tests {
     ) -> TargetApplyAuditRecord {
         TargetApplyAuditRecord {
             target: target.clone(),
+            derived_reason: None,
             display_name: "Test".into(),
             intent: EditIntent::Set,
             sent: Some(MetadataValue::Text("sent".into())),

@@ -67,7 +67,10 @@ pub use ai::{
 mod description;
 pub use description::{build_description_merge_prompt, normalise_description, DescriptionOutcome};
 
-/// The eight semantic groups the user can toggle on/off in the confirm
+mod iptc_utf8;
+pub use iptc_utf8::normalise_iptc_utf8;
+
+/// The semantic groups the user can toggle on/off in the confirm
 /// dialog. See plan §1 for the definition of each group, its target /
 /// derivative fields, and conflict policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -83,6 +86,7 @@ pub enum NormaliseGroup {
     Copyright,
     Location,
     Dates,
+    IptcUtf8,
 }
 
 impl NormaliseGroup {
@@ -93,6 +97,7 @@ impl NormaliseGroup {
         NormaliseGroup::Keywords,
         NormaliseGroup::Creator,
         NormaliseGroup::Copyright,
+        NormaliseGroup::IptcUtf8,
         NormaliseGroup::Location,
         NormaliseGroup::Dates,
         NormaliseGroup::Description,
@@ -110,6 +115,7 @@ impl NormaliseGroup {
             NormaliseGroup::Copyright => "copyright",
             NormaliseGroup::Location => "location",
             NormaliseGroup::Dates => "dates",
+            NormaliseGroup::IptcUtf8 => "iptc_utf8",
         }
     }
 }
@@ -151,6 +157,25 @@ pub struct GroupInputs {
     /// Group B (Description) sources.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<DescriptionInput>,
+    /// IPTC UTF-8 conversion marker state. The group emits only the
+    /// CodedCharacterSet draft; apply planning derives the physical rewrites
+    /// needed to preserve existing non-ASCII IPTC text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub iptc_utf8: Option<IptcUtf8Input>,
+}
+
+/// Input for the IPTC UTF-8 conversion group.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct IptcUtf8Input {
+    /// Whether the effective metadata view contains any IPTC property.
+    #[serde(default)]
+    pub has_iptc: bool,
+    /// Effective `IPTC:CodedCharacterSet`, including staged drafts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coded_character_set: Option<String>,
 }
 
 /// Keywords-group input bundle (plan §1 Group A).
@@ -917,6 +942,14 @@ pub async fn process_image(
         &mut edits,
         &mut stats,
         normalise_copyright,
+    );
+    apply_simple_group(
+        NormaliseGroup::IptcUtf8,
+        write_enabled(NormaliseGroup::IptcUtf8),
+        item.group_inputs.iptc_utf8.as_ref(),
+        &mut edits,
+        &mut stats,
+        normalise_iptc_utf8,
     );
     apply_simple_group(
         NormaliseGroup::Headline,

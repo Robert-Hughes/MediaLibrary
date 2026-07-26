@@ -593,6 +593,7 @@ export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
   headline: [ID.xmpHeadline, ID.iptcHeadline],
   creator: [ID.xmpCreator, ID.artist, ID.iptcByLine],
   copyright: [ID.xmpRights, ID.copyright, ID.iptcCopyright],
+  iptc_utf8: [ID.iptcCodedCharacterSet],
   location: [
     ID.xmpLocationCreated,
     ID.xmpLocation,
@@ -633,6 +634,7 @@ export const ALL_NORMALISE_GROUPS: readonly NormaliseGroup[] = [
   "keywords",
   "creator",
   "copyright",
+  "iptc_utf8",
   "location",
   "dates",
   "description",
