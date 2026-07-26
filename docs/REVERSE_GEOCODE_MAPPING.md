@@ -83,18 +83,19 @@ MediaLibrary deterministically supplies:
 After creating or reading canonical `LocationCreated`, Normalize projects its
 five overlapping members:
 
-| `LocationCreated` | XMP mirror                 | IPTC/IIM mirror                    |
-| ----------------- | -------------------------- | ---------------------------------- |
-| `Sublocation`     | `XMP-iptcCore:Location`    | `IPTC:Sub-location`                |
-| `City`            | `XMP-photoshop:City`       | `IPTC:City`                        |
-| `ProvinceState`   | `XMP-photoshop:State`      | `IPTC:Province-State`              |
-| `CountryName`     | `XMP-photoshop:Country`    | `IPTC:Country-PrimaryLocationName` |
-| `CountryCode`     | `XMP-iptcCore:CountryCode` | `IPTC:Country-PrimaryLocationCode` |
+| `LocationCreated`                             | XMP mirror                 | IPTC/IIM mirror                    |
+| --------------------------------------------- | -------------------------- | ---------------------------------- |
+| `LocationName`, falling back to `Sublocation` | `XMP-iptcCore:Location`    | `IPTC:Sub-location`                |
+| `City`                                        | `XMP-photoshop:City`       | `IPTC:City`                        |
+| `ProvinceState`                               | `XMP-photoshop:State`      | `IPTC:Province-State`              |
+| `CountryName`                                 | `XMP-photoshop:Country`    | `IPTC:Country-PrimaryLocationName` |
+| `CountryCode`                                 | `XMP-iptcCore:CountryCode` | `IPTC:Country-PrimaryLocationCode` |
 
-Projection is deliberately deterministic: values are copied, whitespace and
-country-code representation are normalized, and only the required 32-character
-IPTC Sublocation limit loses detail. Richer members remain in
-`LocationCreated` because the legacy fields have no equivalents.
+Projection is deliberately deterministic: the most useful legacy location
+label is `LocationName` when present, otherwise `Sublocation`; other values are
+copied, whitespace and country-code representation are normalized, and only
+the required 32-character IPTC Sublocation limit loses detail. Richer members
+remain in `LocationCreated` because the legacy fields have no equivalents.
 
 ## Known consequence
 
