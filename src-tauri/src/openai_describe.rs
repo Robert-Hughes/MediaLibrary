@@ -29,6 +29,7 @@ use crate::metadata_value::{
     DateTimeValue, DateValue, ListKind, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
 use crate::openai_http::OpenAiHttp;
+use crate::openai_request::{apply_responses_model_parameters, LOW_REASONING_EFFORT};
 
 /// Long-side cap before upload.  See experiment for rationale: server-side
 /// downscale is wasted bandwidth otherwise.
@@ -37,7 +38,7 @@ const MAX_IMAGE_DIMENSION: u32 = 1024;
 /// Hard cap on `/responses` output tokens.  Hitting this leaves JSON
 /// unparseable, so callers must check `status=="incomplete"`.
 pub const MAX_OUTPUT_TOKENS: u32 = 1200;
-pub const DESCRIBE_REASONING_EFFORT: &str = "low";
+pub const DESCRIBE_REASONING_EFFORT: &str = LOW_REASONING_EFFORT;
 
 /// Expected output tokens for cost estimation only.  Tuned by the test set
 /// in the experiment; bounded by `MAX_OUTPUT_TOKENS`.
@@ -433,23 +434,12 @@ fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
         "max_output_tokens": MAX_OUTPUT_TOKENS,
     });
 
-    if !model.starts_with("gpt-5.6") {
-        if let Some(obj) = request.as_object_mut() {
-            obj.insert("temperature".to_string(), serde_json::json!(0));
-            obj.insert("top_p".to_string(), serde_json::json!(1));
-        }
-    }
-
-    if model.starts_with("gpt-5") {
-        // Reasoning tokens share MAX_OUTPUT_TOKENS with the visible JSON. At
-        // medium effort, seven production images spent most of the 1,200-token
-        // budget on hidden reasoning and were truncated before completing the
-        // short schema. Low preserves reasoning while reserving enough budget
-        // for the user-visible description fields.
-        request["reasoning"] = serde_json::json!({
-            "effort": DESCRIBE_REASONING_EFFORT
-        });
-    }
+    // Reasoning tokens share MAX_OUTPUT_TOKENS with the visible JSON. At
+    // medium effort, seven production images spent most of the 1,200-token
+    // budget on hidden reasoning and were truncated before completing the
+    // short schema. Low preserves reasoning while reserving enough budget
+    // for the user-visible description fields.
+    apply_responses_model_parameters(&mut request, model, Some(DESCRIBE_REASONING_EFFORT));
 
     request
 }

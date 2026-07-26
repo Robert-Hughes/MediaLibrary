@@ -60,12 +60,14 @@ The AI returns nullable human-facing strings:
 - `WorldRegion`
 - `LocationName`
 
-The system prompt defines their IPTC meanings, requests English or commonly
-anglicised names, permits supported combinations such as `Minato, Tokyo`, and
-requires null rather than invention when the responses do not support a
-field. A strict OpenAI Structured Outputs schema enforces the response shape;
-schema compliance does not replace semantic testing, which is why the model
-is a user setting.
+The system prompt defines canonical selection rules for their IPTC meanings,
+requests English or commonly anglicised names, permits supported metropolitan
+combinations such as `Minato, Tokyo`, and requires null rather than invention
+when the responses do not support a field. It also separates populated places
+from administrative districts, prefers first-order regions for
+`ProvinceState`, and fixes house-number-plus-road formatting. A strict OpenAI
+Structured Outputs schema enforces the response shape; schema compliance does
+not replace semantic testing, which is why the model remains a user setting.
 
 MediaLibrary deterministically supplies:
 

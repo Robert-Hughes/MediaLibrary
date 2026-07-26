@@ -11,16 +11,18 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+pub const RECOMMENDED_LOCATION_MODEL: &str = "gpt-5.6-luna";
+
 /// Recommended vision models for image description, in cost order.  Mirrors
 /// the pareto-frontier set from
 /// `experiments/openai_image_analysis/MODEL_CHOICE.md`. The first entry is
 /// the default for new installs.
 pub const RECOMMENDED_MODELS: &[&str] = &[
-    "gpt-5.6-luna", // default — native reasoning, smart and cheap
-    "gpt-4o",       // legacy fallback — names landmarks reliably
-    "gpt-5.4-nano", // cheapest; generic descriptions
-    "gpt-5.4-mini", // cheap with globally-iconic landmarks
-    "gpt-5.6-sol",  // flagship reasoning model
+    RECOMMENDED_LOCATION_MODEL, // default — native reasoning, smart and cheap
+    "gpt-4o",                   // legacy fallback — names landmarks reliably
+    "gpt-5.4-nano",             // cheapest; generic descriptions
+    "gpt-5.4-mini",             // cheap with globally-iconic landmarks
+    "gpt-5.6-sol",              // flagship reasoning model
 ];
 
 pub const MIN_CONCURRENCY: u16 = 1;
@@ -40,10 +42,10 @@ pub fn default_normalise_model() -> String {
     "gpt-5.4-nano".to_string()
 }
 
-/// Location-name selection is a separate text-only workload so users can
-/// evaluate quality/cost independently from Description and Title.
+/// Location hierarchy resolution benefits from native reasoning. Repeated
+/// prompt/model experiments use Luna as the quality/cost recommendation.
 pub fn default_normalise_location_model() -> String {
-    default_normalise_model()
+    RECOMMENDED_LOCATION_MODEL.to_string()
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -330,6 +332,7 @@ mod tests {
         let s = load_settings(dir.path()).expect("missing-file load should succeed");
         assert_eq!(s, Settings::default());
         assert_eq!(s.openai_model, default_model());
+        assert_eq!(s.normalise_location_model, RECOMMENDED_LOCATION_MODEL);
         assert_eq!(s.describe_concurrency, 12);
         assert_eq!(s.metadata_apply_batch_size, 32);
         assert_eq!(s.metadata_apply_concurrency, 8);

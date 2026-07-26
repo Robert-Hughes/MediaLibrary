@@ -23,6 +23,7 @@ pub mod normalise;
 pub mod openai_describe;
 pub mod openai_http;
 pub mod openai_normalise;
+mod openai_request;
 pub mod scanner;
 pub mod settings;
 pub mod tag_schema;

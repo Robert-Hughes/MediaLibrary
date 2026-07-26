@@ -456,9 +456,12 @@ showing the estimated cost to describe one file, the dropdown shows the
 estimated cost to **normalise** one file's metadata when AI is required.
 
 Location uses a second setting, `normalise_location_model`, with the same
-recommended-model picker and default. It is separate because reverse-geocode
-hierarchy selection is a distinct quality/cost experiment from description
-merging and title generation.
+recommended-model picker but defaults to `gpt-5.6-luna`. Repeated hierarchy
+experiments showed that the stricter canonical prompt made nano consistent,
+but Luna was required to distinguish settlements from administrative
+districts reliably. It is separate because reverse-geocode hierarchy selection
+is a distinct quality/cost workload from description merging and title
+generation.
 
 **Settings dropdown preview cost.** At settings-time there is no
 selection to dry-run, so the dropdown uses a synthetic typical-cost-per-
