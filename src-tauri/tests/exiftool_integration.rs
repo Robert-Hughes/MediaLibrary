@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use medialibrary_tauri_lib::{
     apply_edits,
@@ -244,6 +245,107 @@ fn scanner_two_pass_returns_authoritative_occurrences() {
     let wire = serde_json::to_value(&metadata).expect("serialise FileMetadata");
     assert_eq!(wire.as_object().unwrap().len(), 2);
     assert!(wire.get("metadata").is_none());
+}
+
+#[test]
+fn iptc_utf8_marker_apply_rewrites_and_verifies_existing_non_ascii_values() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+
+    let clear = Command::new("exiftool")
+        .args(["-overwrite_original", "-IPTC:all="])
+        .arg(&dst)
+        .output()
+        .expect("run ExifTool to clear IPTC");
+    assert!(
+        clear.status.success(),
+        "clear ExifTool failed: {}",
+        String::from_utf8_lossy(&clear.stderr)
+    );
+    let rel = rel_of(dir.path(), &dst);
+    let seed = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        vec![
+            SchemaMetadataEdit {
+                schema_id: medialibrary_tauri_lib::known_ids::iptc_coded_character_set(),
+                edit: metadata_set(MetadataValue::Text("UTF8".to_string())),
+            },
+            SchemaMetadataEdit {
+                schema_id: medialibrary_tauri_lib::known_ids::iptc_sub_location(),
+                edit: metadata_set(MetadataValue::Text(
+                    "Chūō Plazza, Momochihama 2".to_string(),
+                )),
+            },
+        ],
+    );
+    assert!(seed.error.is_none(), "{:?}", seed.error);
+
+    // Construct the troublesome state by removing only the declaration. The
+    // scanner still has the semantic value in memory, while a later
+    // marker-only write would not itself cause ExifTool to transcode that
+    // untouched dataset.
+    let remove_marker = Command::new("exiftool")
+        .args(["-overwrite_original", "-IPTC:CodedCharacterSet="])
+        .arg(&dst)
+        .output()
+        .expect("run ExifTool to remove IPTC marker");
+    assert!(
+        remove_marker.status.success(),
+        "marker removal failed: {}",
+        String::from_utf8_lossy(&remove_marker.stderr)
+    );
+
+    let before = read_one(dir.path(), &dst);
+    let before_location = schema_value(
+        &before,
+        &medialibrary_tauri_lib::known_ids::iptc_sub_location(),
+    )
+    .expect("seeded IPTC location remains readable");
+    assert!(
+        matches!(&before_location, MetadataValue::Text(text) if !text.is_ascii()),
+        "fixture state must exercise a non-ASCII derived rewrite: {before_location:?}"
+    );
+    assert_eq!(
+        schema_value(
+            &before,
+            &medialibrary_tauri_lib::known_ids::iptc_coded_character_set()
+        ),
+        None
+    );
+
+    let outcome = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: medialibrary_tauri_lib::known_ids::iptc_coded_character_set(),
+            edit: metadata_set(MetadataValue::Text("UTF8".to_string())),
+        }],
+    );
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    assert_eq!(outcome.outcomes.len(), 1, "only the user draft reconciles");
+
+    let after = read_one(dir.path(), &dst);
+    assert!(
+        matches!(
+            schema_value(
+                &after,
+                &medialibrary_tauri_lib::known_ids::iptc_coded_character_set()
+            ),
+            Some(MetadataValue::Text(marker)) if marker == "UTF8" || marker == "\u{1b}%G"
+        ),
+        "UTF-8 marker must survive authoritative readback"
+    );
+    assert_eq!(
+        schema_value(
+            &after,
+            &medialibrary_tauri_lib::known_ids::iptc_sub_location()
+        ),
+        Some(before_location),
+        "the exact semantic value loaded before apply must be preserved"
+    );
 }
 
 // ── apply_edits text round-trip ──────────────────────────────────────────────

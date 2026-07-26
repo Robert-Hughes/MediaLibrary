@@ -15,7 +15,11 @@ import type {
 import { formatMetadataValue } from "../draft";
 import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
-import { metadataGet, type MetadataCollection } from "./metadataCollection";
+import {
+  metadataEntries,
+  metadataGet,
+  type MetadataCollection,
+} from "./metadataCollection";
 import { resolveGps } from "./resolveGps";
 
 type EffectiveMetadataEntry = MetadataValue | null;
@@ -151,6 +155,7 @@ export function buildNormaliseItemForFile(
     location: null,
     dates: null,
     description: null,
+    iptcUtf8: null,
   };
 
   if (groupSet.has("keywords")) {
@@ -236,6 +241,15 @@ export function buildNormaliseItemForFile(
       locationContext: null,
       keywordsContext: [],
       dateContext: null,
+    };
+  }
+
+  if (groupSet.has("iptc_utf8")) {
+    groupInputs.iptcUtf8 = {
+      hasIptc: metadataEntries(effective).some(({ id }) =>
+        id.table.startsWith("IPTC::"),
+      ),
+      codedCharacterSet: scalar(effective, ID.iptcCodedCharacterSet) ?? null,
     };
   }
 

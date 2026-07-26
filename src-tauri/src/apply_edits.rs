@@ -26,7 +26,7 @@ use crate::metadata_occurrence::{
     observed_selector_matches_write_target, MetadataOccurrence, MetadataOccurrenceId,
     MetadataSelectorKey, MetadataWriteTarget,
 };
-use crate::metadata_value::MetadataValue;
+use crate::metadata_value::{ListKind, MetadataValue};
 use crate::metadata_write_execution::{
     build_exiftool_write_argfile_args, format_apply_diagnostics, render_exiftool_argfile,
     run_exiftool_write,
@@ -208,6 +208,14 @@ pub(crate) enum TargetApplyError {
         target: Box<MetadataDraftTarget>,
         reason: String,
     },
+    UnsafeNonAsciiIptcWrite {
+        target: Box<MetadataDraftTarget>,
+        effective_charset: String,
+    },
+    IptcUtf8RewriteUnavailable {
+        occurrence_id: Box<MetadataOccurrenceId>,
+        reason: String,
+    },
     ArgfileRenderingFailure(String),
     NoWriteArguments,
 }
@@ -285,6 +293,20 @@ impl std::fmt::Display for TargetApplyError {
                 formatter,
                 "Argument planning failed for target {target:?}: {reason}"
             ),
+            Self::UnsafeNonAsciiIptcWrite {
+                target,
+                effective_charset,
+            } => write!(
+                formatter,
+                "Cannot write non-ASCII text to IPTC target {target:?} because the effective IPTC CodedCharacterSet is {effective_charset}. Run the “IPTC UTF-8” normalisation group, apply its draft, then retry."
+            ),
+            Self::IptcUtf8RewriteUnavailable {
+                occurrence_id,
+                reason,
+            } => write!(
+                formatter,
+                "Cannot convert IPTC metadata to UTF-8 because existing non-ASCII occurrence {occurrence_id:?} could not be safely rewritten: {reason}"
+            ),
             Self::ArgfileRenderingFailure(reason) => {
                 write!(formatter, "ExifTool argfile rendering failed: {reason}")
             }
@@ -304,6 +326,12 @@ struct TargetPlan {
     before: Option<MetadataValue>,
     selector: MetadataWriteTarget,
     args: BuiltArgs,
+    /// `Some` identifies a transient physical rewrite derived by the planner.
+    /// It is verified and audited but never reconciled as a persisted draft.
+    derived_reason: Option<String>,
+    /// Authoritative occurrence actually matched during preflight. Existing
+    /// draft targets may be rebound across Copy-number changes.
+    matched_occurrence_id: Option<MetadataOccurrenceId>,
 }
 
 struct PlannedBatch {
@@ -395,6 +423,7 @@ fn target_audit_record(
     TargetApplyAuditRecord {
         target: plan.target.clone(),
         display_name: plan.display_name.clone(),
+        derived_reason: plan.derived_reason.clone(),
         intent: plan.edit.intent.clone(),
         sent: plan.edit.value.clone(),
         before: plan.before.clone(),
@@ -422,6 +451,146 @@ fn observed_occurrence(occurrence: &MetadataOccurrence) -> TargetApplyObservedOc
         write_target: occurrence.write_target.clone(),
         value: occurrence.value.clone(),
     }
+}
+
+fn is_iptc_schema(schema_id: &SchemaDefinitionId) -> bool {
+    schema_id.table.starts_with("IPTC::")
+}
+
+fn metadata_value_contains_non_ascii(value: &MetadataValue) -> bool {
+    fn json_contains_non_ascii(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::String(text) => !text.is_ascii(),
+            serde_json::Value::Array(items) => items.iter().any(json_contains_non_ascii),
+            serde_json::Value::Object(fields) => fields.values().any(json_contains_non_ascii),
+            _ => false,
+        }
+    }
+
+    match value {
+        MetadataValue::Text(text) => !text.is_ascii(),
+        MetadataValue::LangAlt(languages) => languages.values().any(|text| !text.is_ascii()),
+        MetadataValue::List { items, .. } => items.iter().any(metadata_value_contains_non_ascii),
+        MetadataValue::Struct(fields) => fields.values().any(metadata_value_contains_non_ascii),
+        MetadataValue::Unknown { raw, .. } => json_contains_non_ascii(raw),
+        _ => false,
+    }
+}
+
+fn is_utf8_charset_value(value: &MetadataValue) -> bool {
+    matches!(value, MetadataValue::Text(value) if matches!(value.as_str(), "UTF8" | "\u{1b}%G"))
+}
+
+/// Apply one draft semantically so planner-only rewrites use exactly the
+/// values represented by the drafts in this apply request.
+///
+/// This intentionally mirrors the frontend effective-metadata overlay. It
+/// must never consult the persisted/global draft store: a staged draft that
+/// the user did not select for this apply must not leak into a derived write.
+fn effective_value_for_edit(
+    current: Option<&MetadataValue>,
+    edit: &MetadataDraftEdit,
+    kind: &TagKind,
+) -> Result<Option<MetadataValue>, String> {
+    match edit.intent {
+        EditIntent::Delete => return Ok(None),
+        EditIntent::Set => return Ok(edit.value.clone()),
+        EditIntent::ListAdd | EditIntent::ListRemove => {}
+    }
+
+    let list_kind = match kind {
+        TagKind::Bag(_) => Some(ListKind::Bag),
+        TagKind::Seq(_) => Some(ListKind::Seq),
+        TagKind::Alt(_) => Some(ListKind::Alt),
+        _ => None,
+    };
+    let Some(list_kind) = list_kind else {
+        return match edit.intent {
+            EditIntent::ListRemove => Ok(None),
+            EditIntent::ListAdd => match edit.value.clone() {
+                Some(MetadataValue::List { .. }) => {
+                    Err("a list payload cannot be rendered for a non-list schema".to_string())
+                }
+                value => Ok(value),
+            },
+            _ => unreachable!(),
+        };
+    };
+
+    if current.is_none() && (matches!(edit.intent, EditIntent::ListRemove) || edit.value.is_none())
+    {
+        return Ok(None);
+    }
+    let mut items = match current {
+        Some(MetadataValue::List { items, .. }) => items.clone(),
+        Some(value) => vec![value.clone()],
+        None => Vec::new(),
+    };
+    let staged = match &edit.value {
+        Some(MetadataValue::List { items, .. }) => items.clone(),
+        Some(value) => vec![value.clone()],
+        None => Vec::new(),
+    };
+    match edit.intent {
+        EditIntent::ListRemove => {
+            items.retain(|item| !staged.contains(item));
+        }
+        EditIntent::ListAdd => {
+            for item in staged {
+                if !items.contains(&item) {
+                    items.push(item);
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+    Ok(Some(MetadataValue::List { list_kind, items }))
+}
+
+fn authoritative_iptc_charset_is_utf8(before: &scanner::FileMetadata) -> bool {
+    let charset_id = crate::known_ids::iptc_coded_character_set();
+    let values = before
+        .occurrences
+        .for_schema(&charset_id)
+        .map(|occurrence| &occurrence.value)
+        .collect::<Vec<_>>();
+    matches!(values.as_slice(), [value] if is_utf8_charset_value(value))
+}
+
+fn effective_iptc_charset_values(
+    before: &scanner::FileMetadata,
+    plans: &[TargetPlan],
+) -> Vec<MetadataValue> {
+    let charset_id = crate::known_ids::iptc_coded_character_set();
+    let mut existing = before
+        .occurrences
+        .for_schema(&charset_id)
+        .map(|occurrence| (occurrence.id.clone(), occurrence.value.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let mut new_values = Vec::new();
+
+    for plan in plans
+        .iter()
+        .filter(|plan| plan.target.schema_id() == &charset_id)
+    {
+        let effective = effective_value_for_edit(plan.before.as_ref(), &plan.edit, &plan.kind).ok();
+        match &plan.matched_occurrence_id {
+            Some(id) => match effective.flatten() {
+                Some(value) => {
+                    existing.insert(id.clone(), value);
+                }
+                None => {
+                    existing.remove(id);
+                }
+            },
+            None => {
+                if let Some(Some(value)) = effective {
+                    new_values.push(value);
+                }
+            }
+        }
+    }
+    existing.into_values().chain(new_values).collect()
 }
 
 fn plan_batch<F>(
@@ -534,6 +703,8 @@ where
                     before: Some(occurrence.value.clone()),
                     selector: selector.clone(),
                     args,
+                    derived_reason: None,
+                    matched_occurrence_id: Some(occurrence.id.clone()),
                 }
             }
             MetadataDraftTarget::NewProperty {
@@ -608,6 +779,8 @@ where
                     before: None,
                     selector: write_target.clone(),
                     args,
+                    derived_reason: None,
+                    matched_occurrence_id: None,
                 }
             }
         };
@@ -622,8 +795,182 @@ where
                 second: Box::new(plan.target.clone()),
             });
         }
-        combined.extend(plan.args.clone());
         plans.push(plan);
+    }
+
+    let effective_charset_values = effective_iptc_charset_values(before, &plans);
+    let effective_charset_utf8 =
+        matches!(effective_charset_values.as_slice(), [value] if is_utf8_charset_value(value));
+    let effective_charset_label = if effective_charset_utf8 {
+        "UTF8".to_string()
+    } else {
+        match effective_charset_values.as_slice() {
+            [] => "<missing>".to_string(),
+            [value] => format!("{value:?}"),
+            _ => format!(
+                "<ambiguous: {} occurrences>",
+                effective_charset_values.len()
+            ),
+        }
+    };
+    for plan in &plans {
+        if is_iptc_schema(plan.target.schema_id())
+            && !matches!(plan.edit.intent, EditIntent::Delete)
+            && plan
+                .edit
+                .value
+                .as_ref()
+                .is_some_and(metadata_value_contains_non_ascii)
+            && !effective_charset_utf8
+        {
+            return Err(TargetApplyError::UnsafeNonAsciiIptcWrite {
+                target: Box::new(plan.target.clone()),
+                effective_charset: effective_charset_label,
+            });
+        }
+    }
+
+    let converting_to_utf8 = !authoritative_iptc_charset_is_utf8(before) && effective_charset_utf8;
+    if converting_to_utf8 {
+        // Changing CodedCharacterSet changes only the declaration; ExifTool
+        // does not transcode untouched IPTC bytes. Preserve their semantic
+        // values by deriving same-value writes for every existing non-ASCII
+        // IPTC occurrence. Explicit drafts in *this apply* take precedence,
+        // while drafts not supplied to this call are deliberately invisible.
+        let explicit_occurrence_ids = plans
+            .iter()
+            .filter_map(|plan| plan.matched_occurrence_id.clone())
+            .collect::<BTreeSet<_>>();
+
+        // Incremental list operations targeting a legacy non-ASCII value must
+        // become one complete Set physically, otherwise only the added/removed
+        // items would be encoded as UTF-8 and the retained legacy bytes would
+        // be reinterpreted under the new marker.
+        for plan in &mut plans {
+            if !matches!(
+                plan.edit.intent,
+                EditIntent::ListAdd | EditIntent::ListRemove
+            ) || !is_iptc_schema(plan.target.schema_id())
+                || !plan
+                    .before
+                    .as_ref()
+                    .is_some_and(metadata_value_contains_non_ascii)
+            {
+                continue;
+            }
+            let effective = effective_value_for_edit(plan.before.as_ref(), &plan.edit, &plan.kind)
+                .map_err(|reason| TargetApplyError::ArgumentPlanningFailure {
+                    target: Box::new(plan.target.clone()),
+                    reason,
+                })?;
+            let synthetic = MetadataDraftEdit {
+                value: effective,
+                intent: EditIntent::Set,
+            };
+            let occurrence_id = plan
+                .matched_occurrence_id
+                .as_ref()
+                .expect("existing list edit has a matched occurrence");
+            let occurrence = occurrences
+                .get(occurrence_id)
+                .copied()
+                .expect("matched occurrence remains indexed");
+            let physical_target = MetadataDraftTarget::from_existing_occurrence(occurrence)
+                .map_err(|error| TargetApplyError::IptcUtf8RewriteUnavailable {
+                    occurrence_id: Box::new(occurrence.id.clone()),
+                    reason: error.to_string(),
+                })?;
+            plan.args = crate::write_args::build_existing_occurrence_args(
+                &physical_target,
+                occurrence,
+                &synthetic,
+            )
+            .map_err(|error| TargetApplyError::ArgumentPlanningFailure {
+                target: Box::new(plan.target.clone()),
+                reason: error.to_string(),
+            })?;
+        }
+
+        for occurrence in before.occurrences.iter().filter(|occurrence| {
+            is_iptc_schema(&occurrence.schema_id)
+                && metadata_value_contains_non_ascii(&occurrence.value)
+                && !explicit_occurrence_ids.contains(&occurrence.id)
+        }) {
+            let info = occurrence.tag_info.as_ref().ok_or_else(|| {
+                TargetApplyError::IptcUtf8RewriteUnavailable {
+                    occurrence_id: Box::new(occurrence.id.clone()),
+                    reason: "the occurrence has no interpreted writable schema".to_string(),
+                }
+            })?;
+            if !info.supports_metadata_write() {
+                return Err(TargetApplyError::IptcUtf8RewriteUnavailable {
+                    occurrence_id: Box::new(occurrence.id.clone()),
+                    reason: "the occurrence is not writable by the application".to_string(),
+                });
+            }
+            let selector = occurrence.write_target.as_ref().ok_or_else(|| {
+                TargetApplyError::IptcUtf8RewriteUnavailable {
+                    occurrence_id: Box::new(occurrence.id.clone()),
+                    reason: "the occurrence has no exact write selector".to_string(),
+                }
+            })?;
+            let target =
+                MetadataDraftTarget::from_existing_occurrence(occurrence).map_err(|error| {
+                    TargetApplyError::IptcUtf8RewriteUnavailable {
+                        occurrence_id: Box::new(occurrence.id.clone()),
+                        reason: error.to_string(),
+                    }
+                })?;
+            let edit = MetadataDraftEdit {
+                value: Some(occurrence.value.clone()),
+                intent: EditIntent::Set,
+            };
+            let args =
+                crate::write_args::build_existing_occurrence_args(&target, occurrence, &edit)
+                    .map_err(|error| TargetApplyError::IptcUtf8RewriteUnavailable {
+                        occurrence_id: Box::new(occurrence.id.clone()),
+                        reason: error.to_string(),
+                    })?;
+            let selector_key = MetadataSelectorKey::from_write_target(selector);
+            if let Some(first) = selectors.insert(selector_key, target.clone()) {
+                return Err(TargetApplyError::WriteSelectorCollision {
+                    group1: selector.group1.clone(),
+                    group7: selector.group7.clone(),
+                    tag_name: selector.tag_name.clone(),
+                    first: Box::new(first),
+                    second: Box::new(target),
+                });
+            }
+            plans.push(TargetPlan {
+                target,
+                edit,
+                display_name: info.display_name(),
+                kind: info.kind.clone(),
+                before: Some(occurrence.value.clone()),
+                selector: selector.clone(),
+                args,
+                derived_reason: Some(
+                    "required by IPTC UTF-8 conversion: changing CodedCharacterSet does not transcode existing bytes"
+                        .to_string(),
+                ),
+                matched_occurrence_id: Some(occurrence.id.clone()),
+            });
+        }
+    }
+
+    // Put the marker before derived IPTC values in the text argfile. ExifTool
+    // then encodes every explicitly supplied value using the new declaration.
+    let charset_id = crate::known_ids::iptc_coded_character_set();
+    for plan in plans
+        .iter()
+        .filter(|plan| plan.target.schema_id() == &charset_id)
+        .chain(
+            plans
+                .iter()
+                .filter(|plan| plan.target.schema_id() != &charset_id),
+        )
+    {
+        combined.extend(plan.args.clone());
     }
 
     if combined.is_empty() {
@@ -952,16 +1299,18 @@ pub(crate) fn finalize_executed_metadata_write(
                     },
                     &verification,
                 ));
-                outcomes.push(MetadataTargetOutcome {
-                    target: plan.target,
-                    draft_reconciliation: verification.draft_reconciliation,
-                    display_name: plan.display_name,
-                    kind: verification.kind,
-                    sent: plan.edit.value,
-                    before: plan.before,
-                    observed: verification.observed,
-                    message: verification.message,
-                });
+                if plan.derived_reason.is_none() {
+                    outcomes.push(MetadataTargetOutcome {
+                        target: plan.target,
+                        draft_reconciliation: verification.draft_reconciliation,
+                        display_name: plan.display_name,
+                        kind: verification.kind,
+                        sent: plan.edit.value,
+                        before: plan.before,
+                        observed: verification.observed,
+                        message: verification.message,
+                    });
+                }
             }
             return MetadataSingleFileOutcome {
                 fresh_file_metadata: None,
@@ -1014,16 +1363,18 @@ pub(crate) fn finalize_executed_metadata_write(
                     },
                     &verification,
                 ));
-                outcomes.push(MetadataTargetOutcome {
-                    target: plan.target,
-                    draft_reconciliation: verification.draft_reconciliation,
-                    display_name: plan.display_name,
-                    kind: verification.kind,
-                    sent: plan.edit.value,
-                    before: plan.before,
-                    observed: verification.observed,
-                    message: verification.message,
-                });
+                if plan.derived_reason.is_none() {
+                    outcomes.push(MetadataTargetOutcome {
+                        target: plan.target,
+                        draft_reconciliation: verification.draft_reconciliation,
+                        display_name: plan.display_name,
+                        kind: verification.kind,
+                        sent: plan.edit.value,
+                        before: plan.before,
+                        observed: verification.observed,
+                        message: verification.message,
+                    });
+                }
             }
             return MetadataSingleFileOutcome {
                 fresh_file_metadata: None,
@@ -1066,26 +1417,37 @@ pub(crate) fn finalize_executed_metadata_write(
                 first_mismatch = message.clone();
             }
         }
-        outcomes.push(MetadataTargetOutcome {
-            target: plan.target.clone(),
-            draft_reconciliation: verification.draft_reconciliation.clone(),
-            display_name: plan.display_name.clone(),
-            kind: verification.kind.clone(),
-            sent: plan.edit.value.clone(),
-            before: plan.before.clone(),
-            observed: verification.observed.clone(),
-            message,
-        });
+        if plan.derived_reason.is_none() {
+            outcomes.push(MetadataTargetOutcome {
+                target: plan.target.clone(),
+                draft_reconciliation: verification.draft_reconciliation.clone(),
+                display_name: plan.display_name.clone(),
+                kind: verification.kind.clone(),
+                sent: plan.edit.value.clone(),
+                before: plan.before.clone(),
+                observed: verification.observed.clone(),
+                message,
+            });
+        }
     }
     let targets_to_clear = targets_to_clear_from_reconciliation(&outcomes);
 
+    let verified_count = verified_targets
+        .iter()
+        .filter(|(_, verified)| {
+            matches!(
+                verified.verification.draft_reconciliation,
+                MetadataDraftReconciliation::Clear
+            )
+        })
+        .count();
     let diagnostics = format_apply_diagnostics(
         numeric_attempted,
         &numeric_result,
         text_attempted,
         &text_result,
-        targets_to_clear.len(),
-        outcomes.len(),
+        verified_count,
+        verified_targets.len(),
     );
     let write_diagnostic = diagnostics
         .error
@@ -1673,6 +2035,18 @@ mod tests {
         }
     }
 
+    fn iptc_schema(id: SchemaDefinitionId, name: &str, kind: TagKind) -> TagInfo {
+        TagInfo {
+            id,
+            group: "IPTC".to_string(),
+            name: name.to_string(),
+            writable: true,
+            kind,
+            description: None,
+            storage_count: None,
+        }
+    }
+
     fn with_temp_file<T>(run: impl FnOnce(&Path, &str) -> T) -> T {
         let dir = tempfile::tempdir().unwrap();
         std::fs::File::create(dir.path().join("file.jpg")).unwrap();
@@ -1875,6 +2249,288 @@ mod tests {
             planned.targets[0].args.text,
             vec!["-1IFD0:7ID-1:Name=after"]
         );
+    }
+
+    #[test]
+    fn non_ascii_iptc_write_requires_effective_utf8_charset() {
+        let location_info = iptc_schema(
+            crate::known_ids::iptc_sub_location(),
+            "Sub-location",
+            TagKind::Text,
+        );
+        let location = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "92", 0),
+            MetadataValue::Text("Old place".into()),
+            Some(location_info),
+            Some("IPTC"),
+            "Sub-location",
+        );
+        let non_ascii = existing_entry(
+            &location,
+            edit(
+                EditIntent::Set,
+                Some(MetadataValue::Text("Chūō Plazza".into())),
+            ),
+        );
+
+        let error = plan_batch(
+            Path::new("file.jpg"),
+            &[non_ascii],
+            &image(vec![location]),
+            |_| None,
+        )
+        .err()
+        .expect("missing CodedCharacterSet must reject non-ASCII IPTC");
+
+        assert!(matches!(
+            &error,
+            TargetApplyError::UnsafeNonAsciiIptcWrite {
+                effective_charset,
+                ..
+            } if effective_charset == "<missing>"
+        ));
+        assert!(error.to_string().contains("IPTC UTF-8"));
+
+        let charset_info = iptc_schema(
+            crate::known_ids::iptc_coded_character_set(),
+            "CodedCharacterSet",
+            TagKind::Text,
+        );
+        let charset = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "90", 0),
+            MetadataValue::Text("Latin".into()),
+            Some(charset_info),
+            Some("IPTC"),
+            "CodedCharacterSet",
+        );
+        let location_info = iptc_schema(
+            crate::known_ids::iptc_sub_location(),
+            "Sub-location",
+            TagKind::Text,
+        );
+        let location = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "92", 0),
+            MetadataValue::Text("Old place".into()),
+            Some(location_info),
+            Some("IPTC"),
+            "Sub-location",
+        );
+        let entries = [
+            existing_entry(
+                &charset,
+                edit(EditIntent::Set, Some(MetadataValue::Text("UTF8".into()))),
+            ),
+            existing_entry(
+                &location,
+                edit(
+                    EditIntent::Set,
+                    Some(MetadataValue::Text("Chūō Plazza".into())),
+                ),
+            ),
+        ];
+        let planned = plan_batch(
+            Path::new("file.jpg"),
+            &entries,
+            &image(vec![charset, location]),
+            |_| None,
+        )
+        .expect("the marker draft in this apply makes the non-ASCII write safe");
+        assert_eq!(planned.targets.len(), 2);
+        assert!(planned
+            .targets
+            .iter()
+            .all(|plan| plan.derived_reason.is_none()));
+    }
+
+    #[test]
+    fn utf8_marker_draft_derives_authoritative_rewrites_not_unapplied_drafts() {
+        let charset_info = iptc_schema(
+            crate::known_ids::iptc_coded_character_set(),
+            "CodedCharacterSet",
+            TagKind::Text,
+        );
+        let location_info = iptc_schema(
+            crate::known_ids::iptc_sub_location(),
+            "Sub-location",
+            TagKind::Text,
+        );
+        let charset = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "90", 0),
+            MetadataValue::Text("Latin".into()),
+            Some(charset_info),
+            Some("IPTC"),
+            "CodedCharacterSet",
+        );
+        let location = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "92", 0),
+            MetadataValue::Text("Chūō authoritative".into()),
+            Some(location_info),
+            Some("IPTC"),
+            "Sub-location",
+        );
+        let marker_draft = existing_entry(
+            &charset,
+            edit(EditIntent::Set, Some(MetadataValue::Text("UTF8".into()))),
+        );
+        let unapplied_location_draft = existing_entry(
+            &location,
+            edit(
+                EditIntent::Set,
+                Some(MetadataValue::Text("Chūō staged but not applied".into())),
+            ),
+        );
+
+        // Only marker_draft is passed to the planner. The other draft models a
+        // staged edit that the user left unchecked for this apply.
+        let planned = plan_batch(
+            Path::new("file.jpg"),
+            std::slice::from_ref(&marker_draft),
+            &image(vec![charset, location.clone()]),
+            |_| None,
+        )
+        .unwrap();
+
+        assert_eq!(planned.targets.len(), 2);
+        assert!(planned.targets[0].derived_reason.is_none());
+        let derived = &planned.targets[1];
+        assert!(derived.derived_reason.is_some());
+        assert_eq!(
+            derived.edit.value,
+            Some(MetadataValue::Text("Chūō authoritative".into()))
+        );
+        assert_ne!(derived.edit.value, unapplied_location_draft.edit.value);
+        let rendered = planned.text_argfile.unwrap();
+        assert!(rendered.contains("CodedCharacterSet=UTF8"));
+        assert!(rendered.contains("Sub-location=Chūō authoritative"));
+        assert!(!rendered.contains("staged but not applied"));
+    }
+
+    #[test]
+    fn utf8_conversion_renders_explicit_iptc_list_edits_as_complete_sets() {
+        let charset_info = iptc_schema(
+            crate::known_ids::iptc_coded_character_set(),
+            "CodedCharacterSet",
+            TagKind::Text,
+        );
+        let keywords_info = iptc_schema(
+            crate::known_ids::iptc_keywords(),
+            "Keywords",
+            TagKind::Bag(Box::new(TagKind::Text)),
+        );
+        let charset = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "90", 0),
+            MetadataValue::Text("Latin".into()),
+            Some(charset_info),
+            Some("IPTC"),
+            "CodedCharacterSet",
+        );
+        let keywords = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "25", 0),
+            MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![
+                    MetadataValue::Text("café".into()),
+                    MetadataValue::Text("old".into()),
+                ],
+            },
+            Some(keywords_info),
+            Some("IPTC"),
+            "Keywords",
+        );
+        let entries = [
+            existing_entry(
+                &charset,
+                edit(EditIntent::Set, Some(MetadataValue::Text("UTF8".into()))),
+            ),
+            existing_entry(
+                &keywords,
+                edit(EditIntent::ListAdd, Some(MetadataValue::Text("new".into()))),
+            ),
+        ];
+
+        let planned = plan_batch(
+            Path::new("file.jpg"),
+            &entries,
+            &image(vec![charset, keywords]),
+            |_| None,
+        )
+        .unwrap();
+        let list_plan = planned
+            .targets
+            .iter()
+            .find(|plan| plan.target.schema_id() == &crate::known_ids::iptc_keywords())
+            .unwrap();
+
+        assert_eq!(list_plan.edit.intent, EditIntent::ListAdd);
+        assert!(list_plan
+            .args
+            .text
+            .iter()
+            .any(|arg| arg.ends_with(":Keywords=")));
+        assert!(list_plan.args.text.iter().any(|arg| arg.ends_with("=café")));
+        assert!(list_plan.args.text.iter().any(|arg| arg.ends_with("=old")));
+        assert!(list_plan.args.text.iter().any(|arg| arg.ends_with("=new")));
+        assert!(list_plan.args.text.iter().all(|arg| !arg.contains("+=")));
+    }
+
+    #[test]
+    fn derived_iptc_rewrites_are_verified_and_audited_without_becoming_outcomes() {
+        let charset_info = iptc_schema(
+            crate::known_ids::iptc_coded_character_set(),
+            "CodedCharacterSet",
+            TagKind::Text,
+        );
+        let location_info = iptc_schema(
+            crate::known_ids::iptc_sub_location(),
+            "Sub-location",
+            TagKind::Text,
+        );
+        let before_charset = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "90", 0),
+            MetadataValue::Text("Latin".into()),
+            Some(charset_info.clone()),
+            Some("IPTC"),
+            "CodedCharacterSet",
+        );
+        let before_location = occurrence(
+            occurrence_id("JPEG-APP13-Photoshop-IPTC", "92", 0),
+            MetadataValue::Text("Chūō authoritative".into()),
+            Some(location_info.clone()),
+            Some("IPTC"),
+            "Sub-location",
+        );
+        let marker_draft = existing_entry(
+            &before_charset,
+            edit(EditIntent::Set, Some(MetadataValue::Text("UTF8".into()))),
+        );
+        let after_charset = occurrence(
+            before_charset.id.clone(),
+            MetadataValue::Text("UTF8".into()),
+            Some(charset_info),
+            Some("IPTC"),
+            "CodedCharacterSet",
+        );
+        let after_location = occurrence(
+            before_location.id.clone(),
+            before_location.value.clone(),
+            Some(location_info),
+            Some("IPTC"),
+            "Sub-location",
+        );
+        let client = FakeClient::new(vec![
+            Ok(image(vec![before_charset, before_location])),
+            Ok(image(vec![after_charset, after_location])),
+        ]);
+
+        let outcome = apply_fake(std::slice::from_ref(&marker_draft), &client, &[]);
+
+        assert!(outcome.error.is_none(), "{:?}", outcome.error);
+        assert_eq!(outcome.outcomes.len(), 1);
+        assert_eq!(outcome.outcomes[0].target, marker_draft.target);
+        assert_eq!(outcome.audit_records.len(), 2);
+        assert!(outcome.audit_records[0].derived_reason.is_none());
+        assert!(outcome.audit_records[1].derived_reason.is_some());
+        assert_eq!(outcome.audit_records[1].verification.kind, "Match");
     }
 
     #[test]

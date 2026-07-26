@@ -255,6 +255,17 @@ fn count_overwrites_for_group(
                     )
             }
         },
+        G::IptcUtf8 => match &inputs.iptc_utf8 {
+            None
+            | Some(normalise::IptcUtf8Input {
+                has_iptc: false, ..
+            }) => 0,
+            Some(b) if matches!(b.coded_character_set.as_deref(), Some("UTF8" | "\u{1b}%G")) => 0,
+            Some(b) => scalar(
+                crate::known_ids::iptc_coded_character_set(),
+                b.coded_character_set.as_deref(),
+            ),
+        },
         G::Headline => match &inputs.headline {
             None => 0,
             Some(b) => {

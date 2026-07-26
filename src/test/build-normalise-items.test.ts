@@ -7,12 +7,16 @@ import {
   buildNormaliseItems,
 } from "../utils/buildNormaliseItems";
 import { mockMetadata } from "./factories";
-import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+import {
+  occurrenceFromSchemaValue,
+  occurrencesFromMetadataCollection,
+} from "./occurrenceFixtures";
 
 const ALL_GROUPS: NormaliseGroup[] = [
   "keywords",
   "creator",
   "copyright",
+  "iptc_utf8",
   "headline",
   "title",
   "location",
@@ -101,5 +105,28 @@ describe("target-aware normalise inputs", () => {
     expect(items[0].groupInputs.keywords?.dcSubject).toEqual([]);
     expect(items[0].groupInputs.creator?.creator).toEqual([]);
     expect(items[0].groupInputs.dates?.fileStem).toBe("unknown");
+    expect(items[0].groupInputs.iptcUtf8).toEqual({
+      hasIptc: false,
+      codedCharacterSet: null,
+    });
+  });
+
+  it("builds IPTC UTF-8 input from the effective metadata view", () => {
+    const occurrences = [
+      occurrenceFromSchemaValue(ID.iptcCodedCharacterSet, {
+        kind: "Text",
+        value: "Latin",
+      }),
+    ];
+    const item = buildNormaliseItemForFile(
+      "legacy.jpg",
+      ["iptc_utf8"],
+      occurrences,
+    );
+
+    expect(item.groupInputs.iptcUtf8).toEqual({
+      hasIptc: true,
+      codedCharacterSet: "Latin",
+    });
   });
 });

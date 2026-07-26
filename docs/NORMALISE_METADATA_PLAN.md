@@ -43,6 +43,7 @@ AI and the AI call is unavailable or fails.
 | F Copyright   | Primary XMP rights wins; if empty, longest derivative wins.                                                                                                                                                                                                                                                      |
 | G Location    | Per XMP/IIM pair, XMP wins on conflict. Conflict is counted, but edits are still emitted.                                                                                                                                                                                                                        |
 | H Dates       | EXIF/XMP/IPTC are compared using Dates normaliser wall-clock semantics. Primary EXIF wins on conflict. Conflict is counted, but edits may still be emitted. Offsetless and offset-bearing values can be considered equivalent only inside Dates normaliser comparison when wall-clock date/time/subsecond match. |
+| I IPTC UTF-8  | If the file contains IPTC IIM metadata and its character-set marker is not UTF-8, stage `IPTC:CodedCharacterSet=UTF8`. The apply planner performs the physical conversion described below.                                                                                                                       |
 
 Dates' "primary wins + conflict count" behaviour is intentional and mirrors
 Location; it is not a global "conflict blocks edits" rule.
@@ -357,19 +358,45 @@ Matches at any position in the file stem. Sanity bounds: 1900 ≤ year ≤
 
 H2 has no filename fallback. H3 is skipped entirely (auto-managed).
 
+### Group I — IPTC UTF-8
+
+This group is the repair path for legacy or missing IPTC IIM character-set
+declarations. If the effective metadata contains any IPTC schema and
+`IPTC:CodedCharacterSet` is neither ExifTool's `UTF8` value nor the raw
+`ESC % G` marker, it stages a normal draft setting the marker to `UTF8`.
+It is a no-op for files without IPTC metadata and files already declared
+UTF-8.
+
+The group deliberately creates an ordinary draft; it does not write the file
+or manufacture same-value drafts for every IPTC field. When that draft is
+later included in an apply, the write planner detects the transition and
+derives transient rewrites for every existing non-ASCII IPTC value not
+explicitly targeted by another draft in that apply. This is necessary because
+changing `CodedCharacterSet` changes only the declaration: ExifTool does not
+automatically transcode untouched IPTC bytes. The derived rewrites are
+verified and written to the target-aware apply audit with their reason, but
+are not persisted as user drafts and do not produce draft reconciliation
+outcomes.
+
+Only drafts selected for the current apply contribute to this process.
+In particular, a staged IPTC draft that the user does not apply must not be
+silently substituted for the authoritative value used by a derived rewrite.
+An explicitly applied IPTC draft always takes precedence over the derived
+same-value rewrite for its occurrence.
+
 ## 2. Pass ordering
 
 Groups are not fully ordered. Most groups are independent. The exceptions:
 
 1. **Independent groups (any order):** A (Keywords), E (Creator), F
-   (Copyright), G (Location), H (Dates).
+   (Copyright), G (Location), H (Dates), I (IPTC UTF-8).
 2. **After group A and G and H:** B (Description). Reads keywords, location,
    and dates as context for AI merge.
 3. **After group B:** C (Title), D (Headline). Title may AI-generate from
    description when target empty.
 
-Implementation: a two-pass scheduler. Pass 1 runs A, E, F, G, H in a fixed
-deterministic order (alphabetical). Pass 2 runs B. Pass 3 runs C, D. Each
+Implementation: a three-pass scheduler. Pass 1 runs A, E, F, I, G, H in the
+fixed deterministic order listed here. Pass 2 runs B. Pass 3 runs C, D. Each
 pass sees the previous passes' draft outputs via the draft-overlay read
 (see §3).
 
@@ -671,7 +698,7 @@ Reuses `batch_job.rs` from
 [REVERSE_GEOCODE_PLAN.md §3](REVERSE_GEOCODE_PLAN.md). Adds:
 
 - `src-tauri/src/normalise.rs`:
-  - `pub enum NormaliseGroup { Keywords, Description, Title, Headline, Creator, Copyright, Location, Dates }`
+  - `pub enum NormaliseGroup { Keywords, Description, Title, Headline, Creator, Copyright, Location, Dates, IptcUtf8 }`
   - `pub struct NormaliseRequestItem { rel_path: String, group_inputs: GroupInputs }`
     — front end resolves the draft overlay for every target / read-only
     input field across all enabled groups and ships the per-image bundle.

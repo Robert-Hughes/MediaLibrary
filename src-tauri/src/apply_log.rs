@@ -25,6 +25,11 @@ const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-onl
 pub(crate) struct TargetApplyAuditRecord {
     pub(crate) target: MetadataDraftTarget,
     pub(crate) display_name: String,
+    /// Present for a physical write derived by planning rather than persisted
+    /// as a user draft. Derived writes are logged because they modify the file
+    /// and are independently verified, but draft reconciliation ignores them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) derived_reason: Option<String>,
     pub(crate) intent: EditIntent,
     pub(crate) sent: Option<MetadataValue>,
     pub(crate) before: Option<MetadataValue>,
@@ -311,6 +316,7 @@ mod tests {
         };
         TargetApplyAuditRecord {
             target: target.clone(),
+            derived_reason: None,
             display_name: display_name.into(),
             intent: EditIntent::Set,
             sent: Some(MetadataValue::Integer(300)),
@@ -346,6 +352,7 @@ mod tests {
                 schema_id: target_schema(None),
                 write_target: selector("IFD0"),
             },
+            derived_reason: None,
             display_name: "X Resolution".into(),
             intent: EditIntent::Set,
             sent: Some(MetadataValue::Integer(300)),
