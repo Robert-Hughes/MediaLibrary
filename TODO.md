@@ -1,19 +1,6 @@
 Current
 =======
 
-- Reverse geocode
-  - Using GeocodeJSON for betterness and should fix Minato/Tokyo - in progress 
-  - Store data in LocationCreated struct?
-  - Normalize between LocationCreated and the existing 5 fields?
-  - Store exact GeocodeJSON results in an mlib tag, so can be properly normalised later (like AIDescription)?
-
-- 2010 folder (and possibly others)
-  - Remove all description/title/keywords fields so can be regenerated
-  - Remove wrong GPS data (coords + the lower-level geocoded fields, leave higher-level London, UK etc.) from photos (several different clusters)
-    - Could manually set rough locations in string fields e.g. using bulk tag editor
-  - AI Description on all photos that don't have it
-  - Normalise for everything
-
 - Check all photos at the end
   - Any missing GPS?
   - Any missing description/keywords?
@@ -43,8 +30,6 @@ Features
 - Combined image + metadata AI review, only if practice shows the split pipeline is weaker
   - This is the main architectural difference, but not necessarily a required gap unless results are worse.
 - Feature to fill in missing GPS location based on description/tags (which could itself have been AI-generated from the visual content). Could also be used to fix batches of photos all clustered to the exact same GPS location (e.g. by a coarse previous manual edit). e.g. 2010 london photos, or where incorrect GPS was recorded
-- Easier GPS editing (e.g. search by address or by map)
-- Map view, showing locations of all photos/heatmap over the map
 - Feature for facial/person recognition?
 - Support deletion of photos (make sure all the various in-memory stores are updated)
 - Reload/refresh folder button? (Equivalent to close + open)
