@@ -1,6 +1,10 @@
 Current
 =======
 
+- ReverseGeocoding improvements
+  - UTF-8 normalisation (e.g. for Japan locations)
+  - Improved model and prompt for normalising location fields. Re-run on older photos to check.
+
 - Check all photos at the end
   - Any missing GPS?
   - Any missing description/keywords?
