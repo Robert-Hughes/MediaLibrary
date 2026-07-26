@@ -55,6 +55,7 @@ fn iptc_sub_location_projection(s: &str) -> String {
 
 #[derive(Debug, Clone, Default)]
 struct CanonicalLocation {
+    location_name: Option<String>,
     sublocation: Option<String>,
     city: Option<String>,
     state: Option<String>,
@@ -78,6 +79,17 @@ fn struct_text(fields: &BTreeMap<String, MetadataValue>, key: &str) -> Option<St
     }
 }
 
+fn struct_lang_alt(fields: &BTreeMap<String, MetadataValue>, key: &str) -> Option<String> {
+    let MetadataValue::LangAlt(values) = fields.get(key)? else {
+        return None;
+    };
+    values
+        .get("x-default")
+        .or_else(|| values.values().next())
+        .map(|value| canonicalise_location_text(value))
+        .filter(|value| !value.is_empty())
+}
+
 fn read_location_created(value: Option<&MetadataValue>) -> StructuredLocation {
     let Some(value) = value else {
         return StructuredLocation::Absent;
@@ -92,6 +104,7 @@ fn read_location_created(value: Option<&MetadataValue>) -> StructuredLocation {
         return StructuredLocation::Ambiguous;
     };
     StructuredLocation::One(CanonicalLocation {
+        location_name: struct_lang_alt(fields, "LocationName"),
         sublocation: struct_text(fields, "Sublocation"),
         city: struct_text(fields, "City"),
         state: struct_text(fields, "ProvinceState"),
@@ -114,6 +127,7 @@ fn canonical_from_legacy(input: &LocationInput) -> CanonicalLocation {
             }
         };
     CanonicalLocation {
+        location_name: None,
         sublocation: pick(
             input.location_xmp.as_deref(),
             input.location_iptc.as_deref(),
@@ -536,13 +550,21 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         read_location_created(input.location_created.as_ref())
     {
         let mut edits = SchemaMetadataEditMap::new();
+        // The legacy Sublocation property has deliberately broad semantics
+        // and is commonly the only location label displayed by older
+        // software. Prefer the structured full LocationName when present,
+        // then fall back to the structured Sublocation.
+        let legacy_location = canonical
+            .location_name
+            .as_deref()
+            .or(canonical.sublocation.as_deref());
         let members = [
             (
                 known_ids::xmp_location(),
                 known_ids::iptc_sub_location(),
                 input.location_xmp.as_deref(),
                 input.location_iptc.as_deref(),
-                canonical.sublocation.as_deref(),
+                legacy_location,
                 identity_projection as fn(&str) -> String,
                 iptc_sub_location_projection as fn(&str) -> String,
             ),
@@ -1105,18 +1127,20 @@ mod tests {
         let input = ai_evidence_input();
         let ai = LocationMock {
             result: LocationAiResult {
-                sublocation: Some("Sengaku-ji".into()),
+                sublocation: Some("Takanawa".into()),
                 city: Some("Minato, Tokyo".into()),
                 province_state: Some("Tokyo".into()),
                 country_name: Some("Japan".into()),
                 world_region: Some("East Asia".into()),
-                location_name: None,
+                location_name: Some("Sengaku-ji".into()),
             },
         };
         let outcome = normalise_location_with_ai(&input, Some(&ai)).await;
         assert!(outcome.ai_fired);
         assert!(outcome.ai_error.is_none());
         let output = outcome.output.expect("AI result should produce drafts");
+        assert_eq!(s(&output, "XMP-iptcCore:Location"), "Sengaku-ji");
+        assert_eq!(s(&output, "IPTC:Sub-location"), "Sengaku-ji");
         assert_eq!(s(&output, "XMP-photoshop:City"), "Minato, Tokyo");
         assert_eq!(s(&output, "IPTC:Country-PrimaryLocationName"), "Japan");
         assert_eq!(s(&output, "XMP-iptcCore:CountryCode"), "JP");
@@ -1136,6 +1160,17 @@ mod tests {
         assert_eq!(
             fields.get("WorldRegion"),
             Some(&MetadataValue::Text("East Asia".into()))
+        );
+        assert_eq!(
+            fields.get("Sublocation"),
+            Some(&MetadataValue::Text("Takanawa".into()))
+        );
+        assert_eq!(
+            fields.get("LocationName"),
+            Some(&MetadataValue::LangAlt(BTreeMap::from([(
+                "x-default".into(),
+                "Sengaku-ji".into()
+            )])))
         );
         assert_eq!(
             fields.get("LocationId"),

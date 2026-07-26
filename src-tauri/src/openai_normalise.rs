@@ -32,7 +32,7 @@ use crate::openai_request::{
 /// Version stamp recorded in the audit log per AI call. Bump when
 /// either prompt or schema changes; old log entries retain the prior
 /// string for archaeology.
-pub const NORMALISE_PROMPT_VERSION: &str = "v4";
+pub const NORMALISE_PROMPT_VERSION: &str = "v5";
 
 const DESCRIPTION_SYSTEM_PROMPT: &str = "You generate or normalise a factual photo description for a personal media library. \
 Produce a single factual paragraph in `x-default` English. \
@@ -50,14 +50,14 @@ Use the description as the primary source; use location and keywords for disambi
 
 const LOCATION_SYSTEM_PROMPT: &str = "You convert two raw Nominatim reverse-geocode responses into canonical human-facing members of one IPTC Extension LocationCreated structure for a personal photo library. \
 Return English or commonly anglicised place names. Reconcile GeocodeJSON and JSONv2 using their full contents; neither format has automatic precedence. \
-Produce stable metadata: identical evidence must map to the same names and formatting. Preserve supported proper-name spelling. Do not add explanatory words, parenthetical glosses, or alternate phrasings. \
-LocationName is only a distinct named venue, building, landmark, or geographic feature. Return null for an ordinary address, road, path, neighbourhood, or settlement, and return null if the value would duplicate Sublocation or another field. \
-Sublocation is the most specific useful place containing the photo after any distinct LocationName: prefer a supported house-number-plus-road address, then a road or path, then a neighbourhood or suburb. Use one concise value. Join a house number and road with one space, such as `55 Impala Drive`; never put a comma between them. Do not append City, ProvinceState, or CountryName, and do not repeat LocationName. \
-City must be a supported populated place or metropolitan locality. Prefer city, then town, then village or municipality. Never put a county, council district, state district, province, state, or region in City. A supported ward or borough may be combined with its metropolitan city, such as `Minato, Tokyo`, only when that is the clearest ordinary locality. \
+Produce useful, conventional location metadata that a reasonable person would enter after considering both responses as a whole. Use ordinary geographic knowledge to interpret formatter-specific and administrative labels rather than copying their categories mechanically. Prefer a well-supported conventional inference over null, while keeping identical evidence stable. Preserve supported proper-name spelling. Do not add explanatory words, parenthetical glosses, or alternate phrasings. \
+LocationName is the most recognisable supported name of a venue, building, landmark, attraction, or geographic feature. Return null when there is no meaningful named place. \
+Sublocation is a useful containing locality below City, such as an address, road, path, neighbourhood, suburb, or site. Prefer a supported house-number-plus-road address, then a road or path, then a neighbourhood or suburb. Use one concise value. Join a house number and road with one space, such as `55 Impala Drive`; never put a comma between them. Do not append City, ProvinceState, or CountryName. It may duplicate LocationName when that is the most reasonable representation. \
+City is the populated place or metropolitan city a reasonable person would use to describe the location. Interpret administrative and metropolitan labels instead of copying their Nominatim category mechanically. A city may be inferred from strongly and unambiguously supporting evidence; for example, Greater London together with a London borough or landmark supports London. A supported ward or borough may be combined with its metropolitan city, such as `Minato, Tokyo`, only when that is the clearest ordinary locality. Do not use a county, state, province, or unrelated administrative district as City. \
 ProvinceState is the supported first-order state, province, or region above City. Prefer an explicit state or admin-level-4 equivalent. Do not use a county or state district when a first-order division is available. \
 CountryName is the conventional English country name. \
 WorldRegion is a broad geographic region such as Europe or East Asia. Set it when the supplied country makes it unambiguous; otherwise return null. \
-Use only facts supported by the responses. Return null for any field that cannot be set accurately. Do not return coordinates, country codes, or identifiers; the application supplies those deterministically.";
+Use facts supported by the responses as a whole plus ordinary geographic knowledge. Return null only when the evidence is genuinely insufficient or ambiguous. Do not return coordinates, country codes, or identifiers; the application supplies those deterministically.";
 
 /// Output-token caps for cost-estimation purposes. Mirror plan §6.
 pub const DESCRIPTION_OUTPUT_TOKENS: u32 = 400;
@@ -521,10 +521,11 @@ mod tests {
             .as_str()
             .unwrap()
             .contains(r#"\"features\""#));
-        assert!(body["input"][0]["content"]
-            .as_str()
-            .unwrap()
-            .contains("Never put a county"));
+        let system_prompt = body["input"][0]["content"].as_str().unwrap();
+        assert!(system_prompt.contains("reasonable person"));
+        assert!(system_prompt.contains("Greater London"));
+        assert!(system_prompt
+            .contains("Return null only when the evidence is genuinely insufficient or ambiguous"));
     }
 
     #[test]

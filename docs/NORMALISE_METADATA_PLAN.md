@@ -257,11 +257,13 @@ No AI.
 | Projection | `XMP-iptcCore:CountryCode`           | string (ISO 3166-1 alpha-2, uppercase) |
 | Derivative | `IPTC:Country-PrimaryLocationCode`   | fixed-width legacy IPTC projection     |
 
-When exactly one LocationCreated structure exists, its `Sublocation`, `City`,
+When exactly one LocationCreated structure exists, its location label, `City`,
 `ProvinceState`, `CountryName`, and `CountryCode` members are canonical and
-project to the five flat XMP/IIM pairs. A missing member removes both
-corresponding flat fields. Other structured members such as GPS and
-`LocationId` are preserved in LocationCreated and have no flat projection.
+project to the five flat XMP/IIM pairs. For useful display in legacy software,
+the location label is `LocationName` when present and otherwise `Sublocation`.
+A missing projected member removes both corresponding flat fields. Other
+structured members such as GPS and `LocationId` are preserved in
+LocationCreated and have no flat projection.
 Multiple structures are ambiguous and produce no drafts.
 
 When LocationCreated is absent and either raw reverse-geocode evidence field
