@@ -1300,6 +1300,57 @@ fn roundtrip_langalt_set_removes_omitted_language() {
 }
 
 #[test]
+fn roundtrip_repeatable_struct_preserves_nested_lang_alt_languages() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let rel = rel_of(dir.path(), &dst);
+    let id = medialibrary_tauri_lib::known_ids::xmp_location_created();
+    let value = MetadataValue::List {
+        list_kind: ListKind::Bag,
+        items: vec![
+            MetadataValue::Struct(BTreeMap::from([
+                ("City".into(), MetadataValue::Text("Cambridge".into())),
+                (
+                    "LocationName".into(),
+                    MetadataValue::LangAlt(BTreeMap::from([
+                        ("fr".into(), "Cambridge, français".into()),
+                        ("x-default".into(), "Cambridge | default".into()),
+                        // ExifTool canonicalises XMP language identifiers to
+                        // lowercase on storage, so use that canonical form in
+                        // the exact round-trip expectation.
+                        ("zh-hant".into(), "劍橋".into()),
+                    ])),
+                ),
+            ])),
+            MetadataValue::Struct(BTreeMap::from([
+                ("City".into(), MetadataValue::Text("York".into())),
+                (
+                    "LocationName".into(),
+                    MetadataValue::LangAlt(BTreeMap::from([
+                        ("fr".into(), "York français".into()),
+                        ("x-default".into(), "York default".into()),
+                    ])),
+                ),
+            ])),
+        ],
+    };
+    let edits = vec![SchemaMetadataEdit {
+        schema_id: id.clone(),
+        edit: metadata_set(value.clone()),
+    }];
+
+    let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits);
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    assert_eq!(outcome.outcomes.len(), 1);
+    assert_eq!(outcome.outcomes[0].kind, "Match");
+
+    let reread = read_one(dir.path(), &dst);
+    assert_eq!(schema_value(&reread, &id), Some(value));
+}
+
+#[test]
 fn roundtrip_gps_preserves_each_exact_id() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;

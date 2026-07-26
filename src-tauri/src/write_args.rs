@@ -20,7 +20,8 @@ use crate::metadata_occurrence::{
     MetadataWriteTarget,
 };
 use crate::metadata_value::{
-    DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
+    is_exiftool_language_identifier, DateTimeValue, DateValue, MetadataValue, OffsetSign,
+    TimeValue, UtcOffsetValue,
 };
 use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
 
@@ -219,6 +220,7 @@ fn build_metadata_set(
             let mut text = Vec::with_capacity(langs.len() + 2);
             text.push(format!("-{}=", tag));
             for (lang, value) in langs {
+                validate_exiftool_lang_alt_language(lang)?;
                 text.push(format!("-{}-{}={}", tag, lang, value));
             }
             if !langs.contains_key("x-default") {
@@ -551,6 +553,15 @@ fn validate_exiftool_struct_field_name(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_exiftool_lang_alt_language(language: &str) -> Result<(), String> {
+    if !is_exiftool_language_identifier(language) {
+        return Err(format!(
+            "invalid ExifTool language alternative identifier: {language:?}"
+        ));
+    }
+    Ok(())
+}
+
 fn render_metadata_struct(
     map: &std::collections::BTreeMap<String, MetadataValue>,
 ) -> Result<String, String> {
@@ -579,24 +590,67 @@ fn render_metadata_struct(
             }
             MetadataValue::Struct(map) => render_metadata_struct(map),
             MetadataValue::LangAlt(_) => {
-                Err("lang-alt cannot be nested in struct write syntax".into())
+                Err("lang-alt requires a named struct field for serialization".into())
             }
             MetadataValue::Binary => Err("binary metadata is not writable".into()),
             MetadataValue::Unknown { .. } => Err("unknown metadata is not writable".into()),
         }
     }
 
-    let inner = map
-        .iter()
-        .map(|(key, value)| {
-            validate_exiftool_struct_field_name(key)?;
-            Ok(format!(
-                "{}={}",
-                key,
-                render(value, ExifToolStructStringContext::StructFieldValue)?
-            ))
-        })
-        .collect::<Result<Vec<String>, String>>()?
+    let mut rendered_fields = std::collections::BTreeMap::<String, String>::new();
+    for (key, value) in map {
+        validate_exiftool_struct_field_name(key)?;
+        match value {
+            MetadataValue::LangAlt(languages) => {
+                // ExifTool represents a LangAlt member of a structure as
+                // sibling fields: `LocationName` is x-default and
+                // `LocationName-fr` is French. This form also keeps each
+                // alternative attached to the correct item when the parent
+                // structure is repeatable.
+                for (language, text) in languages {
+                    validate_exiftool_lang_alt_language(language)?;
+                    let expanded_key = if language == "x-default" {
+                        key.clone()
+                    } else {
+                        format!("{key}-{language}")
+                    };
+                    validate_exiftool_struct_field_name(&expanded_key)?;
+                    if rendered_fields
+                        .insert(
+                            expanded_key.clone(),
+                            escape_exiftool_struct_string(
+                                text,
+                                ExifToolStructStringContext::StructFieldValue,
+                            ),
+                        )
+                        .is_some()
+                    {
+                        return Err(format!(
+                            "duplicate ExifTool structure field after expanding language alternatives: {expanded_key:?}"
+                        ));
+                    }
+                }
+            }
+            _ => {
+                if rendered_fields
+                    .insert(
+                        key.clone(),
+                        render(value, ExifToolStructStringContext::StructFieldValue)?,
+                    )
+                    .is_some()
+                {
+                    return Err(format!(
+                        "duplicate ExifTool structure field during serialization: {key:?}"
+                    ));
+                }
+            }
+        }
+    }
+
+    let inner = rendered_fields
+        .into_iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
         .join(",");
     Ok(format!("{{{}}}", inner))
 }
@@ -1526,6 +1580,101 @@ mod tests {
                 r"-1X:7ID-Y:S={Field=| Student Recruitment|, Marketing || West |} [Level=1]\Desk,LeadingBrace=|{not a nested structure,List=[|[first|, item|],pipe || and } is not the list terminator]}"
             ]
         );
+    }
+
+    #[test]
+    fn struct_render_expands_nested_lang_alt_to_exiftool_sibling_fields() {
+        let value = MetadataValue::Struct(BTreeMap::from([
+            ("City".into(), text("Cambridge")),
+            (
+                "LocationName".into(),
+                MetadataValue::LangAlt(BTreeMap::from([
+                    ("fr".into(), "Nom, français".into()),
+                    ("x-default".into(), "Default | name".into()),
+                    ("zh-Hant".into(), "繁體名稱".into()),
+                ])),
+            ),
+        ]));
+
+        let rendered = render_metadata_struct(match &value {
+            MetadataValue::Struct(fields) => fields,
+            _ => unreachable!(),
+        })
+        .unwrap();
+
+        assert_eq!(
+            rendered,
+            "{City=Cambridge,LocationName=Default || name,LocationName-fr=Nom|, français,LocationName-zh-Hant=繁體名稱}"
+        );
+    }
+
+    #[test]
+    fn struct_render_keeps_lang_alts_attached_to_each_repeated_struct() {
+        let value = MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![
+                MetadataValue::Struct(BTreeMap::from([
+                    ("City".into(), text("Cambridge")),
+                    (
+                        "LocationName".into(),
+                        MetadataValue::LangAlt(BTreeMap::from([
+                            ("fr".into(), "Cambridge français".into()),
+                            ("x-default".into(), "Cambridge default".into()),
+                        ])),
+                    ),
+                ])),
+                MetadataValue::Struct(BTreeMap::from([
+                    ("City".into(), text("York")),
+                    (
+                        "LocationName".into(),
+                        MetadataValue::LangAlt(BTreeMap::from([
+                            ("fr".into(), "York français".into()),
+                            ("x-default".into(), "York default".into()),
+                        ])),
+                    ),
+                ])),
+            ],
+        };
+        let info = info(TagKind::Bag(Box::new(TagKind::Struct(BTreeMap::new()))));
+
+        let args = build_new_property_fixture_args(
+            "XMP-iptcExt",
+            "LocationCreated",
+            &info,
+            &metadata_set(value),
+        )
+        .unwrap();
+
+        assert_eq!(
+            args.text,
+            vec![
+                "-1XMP-iptcExt:7ID-Y:LocationCreated=",
+                "-1XMP-iptcExt:7ID-Y:LocationCreated={City=Cambridge,LocationName=Cambridge default,LocationName-fr=Cambridge français}",
+                "-1XMP-iptcExt:7ID-Y:LocationCreated={City=York,LocationName=York default,LocationName-fr=York français}",
+            ]
+        );
+    }
+
+    #[test]
+    fn struct_render_rejects_invalid_language_and_expanded_field_collision() {
+        let invalid_language = BTreeMap::from([(
+            "LocationName".into(),
+            MetadataValue::LangAlt(BTreeMap::from([("fr,City=Bad".into(), "value".into())])),
+        )]);
+        assert!(render_metadata_struct(&invalid_language)
+            .unwrap_err()
+            .contains("invalid ExifTool language"));
+
+        let collision = BTreeMap::from([
+            (
+                "LocationName".into(),
+                MetadataValue::LangAlt(BTreeMap::from([("fr".into(), "one".into())])),
+            ),
+            ("LocationName-fr".into(), text("two")),
+        ]);
+        assert!(render_metadata_struct(&collision)
+            .unwrap_err()
+            .contains("duplicate ExifTool structure field"));
     }
 
     #[test]

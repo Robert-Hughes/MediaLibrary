@@ -382,6 +382,59 @@ fn parse_lang_alt(raw: &serde_json::Value) -> Result<MetadataValue, String> {
     Ok(MetadataValue::LangAlt(out))
 }
 
+/// Combined view of ExifTool's flattened fragments for one logical LangAlt.
+///
+/// ExifTool exposes both top-level and structured language alternatives as
+/// separate `Tag`, `Tag-fr`, ... values. Keeping the merge and conflict rule
+/// here prevents those two read paths from interpreting the same XMP shape
+/// differently.
+pub(crate) struct ConsolidatedLangAlt {
+    pub languages: BTreeMap<String, String>,
+    pub observed: BTreeMap<String, Vec<String>>,
+    pub conflicting_languages: Vec<String>,
+}
+
+pub(crate) fn consolidate_lang_alt_maps<'a>(
+    fragments: impl IntoIterator<Item = &'a BTreeMap<String, String>>,
+) -> ConsolidatedLangAlt {
+    let mut observed = BTreeMap::<String, Vec<String>>::new();
+    for fragment in fragments {
+        for (language, text) in fragment {
+            let values = observed.entry(language.clone()).or_default();
+            if !values.contains(text) {
+                values.push(text.clone());
+            }
+        }
+    }
+    let conflicting_languages = observed
+        .iter()
+        .filter(|(_, values)| values.len() > 1)
+        .map(|(language, _)| language.clone())
+        .collect::<Vec<_>>();
+    let languages = observed
+        .iter()
+        .filter_map(|(language, values)| {
+            values.first().map(|text| (language.clone(), text.clone()))
+        })
+        .collect();
+    ConsolidatedLangAlt {
+        languages,
+        observed,
+        conflicting_languages,
+    }
+}
+
+/// ExifTool appends XMP language identifiers to flattened tag and field
+/// names. Keep recognition and write validation aligned for top-level and
+/// structured LangAlt values. This accepts the ASCII alphanumeric and hyphen
+/// form used by BCP 47 tags, including `x-default`, script and region subtags.
+pub(crate) fn is_exiftool_language_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .split('-')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
 fn parse_list(
     list_kind: ListKind,
     inner: &TagKind,
@@ -416,6 +469,42 @@ fn parse_struct(
         .ok_or_else(|| "expected JSON object for struct tag".to_string())?;
     let mut out = BTreeMap::new();
     for (key, value) in obj {
+        if matches!(fields.get(key), Some(TagKind::LangAlt)) {
+            let MetadataValue::LangAlt(languages) = parse_lang_alt(value)? else {
+                unreachable!("parse_lang_alt always returns LangAlt")
+            };
+            merge_struct_lang_alt(&mut out, key, languages)?;
+            continue;
+        }
+
+        // ExifTool flattens language alternatives nested in an XMP
+        // structure into sibling fields. For example, the structured JSON
+        // representation uses `LocationName` for x-default and
+        // `LocationName-fr` for French. Reconstitute those siblings into the
+        // LangAlt shape described by the schema so read/write verification
+        // sees the same typed value that was written.
+        let lang_alt_parent = fields
+            .iter()
+            .filter(|(_, kind)| matches!(kind, TagKind::LangAlt))
+            .filter_map(|(field, _)| {
+                key.strip_prefix(field)
+                    .and_then(|suffix| suffix.strip_prefix('-'))
+                    .filter(|language| is_exiftool_language_identifier(language))
+                    .map(|language| (field, language))
+            })
+            .max_by_key(|(field, _)| field.len());
+        if let Some((field, language)) = lang_alt_parent {
+            let text = value.as_str().ok_or_else(|| {
+                format!("language alternative {key} in struct field {field} is not a string")
+            })?;
+            merge_struct_lang_alt(
+                &mut out,
+                field,
+                BTreeMap::from([(language.to_string(), text.to_string())]),
+            )?;
+            continue;
+        }
+
         let parsed = fields
             .get(key)
             .map(|kind| parse_known(kind, value, None))
@@ -423,6 +512,30 @@ fn parse_struct(
         out.insert(key.clone(), parsed?);
     }
     Ok(MetadataValue::Struct(out))
+}
+
+fn merge_struct_lang_alt(
+    out: &mut BTreeMap<String, MetadataValue>,
+    field: &str,
+    languages: BTreeMap<String, String>,
+) -> Result<(), String> {
+    let entry = out
+        .entry(field.to_string())
+        .or_insert_with(|| MetadataValue::LangAlt(BTreeMap::new()));
+    let MetadataValue::LangAlt(existing) = entry else {
+        return Err(format!(
+            "struct field {field} mixes language alternatives with another value"
+        ));
+    };
+    let consolidated = consolidate_lang_alt_maps([&*existing, &languages]);
+    if !consolidated.conflicting_languages.is_empty() {
+        return Err(format!(
+            "struct field {field} has conflicting {} language alternatives",
+            consolidated.conflicting_languages.join(", ")
+        ));
+    }
+    *existing = consolidated.languages;
+    Ok(())
 }
 
 fn parse_json_shape(value: &serde_json::Value) -> MetadataValue {
@@ -793,6 +906,58 @@ mod tests {
                     MetadataValue::Text("b".into())
                 ]
             }
+        );
+    }
+
+    #[test]
+    fn struct_parser_consolidates_flattened_lang_alt_members() {
+        let kind = TagKind::Struct(BTreeMap::from([
+            ("City".into(), TagKind::Text),
+            ("LocationName".into(), TagKind::LangAlt),
+        ]));
+        let parsed = parse_metadata_value(
+            "XMP-iptcExt:LocationCreated",
+            Some(&kind),
+            &json!({
+                "City": "Cambridge",
+                "LocationName": "Default name",
+                "LocationName-fr": "Nom français",
+                "LocationName-zh-Hant": "繁體名稱"
+            }),
+            None,
+        );
+
+        assert_eq!(
+            parsed,
+            MetadataValue::Struct(BTreeMap::from([
+                ("City".into(), MetadataValue::Text("Cambridge".into())),
+                (
+                    "LocationName".into(),
+                    MetadataValue::LangAlt(BTreeMap::from([
+                        ("fr".into(), "Nom français".into()),
+                        ("x-default".into(), "Default name".into()),
+                        ("zh-Hant".into(), "繁體名稱".into()),
+                    ])),
+                ),
+            ]))
+        );
+    }
+
+    #[test]
+    fn struct_parser_rejects_conflicting_flattened_lang_alt_members() {
+        let kind = TagKind::Struct(BTreeMap::from([("LocationName".into(), TagKind::LangAlt)]));
+        let parsed = parse_known(
+            &kind,
+            &json!({
+                "LocationName": {"fr": "first"},
+                "LocationName-fr": "second"
+            }),
+            None,
+        );
+
+        assert_eq!(
+            parsed.unwrap_err(),
+            "struct field LocationName has conflicting fr language alternatives"
         );
     }
 

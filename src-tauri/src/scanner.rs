@@ -18,7 +18,9 @@ use crate::metadata_occurrence::{
     MetadataOccurrenceId, MetadataOccurrences, MetadataSelectorKey, MetadataWriteTarget,
     RuntimeTagIdScope,
 };
-use crate::metadata_value::{parse_metadata_value, MetadataValue};
+use crate::metadata_value::{
+    consolidate_lang_alt_maps, is_exiftool_language_identifier, parse_metadata_value, MetadataValue,
+};
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
 
 // ── ExifTool executable name ──────────────────────────────────────────────────
@@ -1132,19 +1134,12 @@ fn consolidate_lang_alt_occurrences(
             })
             .unwrap_or(0);
         let mut parent = fragments.remove(parent_index);
-        let mut observed = BTreeMap::<String, Vec<String>>::new();
+        let mut language_fragments = Vec::new();
         let mut malformed_fragments = Vec::new();
 
         for fragment in std::iter::once(&parent).chain(fragments.iter()) {
             match &fragment.occurrence.value {
-                MetadataValue::LangAlt(languages) => {
-                    for (language, text) in languages {
-                        let values = observed.entry(language.clone()).or_default();
-                        if !values.contains(text) {
-                            values.push(text.clone());
-                        }
-                    }
-                }
+                MetadataValue::LangAlt(languages) => language_fragments.push(languages),
                 value => malformed_fragments.push(serde_json::json!({
                     "occurrence_id": &fragment.occurrence.id,
                     "value": value,
@@ -1152,25 +1147,15 @@ fn consolidate_lang_alt_occurrences(
             }
         }
 
-        let conflicting_languages = observed
-            .iter()
-            .filter(|(_, values)| values.len() > 1)
-            .map(|(language, _)| language.clone())
-            .collect::<Vec<_>>();
+        let consolidated = consolidate_lang_alt_maps(language_fragments);
         let has_malformed_fragments = !malformed_fragments.is_empty();
-        let invalid = !conflicting_languages.is_empty() || has_malformed_fragments;
+        let invalid = !consolidated.conflicting_languages.is_empty() || has_malformed_fragments;
         parent.occurrence.value = if !invalid {
-            MetadataValue::LangAlt(
-                observed
-                    .into_iter()
-                    .filter_map(|(language, values)| {
-                        values.into_iter().next().map(|text| (language, text))
-                    })
-                    .collect(),
-            )
+            MetadataValue::LangAlt(consolidated.languages)
         } else {
             let languages = serde_json::Value::Object(
-                observed
+                consolidated
+                    .observed
                     .into_iter()
                     .map(|(language, values)| {
                         let value = if values.len() == 1 {
@@ -1189,10 +1174,10 @@ fn consolidate_lang_alt_occurrences(
                 "malformed_fragments": malformed_fragments,
             });
             let mut problems = Vec::new();
-            if !conflicting_languages.is_empty() {
+            if !consolidated.conflicting_languages.is_empty() {
                 problems.push(format!(
                     "conflicting values for language(s): {}",
-                    conflicting_languages.join(", ")
+                    consolidated.conflicting_languages.join(", ")
                 ));
             }
             if has_malformed_fragments {
@@ -1492,7 +1477,7 @@ fn resolve_schema_identity<'a>(
     }
     let language = property.language.clone().or_else(|| {
         let (_, suffix) = schema_candidate.tag_id.rsplit_once('-')?;
-        is_language_code(suffix).then(|| suffix.to_string())
+        is_exiftool_language_identifier(suffix).then(|| suffix.to_string())
     });
     let Some(language) = language else {
         return (schema_candidate, None, None);
@@ -1512,14 +1497,6 @@ fn resolve_schema_identity<'a>(
         }
         _ => (schema_candidate, None, None),
     }
-}
-
-fn is_language_code(value: &str) -> bool {
-    value == "x-default"
-        || matches!(value.len(), 2 | 5)
-            && value
-                .split('-')
-                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphabetic()))
 }
 
 fn warn_unknown_metadata_value(
