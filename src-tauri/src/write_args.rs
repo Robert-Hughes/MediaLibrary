@@ -509,23 +509,58 @@ fn render_metadata_scalar_numeric(
     }
 }
 
+#[derive(Clone, Copy)]
+enum ExifToolStructStringContext {
+    StructFieldValue,
+    ListItem,
+}
+
+/// Escape a string using ExifTool's default structured-information syntax.
+///
+/// This is distinct from shell quoting and from the `#[CSTR]` escaping used
+/// to transport a complete argument through an ExifTool `-@` argfile.
+/// ExifTool structure strings use `|` as their escape character:
+/// https://exiftool.org/struct.html#Serialization
+fn escape_exiftool_struct_string(s: &str, context: ExifToolStructStringContext) -> String {
+    let mut out = String::with_capacity(s.len());
+    for (index, c) in s.chars().enumerate() {
+        let closes_container = match context {
+            ExifToolStructStringContext::StructFieldValue => c == '}',
+            ExifToolStructStringContext::ListItem => c == ']',
+        };
+        let special_at_start =
+            index == 0 && (matches!(c, '{' | '[') || matches!(c, ' ' | '\t' | '\r' | '\n'));
+        if matches!(c, '|' | ',') || closes_container || special_at_start {
+            out.push('|');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn validate_exiftool_struct_field_name(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || name
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, ',' | '=' | '{' | '}' | '[' | ']' | '|'))
+    {
+        return Err(format!(
+            "invalid ExifTool structure field name for serialization: {name:?}"
+        ));
+    }
+    Ok(())
+}
+
 fn render_metadata_struct(
     map: &std::collections::BTreeMap<String, MetadataValue>,
 ) -> Result<String, String> {
-    fn escape_scalar(s: &str) -> String {
-        let mut out = String::with_capacity(s.len());
-        for c in s.chars() {
-            if matches!(c, ',' | '{' | '}' | '[' | ']' | '=' | '\\') {
-                out.push('\\');
-            }
-            out.push(c);
-        }
-        out
-    }
-    fn render(value: &MetadataValue) -> Result<String, String> {
+    fn render(
+        value: &MetadataValue,
+        context: ExifToolStructStringContext,
+    ) -> Result<String, String> {
         match value {
             MetadataValue::Null => Ok(String::new()),
-            MetadataValue::Text(s) => Ok(escape_scalar(s)),
+            MetadataValue::Text(s) => Ok(escape_exiftool_struct_string(s, context)),
             MetadataValue::Bool(b) => Ok(if *b { "True".into() } else { "False".into() }),
             MetadataValue::Integer(n) => Ok(n.to_string()),
             MetadataValue::Real(f) => Ok(f.to_string()),
@@ -537,7 +572,7 @@ fn render_metadata_struct(
             MetadataValue::List { items, .. } => {
                 let inner = items
                     .iter()
-                    .map(render)
+                    .map(|item| render(item, ExifToolStructStringContext::ListItem))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(",");
                 Ok(format!("[{}]", inner))
@@ -553,7 +588,14 @@ fn render_metadata_struct(
 
     let inner = map
         .iter()
-        .map(|(key, value)| Ok(format!("{}={}", escape_scalar(key), render(value)?)))
+        .map(|(key, value)| {
+            validate_exiftool_struct_field_name(key)?;
+            Ok(format!(
+                "{}={}",
+                key,
+                render(value, ExifToolStructStringContext::StructFieldValue)?
+            ))
+        })
         .collect::<Result<Vec<String>, String>>()?
         .join(",");
     Ok(format!("{{{}}}", inner))
@@ -1456,15 +1498,48 @@ mod tests {
     }
 
     #[test]
-    fn struct_render_escapes_metacharacters_in_scalars() {
-        let mut o = BTreeMap::new();
-        // Value containing every metachar exiftool struct parser cares about.
-        o.insert("k".to_string(), text("a,b{c}d[e]f=g\\h"));
+    fn struct_render_uses_exiftool_pipe_escaping_for_field_values_and_list_items() {
+        let o = BTreeMap::from([
+            (
+                "Field".to_string(),
+                text(" Student Recruitment, Marketing | West } [Level=1]\\Desk"),
+            ),
+            ("LeadingBrace".to_string(), text("{not a nested structure")),
+            (
+                "List".to_string(),
+                MetadataValue::List {
+                    list_kind: ListKind::Bag,
+                    items: vec![
+                        text("[first, item]"),
+                        text("pipe | and } is not the list terminator"),
+                    ],
+                },
+            ),
+        ]);
         let i = info(TagKind::Struct(BTreeMap::new()));
         let args =
             build_new_property_fixture_args("X", "S", &i, &metadata_set(MetadataValue::Struct(o)))
                 .unwrap();
-        assert_eq!(args.text, vec![r"-1X:7ID-Y:S={k=a\,b\{c\}d\[e\]f\=g\\h}"]);
+        assert_eq!(
+            args.text,
+            vec![
+                r"-1X:7ID-Y:S={Field=| Student Recruitment|, Marketing || West |} [Level=1]\Desk,LeadingBrace=|{not a nested structure,List=[|[first|, item|],pipe || and } is not the list terminator]}"
+            ]
+        );
+    }
+
+    #[test]
+    fn struct_render_rejects_ambiguous_field_names() {
+        for field_name in ["", "two words", "name,value", "name=value", "name|value"] {
+            let value =
+                MetadataValue::Struct(BTreeMap::from([(field_name.to_string(), text("value"))]));
+            let error = render_metadata_struct(match &value {
+                MetadataValue::Struct(map) => map,
+                _ => unreachable!(),
+            })
+            .unwrap_err();
+            assert!(error.contains("field name"), "{field_name:?}: {error}");
+        }
     }
 
     #[test]

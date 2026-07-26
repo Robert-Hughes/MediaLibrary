@@ -1364,7 +1364,13 @@ fn location_created_struct_round_trips_as_one_atomic_location() {
     let value = MetadataValue::List {
         list_kind: ListKind::Bag,
         items: vec![MetadataValue::Struct(BTreeMap::from([
-            ("Sublocation".into(), MetadataValue::Text("Seria".into())),
+            (
+                "Sublocation".into(),
+                MetadataValue::Text(
+                    " Student Recruitment, Marketing, and Admissions | West } [Level=1]\\Wing"
+                        .into(),
+                ),
+            ),
             ("City".into(), MetadataValue::Text("Tokyo".into())),
             ("ProvinceState".into(), MetadataValue::Text("Tokyo".into())),
             ("CountryName".into(), MetadataValue::Text("Japan".into())),
@@ -1375,9 +1381,12 @@ fn location_created_struct_round_trips_as_one_atomic_location() {
                 "LocationId".into(),
                 MetadataValue::List {
                     list_kind: ListKind::Bag,
-                    items: vec![MetadataValue::Text(
-                        "https://www.openstreetmap.org/node/13954804901".into(),
-                    )],
+                    items: vec![
+                        MetadataValue::Text(
+                            "https://www.openstreetmap.org/node/13954804901".into(),
+                        ),
+                        MetadataValue::Text("[urn:test,west|pipe]tail}brace".into()),
+                    ],
                 },
             ),
         ]))],
