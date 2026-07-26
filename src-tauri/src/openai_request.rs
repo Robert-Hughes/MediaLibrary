@@ -6,6 +6,33 @@
 
 pub(crate) const LOW_REASONING_EFFORT: &str = "low";
 
+/// Walk `output[*].content[*]` for the first `output_text` part.
+///
+/// Reasoning models can emit a separate reasoning item before the assistant
+/// message, so callers must not assume the text is in `output[0]`.
+pub(crate) fn find_output_text(response: &serde_json::Value) -> Option<String> {
+    let output = response.get("output")?.as_array()?;
+    for item in output {
+        let content = match item.get("content").and_then(|value| value.as_array()) {
+            Some(content) => content,
+            None => continue,
+        };
+        for part in content {
+            if part.get("type").and_then(|value| value.as_str()) == Some("output_text") {
+                if let Some(text) = part.get("text").and_then(|value| value.as_str()) {
+                    return Some(text.to_string());
+                }
+            }
+        }
+    }
+
+    // Keep compatibility with older response fixtures that omit the content
+    // part's `type` field.
+    response["output"][0]["content"][0]["text"]
+        .as_str()
+        .map(str::to_string)
+}
+
 /// Add sampling and reasoning parameters supported by `model`.
 ///
 /// GPT-5.6 reasoning models reject `temperature` and `top_p`; older models use
@@ -49,5 +76,45 @@ mod tests {
         assert_eq!(request["temperature"], 0);
         assert_eq!(request["top_p"], 1);
         assert!(request.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn output_text_search_skips_a_reasoning_item() {
+        let response = serde_json::json!({
+            "output": [
+                {
+                    "type": "reasoning",
+                    "content": []
+                },
+                {
+                    "type": "message",
+                    "content": [{
+                        "type": "output_text",
+                        "text": "{\"city\":\"York\"}"
+                    }]
+                }
+            ]
+        });
+
+        assert_eq!(
+            find_output_text(&response).as_deref(),
+            Some("{\"city\":\"York\"}")
+        );
+    }
+
+    #[test]
+    fn output_text_search_supports_legacy_untyped_content() {
+        let response = serde_json::json!({
+            "output": [{
+                "content": [{
+                    "text": "{\"description\":\"merged\"}"
+                }]
+            }]
+        });
+
+        assert_eq!(
+            find_output_text(&response).as_deref(),
+            Some("{\"description\":\"merged\"}")
+        );
     }
 }

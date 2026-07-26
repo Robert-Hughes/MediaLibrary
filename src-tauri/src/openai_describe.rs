@@ -29,7 +29,9 @@ use crate::metadata_value::{
     DateTimeValue, DateValue, ListKind, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
 use crate::openai_http::OpenAiHttp;
-use crate::openai_request::{apply_responses_model_parameters, LOW_REASONING_EFFORT};
+use crate::openai_request::{
+    apply_responses_model_parameters, find_output_text, LOW_REASONING_EFFORT,
+};
 
 /// Long-side cap before upload.  See experiment for rationale: server-side
 /// downscale is wasted bandwidth otherwise.
@@ -578,33 +580,6 @@ fn find_refusal(response: &serde_json::Value) -> Option<String> {
     None
 }
 
-/// Walk `output[*].content[*]` for the first `output_text` part and return
-/// its `text` field. Mirrors the refusal scan so a non-output_text part
-/// (e.g. a reasoning block in front of the text) doesn't hide the JSON
-/// payload we need to parse.
-fn find_output_text(response: &serde_json::Value) -> Option<String> {
-    let output = response.get("output")?.as_array()?;
-    for msg in output {
-        let content = match msg.get("content").and_then(|c| c.as_array()) {
-            Some(c) => c,
-            None => continue,
-        };
-        for part in content {
-            let ty = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            if ty == "output_text" {
-                if let Some(s) = part.get("text").and_then(|v| v.as_str()) {
-                    return Some(s.to_string());
-                }
-            }
-        }
-    }
-    // Fall back to the legacy unconditional index lookup so older mock
-    // payloads (and tests) without an explicit `type` field still work.
-    response["output"][0]["content"][0]["text"]
-        .as_str()
-        .map(str::to_string)
-}
-
 /// Call `/responses` once for a single image.  Returns parsed structured
 /// output + usage on success; structured error otherwise.
 pub async fn describe_one(
@@ -1104,20 +1079,6 @@ mod tests {
             "output": [{ "content": [{ "type": "output_text", "text": "ok" }] }]
         });
         assert!(find_refusal(&json).is_none());
-    }
-
-    #[test]
-    fn find_output_text_skips_non_text_parts() {
-        // A reasoning summary part before the JSON payload must not mask
-        // the actual text. find_output_text walks until it finds a part
-        // whose type is "output_text".
-        let json = serde_json::json!({
-            "output": [{ "content": [
-                { "type": "reasoning", "summary": "thinking…" },
-                { "type": "output_text", "text": "{\"x\":1}" }
-            ]}]
-        });
-        assert_eq!(find_output_text(&json).as_deref(), Some("{\"x\":1}"));
     }
 
     #[tokio::test]

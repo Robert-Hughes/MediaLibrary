@@ -25,7 +25,9 @@ use crate::normalise::{
 };
 use crate::openai_describe::OpenAiClient;
 use crate::openai_http::OpenAiHttp;
-use crate::openai_request::{apply_responses_model_parameters, LOW_REASONING_EFFORT};
+use crate::openai_request::{
+    apply_responses_model_parameters, find_output_text, LOW_REASONING_EFFORT,
+};
 
 /// Version stamp recorded in the audit log per AI call. Bump when
 /// either prompt or schema changes; old log entries retain the prior
@@ -270,13 +272,12 @@ fn build_location_request_body(model: &str, user_payload: serde_json::Value) -> 
 /// Extract the structured-output payload from a `/responses` JSON body.
 ///
 /// The Responses API embeds the JSON content as a string in
-/// `output[].content[].text`; per `openai_describe::extract_text`,
-/// `output[0].content[0].text` works for the happy path.
+/// `output[].content[].text`. Reasoning models can put a reasoning item before
+/// the assistant message, so use the shared traversal rather than fixed
+/// indices.
 fn extract_structured_text(body: &serde_json::Value) -> Result<String, String> {
-    body["output"][0]["content"][0]["text"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| format!("missing output[0].content[0].text in: {}", body))
+    find_output_text(body)
+        .ok_or_else(|| format!("missing output[*].content[*].output_text in: {}", body))
 }
 
 impl OpenAiNormaliseClient {
@@ -548,6 +549,28 @@ mod tests {
         });
         let text = extract_structured_text(&body).unwrap();
         assert_eq!(text, "{\"description\":\"merged\"}");
+    }
+
+    #[test]
+    fn extract_structured_text_handles_reasoning_before_message() {
+        let body = serde_json::json!({
+            "output": [
+                {
+                    "content": [],
+                    "type": "reasoning"
+                },
+                {
+                    "content": [{
+                        "type": "output_text",
+                        "text": "{\"city\":\"York\"}"
+                    }],
+                    "type": "message"
+                }
+            ]
+        });
+
+        let text = extract_structured_text(&body).unwrap();
+        assert_eq!(text, "{\"city\":\"York\"}");
     }
 
     #[test]
