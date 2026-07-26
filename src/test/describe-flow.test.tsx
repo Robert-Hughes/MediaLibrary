@@ -17,6 +17,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
+import { DESCRIBE_TARGET_TAGS } from "../generatedTargetDrafts";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makeFile, mockGeneratedDraftEntries } from "./factories";
 
@@ -63,6 +64,14 @@ async function openFolderWithFile(rel = "test.jpg") {
 
 beforeEach(() => {
   mockApiInstance = createMockTauriApi();
+  mockApiInstance.tagInfos = DESCRIBE_TARGET_TAGS.map((id) => ({
+    id: structuredClone(id),
+    group: "XMP-mlib",
+    name: id.tag_id,
+    writable: true,
+    kind: { kind: "Text" },
+    description: null,
+  }));
 });
 afterEach(() => {
   vi.clearAllMocks();

@@ -1,7 +1,4 @@
-import {
-  KNOWN_METADATA_IDS,
-  knownMetadataWriteTarget,
-} from "./metadata/knownIds";
+import { KNOWN_METADATA_IDS } from "./metadata/knownIds";
 import type { TargetDraftCollection } from "./targetDraftEdits";
 import { metadataTargetDraftEntryEqualsExact } from "./targetDraftEdits";
 import {
@@ -16,11 +13,13 @@ import type {
   MetadataDraftTarget,
   NormaliseGroup,
   SchemaDefinitionId,
+  TagInfo,
 } from "./types";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
+  newPropertyDraftTarget,
 } from "./utils/metadataDraftTarget";
 import { resolveOccurrencesForSchema } from "./utils/metadataOccurrences";
 import {
@@ -51,6 +50,7 @@ export type GeneratedTargetDraftPlanErrorCode =
   | "duplicate_schema"
   | "schema_not_allowed"
   | "intent_not_allowed"
+  | "schema_definition_missing"
   | "multiple_occurrences"
   | "occurrence_not_targetable"
   | "target_owner_mismatch";
@@ -144,6 +144,7 @@ export function planGeneratedTargetDraftBatch(input: {
   edits: readonly SchemaMetadataEdit[];
   occurrences: FileMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
+  writableSchemaDefinitions: readonly TagInfo[];
 }): GeneratedTargetDraftPlan {
   if (input.edits.length === 0) {
     return {
@@ -238,19 +239,25 @@ export function planGeneratedTargetDraftBatch(input: {
 
     let plannedTarget: MetadataDraftTarget;
     if (occurrence.kind === "missing") {
-      const writeTarget = knownMetadataWriteTarget(schemaId);
-      if (!writeTarget) {
+      const tagInfo = input.writableSchemaDefinitions.find(
+        (candidate) => schemaDefinitionIdToken(candidate.id) === token,
+      );
+      if (!tagInfo) {
         fail(
-          "schema_not_allowed",
-          `No exact default write destination is registered for ${token}.`,
+          "schema_definition_missing",
+          `No exact writable schema definition is available for ${token}.`,
           schemaId,
         );
       }
-      plannedTarget = {
-        kind: "NewProperty",
-        schema_id: structuredClone(schemaId),
-        write_target: writeTarget,
-      };
+      const target = newPropertyDraftTarget(tagInfo);
+      if (target.kind !== "available") {
+        fail(
+          "schema_definition_missing",
+          `Exact schema ${token} cannot be used as a new writable property (${target.reason}).`,
+          schemaId,
+        );
+      }
+      plannedTarget = target.target;
     } else {
       const target = existingOccurrenceTargetFromOccurrence(
         occurrence.occurrence,

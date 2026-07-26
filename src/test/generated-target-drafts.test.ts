@@ -5,10 +5,7 @@ import {
   planGeneratedTargetDraftBatch,
   type GeneratedMetadataProducer,
 } from "../generatedTargetDrafts";
-import {
-  KNOWN_METADATA_IDS as ID,
-  knownMetadataWriteTarget,
-} from "../metadata/knownIds";
+import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
@@ -17,11 +14,13 @@ import type {
   MetadataOccurrence,
   MetadataValue,
   SchemaDefinitionId,
+  TagInfo,
 } from "../types";
 import { GEOCODE_TARGET_TAGS, NORMALISE_TARGET_TAGS_BY_GROUP } from "../types";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetSlotToken,
+  newPropertyDraftTarget,
 } from "../utils/metadataDraftTarget";
 
 const text = (value: string): MetadataValue => ({ kind: "Text", value });
@@ -30,6 +29,20 @@ const set = (value: string): MetadataDraftEdit => ({
   value: text(value),
 });
 const del = (): MetadataDraftEdit => ({ intent: "Delete", value: null });
+
+function schemaInfo(
+  id: SchemaDefinitionId,
+  options: { group?: string; name?: string } = {},
+): TagInfo {
+  return {
+    id: structuredClone(id),
+    group: options.group ?? "Test",
+    name: options.name ?? id.tag_id,
+    writable: true,
+    kind: { kind: "Text" },
+    description: null,
+  };
+}
 
 function occurrence(
   id: SchemaDefinitionId,
@@ -102,12 +115,17 @@ function plan(options: {
   edits?: SchemaMetadataEdit[];
   occurrences?: MetadataOccurrence[] | "loading";
   targetDrafts?: TargetDraftCollection;
+  writableSchemaDefinitions?: TagInfo[];
 }) {
+  const edits = options.edits ?? [];
   return planGeneratedTargetDraftBatch({
     producer: options.producer ?? { kind: "describe" },
-    edits: options.edits ?? [],
+    edits,
     occurrences: options.occurrences ?? [],
     targetDrafts: options.targetDrafts,
+    writableSchemaDefinitions:
+      options.writableSchemaDefinitions ??
+      edits.map(({ schema_id }) => schemaInfo(schema_id)),
   });
 }
 
@@ -205,18 +223,62 @@ describe("planGeneratedTargetDraftBatch", () => {
   });
 
   it("creates an exact NewProperty target when the schema is missing", () => {
+    const definition = schemaInfo(ID.mlibAiDescription, {
+      group: "XMP-custom",
+      name: "CustomDescription",
+    });
     const result = plan({
       edits: [{ schema_id: ID.mlibAiDescription, edit: set("generated") }],
+      writableSchemaDefinitions: [definition],
     });
     expect(result.upserts[0].target).toEqual({
       kind: "NewProperty",
       schema_id: ID.mlibAiDescription,
       write_target: {
-        group1: "XMP-mlib",
+        group1: "XMP-custom",
         group7: "ID-AIDescription",
-        tag_name: "AIDescription",
+        tag_name: "CustomDescription",
       },
     });
+  });
+
+  it("derives the IPTC CodedCharacterSet target from its exact schema definition", () => {
+    const result = plan({
+      producer: { kind: "normalise", enabledGroups: ["iptc_utf8"] },
+      edits: [
+        {
+          schema_id: ID.iptcCodedCharacterSet,
+          edit: set("UTF8"),
+        },
+      ],
+      writableSchemaDefinitions: [
+        schemaInfo(ID.iptcCodedCharacterSet, {
+          group: "IPTC",
+          name: "CodedCharacterSet",
+        }),
+      ],
+    });
+
+    expect(result.upserts[0].target).toEqual({
+      kind: "NewProperty",
+      schema_id: ID.iptcCodedCharacterSet,
+      write_target: {
+        group1: "IPTC",
+        group7: "ID-90",
+        tag_name: "CodedCharacterSet",
+      },
+    });
+  });
+
+  it("rejects a missing property when its exact writable schema definition is unavailable", () => {
+    expectCode(
+      () =>
+        plan({
+          edits: [{ schema_id: ID.mlibAiDescription, edit: set("generated") }],
+          writableSchemaDefinitions: [],
+        }),
+      "schema_definition_missing",
+    );
   });
 
   it("accepts every exact describe output schema and no namespace prefix shortcut", () => {
@@ -475,14 +537,12 @@ describe("planGeneratedTargetDraftBatch", () => {
     expect(cancellation.deletes).toEqual([]);
     expect(cancellation.noops).toEqual([schema]);
 
-    const defaultWriteTarget = knownMetadataWriteTarget(schema);
-    expect(defaultWriteTarget).toBeDefined();
+    const defaultTarget = newPropertyDraftTarget(schemaInfo(schema));
+    if (defaultTarget.kind !== "available") {
+      throw new Error(defaultTarget.reason);
+    }
     const exactOwner: MetadataTargetDraftEntry = {
-      target: {
-        kind: "NewProperty",
-        schema_id: schema,
-        write_target: defaultWriteTarget!,
-      },
+      target: defaultTarget.target,
       edit: set("pending"),
     };
     const exactCancellation = plan({

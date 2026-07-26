@@ -30,6 +30,7 @@ import {
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
 import { useRecentFolders } from "./hooks/useRecentFolders";
+import { useWritableSchemaDefinitions } from "./hooks/useWritableSchemaDefinitions";
 import {
   metadataTargetDraftEntryEqualsExact,
   TargetDraftEditsStore,
@@ -207,6 +208,7 @@ export function useMediaLibrary(
 ): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const [recentFolders, pushRecentFolder] = useRecentFolders();
+  const writableSchemaDefinitions = useWritableSchemaDefinitions(api.invoke);
 
   const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
   const fileMetadataOccurrencesStoreRef = useRef<FileMetadataOccurrencesStore>(
@@ -1141,13 +1143,26 @@ export function useMediaLibrary(
   );
 
   const canStageGeneratedMetadata = useCallback(
-    (relativePaths: string[]): boolean =>
-      requireAuthoritativeMetadataReady(
+    (relativePaths: string[]): boolean => {
+      if (writableSchemaDefinitions === "loading") {
+        pushApplicationError(
+          "metadata-target-generated-readiness",
+          "Generated metadata was not started. Writable metadata schema definitions are still loading.",
+          relativePaths,
+        );
+        return false;
+      }
+      return requireAuthoritativeMetadataReady(
         relativePaths,
         "metadata-target-generated-readiness",
         "Generated metadata was not started.",
-      ),
-    [requireAuthoritativeMetadataReady],
+      );
+    },
+    [
+      pushApplicationError,
+      requireAuthoritativeMetadataReady,
+      writableSchemaDefinitions,
+    ],
   );
 
   const applyGeneratedMetadataDraftBatches = useCallback(
@@ -1167,6 +1182,16 @@ export function useMediaLibrary(
         .map((item, resultIndex) => ({ item, resultIndex }))
         .filter(({ item }) => item.edits.length > 0);
       if (activeItems.length === 0) return results;
+      if (writableSchemaDefinitions === "loading") {
+        const failure: GeneratedDraftStageResult = {
+          kind: "failure",
+          reason: "Writable metadata schema definitions are still loading.",
+        };
+        for (const { resultIndex } of activeItems) {
+          results[resultIndex] = failure;
+        }
+        return results;
+      }
       const startedAt = frontendNow();
       const paths = activeItems.map(({ item }) => item.relativePath);
       if (!requireTargetDraftPersistenceReady(paths)) {
@@ -1202,6 +1227,7 @@ export function useMediaLibrary(
                 fileMetadataOccurrencesStoreRef.current.get(relativePath),
               targetDrafts:
                 targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
+              writableSchemaDefinitions,
             });
             planned.push({
               resultIndex,
@@ -1251,7 +1277,7 @@ export function useMediaLibrary(
       });
       return results;
     },
-    [requireTargetDraftPersistenceReady],
+    [requireTargetDraftPersistenceReady, writableSchemaDefinitions],
   );
 
   const applyGeneratedMetadataDraftBatch = useCallback(

@@ -437,6 +437,9 @@ export function createMockTauriApi(): MockTauriApi {
           ids.some((id) => JSON.stringify(info.id) === JSON.stringify(id)),
         );
       }
+      if (cmd === "list_writable_schema_definitions") {
+        return mock.tagInfos;
+      }
       if (cmd === "apply_metadata_draft_edits_cmd") {
         const relPaths = (args?.relPaths as string[]) ?? [];
         const folder = args?.folderPath as string;
