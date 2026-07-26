@@ -1,10 +1,11 @@
 use base64::Engine;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use image::ImageReader;
 use reqwest::Client;
-use std::collections::HashMap;
+use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 use std::env;
-use std::io::Cursor;
+use std::io::{BufRead, Cursor};
 
 /// Max dimension (long side) to resize an image to before uploading.
 ///
@@ -33,6 +34,37 @@ const EXPECTED_OUTPUT_TOKENS: u32 = 250;
 
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
+/// Reasoning-model budgets include hidden reasoning tokens. The production
+/// normalizer's 250-token cap is enough for non-reasoning models but can leave
+/// a 5.6 model no room for the ~50-token structured answer.
+const LOCATION_MAX_OUTPUT_TOKENS: u32 = 1000;
+
+/// Byte-for-byte copy of the production v3 prompt. Keeping a baseline here
+/// makes prompt experiments meaningful: only the selected variant changes.
+const LOCATION_BASELINE_INSTRUCTIONS: &str = "You resolve two raw Nominatim reverse-geocode responses into the human-facing members of one IPTC Extension LocationCreated structure for a personal photo library. \
+Return English or commonly anglicised place names. Reconcile the GeocodeJSON and JSONv2 hierarchies using their full contents and ordinary geographic meaning; neither format has automatic precedence. \
+Sublocation is the specific named venue, building, landmark, campus area, street, or neighbourhood where the photo was made. \
+City is the useful human-facing settlement or metropolitan locality; it need not follow Nominatim's field label mechanically, and may combine supported components such as `Minato, Tokyo` when that is clearest. \
+ProvinceState is the first useful regional or state-level division above City. \
+CountryName is the conventional English country name. \
+WorldRegion is a broad geographic region such as Europe or East Asia, but must be null unless it is directly supported or unambiguous from the supplied country. \
+LocationName is a useful overall name for the created location, but should be null when it would merely duplicate another field. \
+Use only facts supported by the responses. Return null for a field that cannot be set accurately. Do not return coordinates, country codes, or identifiers; the application supplies those deterministically.";
+
+/// Candidate prompt aimed at canonical library metadata rather than a
+/// free-form address summary. It removes the choices that caused identical
+/// evidence to oscillate between streets, neighbourhoods, and admin areas.
+const LOCATION_STRICT_INSTRUCTIONS: &str = "You convert two raw Nominatim reverse-geocode responses into canonical human-facing members of one IPTC Extension LocationCreated structure for a personal photo library. \
+Return English or commonly anglicised place names. Reconcile GeocodeJSON and JSONv2 using their full contents; neither format has automatic precedence. \
+Produce stable metadata: identical evidence must map to the same names and formatting. Preserve supported proper-name spelling. Do not add explanatory words, parenthetical glosses, or alternate phrasings. \
+LocationName is only a distinct named venue, building, landmark, or geographic feature. Return null for an ordinary address, road, path, neighbourhood, or settlement, and return null if the value would duplicate Sublocation or another field. \
+Sublocation is the most specific useful place containing the photo after any distinct LocationName: prefer a supported house-number-plus-road address, then a road or path, then a neighbourhood or suburb. Use one concise value. Join a house number and road with one space, such as `55 Impala Drive`; never put a comma between them. Do not append City, ProvinceState, or CountryName, and do not repeat LocationName. \
+City must be a supported populated place or metropolitan locality. Prefer city, then town, then village or municipality. Never put a county, council district, state district, province, state, or region in City. A supported ward or borough may be combined with its metropolitan city, such as `Minato, Tokyo`, only when that is the clearest ordinary locality. \
+ProvinceState is the supported first-order state, province, or region above City. Prefer an explicit state or admin-level-4 equivalent. Do not use a county or state district when a first-order division is available. \
+CountryName is the conventional English country name. \
+WorldRegion is a broad geographic region such as Europe or East Asia. Set it when the supplied country makes it unambiguous; otherwise return null. \
+Use only facts supported by the responses. Return null for any field that cannot be set accurately. Do not return coordinates, country codes, or identifiers; the application supplies those deterministically.";
+
 #[derive(Parser, Debug)]
 #[command(name = "openai_image_analysis")]
 #[command(about = "OpenAI API experimentation tool", long_about = None)]
@@ -59,6 +91,56 @@ struct Args {
     /// responses are only printed to stdout.
     #[arg(long)]
     output_next_to_image: bool,
+
+    /// Evaluate location normalization using evidence extracted from a
+    /// MediaLibrary target-aware apply audit log. Mutually exclusive with
+    /// image inputs.
+    #[arg(long, value_name = "JSONL")]
+    location_apply_log: Option<String>,
+
+    /// Select a relative path from --location-apply-log. Repeat for multiple
+    /// cases. With no filters, every unique evidence pair is evaluated once.
+    #[arg(long = "location-case", value_name = "RELATIVE_PATH")]
+    location_cases: Vec<String>,
+
+    /// Location-normalization prompt to evaluate.
+    #[arg(long, value_enum, default_value_t = LocationPromptVariant::Baseline)]
+    location_prompt: LocationPromptVariant,
+
+    /// Number of identical calls per selected location evidence pair.
+    #[arg(long, default_value_t = 1)]
+    repeat: u16,
+
+    /// Write location experiment records as JSONL. Existing content is
+    /// replaced at the start of the run.
+    #[arg(long, value_name = "JSONL")]
+    location_output: Option<String>,
+
+    /// Skip the confirmation prompt.
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum LocationPromptVariant {
+    Baseline,
+    Strict,
+}
+
+impl LocationPromptVariant {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Baseline => "baseline",
+            Self::Strict => "strict",
+        }
+    }
+
+    fn instructions(self) -> &'static str {
+        match self {
+            Self::Baseline => LOCATION_BASELINE_INSTRUCTIONS,
+            Self::Strict => LOCATION_STRICT_INSTRUCTIONS,
+        }
+    }
 }
 
 /// Pricing information for a model
@@ -657,6 +739,342 @@ async fn call_responses_api(
     Ok(json)
 }
 
+#[derive(Debug, Default)]
+struct LocationCaseBuilder {
+    geocode_json: Option<String>,
+    json_v2: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct LocationCase {
+    id: String,
+    geocode_json: Option<String>,
+    json_v2: Option<String>,
+}
+
+fn load_location_cases(
+    apply_log: &str,
+    selected_paths: &[String],
+) -> Result<Vec<LocationCase>, Box<dyn std::error::Error>> {
+    let file = std::fs::File::open(apply_log)?;
+    let reader = std::io::BufReader::new(file);
+    let selected: HashSet<&str> = selected_paths.iter().map(String::as_str).collect();
+    let mut by_path: HashMap<String, LocationCaseBuilder> = HashMap::new();
+
+    for line in reader.lines() {
+        let line = line?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") {
+            continue;
+        }
+        let row: serde_json::Value = serde_json::from_str(trimmed)?;
+        let Some(path) = row["relative_path"].as_str() else {
+            continue;
+        };
+        if !selected.is_empty() && !selected.contains(path) {
+            continue;
+        }
+        let Some(value) = row.pointer("/sent/value").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let case = by_path.entry(path.to_owned()).or_default();
+        match row["display_name"].as_str() {
+            Some("XMP-mlib:ReverseGeocodeGeocodeJSON") => {
+                case.geocode_json = Some(value.to_owned())
+            }
+            Some("XMP-mlib:ReverseGeocodeJSONv2") => case.json_v2 = Some(value.to_owned()),
+            _ => {}
+        }
+    }
+
+    if !selected.is_empty() {
+        let missing: Vec<&str> = selected
+            .iter()
+            .copied()
+            .filter(|path| !by_path.contains_key(*path))
+            .collect();
+        if !missing.is_empty() {
+            return Err(format!("location cases not found in apply log: {}", missing.join(", ")).into());
+        }
+    }
+
+    let mut seen_evidence = HashSet::new();
+    let mut cases = Vec::new();
+    let mut paths: Vec<String> = by_path.keys().cloned().collect();
+    paths.sort();
+    for path in paths {
+        let evidence = by_path.remove(&path).expect("path came from map keys");
+        if evidence.geocode_json.is_none() && evidence.json_v2.is_none() {
+            continue;
+        }
+        let dedupe_key = (
+            evidence.geocode_json.clone().unwrap_or_default(),
+            evidence.json_v2.clone().unwrap_or_default(),
+        );
+        if seen_evidence.insert(dedupe_key) {
+            cases.push(LocationCase {
+                id: path,
+                geocode_json: evidence.geocode_json,
+                json_v2: evidence.json_v2,
+            });
+        }
+    }
+    Ok(cases)
+}
+
+fn location_schema() -> serde_json::Value {
+    let nullable_string = || serde_json::json!({ "type": ["string", "null"] });
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "sublocation", "city", "provinceState", "countryName",
+            "worldRegion", "locationName"
+        ],
+        "properties": {
+            "sublocation": nullable_string(),
+            "city": nullable_string(),
+            "provinceState": nullable_string(),
+            "countryName": nullable_string(),
+            "worldRegion": nullable_string(),
+            "locationName": nullable_string()
+        }
+    })
+}
+
+fn build_location_request(
+    model: &str,
+    prompt_variant: LocationPromptVariant,
+    case: &LocationCase,
+) -> serde_json::Value {
+    let mut payload = serde_json::Map::new();
+    if let Some(value) = &case.geocode_json {
+        payload.insert("geocode_json".into(), serde_json::Value::String(value.clone()));
+    }
+    if let Some(value) = &case.json_v2 {
+        payload.insert("json_v2".into(), serde_json::Value::String(value.clone()));
+    }
+    let user_content =
+        serde_json::to_string(&serde_json::Value::Object(payload)).unwrap_or_default();
+    let mut request = serde_json::json!({
+        "model": model,
+        "service_tier": "default",
+        "input": [
+            { "role": "system", "content": prompt_variant.instructions() },
+            { "role": "user", "content": user_content }
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "location_resolution",
+                "schema": location_schema(),
+                "strict": true
+            }
+        },
+        "max_output_tokens": LOCATION_MAX_OUTPUT_TOKENS,
+    });
+    // Current 5.6 reasoning models reject sampling parameters.
+    if !model.starts_with("gpt-5.6") {
+        if let Some(object) = request.as_object_mut() {
+            object.insert("temperature".into(), serde_json::json!(0));
+            object.insert("top_p".into(), serde_json::json!(1));
+        }
+    }
+    request
+}
+
+async fn post_response_body(
+    client: &Client,
+    api_key: &str,
+    request_body: &serde_json::Value,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let response = client
+        .post(format!("{}/responses", OPENAI_BASE_URL))
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Content-Type", "application/json")
+        .json(request_body)
+        .send()
+        .await?;
+    let status = response.status();
+    let body = response.text().await?;
+    if !status.is_success() {
+        return Err(format!("API request failed with status {}: {}", status, body).into());
+    }
+    Ok(serde_json::from_str(&body)?)
+}
+
+fn extract_response_text(response: &serde_json::Value) -> Option<&str> {
+    response["output"]
+        .as_array()?
+        .iter()
+        .filter_map(|output| output["content"].as_array())
+        .flatten()
+        .find_map(|content| content["text"].as_str())
+}
+
+fn location_evidence_label(case: &LocationCase) -> String {
+    case.json_v2
+        .as_deref()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .and_then(|json| json["display_name"].as_str().map(str::to_owned))
+        .or_else(|| {
+            case.geocode_json
+                .as_deref()
+                .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+                .and_then(|json| {
+                    json.pointer("/features/0/properties/geocoding/label")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned)
+                })
+        })
+        .unwrap_or_else(|| "(no display label)".to_owned())
+}
+
+#[derive(Debug, Serialize)]
+struct LocationExperimentRecord {
+    case_id: String,
+    evidence_label: String,
+    model: String,
+    prompt: String,
+    repetition: u16,
+    result: Option<serde_json::Value>,
+    usage: Option<UsageStats>,
+    error: Option<String>,
+}
+
+async fn run_location_experiment(
+    args: &Args,
+    client: &Client,
+    api_key: &str,
+    model: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let apply_log = args
+        .location_apply_log
+        .as_deref()
+        .expect("location mode requires an apply log");
+    let cases = load_location_cases(apply_log, &args.location_cases)?;
+    if cases.is_empty() {
+        return Err("no location evidence cases were found".into());
+    }
+    if args.repeat == 0 {
+        return Err("--repeat must be at least 1".into());
+    }
+
+    let request_count = cases.len() * args.repeat as usize;
+    println!(
+        "Location experiment: {} unique case(s) × {} repetition(s) = {} request(s)",
+        cases.len(),
+        args.repeat,
+        request_count
+    );
+    println!(
+        "Model: {}  Prompt: {}",
+        model,
+        args.location_prompt.label()
+    );
+    for case in &cases {
+        println!("  {}: {}", case.id, location_evidence_label(case));
+    }
+
+    if !args.yes {
+        print!("Send {} request(s) to OpenAI API? (y/n): ", request_count);
+        use std::io::Write;
+        std::io::stdout().flush()?;
+        let mut confirmation = String::new();
+        std::io::stdin().read_line(&mut confirmation)?;
+        if confirmation.trim().to_lowercase() != "y" {
+            return Ok(());
+        }
+    }
+
+    let mut records = Vec::with_capacity(request_count);
+    let mut aggregate_usage = UsageStats::default();
+    for case in &cases {
+        for repetition in 1..=args.repeat {
+            println!(
+                "\n--- Location: {} ({}/{}) ---",
+                case.id, repetition, args.repeat
+            );
+            let request = build_location_request(model, args.location_prompt, case);
+            match post_response_body(client, api_key, &request).await {
+                Ok(response) => {
+                    let usage = UsageStats::from_response(&response);
+                    aggregate_usage.add(&usage);
+                    match extract_response_text(&response)
+                        .ok_or("response contained no structured text")
+                        .and_then(|text| {
+                            serde_json::from_str::<serde_json::Value>(text)
+                                .map_err(|_| "structured text was not valid JSON")
+                        }) {
+                        Ok(result) => {
+                            println!("{}", serde_json::to_string_pretty(&result)?);
+                            records.push(LocationExperimentRecord {
+                                case_id: case.id.clone(),
+                                evidence_label: location_evidence_label(case),
+                                model: model.to_owned(),
+                                prompt: args.location_prompt.label().to_owned(),
+                                repetition,
+                                result: Some(result),
+                                usage: Some(usage),
+                                error: None,
+                            });
+                        }
+                        Err(error) => records.push(LocationExperimentRecord {
+                            case_id: case.id.clone(),
+                            evidence_label: location_evidence_label(case),
+                            model: model.to_owned(),
+                            prompt: args.location_prompt.label().to_owned(),
+                            repetition,
+                            result: None,
+                            usage: Some(usage),
+                            error: Some(error.to_owned()),
+                        }),
+                    }
+                }
+                Err(error) => {
+                    tracing::error!("Location request failed for {}: {}", case.id, error);
+                    records.push(LocationExperimentRecord {
+                        case_id: case.id.clone(),
+                        evidence_label: location_evidence_label(case),
+                        model: model.to_owned(),
+                        prompt: args.location_prompt.label().to_owned(),
+                        repetition,
+                        result: None,
+                        usage: None,
+                        error: Some(error.to_string()),
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(path) = &args.location_output {
+        use std::io::Write;
+        let mut output = std::io::BufWriter::new(std::fs::File::create(path)?);
+        for record in &records {
+            serde_json::to_writer(&mut output, record)?;
+            output.write_all(b"\n")?;
+        }
+        output.flush()?;
+        println!("Wrote {}", path);
+    }
+
+    let errors = records.iter().filter(|record| record.error.is_some()).count();
+    println!(
+        "\nLocation summary: requests={} errors={} input_tokens={} cached={} output_tokens={} reasoning_tokens={}",
+        records.len(),
+        errors,
+        aggregate_usage.input_tokens,
+        aggregate_usage.cached_input_tokens,
+        aggregate_usage.output_tokens,
+        aggregate_usage.reasoning_tokens
+    );
+    if let Some(pricing) = get_model_pricing().get(model) {
+        println!("Actual cost: ${:.6}", aggregate_usage.cost(pricing));
+    }
+    Ok(())
+}
+
 /// Example: List available models (for debugging)
 async fn list_models(client: &Client, api_key: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let url = format!("{}/models", OPENAI_BASE_URL);
@@ -880,7 +1298,7 @@ fn write_error_stub(
 /// only for reasoning-tier models (o-series, gpt-5 reasoning variants); for
 /// the chat/vision models used here it's always 0 but we plumb it through
 /// so the schema is uniform.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy, Serialize)]
 struct UsageStats {
     input_tokens: u32,
     cached_input_tokens: u32,
@@ -918,9 +1336,9 @@ impl UsageStats {
         let input_cost = (non_cached_input as f64 / 1_000_000.0) * p.input_per_1m;
         let cached_cost =
             (self.cached_input_tokens as f64 / 1_000_000.0) * p.cached_input_per_1m;
-        // Reasoning tokens are billed as output tokens by OpenAI.
-        let output_cost =
-            ((self.output_tokens + self.reasoning_tokens) as f64 / 1_000_000.0) * p.output_per_1m;
+        // `output_tokens` already includes reasoning tokens; the nested
+        // reasoning count is a diagnostic subset and must not be billed twice.
+        let output_cost = (self.output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
         input_cost + cached_cost + output_cost
     }
 }
@@ -1091,8 +1509,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.model.is_none() {
             return Err("--model is required (or pass --list-models). No default — choose explicitly.".into());
         }
-        if args.images.is_empty() {
-            return Err("At least one --image is required (repeat --image for multiple).".into());
+        let image_mode = !args.images.is_empty();
+        let location_mode = args.location_apply_log.is_some();
+        if image_mode == location_mode {
+            return Err(
+                "Choose exactly one input mode: --image or --location-apply-log.".into(),
+            );
         }
     }
 
@@ -1108,6 +1530,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = args.model.as_deref().expect("validated above");
 
     tracing::info!("Model: {}", model);
+
+    if args.location_apply_log.is_some() {
+        return run_location_experiment(&args, &client, &api_key, model).await;
+    }
+
     tracing::info!("Images: {} file(s)", args.images.len());
 
     // --- Pre-flight: per-image token count, summed for combined estimate ---
@@ -1257,4 +1684,79 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=============================");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn location_case() -> LocationCase {
+        LocationCase {
+            id: "sample.jpg".into(),
+            geocode_json: Some(r#"{"features":[]}"#.into()),
+            json_v2: Some(r#"{"display_name":"Example"}"#.into()),
+        }
+    }
+
+    #[test]
+    fn location_request_matches_sampling_support() {
+        let nano = build_location_request(
+            "gpt-5.4-nano",
+            LocationPromptVariant::Baseline,
+            &location_case(),
+        );
+        assert_eq!(nano["temperature"], 0);
+        assert_eq!(nano["top_p"], 1);
+        assert_eq!(nano["max_output_tokens"], LOCATION_MAX_OUTPUT_TOKENS);
+
+        let luna = build_location_request(
+            "gpt-5.6-luna",
+            LocationPromptVariant::Strict,
+            &location_case(),
+        );
+        assert!(luna.get("temperature").is_none());
+        assert!(luna.get("top_p").is_none());
+        assert!(luna["input"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("Never put a county"));
+    }
+
+    #[test]
+    fn location_schema_requires_nullable_canonical_fields() {
+        let schema = location_schema();
+        assert_eq!(
+            schema["required"],
+            serde_json::json!([
+                "sublocation",
+                "city",
+                "provinceState",
+                "countryName",
+                "worldRegion",
+                "locationName"
+            ])
+        );
+        assert_eq!(
+            schema["properties"]["city"]["type"],
+            serde_json::json!(["string", "null"])
+        );
+    }
+
+    #[test]
+    fn usage_cost_does_not_double_bill_reasoning_tokens() {
+        let usage = UsageStats {
+            input_tokens: 1_000,
+            cached_input_tokens: 200,
+            output_tokens: 500,
+            reasoning_tokens: 400,
+        };
+        let pricing = ModelPricing {
+            input_per_1m: 1.0,
+            cached_input_per_1m: 0.1,
+            output_per_1m: 6.0,
+            supports_batch: true,
+        };
+        let expected = (800.0 * 1.0 + 200.0 * 0.1 + 500.0 * 6.0) / 1_000_000.0;
+        assert!((usage.cost(&pricing) - expected).abs() < f64::EPSILON);
+    }
 }
