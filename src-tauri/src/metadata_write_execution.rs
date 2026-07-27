@@ -1,8 +1,8 @@
-//! Shared ExifTool argfile rendering and write-pass execution.
+//! Shared ExifTool argfile rendering and raw write execution.
 //!
 //! This module deliberately knows nothing about draft identities or metadata
-//! targets. The target-aware metadata writer uses these byte-identical
-//! mechanics for both numeric and textual passes.
+//! targets. All semantic values are written in one `-n` invocation so ExifTool
+//! does not reinterpret canonical values through PrintConv.
 
 use std::io::Write;
 use std::path::Path;
@@ -42,7 +42,6 @@ pub(crate) fn render_argfile_argument(arg: &str) -> Result<String, String> {
 pub(crate) fn build_exiftool_write_argfile_args(
     path: &Path,
     args: &[String],
-    numeric: bool,
 ) -> Result<Vec<String>, String> {
     let mut logical_args = vec![
         "-overwrite_original".to_string(),
@@ -50,10 +49,8 @@ pub(crate) fn build_exiftool_write_argfile_args(
         "utf8".to_string(),
         "-charset".to_string(),
         "filename=utf8".to_string(),
+        "-n".to_string(),
     ];
-    if numeric {
-        logical_args.push("-n".to_string());
-    }
     logical_args.extend(args.iter().cloned());
     logical_args.push(path.to_string_lossy().into_owned());
     Ok(logical_args)
@@ -70,7 +67,7 @@ pub(crate) fn render_exiftool_argfile(logical_args: &[String]) -> Result<String,
 }
 
 /// Run one ExifTool write invocation with pre-rendered UTF-8 argfile contents.
-pub(crate) fn run_exiftool_write(rendered_contents: &str, numeric: bool) -> Result<(), String> {
+pub(crate) fn run_exiftool_write(rendered_contents: &str) -> Result<(), String> {
     let dir = tempfile::tempdir().map_err(|e| format!("Failed to create ExifTool argfile: {e}"))?;
     let argfile_path = dir.path().join("medialibrary-exiftool.args");
     let mut argfile = std::fs::File::create(&argfile_path)
@@ -94,16 +91,11 @@ pub(crate) fn run_exiftool_write(rendered_contents: &str, numeric: bool) -> Resu
     })?;
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
-        return Err(format!(
-            "ExifTool failed ({}): {}",
-            if numeric { "-n pass" } else { "text pass" },
-            stderr.trim()
-        ));
+        return Err(format!("ExifTool raw write failed: {}", stderr.trim()));
     }
     if !stderr.trim().is_empty() {
         log::warn!(
-            "[apply_edits] ExifTool write emitted stderr on {}: {}",
-            if numeric { "-n pass" } else { "text pass" },
+            "[apply_edits] ExifTool raw write emitted stderr: {}",
             stderr.trim()
         );
     }
@@ -116,35 +108,12 @@ pub(crate) struct ApplyDiagnostics {
 }
 
 pub(crate) fn format_apply_diagnostics(
-    numeric_attempted: bool,
-    numeric_result: &Result<(), String>,
-    text_attempted: bool,
-    text_result: &Result<(), String>,
+    write_result: &Result<(), String>,
     verified_count: usize,
     total_count: usize,
 ) -> ApplyDiagnostics {
-    let pass_info = match (
-        numeric_attempted,
-        numeric_result.is_ok(),
-        text_attempted,
-        text_result.is_err(),
-    ) {
-        (true, true, true, true) => Some(format!(
-            "ExifTool text pass failed ({}) after numeric pass succeeded",
-            text_result.as_ref().unwrap_err()
-        )),
-        (true, false, _, _) => Some(format!(
-            "ExifTool numeric pass failed ({})",
-            numeric_result.as_ref().unwrap_err()
-        )),
-        (false, _, true, true) => Some(format!(
-            "ExifTool text pass failed ({})",
-            text_result.as_ref().unwrap_err()
-        )),
-        _ => None,
-    };
-
-    if let Some(info) = pass_info {
+    if let Err(error) = write_result {
+        let info = format!("ExifTool raw write failed ({error})");
         if verified_count == total_count {
             ApplyDiagnostics {
                 error: None,
@@ -175,26 +144,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn numeric_and_textual_passes_have_stable_distinct_layouts() {
+    fn raw_write_layout_always_includes_numeric_mode() {
         let args = build_exiftool_write_argfile_args(
             Path::new("file.jpg"),
             &["-IFD0:Orientation=6".to_string()],
-            true,
         )
         .unwrap();
         assert_eq!(
             render_exiftool_argfile(&args).unwrap(),
             "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n-n\n-IFD0:Orientation=6\nfile.jpg\n"
         );
-
-        let text_args = build_exiftool_write_argfile_args(
-            Path::new("file.jpg"),
-            &["-XMP-dc:Title=plain".to_string()],
-            false,
-        )
-        .unwrap();
-        assert!(!text_args.iter().any(|arg| arg == "-n"));
-        assert_eq!(text_args[5], "-XMP-dc:Title=plain");
     }
 
     #[test]
@@ -226,7 +185,6 @@ mod tests {
                 "-XMP-dc:Description=line one\nline two".to_string(),
                 "-XMP-dc:Rights=#reserved".to_string(),
             ],
-            false,
         )
         .unwrap();
         let first = render_exiftool_argfile(&logical).unwrap();
@@ -234,7 +192,7 @@ mod tests {
         assert_eq!(first.as_bytes(), second.as_bytes());
         assert_eq!(
             first,
-            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n#[CSTR]-XMP-dc:Title= first \n#[CSTR]-XMP-dc:Description=line one\\nline two\n-XMP-dc:Rights=#reserved\nfile.jpg\n"
+            "-overwrite_original\n-charset\nutf8\n-charset\nfilename=utf8\n-n\n#[CSTR]-XMP-dc:Title= first \n#[CSTR]-XMP-dc:Description=line one\\nline two\n-XMP-dc:Rights=#reserved\nfile.jpg\n"
         );
         assert_eq!(first.lines().count(), logical.len());
         assert!(first.ends_with('\n'));

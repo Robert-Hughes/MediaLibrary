@@ -89,8 +89,9 @@ For each requested file, the backend:
 
 1. loads and validates complete target drafts;
 2. validates exact writable occurrences or deliberate creations;
-3. separates numeric and textual ExifTool passes;
-4. writes a deterministic escaped UTF-8 argument file;
+3. renders every typed value into one deterministic escaped UTF-8 argument
+   file;
+4. writes that argument file in ExifTool raw (`-n`) mode;
 5. re-reads authoritative occurrences;
 6. verifies each semantic edit against the complete intended target;
 7. reconciles exact targets as Clear, Keep, Replace or Blocked;
@@ -156,7 +157,10 @@ Selector uniqueness is checked across authoritative occurrences, stored drafts
 and every target in the incoming batch.
 
 `MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. The
-historical `MediaLibraryApplyLog.jsonl` is ignored and left unchanged.
+current schema-version 2 rows record one ordered argument vector and one raw
+write status for each exact target. Older rows remain append-only and are not
+rewritten. The historical `MediaLibraryApplyLog.jsonl` is ignored and left
+unchanged.
 
 ## Generated workflows
 
