@@ -129,6 +129,66 @@ describe("Metadata-normalisation flow", () => {
     expect(result.current.state.succeeded).toEqual(["one.jpg", "two.jpg"]);
   });
 
+  it("reconciles frontend staging failures into the final summary", async () => {
+    const edits = mockGeneratedDraftEntries({
+      "XMP-dc:Title": {
+        intent: "Set",
+        value: { kind: "Text", value: "normalised" },
+      },
+    });
+    mockApiInstance.normaliseSchedule = [
+      { relativePath: "unsafe.jpg", status: "ok", edits },
+      { relativePath: "safe.jpg", status: "ok", edits },
+    ];
+    mockApiInstance.normaliseSummary = {
+      ...mockApiInstance.normaliseSummary,
+      nSucceeded: 2,
+      nFailed: 0,
+    };
+    const stageBatch = vi.fn(
+      (
+        items: readonly {
+          relativePath: string;
+          edits: SchemaMetadataEdit[];
+        }[],
+      ) =>
+        items.map((item) =>
+          item.relativePath === "unsafe.jpg"
+            ? {
+                kind: "failure" as const,
+                reason: "unsafe declared destination",
+              }
+            : { kind: "success" as const, changed: true },
+        ),
+    );
+    const { result } = renderHook(() =>
+      useNormaliseMetadata({ onApplyEditsBatch: stageBatch }),
+    );
+    const items = ["unsafe.jpg", "safe.jpg"].map(
+      (relPath) => ({ relPath }) as NormaliseRequestItem,
+    );
+
+    act(() => result.current.actions.start("/files", items, ["title"]));
+    await waitFor(() =>
+      expect(result.current.state.phase).toBe("awaiting-confirm"),
+    );
+    act(() => result.current.actions.confirm());
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+
+    expect(result.current.state.succeeded).toEqual(["safe.jpg"]);
+    expect(result.current.state.failures).toEqual([
+      {
+        relativePath: "unsafe.jpg",
+        kind: "draft_stage_failed",
+        detail: "unsafe declared destination",
+      },
+    ]);
+    expect(result.current.state.summary).toMatchObject({
+      nSucceeded: 1,
+      nFailed: 1,
+    });
+  });
+
   it("stages delayed results against the immutable confirmed group snapshot", async () => {
     let releaseProgress!: () => void;
     mockApiInstance.beforeNormaliseProgress = () =>

@@ -165,6 +165,17 @@ export interface BatchJobConfig<StartArgs, EstimatePayload, SummaryPayload> {
    */
   parseSummaryPayload: (raw: unknown) => SummaryPayload;
   /**
+   * Reconcile a backend-owned summary with the final frontend outcome after
+   * draft-staging failures have been merged.
+   */
+  reconcileSummaryPayload?: (
+    summary: SummaryPayload,
+    outcome: {
+      succeeded: readonly string[];
+      failures: readonly BatchJobFailure[];
+    },
+  ) => SummaryPayload;
+  /**
    * Subscribe to job-specific extra events (e.g. `describe_estimate_started`,
    * `describe_estimate_progress`, `describe_estimate_error`). Called
    * inside the same effect that owns the universal subs so all
@@ -438,15 +449,21 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
             (order.get(left.relativePath) ?? Number.MAX_SAFE_INTEGER) -
             (order.get(right.relativePath) ?? Number.MAX_SAFE_INTEGER),
         );
+        const succeeded = p.succeeded.filter(
+          (relativePath) => !frontendFailedPaths.has(relativePath),
+        );
+        const summary =
+          config.reconcileSummaryPayload?.(parsed, {
+            succeeded,
+            failures: merged,
+          }) ?? parsed;
         safeSetState((s) => ({
           ...s,
           phase: "done",
           cancelling: false,
-          succeeded: p.succeeded.filter(
-            (relativePath) => !frontendFailedPaths.has(relativePath),
-          ),
+          succeeded,
           failures: merged,
-          summary: parsed,
+          summary,
         }));
       });
 

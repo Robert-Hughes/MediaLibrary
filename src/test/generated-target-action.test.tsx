@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { DESCRIBE_TARGET_TAGS } from "../generatedTargetDrafts";
 import { _setWritableSchemaDefinitionsCache } from "../hooks/useWritableSchemaDefinitions";
-import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
+import {
+  KNOWN_METADATA_IDS as ID,
+  knownMetadataWriteTarget,
+} from "../metadata/knownIds";
 import type {
   SchemaMetadataEdit,
   MetadataOccurrence,
@@ -17,10 +20,17 @@ function occurrence(
   value = "current",
   options: { copy?: number; writable?: boolean; writeTarget?: boolean } = {},
 ): MetadataOccurrence {
+  const declared = knownMetadataWriteTarget(id);
   const writeTarget =
     options.writeTarget === false
       ? null
-      : { group1: "XMP-mlib", group7: "ID-Test", tag_name: id.tag_id };
+      : structuredClone(
+          declared ?? {
+            group1: "XMP-mlib",
+            group7: "ID-Test",
+            tag_name: id.tag_id,
+          },
+        );
   return {
     id: {
       document: null,

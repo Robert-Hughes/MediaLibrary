@@ -5,7 +5,10 @@ import {
   planGeneratedTargetDraftBatch,
   type GeneratedMetadataProducer,
 } from "../generatedTargetDrafts";
-import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
+import {
+  KNOWN_METADATA_IDS as ID,
+  knownMetadataWriteTarget,
+} from "../metadata/knownIds";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
@@ -34,10 +37,11 @@ function schemaInfo(
   id: SchemaDefinitionId,
   options: { group?: string; name?: string } = {},
 ): TagInfo {
+  const destination = knownMetadataWriteTarget(id);
   return {
     id: structuredClone(id),
-    group: options.group ?? "Test",
-    name: options.name ?? id.tag_id,
+    group: options.group ?? destination?.group1 ?? "Test",
+    name: options.name ?? destination?.tag_name ?? id.tag_id,
     writable: true,
     kind: { kind: "Text" },
     description: null,
@@ -54,12 +58,24 @@ function occurrence(
     tagInfo?: boolean;
     writeTarget?: boolean;
     schemaId?: SchemaDefinitionId;
+    destinationGroup1?: string;
   } = {},
 ): MetadataOccurrence {
-  const writeTarget =
+  const declared = knownMetadataWriteTarget(id);
+  const baseWriteTarget =
     options.writeTarget === false
       ? null
-      : { group1: "XMP-test", group7: "ID-Test", tag_name: id.tag_id };
+      : structuredClone(
+          declared ?? {
+            group1: "XMP-test",
+            group7: "ID-Test",
+            tag_name: id.tag_id,
+          },
+        );
+  const writeTarget =
+    baseWriteTarget === null || options.destinationGroup1 === undefined
+      ? baseWriteTarget
+      : { ...baseWriteTarget, group1: options.destinationGroup1 };
   return {
     id: {
       document: null,
@@ -143,6 +159,18 @@ function expectCode(
 }
 
 describe("planGeneratedTargetDraftBatch", () => {
+  it("has a declared destination for every generated metadata schema", () => {
+    const schemas = [
+      ...DESCRIBE_TARGET_TAGS,
+      ...GEOCODE_TARGET_TAGS,
+      ...Object.values(NORMALISE_TARGET_TAGS_BY_GROUP).flat(),
+    ];
+
+    expect(
+      schemas.filter((schemaId) => knownMetadataWriteTarget(schemaId) === null),
+    ).toEqual([]);
+  });
+
   it("returns an empty plan for empty edits with loaded occurrences", () => {
     expect(plan({ occurrences: [occurrence(ID.mlibAiDescription)] })).toEqual({
       upserts: [],
@@ -222,11 +250,8 @@ describe("planGeneratedTargetDraftBatch", () => {
     });
   });
 
-  it("creates an exact NewProperty target when the schema is missing", () => {
-    const definition = schemaInfo(ID.mlibAiDescription, {
-      group: "XMP-custom",
-      name: "CustomDescription",
-    });
+  it("creates an exact NewProperty target at the declared destination when the schema is missing", () => {
+    const definition = schemaInfo(ID.mlibAiDescription);
     const result = plan({
       edits: [{ schema_id: ID.mlibAiDescription, edit: set("generated") }],
       writableSchemaDefinitions: [definition],
@@ -235,9 +260,9 @@ describe("planGeneratedTargetDraftBatch", () => {
       kind: "NewProperty",
       schema_id: ID.mlibAiDescription,
       write_target: {
-        group1: "XMP-custom",
+        group1: "XMP-mlib",
         group7: "ID-AIDescription",
-        tag_name: "CustomDescription",
+        tag_name: "AIDescription",
       },
     });
   });
@@ -373,6 +398,52 @@ describe("planGeneratedTargetDraftBatch", () => {
         }),
       "multiple_occurrences",
     );
+  });
+
+  it("targets the declared IFD0 occurrence and ignores an IFD1 sibling", () => {
+    const ifd0 = occurrence(ID.imageDescription, "primary", {
+      copy: 0,
+      path: "JPEG-APP1-IFD0",
+      destinationGroup1: "IFD0",
+    });
+    const ifd1 = occurrence(ID.imageDescription, "thumbnail", {
+      copy: 1,
+      path: "JPEG-APP1-IFD1",
+      destinationGroup1: "IFD1",
+    });
+
+    const result = plan({
+      producer: { kind: "normalise", enabledGroups: ["description"] },
+      edits: [{ schema_id: ID.imageDescription, edit: set("generated") }],
+      occurrences: [ifd0, ifd1],
+    });
+
+    expect(result.upserts).toHaveLength(1);
+    expect(result.upserts[0].target).toMatchObject({
+      kind: "ExistingOccurrence",
+      occurrence_id: ifd0.id,
+      write_target: knownMetadataWriteTarget(ID.imageDescription),
+    });
+  });
+
+  it("creates the declared IFD0 property when only IFD1 exists", () => {
+    const ifd1 = occurrence(ID.imageDescription, "thumbnail", {
+      copy: 1,
+      path: "JPEG-APP1-IFD1",
+      destinationGroup1: "IFD1",
+    });
+
+    const result = plan({
+      producer: { kind: "normalise", enabledGroups: ["description"] },
+      edits: [{ schema_id: ID.imageDescription, edit: set("generated") }],
+      occurrences: [ifd1],
+    });
+
+    expect(result.upserts[0].target).toEqual({
+      kind: "NewProperty",
+      schema_id: ID.imageDescription,
+      write_target: knownMetadataWriteTarget(ID.imageDescription),
+    });
   });
 
   it("rejects read-only and selector-less exact occurrences", () => {

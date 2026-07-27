@@ -21,13 +21,20 @@ import {
   metadataDraftTargetSlotToken,
   newPropertyDraftTarget,
 } from "./utils/metadataDraftTarget";
-import { resolveOccurrencesForSchema } from "./utils/metadataOccurrences";
+import {
+  declaredGeneratedMetadataDestination,
+  occurrencesAtDeclaredDestination,
+} from "./utils/generatedMetadataDestination";
+import { metadataWriteSelectorsEqual } from "./utils/metadataWriteTarget";
 import {
   isMetadataDraftEdit,
   isRecord,
   isSchemaDefinitionId,
 } from "./utils/metadataWireGuards";
-import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
+import {
+  schemaDefinitionIdEquals,
+  schemaDefinitionIdToken,
+} from "./utils/schemaDefinitionId";
 export type GeneratedMetadataProducer =
   | { kind: "describe" }
   | { kind: "geocode" }
@@ -228,14 +235,48 @@ export function planGeneratedTargetDraftBatch(input: {
     const schemaId = entry.schema_id;
     const token = schemaDefinitionIdToken(schemaId);
 
-    const occurrence = resolveOccurrencesForSchema(occurrences, schemaId);
-    if (occurrence.kind === "multiple") {
+    const declaredDestination = declaredGeneratedMetadataDestination(schemaId);
+    if (declaredDestination === null) {
       fail(
-        "multiple_occurrences",
-        `Exact schema ${token} resolves to multiple authoritative occurrences; no occurrence was selected.`,
+        "schema_definition_missing",
+        `No declared generated-metadata destination is available for ${token}.`,
         schemaId,
       );
     }
+    const destinationOccurrences = occurrencesAtDeclaredDestination(
+      occurrences,
+      schemaId,
+      declaredDestination,
+    );
+    const sameSchemaOccurrences = occurrences.filter((candidate) =>
+      schemaDefinitionIdEquals(candidate.schema_id, schemaId),
+    );
+    if (
+      destinationOccurrences.length === 0 &&
+      sameSchemaOccurrences.some(
+        (candidate) => candidate.observed_selector === null,
+      )
+    ) {
+      fail(
+        "occurrence_not_targetable",
+        `An authoritative occurrence for ${token} has no physical selector, so its declared destination cannot be resolved safely.`,
+        schemaId,
+      );
+    }
+    if (destinationOccurrences.length > 1) {
+      fail(
+        "multiple_occurrences",
+        `Exact schema ${token} resolves to multiple authoritative occurrences at its declared destination; no occurrence was selected.`,
+        schemaId,
+      );
+    }
+    const occurrence =
+      destinationOccurrences.length === 0
+        ? ({ kind: "missing" } as const)
+        : ({
+            kind: "unique",
+            occurrence: destinationOccurrences[0],
+          } as const);
 
     let plannedTarget: MetadataDraftTarget;
     if (occurrence.kind === "missing") {
@@ -254,6 +295,18 @@ export function planGeneratedTargetDraftBatch(input: {
         fail(
           "schema_definition_missing",
           `Exact schema ${token} cannot be used as a new writable property (${target.reason}).`,
+          schemaId,
+        );
+      }
+      if (
+        !metadataWriteSelectorsEqual(
+          target.target.write_target,
+          declaredDestination,
+        )
+      ) {
+        fail(
+          "schema_definition_missing",
+          `Exact schema ${token} does not resolve to its declared generated-metadata destination.`,
           schemaId,
         );
       }

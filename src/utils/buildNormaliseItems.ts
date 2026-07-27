@@ -21,6 +21,7 @@ import {
   type MetadataCollection,
 } from "./metadataCollection";
 import { resolveGps } from "./resolveGps";
+import { filterGeneratedMetadataDestinationView } from "./generatedMetadataDestination";
 
 type EffectiveMetadataEntry = MetadataValue | null;
 
@@ -141,10 +142,12 @@ export function buildNormaliseItemForFile(
   occurrences?: FileMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
 ): NormaliseRequestItem {
-  const effective = buildEffectiveMetadataForFile({
-    occurrences,
-    targetDrafts,
-  });
+  const effective = buildEffectiveMetadataForFile(
+    filterGeneratedMetadataDestinationView({
+      occurrences,
+      targetDrafts,
+    }),
+  );
   const groupSet = new Set(enabledGroups);
   const groupInputs: NormaliseRequestItem["groupInputs"] = {
     keywords: null,
