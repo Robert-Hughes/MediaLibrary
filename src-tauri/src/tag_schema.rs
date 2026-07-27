@@ -747,11 +747,14 @@ fn apply_overrides(tags: &mut BTreeMap<SchemaDefinitionId, TagInfo>) {
         // the editor will treat unknown struct fields as text. Acceptable
         // first cut; Phase 4 can populate `Struct` field maps explicitly.
         ("XMP-mwg-rs:Regions", || TagKind::Struct(BTreeMap::new())),
-        // Phase 8 fix-up: the XMP datetime tags listx reports as `string`
-        // because XMP itself doesn't constrain them at the schema level.
-        // Promoting them here means the DateTime editor lights up, the
-        // verifier compares with date-aware semantics, and write_args
+        // Phase 8 fix-up: XMP and classic EXIF store these datetime values
+        // as strings even though their semantics are defined date/time
+        // formats. Promoting them here means the DateTime editor lights up,
+        // the verifier compares with date-aware semantics, and write_args
         // sends them through the numeric (-n) group per design §6.
+        ("IFD0:ModifyDate", || TagKind::DateTime),
+        ("ExifIFD:DateTimeOriginal", || TagKind::DateTime),
+        ("ExifIFD:CreateDate", || TagKind::DateTime),
         ("XMP-xmp:CreateDate", || TagKind::DateTime),
         ("XMP-xmp:ModifyDate", || TagKind::DateTime),
         ("XMP-xmp:MetadataDate", || TagKind::DateTime),
@@ -1466,6 +1469,73 @@ mod tests {
                     TagKind::TimeOffset
                 ),
                 "{name} should derive to TimeOffset"
+            );
+        }
+    }
+
+    #[test]
+    fn exif_datetime_overrides_preserve_companion_field_kinds() {
+        let xml = r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='EXIF::Main' g0='EXIF' g1='IFD0' g2='Image'>
+ <tag id='306' name='ModifyDate' type='string' count='20' writable='true'>
+  <desc lang='en'>Modify Date</desc>
+ </tag>
+</table>
+<table name='EXIF::Exif' g0='EXIF' g1='ExifIFD' g2='Image'>
+ <tag id='36867' name='DateTimeOriginal' type='string' count='20' writable='true'>
+  <desc lang='en'>Date/Time Original</desc>
+ </tag>
+ <tag id='36868' name='CreateDate' type='string' count='20' writable='true'>
+  <desc lang='en'>Create Date</desc>
+ </tag>
+ <tag id='36880' name='OffsetTime' type='string' count='7' writable='true'>
+  <desc lang='en'>Offset Time</desc>
+ </tag>
+ <tag id='36881' name='OffsetTimeOriginal' type='string' count='7' writable='true'>
+  <desc lang='en'>Offset Time Original</desc>
+ </tag>
+ <tag id='36882' name='OffsetTimeDigitized' type='string' count='7' writable='true'>
+  <desc lang='en'>Offset Time Digitized</desc>
+ </tag>
+ <tag id='37520' name='SubSecTime' type='string' writable='true'>
+  <desc lang='en'>Sub Sec Time</desc>
+ </tag>
+ <tag id='37521' name='SubSecTimeOriginal' type='string' writable='true'>
+  <desc lang='en'>Sub Sec Time Original</desc>
+ </tag>
+ <tag id='37522' name='SubSecTimeDigitized' type='string' writable='true'>
+  <desc lang='en'>Sub Sec Time Digitized</desc>
+ </tag>
+</table>
+</taginfo>"#;
+        let r = TagRegistry::from_listx_xml(xml).expect("parse EXIF datetime fixture");
+
+        for (table, tag_id) in [
+            ("EXIF::Main", "306"),
+            ("EXIF::Exif", "36867"),
+            ("EXIF::Exif", "36868"),
+        ] {
+            let tag = r.lookup(&test_id(table, tag_id)).unwrap();
+            assert!(
+                matches!(tag.kind, TagKind::DateTime),
+                "{table}:{tag_id} should be DateTime"
+            );
+        }
+
+        for tag_id in ["36880", "36881", "36882"] {
+            let tag = r.lookup(&test_id("EXIF::Exif", tag_id)).unwrap();
+            assert!(
+                matches!(tag.kind, TagKind::TimeOffset),
+                "{tag_id} should remain TimeOffset"
+            );
+        }
+
+        for tag_id in ["37520", "37521", "37522"] {
+            let tag = r.lookup(&test_id("EXIF::Exif", tag_id)).unwrap();
+            assert!(
+                matches!(tag.kind, TagKind::Text),
+                "{tag_id} should remain Text"
             );
         }
     }
