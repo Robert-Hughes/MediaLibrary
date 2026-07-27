@@ -54,21 +54,15 @@ fn read_batch(relative_paths: &[String], absolute_paths: &[PathBuf]) {
 }
 
 fn write_file(path: &Path, index: usize) -> Result<(), String> {
-    let numeric = build_exiftool_write_argfile_args(
+    let rendered = build_exiftool_write_argfile_args(
         path,
-        &[format!("-XMP-xmp:Rating={}", (index % 5) + 1)],
-        true,
+        &[
+            format!("-XMP-xmp:Rating={}", (index % 5) + 1),
+            format!("-XMP-dc:Title=apply performance {index}"),
+        ],
     )
     .and_then(|args| render_exiftool_argfile(&args))?;
-    run_exiftool_write(&numeric, true)?;
-
-    let text = build_exiftool_write_argfile_args(
-        path,
-        &[format!("-XMP-dc:Title=apply performance {index}")],
-        false,
-    )
-    .and_then(|args| render_exiftool_argfile(&args))?;
-    run_exiftool_write(&text, false)
+    run_exiftool_write(&rendered)
 }
 
 fn write_files_bounded(paths: &[PathBuf], workers: usize) {
@@ -127,7 +121,7 @@ fn run_serial_per_file() -> ExperimentResult {
         writes,
         post_read,
         read_processes: FILE_COUNT * 4,
-        write_processes: FILE_COUNT * 2,
+        write_processes: FILE_COUNT,
     }
 }
 
@@ -153,7 +147,7 @@ fn run_batched_reads(write_workers: usize) -> ExperimentResult {
         writes,
         post_read,
         read_processes: 4,
-        write_processes: FILE_COUNT * 2,
+        write_processes: FILE_COUNT,
     }
 }
 

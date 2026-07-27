@@ -731,8 +731,8 @@ mod tests {
     use super::*;
     use crate::apply_edits::MetadataDraftReconciliation;
     use crate::apply_log::{
-        TargetApplyArguments, TargetApplyObservedOccurrence, TargetApplyPassStatus,
-        TargetApplyPostWriteState, TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
+        TargetApplyObservedOccurrence, TargetApplyPassStatus, TargetApplyPostWriteState,
+        TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
     };
     use crate::draft_edits::{EditIntent, MetadataDraftEdit};
     use crate::metadata_draft_target::MetadataDraftTarget;
@@ -1094,12 +1094,8 @@ mod tests {
                         group7: format!("ID-{}", target.schema_id().tag_id),
                         tag_name: format!("Tag{}", target.schema_id().tag_id),
                     }),
-                arguments: TargetApplyArguments {
-                    numeric: vec!["-numeric".into()],
-                    text: vec!["-text".into()],
-                },
-                numeric_pass: TargetApplyPassStatus::Succeeded,
-                text_pass: TargetApplyPassStatus::Succeeded,
+                arguments: vec!["-raw".into()],
+                pass: TargetApplyPassStatus::Succeeded,
                 diagnostic: None,
             },
             post_write: TargetApplyPostWriteState::Missing,

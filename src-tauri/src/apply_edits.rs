@@ -16,8 +16,8 @@ use std::path::Path;
 use std::time::Instant;
 
 use crate::apply_log::{
-    TargetApplyArguments, TargetApplyAuditRecord, TargetApplyObservedOccurrence,
-    TargetApplyPassStatus, TargetApplyPostWriteState, TargetApplyPostWriteUnavailableCause,
+    TargetApplyAuditRecord, TargetApplyObservedOccurrence, TargetApplyPassStatus,
+    TargetApplyPostWriteState, TargetApplyPostWriteUnavailableCause,
     TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
 };
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataTargetDraftEntry};
@@ -107,7 +107,7 @@ pub(crate) trait MetadataTargetWriteClient {
         abs_path: &Path,
     ) -> Result<scanner::FileMetadata, String>;
 
-    fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String>;
+    fn write_metadata(&self, rendered_contents: &str) -> Result<(), String>;
 }
 
 struct RealMetadataTargetWriteClient;
@@ -155,8 +155,8 @@ impl MetadataTargetWriteClient for RealMetadataTargetWriteClient {
         ))
     }
 
-    fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String> {
-        run_exiftool_write(rendered_contents, numeric)
+    fn write_metadata(&self, rendered_contents: &str) -> Result<(), String> {
+        run_exiftool_write(rendered_contents)
     }
 }
 
@@ -336,8 +336,7 @@ struct TargetPlan {
 
 struct PlannedBatch {
     targets: Vec<TargetPlan>,
-    numeric_argfile: Option<String>,
-    text_argfile: Option<String>,
+    argfile: String,
 }
 
 pub(crate) struct PreparedMetadataWrite {
@@ -349,73 +348,34 @@ pub(crate) struct PreparedMetadataWrite {
 
 pub(crate) struct ExecutedMetadataWrite {
     prepared: PreparedMetadataWrite,
-    numeric_attempted: bool,
-    numeric_result: Result<(), String>,
-    text_attempted: bool,
-    text_result: Result<(), String>,
+    write_result: Result<(), String>,
 }
 
-fn target_pass_status(
-    arguments: &[String],
-    attempted: bool,
-    result: &Result<(), String>,
-    skipped_reason: impl FnOnce() -> String,
-) -> TargetApplyPassStatus {
-    if arguments.is_empty() {
-        TargetApplyPassStatus::NotApplicable
-    } else if attempted {
-        match result {
-            Ok(()) => TargetApplyPassStatus::Succeeded,
-            Err(error) => TargetApplyPassStatus::Failed {
-                error: error.clone(),
-            },
-        }
-    } else {
-        TargetApplyPassStatus::Skipped {
-            reason: skipped_reason(),
-        }
+fn target_pass_status(result: &Result<(), String>) -> TargetApplyPassStatus {
+    match result {
+        Ok(()) => TargetApplyPassStatus::Succeeded,
+        Err(error) => TargetApplyPassStatus::Failed {
+            error: error.clone(),
+        },
     }
 }
 
 fn target_write_evidence(
     plan: &TargetPlan,
-    numeric_attempted: bool,
-    numeric_result: &Result<(), String>,
-    text_attempted: bool,
-    text_result: &Result<(), String>,
+    write_result: &Result<(), String>,
     write_diagnostic: Option<&str>,
 ) -> TargetApplyWriteEvidence {
     TargetApplyWriteEvidence {
         selector: plan.selector.clone(),
-        arguments: TargetApplyArguments {
-            numeric: plan.args.numeric.clone(),
-            text: plan.args.text.clone(),
-        },
-        numeric_pass: target_pass_status(
-            &plan.args.numeric,
-            numeric_attempted,
-            numeric_result,
-            || "numeric pass was not attempted".to_string(),
-        ),
-        text_pass: target_pass_status(&plan.args.text, text_attempted, text_result, || {
-            match numeric_result {
-                Err(error) => {
-                    format!("text pass was skipped because the numeric pass failed: {error}")
-                }
-                Ok(()) => "text pass was not attempted".to_string(),
-            }
-        }),
+        arguments: plan.args.args.clone(),
+        pass: target_pass_status(write_result),
         diagnostic: write_diagnostic.map(str::to_owned),
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn target_audit_record(
     plan: &TargetPlan,
-    numeric_attempted: bool,
-    numeric_result: &Result<(), String>,
-    text_attempted: bool,
-    text_result: &Result<(), String>,
+    write_result: &Result<(), String>,
     write_diagnostic: Option<&str>,
     post_write: TargetApplyPostWriteState,
     verification: &TargetVerification,
@@ -427,14 +387,7 @@ fn target_audit_record(
         intent: plan.edit.intent.clone(),
         sent: plan.edit.value.clone(),
         before: plan.before.clone(),
-        write: target_write_evidence(
-            plan,
-            numeric_attempted,
-            numeric_result,
-            text_attempted,
-            text_result,
-            write_diagnostic,
-        ),
+        write: target_write_evidence(plan, write_result, write_diagnostic),
         post_write,
         verification: TargetApplyVerificationEvidence {
             kind: verification.kind.clone(),
@@ -958,7 +911,7 @@ where
         }
     }
 
-    // Put the marker before derived IPTC values in the text argfile. ExifTool
+    // Put the marker before derived IPTC values in the raw argfile. ExifTool
     // then encodes every explicitly supplied value using the new declaration.
     let charset_id = crate::known_ids::iptc_coded_character_set();
     for plan in plans
@@ -977,25 +930,13 @@ where
         return Err(TargetApplyError::NoWriteArguments);
     }
 
-    let numeric_argfile = (!combined.numeric.is_empty())
-        .then(|| {
-            build_exiftool_write_argfile_args(abs_path, &combined.numeric, true)
-                .and_then(|args| render_exiftool_argfile(&args))
-        })
-        .transpose()
-        .map_err(TargetApplyError::ArgfileRenderingFailure)?;
-    let text_argfile = (!combined.text.is_empty())
-        .then(|| {
-            build_exiftool_write_argfile_args(abs_path, &combined.text, false)
-                .and_then(|args| render_exiftool_argfile(&args))
-        })
-        .transpose()
+    let argfile = build_exiftool_write_argfile_args(abs_path, &combined.args)
+        .and_then(|args| render_exiftool_argfile(&args))
         .map_err(TargetApplyError::ArgfileRenderingFailure)?;
 
     Ok(PlannedBatch {
         targets: plans,
-        numeric_argfile,
-        text_argfile,
+        argfile,
     })
 }
 
@@ -1170,56 +1111,24 @@ where
     let rel_path = &prepared.rel_path;
     let write_started = Instant::now();
     log::info!("[apply_perf] file={} phase=write_worker_start", rel_path);
-    let mut numeric_attempted = false;
-    let mut numeric_result = Ok(());
-    if let Some(contents) = &prepared.planned.numeric_argfile {
-        numeric_attempted = true;
-        let phase_started = Instant::now();
-        numeric_result = client.write_metadata(true, contents);
-        log::info!(
-            "[apply_perf] file={} phase=write_numeric duration_ms={} status={}",
-            rel_path,
-            phase_started.elapsed().as_millis(),
-            if numeric_result.is_ok() {
-                "ok"
-            } else {
-                "failed"
-            }
-        );
-    }
-
-    let mut text_attempted = false;
-    let mut text_result = Ok(());
-    if numeric_result.is_ok() {
-        if let Some(contents) = &prepared.planned.text_argfile {
-            text_attempted = true;
-            let phase_started = Instant::now();
-            text_result = client.write_metadata(false, contents);
-            log::info!(
-                "[apply_perf] file={} phase=write_text duration_ms={} status={}",
-                rel_path,
-                phase_started.elapsed().as_millis(),
-                if text_result.is_ok() { "ok" } else { "failed" }
-            );
-        }
-    }
+    let phase_started = Instant::now();
+    let write_result = client.write_metadata(&prepared.planned.argfile);
+    log::info!(
+        "[apply_perf] file={} phase=write_raw duration_ms={} status={}",
+        rel_path,
+        phase_started.elapsed().as_millis(),
+        if write_result.is_ok() { "ok" } else { "failed" }
+    );
 
     log::info!(
         "[apply_perf] file={} phase=write_worker_complete duration_ms={} status={}",
         rel_path,
         write_started.elapsed().as_millis(),
-        if numeric_result.is_ok() && text_result.is_ok() {
-            "ok"
-        } else {
-            "failed"
-        }
+        if write_result.is_ok() { "ok" } else { "failed" }
     );
     ExecutedMetadataWrite {
         prepared,
-        numeric_attempted,
-        numeric_result,
-        text_attempted,
-        text_result,
+        write_result,
     }
 }
 
@@ -1239,10 +1148,7 @@ pub(crate) fn finalize_executed_metadata_write(
 ) -> MetadataSingleFileOutcome {
     let ExecutedMetadataWrite {
         prepared,
-        numeric_attempted,
-        numeric_result,
-        text_attempted,
-        text_result,
+        write_result,
     } = executed;
     let PreparedMetadataWrite {
         rel_path,
@@ -1250,16 +1156,10 @@ pub(crate) fn finalize_executed_metadata_write(
         file_started,
         ..
     } = prepared;
-    let write_failure = match (
-        numeric_attempted,
-        &numeric_result,
-        text_attempted,
-        &text_result,
-    ) {
-        (true, Err(error), _, _) => Some(format!("numeric pass failed: {error}")),
-        (_, _, true, Err(error)) => Some(format!("text pass failed: {error}")),
-        _ => None,
-    };
+    let write_failure = write_result
+        .as_ref()
+        .err()
+        .map(|error| format!("raw write failed: {error}"));
 
     let fresh = match fresh {
         Ok(metadata) => metadata,
@@ -1288,10 +1188,7 @@ pub(crate) fn finalize_executed_metadata_write(
                 };
                 audit_records.push(target_audit_record(
                     &plan,
-                    numeric_attempted,
-                    &numeric_result,
-                    text_attempted,
-                    &text_result,
+                    &write_result,
                     write_failure.as_deref(),
                     TargetApplyPostWriteState::Unavailable {
                         cause: TargetApplyPostWriteUnavailableCause::ReadbackFailed,
@@ -1352,10 +1249,7 @@ pub(crate) fn finalize_executed_metadata_write(
                 };
                 audit_records.push(target_audit_record(
                     &plan,
-                    numeric_attempted,
-                    &numeric_result,
-                    text_attempted,
-                    &text_result,
+                    &write_result,
                     write_failure.as_deref(),
                     TargetApplyPostWriteState::Unavailable {
                         cause: TargetApplyPostWriteUnavailableCause::ReadbackInvalid,
@@ -1441,14 +1335,8 @@ pub(crate) fn finalize_executed_metadata_write(
             )
         })
         .count();
-    let diagnostics = format_apply_diagnostics(
-        numeric_attempted,
-        &numeric_result,
-        text_attempted,
-        &text_result,
-        verified_count,
-        verified_targets.len(),
-    );
+    let diagnostics =
+        format_apply_diagnostics(&write_result, verified_count, verified_targets.len());
     let write_diagnostic = diagnostics
         .error
         .as_deref()
@@ -1458,10 +1346,7 @@ pub(crate) fn finalize_executed_metadata_write(
         .map(|(plan, verified)| {
             target_audit_record(
                 &plan,
-                numeric_attempted,
-                &numeric_result,
-                text_attempted,
-                &text_result,
+                &write_result,
                 write_diagnostic,
                 verified.post_write,
                 &verified.verification,
@@ -1874,10 +1759,9 @@ mod tests {
 
     struct FakeClient {
         reads: RefCell<VecDeque<Result<scanner::FileMetadata, String>>>,
-        writes: RefCell<Vec<(bool, String)>>,
+        writes: RefCell<Vec<String>>,
         calls: RefCell<Vec<String>>,
-        fail_numeric: bool,
-        fail_text: bool,
+        fail_write: bool,
     }
 
     impl FakeClient {
@@ -1886,14 +1770,12 @@ mod tests {
                 reads: RefCell::new(reads.into()),
                 writes: RefCell::new(Vec::new()),
                 calls: RefCell::new(Vec::new()),
-                fail_numeric: false,
-                fail_text: false,
+                fail_write: false,
             }
         }
 
-        fn failing(mut self, numeric: bool, text: bool) -> Self {
-            self.fail_numeric = numeric;
-            self.fail_text = text;
+        fn failing(mut self) -> Self {
+            self.fail_write = true;
             self
         }
     }
@@ -1911,16 +1793,10 @@ mod tests {
                 .expect("configured fake read")
         }
 
-        fn write_metadata(&self, numeric: bool, rendered_contents: &str) -> Result<(), String> {
-            self.calls.borrow_mut().push(if numeric {
-                "write:numeric".to_string()
-            } else {
-                "write:text".to_string()
-            });
-            self.writes
-                .borrow_mut()
-                .push((numeric, rendered_contents.to_string()));
-            if (numeric && self.fail_numeric) || (!numeric && self.fail_text) {
+        fn write_metadata(&self, rendered_contents: &str) -> Result<(), String> {
+            self.calls.borrow_mut().push("write:raw".to_string());
+            self.writes.borrow_mut().push(rendered_contents.to_string());
+            if self.fail_write {
                 Err("configured write failure".to_string())
             } else {
                 Ok(())
@@ -2246,7 +2122,7 @@ mod tests {
         assert_eq!(planned.targets.len(), 1);
         assert_eq!(planned.targets[0].target, entry.target);
         assert_eq!(
-            planned.targets[0].args.text,
+            planned.targets[0].args.args,
             vec!["-1IFD0:7ID-1:Name=after"]
         );
     }
@@ -2399,7 +2275,7 @@ mod tests {
             Some(MetadataValue::Text("Chūō authoritative".into()))
         );
         assert_ne!(derived.edit.value, unapplied_location_draft.edit.value);
-        let rendered = planned.text_argfile.unwrap();
+        let rendered = planned.argfile;
         assert!(rendered.contains("CodedCharacterSet=UTF8"));
         assert!(rendered.contains("Sub-location=Chūō authoritative"));
         assert!(!rendered.contains("staged but not applied"));
@@ -2464,13 +2340,13 @@ mod tests {
         assert_eq!(list_plan.edit.intent, EditIntent::ListAdd);
         assert!(list_plan
             .args
-            .text
+            .args
             .iter()
             .any(|arg| arg.ends_with(":Keywords=")));
-        assert!(list_plan.args.text.iter().any(|arg| arg.ends_with("=café")));
-        assert!(list_plan.args.text.iter().any(|arg| arg.ends_with("=old")));
-        assert!(list_plan.args.text.iter().any(|arg| arg.ends_with("=new")));
-        assert!(list_plan.args.text.iter().all(|arg| !arg.contains("+=")));
+        assert!(list_plan.args.args.iter().any(|arg| arg.ends_with("=café")));
+        assert!(list_plan.args.args.iter().any(|arg| arg.ends_with("=old")));
+        assert!(list_plan.args.args.iter().any(|arg| arg.ends_with("=new")));
+        assert!(list_plan.args.args.iter().all(|arg| !arg.contains("+=")));
     }
 
     #[test]
@@ -2573,9 +2449,7 @@ mod tests {
         );
         assert_eq!(outcome.targets_to_clear, vec![entry.target.clone()]);
         assert_eq!(client.writes.borrow().len(), 1);
-        assert!(client.writes.borrow()[0]
-            .1
-            .contains("-1XMP-photoshop:7ID-City:City=Doncaster"));
+        assert!(client.writes.borrow()[0].contains("-1XMP-photoshop:7ID-City:City=Doncaster"));
         let TargetApplyPostWriteState::Unique { occurrence } = &outcome.audit_records[0].post_write
         else {
             panic!("rebound write must retain the current occurrence")
@@ -3067,7 +2941,7 @@ mod tests {
             Ok(image(vec![after1.clone(), after0.clone()])),
         ]);
         let outcome = apply_fake(&edits, &client, &[]);
-        let rendered = &client.writes.borrow()[0].1;
+        let rendered = &client.writes.borrow()[0];
         assert!(rendered.contains("-1IFD0:7ID-282:XResolution=600"));
         assert!(rendered.contains("-1IFD1:7ID-282:XResolution=144"));
         assert!(!rendered.contains("SchemaMustNotBeUsed:XResolution"));
@@ -3094,12 +2968,8 @@ mod tests {
             assert_eq!(record.sent, entry.edit.value);
             assert!(record.write.diagnostic.is_none());
             assert!(matches!(
-                record.write.numeric_pass,
+                record.write.pass,
                 TargetApplyPassStatus::Succeeded
-            ));
-            assert!(matches!(
-                record.write.text_pass,
-                TargetApplyPassStatus::NotApplicable
             ));
         }
         assert_eq!(outcome.audit_records[0].before, Some(ifd0.value.clone()));
@@ -3113,15 +2983,13 @@ mod tests {
             ifd1.write_target.clone().unwrap()
         );
         assert_eq!(
-            outcome.audit_records[0].write.arguments.numeric,
+            outcome.audit_records[0].write.arguments,
             vec!["-1IFD0:7ID-282:XResolution=600/1"]
         );
         assert_eq!(
-            outcome.audit_records[1].write.arguments.numeric,
+            outcome.audit_records[1].write.arguments,
             vec!["-1IFD1:7ID-282:XResolution=144/1"]
         );
-        assert!(outcome.audit_records[0].write.arguments.text.is_empty());
-        assert!(outcome.audit_records[1].write.arguments.text.is_empty());
         for (record, expected) in outcome.audit_records.iter().zip([&after0, &after1]) {
             let TargetApplyPostWriteState::Unique { occurrence } = &record.post_write else {
                 panic!("existing target must retain its exact post-write occurrence")
@@ -3515,12 +3383,12 @@ mod tests {
             Ok(image(vec![before])),
             Ok(image(vec![after, unrelated.clone(), unrelated])),
         ])
-        .failing(true, false);
+        .failing();
         let outcome = apply_fake(std::slice::from_ref(&entry), &client, &[]);
 
         assert_eq!(outcome.outcomes[0].kind, "ReadbackInvalid");
         let error = outcome.error.unwrap();
-        assert!(error.contains("numeric pass failed"));
+        assert!(error.contains("raw write failed"));
         assert!(error.contains("UNRELATED-DUPLICATE"));
         assert!(outcome.fresh_file_metadata.is_none());
         assert!(outcome.targets_to_clear.is_empty());
@@ -4397,8 +4265,8 @@ mod tests {
         assert_eq!(outcome.targets_to_clear, vec![entry.target]);
         let writes = client.writes.borrow();
         assert_eq!(writes.len(), 1);
-        assert!(writes[0].1.contains(":Description="));
-        assert!(!writes[0].1.contains("Description-fr="));
+        assert!(writes[0].contains(":Description="));
+        assert!(!writes[0].contains("Description-fr="));
     }
 
     #[test]
@@ -4737,7 +4605,7 @@ mod tests {
     }
 
     #[test]
-    fn write_pass_order_and_failure_policy_are_conservative() {
+    fn raw_write_order_and_failure_policy_are_conservative() {
         let numeric_info = schema(
             "1",
             "IFD0",
@@ -4782,24 +4650,13 @@ mod tests {
             &[numeric_info.clone(), text_info.clone()],
         );
         assert!(outcome.error.is_none());
-        assert_eq!(
-            &*mixed.calls.borrow(),
-            &["read", "write:numeric", "write:text", "read"]
-        );
+        assert_eq!(&*mixed.calls.borrow(), &["read", "write:raw", "read"]);
         assert!(matches!(
-            outcome.audit_records[0].write.numeric_pass,
+            outcome.audit_records[0].write.pass,
             TargetApplyPassStatus::Succeeded
         ));
         assert!(matches!(
-            outcome.audit_records[0].write.text_pass,
-            TargetApplyPassStatus::NotApplicable
-        ));
-        assert!(matches!(
-            outcome.audit_records[1].write.numeric_pass,
-            TargetApplyPassStatus::NotApplicable
-        ));
-        assert!(matches!(
-            outcome.audit_records[1].write.text_pass,
+            outcome.audit_records[1].write.pass,
             TargetApplyPassStatus::Succeeded
         ));
 
@@ -4814,7 +4671,7 @@ mod tests {
         );
         assert_eq!(
             &*numeric_only.calls.borrow(),
-            &["read", "write:numeric", "read"]
+            &["read", "write:raw", "read"]
         );
 
         let text_only =
@@ -4824,47 +4681,27 @@ mod tests {
             &text_only,
             std::slice::from_ref(&text_info),
         );
-        assert_eq!(&*text_only.calls.borrow(), &["read", "write:text", "read"]);
+        assert_eq!(&*text_only.calls.borrow(), &["read", "write:raw", "read"]);
 
-        let numeric_failure =
-            FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![]))]).failing(true, false);
-        let failed = apply_fake(
-            &[numeric, text],
-            &numeric_failure,
-            &[numeric_info, text_info],
-        );
-        assert_eq!(
-            &*numeric_failure.calls.borrow(),
-            &["read", "write:numeric", "read"]
-        );
-        assert!(failed
-            .error
-            .as_ref()
-            .unwrap()
-            .contains("numeric pass failed"));
+        let raw_failure = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![]))]).failing();
+        let failed = apply_fake(&[numeric, text], &raw_failure, &[numeric_info, text_info]);
+        assert_eq!(&*raw_failure.calls.borrow(), &["read", "write:raw", "read"]);
+        assert!(failed.error.as_ref().unwrap().contains("raw write failed"));
         assert!(matches!(
-            &failed.audit_records[0].write.numeric_pass,
+            &failed.audit_records[0].write.pass,
             TargetApplyPassStatus::Failed { error }
                 if error == "configured write failure"
         ));
         assert!(matches!(
-            failed.audit_records[0].write.text_pass,
-            TargetApplyPassStatus::NotApplicable
-        ));
-        assert!(matches!(
-            failed.audit_records[1].write.numeric_pass,
-            TargetApplyPassStatus::NotApplicable
-        ));
-        assert!(matches!(
-            &failed.audit_records[1].write.text_pass,
-            TargetApplyPassStatus::Skipped { reason }
-                if reason.contains("numeric pass failed")
+            &failed.audit_records[1].write.pass,
+            TargetApplyPassStatus::Failed { error }
+                if error == "configured write failure"
         ));
         assert!(failed.audit_records.iter().all(|record| record
             .write
             .diagnostic
             .as_ref()
-            .is_some_and(|diagnostic| diagnostic.contains("numeric pass failed"))));
+            .is_some_and(|diagnostic| diagnostic.contains("raw write failed"))));
     }
 
     #[test]
@@ -4895,18 +4732,17 @@ mod tests {
         let outcome = apply_fake(&[entry], &client, &[info]);
 
         assert_eq!(
-            outcome.audit_records[0].write.arguments.text,
+            outcome.audit_records[0].write.arguments,
             vec![
                 "-1XMP-test:7ID-1:Items=",
                 "-1XMP-test:7ID-1:Items=second",
                 "-1XMP-test:7ID-1:Items=first",
             ]
         );
-        assert!(outcome.audit_records[0].write.arguments.numeric.is_empty());
     }
 
     #[test]
-    fn pass_failures_can_be_warning_compatible_after_complete_verification() {
+    fn raw_write_failures_can_be_warning_compatible_after_complete_verification() {
         let info = schema("1", "XMP-test", "Name", true, TagKind::Text);
         let entry = new_entry(
             &info,
@@ -4919,8 +4755,7 @@ mod tests {
             Some("XMP-test"),
             "Name",
         );
-        let client =
-            FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]).failing(false, true);
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]).failing();
         let outcome = apply_fake(&[entry], &client, &[info]);
         assert!(outcome.error.is_none());
         let warning = outcome.warning.as_deref().unwrap();
@@ -4934,7 +4769,7 @@ mod tests {
             vec![outcome.outcomes[0].target.clone()]
         );
         assert!(matches!(
-            &outcome.audit_records[0].write.text_pass,
+            &outcome.audit_records[0].write.pass,
             TargetApplyPassStatus::Failed { error }
                 if error == "configured write failure"
         ));
@@ -4997,7 +4832,7 @@ mod tests {
             Ok(image(vec![before0, before1])),
             Ok(image(vec![after1.clone(), after0.clone()])),
         ])
-        .failing(false, true);
+        .failing();
 
         let outcome = apply_fake(&edits, &client, &[]);
         let error = outcome.error.as_deref().unwrap();
@@ -5009,7 +4844,7 @@ mod tests {
             .all(|record| record.write.diagnostic.as_deref() == Some(error)));
         for record in &outcome.audit_records {
             assert!(matches!(
-                &record.write.text_pass,
+                &record.write.pass,
                 TargetApplyPassStatus::Failed { error }
                     if error == "configured write failure"
             ));
@@ -5154,25 +4989,25 @@ mod tests {
             Ok(image(vec![])),
             Ok(image(vec![duplicate.clone(), duplicate])),
         ])
-        .failing(false, true);
+        .failing();
         let invalid_after_write_failure = apply_fake(
             std::slice::from_ref(&entry),
             &write_and_invalid_readback,
             std::slice::from_ref(&info),
         );
         let combined_error = invalid_after_write_failure.error.as_deref().unwrap();
-        assert!(combined_error.contains("text pass failed"));
+        assert!(combined_error.contains("raw write failed"));
         assert!(combined_error.contains("readback was invalid"));
         assert!(invalid_after_write_failure.outcomes[0].observed.is_none());
         let invalid_audit = &invalid_after_write_failure.audit_records[0];
         assert!(matches!(
-            &invalid_audit.write.text_pass,
+            &invalid_audit.write.pass,
             TargetApplyPassStatus::Failed { error }
                 if error == "configured write failure"
         ));
         assert_eq!(
             invalid_audit.write.diagnostic.as_deref(),
-            Some("text pass failed: configured write failure")
+            Some("raw write failed: configured write failure")
         );
         assert!(matches!(
             &invalid_audit.post_write,
@@ -5192,14 +5027,14 @@ mod tests {
             Ok(image(vec![])),
             Err("readback after failed write".into()),
         ])
-        .failing(false, true);
+        .failing();
         let failed = apply_fake(
             std::slice::from_ref(&entry),
             &write_and_read_failure,
             std::slice::from_ref(&info),
         );
         let error = failed.error.unwrap();
-        assert!(error.contains("text pass failed"));
+        assert!(error.contains("raw write failed"));
         assert!(error.contains("readback after failed write"));
         assert_eq!(failed.outcomes[0].sent, entry.edit.value);
         assert_eq!(failed.outcomes[0].before, None);
@@ -5208,13 +5043,13 @@ mod tests {
             MetadataDraftReconciliation::Keep
         );
         assert!(matches!(
-            &failed.audit_records[0].write.text_pass,
+            &failed.audit_records[0].write.pass,
             TargetApplyPassStatus::Failed { error }
                 if error == "configured write failure"
         ));
         assert_eq!(
             failed.audit_records[0].write.diagnostic.as_deref(),
-            Some("text pass failed: configured write failure")
+            Some("raw write failed: configured write failure")
         );
         assert!(matches!(
             &failed.audit_records[0].post_write,
@@ -5271,7 +5106,7 @@ mod tests {
         );
         let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]);
         apply_fake(&[good], &client, &[info]);
-        let rendered = &client.writes.borrow()[0].1;
+        let rendered = &client.writes.borrow()[0];
         assert!(rendered.contains("#[CSTR]-1XMP-test:7ID-1:Name=café\\nsecond"));
     }
 

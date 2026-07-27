@@ -7,11 +7,10 @@
 //! filesystem — so it is fully unit-testable and the test matrix can be
 //! exhaustive.
 //!
-//! Output shape: `BuiltArgs { numeric, text }`.  Two groups so the caller can
-//! run two exiftool invocations — one with `-n` for numeric/enum/boolean
-//! values, one without for text/lang-alt/list-of-text — because `-n` is
-//! global to an invocation.  Numeric runs first; text-group edits can depend
-//! on numeric tags being already set (rare but possible for derived fields).
+//! Every value is rendered in ExifTool's raw/computer-readable form and the
+//! caller writes the complete batch in one `-n` invocation. The scanner's raw
+//! pass is MediaLibrary's canonical semantic source, so write-back must not
+//! reinterpret values through ExifTool's display-oriented PrintConv layer.
 
 use crate::draft_edits::{EditIntent, MetadataDraftEdit};
 use crate::metadata_draft_target::{MetadataDraftTarget, MetadataDraftTargetError};
@@ -28,21 +27,18 @@ use crate::tag_schema::{EnumRepr, TagInfo, TagKind};
 /// Output of `build_args` for one draft edit.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct BuiltArgs {
-    /// Args for the `-n` exiftool invocation (raw numeric/enum/bool form).
-    pub numeric: Vec<String>,
-    /// Args for the no-`-n` invocation (text, lang-alt, lists of text).
-    pub text: Vec<String>,
+    /// Arguments for the single raw (`-n`) ExifTool invocation.
+    pub args: Vec<String>,
 }
 
 impl BuiltArgs {
     pub fn is_empty(&self) -> bool {
-        self.numeric.is_empty() && self.text.is_empty()
+        self.args.is_empty()
     }
 
-    /// Merge other into self, preserving group ordering.
+    /// Merge other into self, preserving argument ordering.
     pub fn extend(&mut self, other: BuiltArgs) {
-        self.numeric.extend(other.numeric);
-        self.text.extend(other.text);
+        self.args.extend(other.args);
     }
 }
 
@@ -183,8 +179,7 @@ fn build_metadata_args_for_selector(
 
     match edit.intent {
         EditIntent::Delete => Ok(BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}=", tag)],
+            args: vec![format!("-{}=", tag)],
         }),
         EditIntent::Set => build_metadata_set(tag, Some(info), edit.value.as_ref()),
         EditIntent::ListAdd => build_metadata_list_op(tag, Some(info), edit.value.as_ref(), "+="),
@@ -202,8 +197,7 @@ fn build_metadata_set(
     let kind = info.map(|i| &i.kind);
     match (kind, value) {
         (_, None) | (_, Some(MetadataValue::Null)) => Ok(BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}=", tag)],
+            args: vec![format!("-{}=", tag)],
         }),
         (_, Some(MetadataValue::Binary)) => Err(format!("{tag} is binary and is not writable")),
         (_, Some(MetadataValue::Unknown { reason, .. })) => Err(format!(
@@ -217,28 +211,24 @@ fn build_metadata_set(
             // A LangAlt Set replaces the complete rdf:Alt map. Clear the
             // parent first so languages omitted from the draft are removed,
             // then reconstruct every intended language explicitly.
-            let mut text = Vec::with_capacity(langs.len() + 2);
-            text.push(format!("-{}=", tag));
+            let mut args = Vec::with_capacity(langs.len() + 2);
+            args.push(format!("-{}=", tag));
             for (lang, value) in langs {
                 validate_exiftool_lang_alt_language(lang)?;
-                text.push(format!("-{}-{}={}", tag, lang, value));
+                args.push(format!("-{}-{}={}", tag, lang, value));
             }
             if !langs.contains_key("x-default") {
                 if let Some(first) = langs.values().next() {
-                    text.push(format!("-{}-x-default={}", tag, first));
+                    args.push(format!("-{}-x-default={}", tag, first));
                 }
             }
-            Ok(BuiltArgs {
-                numeric: vec![],
-                text,
-            })
+            Ok(BuiltArgs { args })
         }
         (Some(TagKind::Bag(inner) | TagKind::Seq(inner) | TagKind::Alt(inner)), Some(value)) => {
             build_metadata_list_set(tag, inner, value)
         }
         (Some(TagKind::Struct(_)), Some(MetadataValue::Struct(map))) => Ok(BuiltArgs {
-            numeric: vec![],
-            text: vec![format!("-{}={}", tag, render_metadata_struct(map)?)],
+            args: vec![format!("-{}={}", tag, render_metadata_struct(map)?)],
         }),
         (Some(TagKind::Binary), _) => Err(format!("{tag} is binary and is not writable")),
         (
@@ -251,12 +241,11 @@ fn build_metadata_set(
             ),
             Some(value),
         ) => Ok(BuiltArgs {
-            numeric: vec![format!(
+            args: vec![format!(
                 "-{}={}",
                 tag,
-                render_metadata_scalar_numeric(value, Some(kind))?
+                render_metadata_scalar_raw(value, Some(kind))?
             )],
-            text: vec![],
         }),
         (
             Some(TagKind::Enum {
@@ -265,21 +254,19 @@ fn build_metadata_set(
             }),
             Some(value),
         ) => Ok(BuiltArgs {
-            numeric: vec![format!(
+            args: vec![format!(
                 "-{}={}",
                 tag,
-                render_metadata_scalar_numeric(value, kind)?
+                render_metadata_scalar_raw(value, kind)?
             )],
-            text: vec![],
         }),
         (Some(kind @ (TagKind::Date | TagKind::Time | TagKind::DateTime)), Some(value)) => {
             Ok(BuiltArgs {
-                numeric: vec![format!(
+                args: vec![format!(
                     "-{}={}",
                     tag,
                     render_metadata_value_for_write(value, Some(kind))?
                 )],
-                text: vec![],
             })
         }
         (_, Some(MetadataValue::List { .. })) => Err(format!(
@@ -289,11 +276,10 @@ fn build_metadata_set(
             "{tag} is a struct value but schema is not a struct kind"
         )),
         (_, Some(value)) => Ok(BuiltArgs {
-            numeric: vec![],
-            text: vec![format!(
+            args: vec![format!(
                 "-{}={}",
                 tag,
-                render_metadata_scalar_text(value, kind)?
+                render_metadata_scalar_raw(value, kind)?
             )],
         }),
     }
@@ -309,28 +295,14 @@ fn build_metadata_list_set(
         other => vec![other],
     };
     let mut args = BuiltArgs {
-        numeric: vec![],
-        text: vec![],
+        args: vec![format!("-{}=", tag)],
     };
-    let numeric_items = is_numeric_kind(inner);
-    if numeric_items {
-        args.numeric.push(format!("-{}=", tag));
-        for item in items {
-            args.numeric.push(format!(
-                "-{}={}",
-                tag,
-                render_metadata_scalar_numeric(item, Some(inner))?
-            ));
-        }
-    } else {
-        args.text.push(format!("-{}=", tag));
-        for item in items {
-            args.text.push(format!(
-                "-{}={}",
-                tag,
-                render_metadata_scalar_text(item, Some(inner))?
-            ));
-        }
+    for item in items {
+        args.args.push(format!(
+            "-{}={}",
+            tag,
+            render_metadata_scalar_raw(item, Some(inner))?
+        ));
     }
     Ok(args)
 }
@@ -344,8 +316,7 @@ fn build_metadata_list_op(
     let Some(kind) = info.map(|i| &i.kind) else {
         return match op {
             "-=" => Ok(BuiltArgs {
-                numeric: vec![],
-                text: vec![format!("-{}=", tag)],
+                args: vec![format!("-{}=", tag)],
             }),
             _ => build_metadata_set(tag, info, value),
         };
@@ -355,8 +326,7 @@ fn build_metadata_list_op(
         _ => {
             return match op {
                 "-=" => Ok(BuiltArgs {
-                    numeric: vec![],
-                    text: vec![format!("-{}=", tag)],
+                    args: vec![format!("-{}=", tag)],
                 }),
                 _ => build_metadata_set(tag, info, value),
             }
@@ -370,11 +340,11 @@ fn build_metadata_list_op(
     };
     let mut args = BuiltArgs::default();
     for item in items {
-        args.text.push(format!(
+        args.args.push(format!(
             "-{}{}{}",
             tag,
             op,
-            render_metadata_scalar_text(item, Some(inner))?
+            render_metadata_scalar_raw(item, Some(inner))?
         ));
     }
     Ok(args)
@@ -488,25 +458,15 @@ pub fn render_metadata_value_for_write(
     }
 }
 
-fn render_metadata_scalar_text(
-    value: &MetadataValue,
-    kind: Option<&TagKind>,
-) -> Result<String, String> {
-    match value {
-        MetadataValue::Bool(b) => Ok(if *b { "True".into() } else { "False".into() }),
-        MetadataValue::List { .. } => Err("nested list cannot be rendered as scalar text".into()),
-        MetadataValue::Struct(map) => render_metadata_struct(map),
-        other => render_metadata_value_for_write(other, kind),
-    }
-}
-
-fn render_metadata_scalar_numeric(
+fn render_metadata_scalar_raw(
     value: &MetadataValue,
     kind: Option<&TagKind>,
 ) -> Result<String, String> {
     match value {
         MetadataValue::Bool(b) => Ok(if *b { "1".into() } else { "0".into() }),
         MetadataValue::Text(s) => Ok(normalise_storage_string_for_kind(s, kind)),
+        MetadataValue::List { .. } => Err("nested list cannot be rendered as scalar".into()),
+        MetadataValue::Struct(map) => render_metadata_struct(map),
         other => render_metadata_value_for_write(other, kind),
     }
 }
@@ -572,7 +532,7 @@ fn render_metadata_struct(
         match value {
             MetadataValue::Null => Ok(String::new()),
             MetadataValue::Text(s) => Ok(escape_exiftool_struct_string(s, context)),
-            MetadataValue::Bool(b) => Ok(if *b { "True".into() } else { "False".into() }),
+            MetadataValue::Bool(b) => Ok(if *b { "1".into() } else { "0".into() }),
             MetadataValue::Integer(n) => Ok(n.to_string()),
             MetadataValue::Real(f) => Ok(f.to_string()),
             MetadataValue::Rational(r) => Ok(format!("{}/{}", r.numerator, r.denominator)),
@@ -653,21 +613,6 @@ fn render_metadata_struct(
         .collect::<Vec<_>>()
         .join(",");
     Ok(format!("{{{}}}", inner))
-}
-
-fn is_numeric_kind(kind: &TagKind) -> bool {
-    matches!(
-        kind,
-        TagKind::Integer { .. }
-            | TagKind::Real
-            | TagKind::Rational
-            | TagKind::Boolean
-            | TagKind::TimeOffset
-            | TagKind::Enum {
-                repr: EnumRepr::Integer,
-                ..
-            }
-    )
 }
 
 fn render_date(date: &DateValue) -> String {
@@ -796,8 +741,7 @@ mod tests {
         let args =
             build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_set(text("hi")))
                 .unwrap();
-        assert!(args.numeric.is_empty());
-        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title=hi"]);
+        assert_eq!(args.args, vec!["-1XMP-dc:7ID-Y:Title=hi"]);
     }
 
     #[test]
@@ -811,14 +755,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec!["-1GPS:7ID-GPSVersionID:GPSVersionID=2 3 0 0"]
         );
-        assert!(args.numeric.is_empty());
     }
 
     #[test]
-    fn set_integer_yields_numeric_arg() {
+    fn set_integer_yields_raw_arg() {
         let i = info(TagKind::Integer {
             min: None,
             max: None,
@@ -830,12 +773,11 @@ mod tests {
             &metadata_set(MetadataValue::Integer(5)),
         )
         .unwrap();
-        assert!(args.text.is_empty());
-        assert_eq!(args.numeric, vec!["-1XMP-xmp:7ID-Y:Rating=5"]);
+        assert_eq!(args.args, vec!["-1XMP-xmp:7ID-Y:Rating=5"]);
     }
 
     #[test]
-    fn set_boolean_uses_1_0_in_numeric_group() {
+    fn set_boolean_uses_raw_1_0_representation() {
         let i = info(TagKind::Boolean);
         let args = build_new_property_fixture_args(
             "XMP-xmpRights",
@@ -844,12 +786,11 @@ mod tests {
             &metadata_set(MetadataValue::Bool(true)),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-1XMP-xmpRights:7ID-Y:Marked=1"]);
-        assert!(args.text.is_empty());
+        assert_eq!(args.args, vec!["-1XMP-xmpRights:7ID-Y:Marked=1"]);
     }
 
     #[test]
-    fn set_enum_integer_uses_numeric_group() {
+    fn set_enum_integer_uses_raw_code() {
         let i = info(TagKind::Enum {
             repr: EnumRepr::Integer,
             options: vec![
@@ -870,7 +811,7 @@ mod tests {
             &metadata_set(MetadataValue::Integer(6)),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-1IFD0:7ID-Y:Orientation=6"]);
+        assert_eq!(args.args, vec!["-1IFD0:7ID-Y:Orientation=6"]);
     }
 
     #[test]
@@ -884,14 +825,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec![
                 "-1XMP-dc:7ID-Y:Subject=",
                 "-1XMP-dc:7ID-Y:Subject=beach",
                 "-1XMP-dc:7ID-Y:Subject=sunset"
             ]
         );
-        assert!(args.numeric.is_empty());
     }
 
     #[test]
@@ -905,7 +845,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec![
                 "-1XMP-dc:7ID-Y:Creator=",
                 "-1XMP-dc:7ID-Y:Creator=Ada",
@@ -921,7 +861,7 @@ mod tests {
             build_new_property_fixture_args("XMP-dc", "Subject", &i, &metadata_set(text("only")))
                 .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec!["-1XMP-dc:7ID-Y:Subject=", "-1XMP-dc:7ID-Y:Subject=only"]
         );
     }
@@ -942,19 +882,19 @@ mod tests {
         .unwrap();
         // BTreeMap iteration order is alphabetic; assert presence not order.
         assert!(args
-            .text
+            .args
             .iter()
             .any(|a| a == "-1XMP-dc:7ID-Y:Description-x-default=Hi"));
         assert!(args
-            .text
+            .args
             .iter()
             .any(|a| a == "-1XMP-dc:7ID-Y:Description-en=Hi"));
         assert!(args
-            .text
+            .args
             .iter()
             .any(|a| a == "-1XMP-dc:7ID-Y:Description-fr=Salut"));
-        assert_eq!(args.text[0], "-1XMP-dc:7ID-Y:Description=");
-        assert_eq!(args.text.len(), 4);
+        assert_eq!(args.args[0], "-1XMP-dc:7ID-Y:Description=");
+        assert_eq!(args.args.len(), 4);
     }
 
     #[test]
@@ -970,15 +910,15 @@ mod tests {
         )
         .unwrap();
         assert!(args
-            .text
+            .args
             .iter()
             .any(|a| a == "-1XMP-dc:7ID-Y:Description-en=Hello"));
         assert!(args
-            .text
+            .args
             .iter()
             .any(|a| a == "-1XMP-dc:7ID-Y:Description-x-default=Hello"));
-        assert_eq!(args.text[0], "-1XMP-dc:7ID-Y:Description=");
-        assert_eq!(args.text.len(), 3);
+        assert_eq!(args.args[0], "-1XMP-dc:7ID-Y:Description=");
+        assert_eq!(args.args.len(), 3);
     }
 
     #[test]
@@ -992,8 +932,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Description="]);
-        assert!(args.numeric.is_empty());
+        assert_eq!(args.args, vec!["-1XMP-dc:7ID-Y:Description="]);
     }
 
     #[test]
@@ -1001,8 +940,7 @@ mod tests {
         let i = info(TagKind::Text);
         let args =
             build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_delete()).unwrap();
-        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
-        assert!(args.numeric.is_empty());
+        assert_eq!(args.args, vec!["-1XMP-dc:7ID-Y:Title="]);
     }
 
     #[test]
@@ -1016,7 +954,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec!["-1XMP-dc:7ID-Y:Subject+=a", "-1XMP-dc:7ID-Y:Subject+=b"]
         );
     }
@@ -1031,7 +969,7 @@ mod tests {
             &metadata_list_remove(text("old")),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Subject-=old"]);
+        assert_eq!(args.args, vec!["-1XMP-dc:7ID-Y:Subject-=old"]);
     }
 
     #[test]
@@ -1041,7 +979,7 @@ mod tests {
         let args =
             build_new_property_fixture_args("XMP-dc", "Title", &i, &metadata_list_add(text("hi")))
                 .unwrap();
-        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title=hi"]);
+        assert_eq!(args.args, vec!["-1XMP-dc:7ID-Y:Title=hi"]);
         // ListRemove on a Text tag becomes a Delete.
         let args = build_new_property_fixture_args(
             "XMP-dc",
@@ -1050,7 +988,7 @@ mod tests {
             &metadata_list_remove(text("hi")),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
+        assert_eq!(args.args, vec!["-1XMP-dc:7ID-Y:Title="]);
     }
 
     #[test]
@@ -1082,8 +1020,8 @@ mod tests {
 
         let add_args = build_new_property_fixture_args("XMP-dc", "Title", &i, &add).unwrap();
         let remove_args = build_new_property_fixture_args("XMP-dc", "Title", &i, &remove).unwrap();
-        assert_eq!(add_args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
-        assert_eq!(remove_args.text, vec!["-1XMP-dc:7ID-Y:Title="]);
+        assert_eq!(add_args.args, vec!["-1XMP-dc:7ID-Y:Title="]);
+        assert_eq!(remove_args.args, vec!["-1XMP-dc:7ID-Y:Title="]);
     }
 
     #[test]
@@ -1134,7 +1072,7 @@ mod tests {
         let target = new_property_target(&selected);
         let args = super::build_new_property_args(&target, &selected, &metadata_set(text("value")))
             .unwrap();
-        assert_eq!(args.text, vec!["-1XMP-dc:7ID-Title:Title=value"]);
+        assert_eq!(args.args, vec!["-1XMP-dc:7ID-Title:Title=value"]);
     }
 
     #[test]
@@ -1158,7 +1096,7 @@ mod tests {
     }
 
     #[test]
-    fn float_renders_decimal_in_numeric_group() {
+    fn float_renders_decimal_in_raw_mode() {
         let i = info(TagKind::Real);
         let args = build_new_property_fixture_args(
             "GPS",
@@ -1167,11 +1105,11 @@ mod tests {
             &metadata_set(MetadataValue::Real(123.45)),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-1GPS:7ID-Y:GPSAltitude=123.45"]);
+        assert_eq!(args.args, vec!["-1GPS:7ID-Y:GPSAltitude=123.45"]);
     }
 
     #[test]
-    fn gps_reals_render_as_scalar_numeric_args() {
+    fn gps_reals_render_as_scalar_raw_args() {
         for (group, tag_name, value, expected) in [
             (
                 "GPS",
@@ -1195,15 +1133,14 @@ mod tests {
                 &metadata_set(MetadataValue::Real(value)),
             )
             .unwrap();
-            assert_eq!(args.numeric, vec![expected]);
-            assert!(args.text.is_empty());
+            assert_eq!(args.args, vec![expected]);
         }
     }
 
     #[test]
-    fn datetime_uses_numeric_group() {
-        // Phase 8.7: design §6 puts DateTime in the -n group so the literal
-        // YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv re-parsing.
+    fn datetime_uses_raw_representation() {
+        // The literal YYYY:MM:DD HH:MM:SS±ZZ:ZZ form bypasses PrintConv
+        // re-parsing with the rest of the single raw write.
         let i = info(TagKind::DateTime);
         let args = build_new_property_fixture_args(
             "ExifIFD",
@@ -1226,14 +1163,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.numeric,
+            args.args,
             vec!["-1ExifIFD:7ID-Y:DateTimeOriginal=2026:05:15 10:30:00"]
         );
-        assert!(args.text.is_empty());
     }
 
     #[test]
-    fn ai_generated_at_datetime_uses_numeric_group_with_offset() {
+    fn ai_generated_at_datetime_uses_raw_representation_with_offset() {
         let i = info_named("XMP-mlib", "AIGeneratedAt", TagKind::DateTime);
         let args = build_new_property_fixture_args(
             "XMP-mlib",
@@ -1260,10 +1196,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.numeric,
+            args.args,
             vec!["-1XMP-mlib:7ID-AIGeneratedAt:AIGeneratedAt=2026:07:06 21:43:08+01:00"]
         );
-        assert!(args.text.is_empty());
     }
 
     #[test]
@@ -1281,7 +1216,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.numeric,
+            args.args,
             vec!["-1IPTC:7ID-DateCreated:DateCreated=2026:05:15"]
         );
     }
@@ -1303,10 +1238,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.numeric,
+            args.args,
             vec!["-1IPTC:7ID-TimeCreated:TimeCreated=10:30:00"]
         );
-        assert!(args.text.is_empty());
     }
 
     #[test]
@@ -1375,14 +1309,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec![
                 "-1XMP-dc:7ID-Y:Subject=",
                 "-1XMP-dc:7ID-Y:Subject=beach",
                 "-1XMP-dc:7ID-Y:Subject=sunset"
             ]
         );
-        assert!(!args.text.iter().any(|arg| arg.contains("beach, sunset")));
+        assert!(!args.args.iter().any(|arg| arg.contains("beach, sunset")));
     }
 
     #[test]
@@ -1402,7 +1336,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec![
                 "-1XMP-dc:7ID-Y:Title=",
                 "-1XMP-dc:7ID-Y:Title=one",
@@ -1412,7 +1346,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_writer_handles_numeric_lists_in_numeric_group() {
+    fn semantic_writer_handles_numeric_lists_in_raw_mode() {
         let i = info(TagKind::Bag(Box::new(TagKind::Integer {
             min: None,
             max: None,
@@ -1427,9 +1361,8 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(args.text, Vec::<String>::new());
         assert_eq!(
-            args.numeric,
+            args.args,
             vec![
                 "-1X:7ID-Y:Numbers=",
                 "-1X:7ID-Y:Numbers=1",
@@ -1453,7 +1386,7 @@ mod tests {
             )),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-1EXIF:7ID-Y:ExposureTime=1/250"]);
+        assert_eq!(args.args, vec!["-1EXIF:7ID-Y:ExposureTime=1/250"]);
     }
 
     #[test]
@@ -1484,7 +1417,7 @@ mod tests {
     }
 
     #[test]
-    fn rational_uses_numeric_group() {
+    fn rational_uses_raw_representation() {
         let i = info(TagKind::Rational);
         let args = build_new_property_fixture_args(
             "EXIF",
@@ -1498,7 +1431,7 @@ mod tests {
             )),
         )
         .unwrap();
-        assert_eq!(args.numeric, vec!["-1EXIF:7ID-Y:ExposureTime=1/250"]);
+        assert_eq!(args.args, vec!["-1EXIF:7ID-Y:ExposureTime=1/250"]);
     }
 
     // ── Phase 8 fix: struct argv uses exiftool -struct syntax, not JSON ──
@@ -1518,14 +1451,14 @@ mod tests {
         .unwrap();
         // Brace form, not JSON.  Field ordering is alphabetic via BTreeMap.
         assert_eq!(
-            args.text,
+            args.args,
             vec!["-1XMP-mwg-rs:7ID-Y:Region={Name=John,Type=Face}"]
         );
         // Critically: should NOT contain JSON quotes.
         assert!(
-            !args.text[0].contains("\""),
+            !args.args[0].contains("\""),
             "argv must not be JSON: {:?}",
-            args.text
+            args.args
         );
     }
 
@@ -1546,7 +1479,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec!["-1X:7ID-Y:R={Area={X=0.5,Y=0.5},Names=[a,b]}"]
         );
     }
@@ -1575,7 +1508,7 @@ mod tests {
             build_new_property_fixture_args("X", "S", &i, &metadata_set(MetadataValue::Struct(o)))
                 .unwrap();
         assert_eq!(
-            args.text,
+            args.args,
             vec![
                 r"-1X:7ID-Y:S={Field=| Student Recruitment|, Marketing || West |} [Level=1]\Desk,LeadingBrace=|{not a nested structure,List=[|[first|, item|],pipe || and } is not the list terminator]}"
             ]
@@ -1646,7 +1579,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            args.text,
+            args.args,
             vec![
                 "-1XMP-iptcExt:7ID-Y:LocationCreated=",
                 "-1XMP-iptcExt:7ID-Y:LocationCreated={City=Cambridge,LocationName=Cambridge default,LocationName-fr=Cambridge français}",
@@ -1701,22 +1634,19 @@ mod tests {
             &metadata_set(MetadataValue::Struct(BTreeMap::new())),
         )
         .unwrap();
-        assert_eq!(args.text, vec!["-1X:7ID-Y:S={}"]);
+        assert_eq!(args.args, vec!["-1X:7ID-Y:S={}"]);
     }
 
     #[test]
-    fn builtargs_extend_concatenates_groups() {
+    fn builtargs_extend_preserves_argument_order() {
         let mut a = BuiltArgs {
-            numeric: vec!["-A=1".into()],
-            text: vec!["-B=x".into()],
+            args: vec!["-A=1".into(), "-B=x".into()],
         };
         let b = BuiltArgs {
-            numeric: vec!["-C=2".into()],
-            text: vec!["-D=y".into()],
+            args: vec!["-C=2".into(), "-D=y".into()],
         };
         a.extend(b);
-        assert_eq!(a.numeric, vec!["-A=1", "-C=2"]);
-        assert_eq!(a.text, vec!["-B=x", "-D=y"]);
+        assert_eq!(a.args, vec!["-A=1", "-B=x", "-C=2", "-D=y"]);
     }
 
     fn target_test_info(index: Option<u32>) -> TagInfo {
@@ -1781,7 +1711,7 @@ mod tests {
         assert_eq!(
             build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value")))
                 .unwrap()
-                .text,
+                .args,
             vec!["-1IFD0:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
         );
     }
@@ -1795,7 +1725,7 @@ mod tests {
                 .unwrap();
 
         assert_eq!(
-            args.text,
+            args.args,
             vec!["-1IFD1:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
         );
         for forbidden in [
@@ -1806,7 +1736,7 @@ mod tests {
             "Family5PathMustNotBeUsed",
             "Copy4",
         ] {
-            assert!(!args.text[0].contains(forbidden));
+            assert!(!args.args[0].contains(forbidden));
         }
     }
 
@@ -1824,11 +1754,11 @@ mod tests {
 
         assert_eq!(ifd0.tag_info, ifd1.tag_info);
         assert_eq!(
-            ifd0_args.text,
+            ifd0_args.args,
             vec!["-1IFD0:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
         );
         assert_eq!(
-            ifd1_args.text,
+            ifd1_args.args,
             vec!["-1IFD1:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
         );
         assert_ne!(ifd0_args, ifd1_args);
@@ -1993,10 +1923,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            args.numeric,
+            args.args,
             vec!["-1IFD0:7ID-Family7TagIdMustNotBeUsed:XResolution=5"]
         );
-        assert!(args.text.is_empty());
     }
 
     #[test]
@@ -2009,7 +1938,7 @@ mod tests {
         let args = build_new_property_args(&target, &info, &metadata_set(text("value"))).unwrap();
 
         assert_eq!(
-            args.text,
+            args.args,
             vec!["-1XMP-dc:7ID-SchemaTagIdMustNotBeUsed:Title=value"]
         );
         assert_eq!(target.occurrence_id(), None);
@@ -2036,7 +1965,7 @@ mod tests {
             build_new_property_args(&target, &info, &metadata_set(MetadataValue::Integer(72)))
                 .unwrap();
 
-        assert_eq!(args.numeric, vec!["-1IFD1:7ID-XResolution:XResolution=72"]);
+        assert_eq!(args.args, vec!["-1IFD1:7ID-XResolution:XResolution=72"]);
     }
 
     #[test]
@@ -2208,10 +2137,9 @@ mod tests {
             min: None,
             max: None,
         };
-        let ok = |numeric: &[&str], text: &[&str]| {
+        let ok = |args: &[&str]| {
             Ok(BuiltArgs {
-                numeric: numeric.iter().map(|value| (*value).to_owned()).collect(),
-                text: text.iter().map(|value| (*value).to_owned()).collect(),
+                args: args.iter().map(|value| (*value).to_owned()).collect(),
             })
         };
         let error = |message: &str| Err(message.to_owned());
@@ -2220,22 +2148,22 @@ mod tests {
                 "delete",
                 TagKind::Text,
                 metadata_delete(),
-                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue="]),
-                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue="]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue="]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue="]),
             ),
             (
                 "integer set",
                 integer_kind.clone(),
                 metadata_set(MetadataValue::Integer(5)),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=5"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=5"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=5"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=5"]),
             ),
             (
                 "real set",
                 TagKind::Real,
                 metadata_set(MetadataValue::Real(1.25)),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1.25"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1.25"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1.25"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1.25"]),
             ),
             (
                 "rational set",
@@ -2244,15 +2172,15 @@ mod tests {
                     numerator: 1,
                     denominator: 250,
                 })),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1/250"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1/250"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1/250"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1/250"]),
             ),
             (
                 "boolean set",
                 TagKind::Boolean,
                 metadata_set(MetadataValue::Bool(true)),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1"]),
             ),
             (
                 "integer enum set",
@@ -2261,8 +2189,8 @@ mod tests {
                     options: vec![],
                 },
                 metadata_set(MetadataValue::Integer(6)),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=6"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=6"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=6"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=6"]),
             ),
             (
                 "text enum set",
@@ -2271,22 +2199,21 @@ mod tests {
                     options: vec![],
                 },
                 metadata_set(text("active")),
-                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=active"]),
-                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=active"]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=active"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=active"]),
             ),
             (
                 "text set",
                 TagKind::Text,
                 metadata_set(text("value")),
-                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=value"]),
-                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=value"]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=value"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=value"]),
             ),
             (
                 "lang-alt set",
                 TagKind::LangAlt,
                 metadata_set(MetadataValue::LangAlt(langs)),
                 ok(
-                    &[],
                     &[
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=",
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-en=Hello",
@@ -2294,7 +2221,6 @@ mod tests {
                     ],
                 ),
                 ok(
-                    &[],
                     &[
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=",
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-en=Hello",
@@ -2307,7 +2233,6 @@ mod tests {
                 TagKind::Bag(Box::new(TagKind::Text)),
                 metadata_set(bag_text(&["a", "b"])),
                 ok(
-                    &[],
                     &[
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=",
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=a",
@@ -2315,7 +2240,6 @@ mod tests {
                     ],
                 ),
                 ok(
-                    &[],
                     &[
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=",
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=a",
@@ -2331,7 +2255,6 @@ mod tests {
                     items: vec![text("a"), text("b")],
                 }),
                 ok(
-                    &[],
                     &[
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=",
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=a",
@@ -2339,7 +2262,6 @@ mod tests {
                     ],
                 ),
                 ok(
-                    &[],
                     &[
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=",
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=a",
@@ -2348,7 +2270,7 @@ mod tests {
                 ),
             ),
             (
-                "numeric-list set",
+                "integer-list set",
                 TagKind::Seq(Box::new(integer_kind.clone())),
                 metadata_set(MetadataValue::List {
                     list_kind: ListKind::Seq,
@@ -2360,7 +2282,6 @@ mod tests {
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=1",
                         "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2",
                     ],
-                    &[],
                 ),
                 ok(
                     &[
@@ -2368,19 +2289,14 @@ mod tests {
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=1",
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2",
                     ],
-                    &[],
                 ),
             ),
             (
                 "list add",
                 TagKind::Bag(Box::new(TagKind::Text)),
                 metadata_list_add(bag_text(&["a", "b"])),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue+=a", "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue+=b"]),
                 ok(
-                    &[],
-                    &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue+=a", "-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue+=b"],
-                ),
-                ok(
-                    &[],
                     &[
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue+=a",
                         "-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue+=b",
@@ -2391,62 +2307,50 @@ mod tests {
                 "list remove",
                 TagKind::Bag(Box::new(TagKind::Text)),
                 metadata_list_remove(text("old")),
-                ok(
-                    &[],
-                    &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-=old"],
-                ),
-                ok(
-                    &[],
-                    &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-=old"],
-                ),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue-=old"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue-=old"]),
             ),
             (
                 "date",
                 TagKind::Date,
                 metadata_set(MetadataValue::Date(date.clone())),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2026:07:13"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2026:07:13"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2026:07:13"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2026:07:13"]),
             ),
             (
                 "time",
                 TagKind::Time,
                 metadata_set(MetadataValue::Time(time.clone())),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=12:34:56.789+01:30"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=12:34:56.789+01:30"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=12:34:56.789+01:30"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=12:34:56.789+01:30"]),
             ),
             (
                 "date-time",
                 TagKind::DateTime,
                 metadata_set(MetadataValue::DateTime(DateTimeValue { date, time })),
-                ok(
-                    &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2026:07:13 12:34:56.789+01:30"],
-                    &[],
-                ),
-                ok(
-                    &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2026:07:13 12:34:56.789+01:30"],
-                    &[],
-                ),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=2026:07:13 12:34:56.789+01:30"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=2026:07:13 12:34:56.789+01:30"]),
             ),
             (
                 "time offset",
                 TagKind::TimeOffset,
                 metadata_set(MetadataValue::TimeOffset(offset)),
-                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=+01:30"], &[]),
-                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=+01:30"], &[]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue=+01:30"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue=+01:30"]),
             ),
             (
                 "struct",
                 TagKind::Struct(BTreeMap::new()),
                 metadata_set(MetadataValue::Struct(structure)),
-                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue={Name=Ada}"]),
-                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue={Name=Ada}"]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue={Name=Ada}"]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue={Name=Ada}"]),
             ),
             (
                 "null set",
                 TagKind::Text,
                 metadata_set(MetadataValue::Null),
-                ok(&[], &["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue="]),
-                ok(&[], &["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue="]),
+                ok(&["-1IFD1:7ID-Family7TagIdMustNotBeUsed:RuntimeValue="]),
+                ok(&["-1XMP-test:7ID-SchemaTagIdMustNotBeUsed:SchemaValue="]),
             ),
             (
                 "binary rejection",

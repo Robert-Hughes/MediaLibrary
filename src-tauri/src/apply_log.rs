@@ -17,9 +17,9 @@ use std::io::Write;
 use std::path::Path;
 
 const TARGET_LOG_FILE_NAME: &str = "MediaLibraryTargetApplyLog.jsonl";
-const TARGET_LOG_SCHEMA_VERSION: u32 = 1;
+const TARGET_LOG_SCHEMA_VERSION: u32 = 2;
 const TARGET_LOG_IDENTITY_MODEL: &str = "TargetDraft";
-const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only. Each line is one exact target outcome from one target-aware apply. schema_version=1.";
+const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only. Each line is one exact target outcome and carries its own schema_version.";
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct TargetApplyAuditRecord {
@@ -50,25 +50,16 @@ pub(crate) enum TargetDraftPersistenceOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct TargetApplyWriteEvidence {
     pub(crate) selector: MetadataWriteTarget,
-    pub(crate) arguments: TargetApplyArguments,
-    pub(crate) numeric_pass: TargetApplyPassStatus,
-    pub(crate) text_pass: TargetApplyPassStatus,
+    pub(crate) arguments: Vec<String>,
+    pub(crate) pass: TargetApplyPassStatus,
     pub(crate) diagnostic: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub(crate) struct TargetApplyArguments {
-    pub(crate) numeric: Vec<String>,
-    pub(crate) text: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "PascalCase")]
 pub(crate) enum TargetApplyPassStatus {
-    NotApplicable,
     Succeeded,
     Failed { error: String },
-    Skipped { reason: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -323,15 +314,9 @@ mod tests {
             before: Some(MetadataValue::Integer(72)),
             write: TargetApplyWriteEvidence {
                 selector: selector("IFD0"),
-                arguments: TargetApplyArguments {
-                    numeric: vec!["-n".into(), "-IFD0:XResolution=300".into()],
-                    text: vec!["-charset".into(), "filename=UTF8".into()],
-                },
-                numeric_pass: TargetApplyPassStatus::Failed {
-                    error: "numeric failed".into(),
-                },
-                text_pass: TargetApplyPassStatus::Skipped {
-                    reason: "numeric pass failed".into(),
+                arguments: vec!["-IFD0:XResolution=300".into()],
+                pass: TargetApplyPassStatus::Failed {
+                    error: "raw write failed".into(),
                 },
                 diagnostic: Some("formatted diagnostic".into()),
             },
@@ -359,12 +344,8 @@ mod tests {
             before: None,
             write: TargetApplyWriteEvidence {
                 selector: selector("IFD0"),
-                arguments: TargetApplyArguments {
-                    numeric: vec!["-IFD0:XResolution=300".into()],
-                    text: Vec::new(),
-                },
-                numeric_pass: TargetApplyPassStatus::Succeeded,
-                text_pass: TargetApplyPassStatus::NotApplicable,
+                arguments: vec!["-IFD0:XResolution=300".into()],
+                pass: TargetApplyPassStatus::Succeeded,
                 diagnostic: None,
             },
             post_write,
@@ -462,7 +443,7 @@ mod tests {
 
         let entries = target_entries(&dir.path().join(TARGET_LOG_FILE_NAME));
         let entry = &entries[0];
-        assert_eq!(entry["schema_version"], 1);
+        assert_eq!(entry["schema_version"], 2);
         assert_eq!(entry["identity_model"], "TargetDraft");
         assert_eq!(entry["relative_path"], "file.jpg");
         assert_eq!(entry["draft_persistence"]["kind"], "PersistenceFailed");
@@ -484,15 +465,9 @@ mod tests {
         assert_eq!(entry["target"]["write_target"]["group1"], "IFD0");
         assert_eq!(entry["sent"]["kind"], "Integer");
         assert_eq!(entry["before"]["value"], 72);
-        assert_eq!(entry["write"]["arguments"]["numeric"][0], "-n");
-        assert_eq!(
-            entry["write"]["arguments"]["numeric"][1],
-            "-IFD0:XResolution=300"
-        );
-        assert_eq!(entry["write"]["arguments"]["text"][0], "-charset");
-        assert_eq!(entry["write"]["numeric_pass"]["kind"], "Failed");
-        assert_eq!(entry["write"]["numeric_pass"]["error"], "numeric failed");
-        assert_eq!(entry["write"]["text_pass"]["kind"], "Skipped");
+        assert_eq!(entry["write"]["arguments"][0], "-IFD0:XResolution=300");
+        assert_eq!(entry["write"]["pass"]["kind"], "Failed");
+        assert_eq!(entry["write"]["pass"]["error"], "raw write failed");
         assert_eq!(entry["write"]["diagnostic"], "formatted diagnostic");
         assert_eq!(entry["post_write"]["kind"], "Unique");
         assert_eq!(entry["post_write"]["occurrence"]["value"]["value"], 300);
@@ -573,7 +548,7 @@ mod tests {
 
         let entries = target_entries(&dir.path().join(TARGET_LOG_FILE_NAME));
         assert_eq!(entries[0]["post_write"]["kind"], "Missing");
-        assert_eq!(entries[1]["write"]["numeric_pass"]["kind"], "Failed");
+        assert_eq!(entries[1]["write"]["pass"]["kind"], "Failed");
         assert_eq!(entries[1]["write"]["diagnostic"], "formatted diagnostic");
         assert_eq!(entries[1]["post_write"]["kind"], "Unavailable");
         assert_eq!(entries[1]["post_write"]["cause"], "ReadbackFailed");

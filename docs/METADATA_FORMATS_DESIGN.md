@@ -68,9 +68,10 @@ Duplicate paths, duplicate logical slots and malformed entries are rejected
 before a save can truncate the file.
 
 `MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. Its existing
-format and identity marker are unchanged. Rows retain complete targets,
-semantic values, verification results and reconciliation decisions, and are
-never rewritten.
+identity marker is unchanged. New schema-version 2 rows retain complete
+targets, semantic values, the single ordered raw-write argument vector and
+status, verification results and reconciliation decisions. Existing rows are
+append-only and are never rewritten.
 
 The historical `MediaLibraryDraftEdits.jsonl` and
 `MediaLibraryApplyLog.jsonl` files are ignored. They are not parsed, migrated,
@@ -96,8 +97,10 @@ The active operation is:
 1. Validate the complete persisted target against authoritative occurrences
    and its stored destination.
 2. Render the structured selector only at the final ExifTool write boundary
-   and produce stable UTF-8 numeric and textual argument passes.
-3. Write the file and read authoritative occurrences again.
+   and produce one stable UTF-8 argument sequence from the typed semantic
+   values.
+3. Write the complete sequence in ExifTool raw (`-n`) mode, then read
+   authoritative occurrences again.
 4. For New Property, require exactly one readback match for the intended exact
    schema and selector, except for the documented empty-value normalisation
    below.
@@ -106,6 +109,15 @@ The active operation is:
    country-code padding rule.
 6. Reconcile the exact target as Clear, Keep, Replace or Blocked.
 7. Persist the reconciled drafts atomically and append the audit record.
+
+Raw mode is the write contract for every metadata kind, including text. It
+disables ExifTool's display-oriented PrintConv interpretation; it does not
+turn text into numbers. Text is still emitted as text, while enums, booleans,
+numbers, rationals, dates and structured children are rendered in their
+schema-defined canonical forms. This avoids a read-display-write conversion
+changing a typed value such as an integer-backed enum. Authoritative readback
+and semantic verification remain mandatory because ExifTool and the target
+format may still normalise the stored representation.
 
 LangAlt `Set` has whole-value semantics. Rendering first clears the parent
 property and then recreates every language in the map, so removing a language
