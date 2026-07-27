@@ -16,6 +16,7 @@ import type {
   NormaliseGroup,
   NormaliseSummary,
 } from "../types";
+import { useRef } from "react";
 import { ALL_NORMALISE_GROUPS, NORMALISE_TARGET_TAGS_BY_GROUP } from "../types";
 import type { NormaliseProgressState } from "../hooks/useNormaliseMetadata";
 import { BatchJobDialog } from "./BatchJobDialog";
@@ -333,6 +334,19 @@ function emptyCounts() {
   };
 }
 
+function iptcUtf8ApplicablePaths(
+  estimate: NormaliseEstimate,
+  enabledGroups: ReadonlySet<NormaliseGroup>,
+): Set<string> {
+  const paths = new Set(estimate.iptcUtf8BaseApplicablePaths ?? []);
+  const byGroup = estimate.iptcUtf8OutputPathsByGroup ?? {};
+  for (const group of enabledGroups) {
+    if (group === "iptc_utf8") continue;
+    for (const path of byGroup[group] ?? []) paths.add(path);
+  }
+  return paths;
+}
+
 /**
  * Per-group outcome table. Rows = the normalise groups; columns =
  * the four outcome buckets. Rows where every image is a no-op are
@@ -350,10 +364,29 @@ function GroupOutcomeTable({
   onSetEnabledGroups: (g: NormaliseGroup[]) => void;
   total: number;
 }) {
+  const iptcUtf8ExplicitlyDisabled = useRef(false);
+
   function toggle(g: NormaliseGroup) {
     const current = new Set(enabledGroups);
-    if (current.has(g)) current.delete(g);
-    else current.add(g);
+    if (g === "iptc_utf8") {
+      if (current.has(g)) {
+        current.delete(g);
+        iptcUtf8ExplicitlyDisabled.current = true;
+      } else {
+        current.add(g);
+        iptcUtf8ExplicitlyDisabled.current = false;
+      }
+    } else {
+      const wasApplicable = iptcUtf8ApplicablePaths(estimate, current).size > 0;
+      if (current.has(g)) current.delete(g);
+      else current.add(g);
+      const isApplicable = iptcUtf8ApplicablePaths(estimate, current).size > 0;
+      if (!isApplicable) {
+        current.delete("iptc_utf8");
+      } else if (!wasApplicable && !iptcUtf8ExplicitlyDisabled.current) {
+        current.add("iptc_utf8");
+      }
+    }
     onSetEnabledGroups(V1_GROUPS.filter((x) => current.has(x)));
   }
 
@@ -402,7 +435,25 @@ function GroupOutcomeTable({
       </thead>
       <tbody>
         {V1_GROUPS.map((g) => {
-          const counts = estimate.perGroupOutcomes[g] ?? emptyCounts();
+          const estimatedCounts = estimate.perGroupOutcomes[g] ?? emptyCounts();
+          const prospectiveIptcCount =
+            g === "iptc_utf8"
+              ? iptcUtf8ApplicablePaths(estimate, new Set(enabledGroups)).size
+              : null;
+          const counts =
+            prospectiveIptcCount == null
+              ? estimatedCounts
+              : {
+                  ...estimatedCounts,
+                  nNoop: total - prospectiveIptcCount,
+                  nNormalisedDeterministic: prospectiveIptcCount,
+                  nNormalisedAi: 0,
+                  nConflict: 0,
+                  nOverwrites:
+                    prospectiveIptcCount === 0
+                      ? 0
+                      : estimatedCounts.nOverwrites,
+                };
           const isAiGroup = AI_GROUPS.has(g);
           const allNoop =
             counts.nNormalisedDeterministic === 0 &&

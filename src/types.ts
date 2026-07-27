@@ -511,6 +511,16 @@ export interface NormaliseEstimate {
   perGroupOutcomes: Partial<
     Record<NormaliseGroup, NormaliseGroupOutcomeCounts>
   >;
+  /**
+   * Files whose existing effective IPTC requires a UTF-8 marker before
+   * considering outputs from other selected normalisation groups.
+   */
+  iptcUtf8BaseApplicablePaths: string[];
+  /**
+   * Files where each group prospectively emits IPTC while the effective
+   * CodedCharacterSet is not already UTF-8.
+   */
+  iptcUtf8OutputPathsByGroup: Partial<Record<NormaliseGroup, string[]>>;
   aiTokenBreakdown: NormaliseEstimateAiTokenBreakdown | null;
   pricing: NormaliseEstimatePricing | null;
   locationPricing: NormaliseEstimatePricing | null;

@@ -366,8 +366,12 @@ This group is the repair path for legacy or missing IPTC IIM character-set
 declarations. If the effective metadata contains any IPTC schema and
 `IPTC:CodedCharacterSet` is neither ExifTool's `UTF8` value nor the raw
 `ESC % G` marker, it stages a normal draft setting the marker to `UTF8`.
-It is a no-op for files without IPTC metadata and files already declared
-UTF-8.
+Applicability is prospective: IPTC drafts emitted by other groups selected in
+the same operation count as effective IPTC for this decision. It is a no-op
+when neither existing metadata nor the selected groups' outputs contain IPTC,
+and when the effective marker is already UTF-8. The checkbox remains opt-in,
+but is enabled and selected by default whenever that prospective state needs
+the marker.
 
 The group deliberately creates an ordinary draft; it does not write the file
 or manufacture same-value drafts for every IPTC field. When that draft is
@@ -390,17 +394,21 @@ same-value rewrite for its occurrence.
 
 Groups are not fully ordered. Most groups are independent. The exceptions:
 
-1. **Independent groups (any order):** A (Keywords), E (Creator), F
-   (Copyright), G (Location), H (Dates), I (IPTC UTF-8).
+1. **Independent semantic groups (any order):** A (Keywords), E (Creator), F
+   (Copyright), G (Location), H (Dates).
 2. **After group A and G and H:** B (Description). Reads keywords, location,
    and dates as context for AI merge.
 3. **After group B:** C (Title), D (Headline). Title may AI-generate from
    description when target empty.
+4. **After prospective semantic outputs are known:** I (IPTC UTF-8). Existing
+   IPTC and non-delete IPTC drafts emitted by the selected groups determine
+   whether the optional marker draft is applicable.
 
-Implementation: a three-pass scheduler. Pass 1 runs A, E, F, I, G, H in the
-fixed deterministic order listed here. Pass 2 runs B. Pass 3 runs C, D. Each
-pass sees the previous passes' draft outputs via the draft-overlay read
-(see §3).
+Implementation: the semantic scheduler runs A, E, F, G, H, then B, then C and
+D in fixed deterministic order. I runs after those passes for applicability,
+while apply planning still renders the marker before IPTC value writes. Each
+semantic pass sees the previous passes' draft outputs via the draft-overlay
+read (see §3).
 
 ## 3. Draft-overlay read precedence
 

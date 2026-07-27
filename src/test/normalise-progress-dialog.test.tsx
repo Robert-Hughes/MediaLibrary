@@ -69,6 +69,8 @@ function mockEstimate(
         nNormalisedDeterministic: 0,
       },
     },
+    iptcUtf8BaseApplicablePaths: ["a.jpg"],
+    iptcUtf8OutputPathsByGroup: {},
     aiTokenBreakdown: null,
     pricing: null,
     locationPricing: null,
@@ -363,6 +365,136 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     ) as HTMLInputElement;
     expect(cb.disabled).toBe(true);
     expect(cb.checked).toBe(false);
+  });
+
+  it("enables IPTC UTF-8 when a selected group prospectively creates IPTC", () => {
+    const est = mockEstimate({
+      perGroupOutcomes: {
+        keywords: {
+          nNoop: 0,
+          nNormalisedDeterministic: 1,
+          nNormalisedAi: 0,
+          nConflict: 0,
+          nOverwrites: 0,
+        },
+        iptc_utf8: {
+          nNoop: 1,
+          nNormalisedDeterministic: 0,
+          nNormalisedAi: 0,
+          nConflict: 0,
+          nOverwrites: 0,
+        },
+      },
+      iptcUtf8BaseApplicablePaths: [],
+      iptcUtf8OutputPathsByGroup: { keywords: ["new-iptc.jpg"] },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({
+          enabledGroups: ["keywords", "iptc_utf8"],
+          estimate: est,
+        })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+
+    const cb = screen.getByTestId(
+      "normalise-group-iptc_utf8-checkbox",
+    ) as HTMLInputElement;
+    expect(cb.disabled).toBe(false);
+    expect(cb.checked).toBe(true);
+    expect(
+      screen.getByTestId("normalise-group-iptc_utf8-deterministic"),
+    ).toHaveTextContent("1");
+  });
+
+  it("disables IPTC UTF-8 when no selected output needs it, including effective UTF-8", () => {
+    const est = mockEstimate({
+      iptcUtf8BaseApplicablePaths: [],
+      iptcUtf8OutputPathsByGroup: {},
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({
+          enabledGroups: ["iptc_utf8"],
+          estimate: est,
+        })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+
+    const cb = screen.getByTestId(
+      "normalise-group-iptc_utf8-checkbox",
+    ) as HTMLInputElement;
+    expect(cb.disabled).toBe(true);
+    expect(cb.checked).toBe(false);
+  });
+
+  it("removes IPTC UTF-8 when the last prospective producer is unchecked", () => {
+    const onSet = vi.fn();
+    const est = mockEstimate({
+      iptcUtf8BaseApplicablePaths: [],
+      iptcUtf8OutputPathsByGroup: { keywords: ["new-iptc.jpg"] },
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({
+          enabledGroups: ["keywords", "iptc_utf8"],
+          estimate: est,
+        })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={onSet}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("normalise-group-keywords-checkbox"));
+    expect(onSet).toHaveBeenLastCalledWith([]);
+  });
+
+  it("keeps an explicit IPTC UTF-8 opt-out when applicability returns", () => {
+    const onSet = vi.fn();
+    const est = mockEstimate({
+      iptcUtf8BaseApplicablePaths: [],
+      iptcUtf8OutputPathsByGroup: {
+        keywords: ["new-iptc.jpg"],
+        description: ["new-iptc.jpg"],
+      },
+    });
+    const props = {
+      onConfirm: () => {},
+      onCancel: () => {},
+      onClose: () => {},
+      onSetEnabledGroups: onSet,
+    };
+    const { rerender } = render(
+      <NormaliseProgressDialog
+        state={baseState({
+          enabledGroups: ["keywords", "iptc_utf8"],
+          estimate: est,
+        })}
+        {...props}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("normalise-group-iptc_utf8-checkbox"));
+    expect(onSet).toHaveBeenLastCalledWith(["keywords"]);
+
+    rerender(
+      <NormaliseProgressDialog
+        state={baseState({ enabledGroups: [], estimate: est })}
+        {...props}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("normalise-group-description-checkbox"));
+    expect(onSet).toHaveBeenLastCalledWith(["description"]);
   });
 
   it("keeps Description enabled when all targets are empty but AI context exists (nNormalisedAi > 0)", () => {

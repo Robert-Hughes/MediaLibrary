@@ -23,7 +23,7 @@
 //! creation are fully integrated.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::metadata_value::{ListKind, MetadataValue};
@@ -725,6 +725,13 @@ pub struct PerImageStats {
     /// the dispatcher actually visited (i.e. enabled + bundle
     /// supplied).
     pub per_group: std::collections::BTreeMap<NormaliseGroup, PerGroupStats>,
+    /// Groups that actually emitted at least one non-delete IPTC draft.
+    /// Used by cost estimation to make IPTC UTF-8 applicability depend on
+    /// the user's prospective group selection. This is internal scheduling
+    /// evidence, not part of the public progress wire shape.
+    #[serde(skip)]
+    #[cfg_attr(test, ts(skip))]
+    pub iptc_output_groups: BTreeSet<NormaliseGroup>,
 }
 
 impl PerImageStats {
@@ -754,6 +761,8 @@ impl PerImageStats {
 ///     location, Group H date as context for the AI merge.
 ///   * Pass 3: Title. Reads Group B's canonical description for the
 ///     case-3 AI title generation.
+///   * Prospective applicability: IPTC UTF-8 runs last so semantic groups
+///     selected in the same operation can make it applicable.
 ///
 /// `ai` is the injected AI client. When `None`, any group whose
 /// conflict policy requires AI returns a typed failure rather than
@@ -782,7 +791,6 @@ fn apply_simple_group<T>(
     if !enabled {
         return;
     }
-    let g = stats.group(group);
     let Some(input) = input else {
         // Group enabled but the frontend shipped no bundle for it.
         // Currently unreachable — `buildNormaliseItems` always
@@ -794,18 +802,27 @@ fn apply_simple_group<T>(
             "[normalise] group {} enabled but no input bundle supplied; counting as no-op",
             group.as_wire(),
         );
-        g.n_noop += 1;
+        stats.group(group).n_noop += 1;
         return;
     };
     match run(input) {
         Some(out) => {
+            if group_output_writes_iptc(&out) {
+                stats.iptc_output_groups.insert(group);
+            }
             edits.extend(out.edits);
-            g.n_normalised_deterministic += 1;
+            stats.group(group).n_normalised_deterministic += 1;
         }
         None => {
-            g.n_noop += 1;
+            stats.group(group).n_noop += 1;
         }
     }
+}
+
+fn group_output_writes_iptc(output: &GroupOutput) -> bool {
+    output.edits.iter().any(|(schema_id, edit)| {
+        schema_id.table.starts_with("IPTC::") && !matches!(edit.intent, EditIntent::Delete)
+    })
 }
 
 /// Returns `true` if the caller-supplied cancel flag has been
@@ -912,18 +929,22 @@ pub async fn process_image(
     };
 
     if write_enabled(NormaliseGroup::Keywords) {
-        let g = stats.group(NormaliseGroup::Keywords);
         if let Some(input) = item.group_inputs.keywords.as_ref() {
             match normalise_keywords_with_canonical(input, &keywords_paths, &keywords_leaves) {
                 Some(out) => {
+                    if group_output_writes_iptc(&out) {
+                        stats.iptc_output_groups.insert(NormaliseGroup::Keywords);
+                    }
                     edits.extend(out.edits);
-                    g.n_normalised_deterministic += 1;
+                    stats
+                        .group(NormaliseGroup::Keywords)
+                        .n_normalised_deterministic += 1;
                 }
-                None => g.n_noop += 1,
+                None => stats.group(NormaliseGroup::Keywords).n_noop += 1,
             }
         } else {
             log::warn!("[normalise] group keywords enabled but no input bundle supplied; counting as no-op");
-            g.n_noop += 1;
+            stats.group(NormaliseGroup::Keywords).n_noop += 1;
         }
     }
 
@@ -942,14 +963,6 @@ pub async fn process_image(
         &mut edits,
         &mut stats,
         normalise_copyright,
-    );
-    apply_simple_group(
-        NormaliseGroup::IptcUtf8,
-        write_enabled(NormaliseGroup::IptcUtf8),
-        item.group_inputs.iptc_utf8.as_ref(),
-        &mut edits,
-        &mut stats,
-        normalise_iptc_utf8,
     );
     apply_simple_group(
         NormaliseGroup::Headline,
@@ -985,6 +998,13 @@ pub async fn process_image(
             }
             location_context = outcome.canonical.clone();
             let ai_fired = outcome.ai_fired;
+            if outcome
+                .output
+                .as_ref()
+                .is_some_and(group_output_writes_iptc)
+            {
+                stats.iptc_output_groups.insert(NormaliseGroup::Location);
+            }
             let g = stats.group(NormaliseGroup::Location);
             g.n_location_xmp_iim_conflict = outcome.n_xmp_iim_conflict;
             g.n_location_created_ambiguous = outcome.n_location_created_ambiguous;
@@ -1009,9 +1029,16 @@ pub async fn process_image(
     }
 
     if write_enabled(NormaliseGroup::Dates) {
-        let g = stats.group(NormaliseGroup::Dates);
         if let Some(input) = item.group_inputs.dates.as_ref() {
             let outcome = normalise_dates(input);
+            if outcome
+                .output
+                .as_ref()
+                .is_some_and(group_output_writes_iptc)
+            {
+                stats.iptc_output_groups.insert(NormaliseGroup::Dates);
+            }
+            let g = stats.group(NormaliseGroup::Dates);
             g.n_date_conflict = outcome.n_date_conflict;
             g.n_dto_from_filename = outcome.n_dto_from_filename;
             g.n_dto_from_filename_date_only = outcome.n_dto_from_filename_date_only;
@@ -1030,7 +1057,7 @@ pub async fn process_image(
             log::warn!(
                 "[normalise] group dates enabled but no input bundle supplied; counting as no-op"
             );
-            g.n_noop += 1;
+            stats.group(NormaliseGroup::Dates).n_noop += 1;
         }
     }
 
@@ -1049,6 +1076,13 @@ pub async fn process_image(
             // Augment the caller-supplied bundle with pass-1
             // context. Caller-provided values win when both are set.
             let mut augmented = input.clone();
+            // If the user opted into IPTC UTF-8, Description should project
+            // its prospective Caption-Abstract as UTF-8 even when IPTC does
+            // not exist yet. The marker group runs after semantic groups and
+            // will become a no-op if none of them actually emits IPTC.
+            if write_enabled(NormaliseGroup::IptcUtf8) {
+                augmented.iptc_charset_is_utf8 = true;
+            }
             if augmented.keywords_context.is_empty() {
                 augmented.keywords_context = keywords_leaves.clone();
             }
@@ -1085,6 +1119,13 @@ pub async fn process_image(
             // all-empty inputs.
             description_canonical = outcome.canonical.clone();
             let ai_fired = outcome.ai_fired;
+            if outcome
+                .output
+                .as_ref()
+                .is_some_and(group_output_writes_iptc)
+            {
+                stats.iptc_output_groups.insert(NormaliseGroup::Description);
+            }
             let g = stats.group(NormaliseGroup::Description);
             match outcome.output {
                 Some(out) => {
@@ -1138,6 +1179,13 @@ pub async fn process_image(
                 }
             }
             let ai_fired = outcome.ai_fired;
+            if outcome
+                .output
+                .as_ref()
+                .is_some_and(group_output_writes_iptc)
+            {
+                stats.iptc_output_groups.insert(NormaliseGroup::Title);
+            }
             let g = stats.group(NormaliseGroup::Title);
             match outcome.output {
                 Some(out) => {
@@ -1155,6 +1203,30 @@ pub async fn process_image(
                 "[normalise] group title enabled but no input bundle supplied; counting as no-op"
             );
             stats.group(NormaliseGroup::Title).n_noop += 1;
+        }
+    }
+
+    // IPTC UTF-8 is opt-in, but its applicability is prospective: semantic
+    // groups selected in the same run may create IPTC on a file that did not
+    // contain it at input time. Evaluate it after those outputs are known.
+    if write_enabled(NormaliseGroup::IptcUtf8) {
+        if let Some(input) = item.group_inputs.iptc_utf8.as_ref() {
+            let mut prospective = input.clone();
+            prospective.has_iptc = prospective.has_iptc || !stats.iptc_output_groups.is_empty();
+            match normalise_iptc_utf8(&prospective) {
+                Some(out) => {
+                    edits.extend(out.edits);
+                    stats
+                        .group(NormaliseGroup::IptcUtf8)
+                        .n_normalised_deterministic += 1;
+                }
+                None => stats.group(NormaliseGroup::IptcUtf8).n_noop += 1,
+            }
+        } else {
+            log::warn!(
+                "[normalise] group iptc_utf8 enabled but no input bundle supplied; counting as no-op"
+            );
+            stats.group(NormaliseGroup::IptcUtf8).n_noop += 1;
         }
     }
 
@@ -1218,6 +1290,96 @@ impl NormaliseSummary {
 #[cfg(test)]
 mod tests_dispatcher {
     use super::*;
+
+    #[tokio::test]
+    async fn prospective_iptc_output_makes_utf8_group_applicable() {
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                keywords: Some(KeywordsInput {
+                    dc_subject: vec!["landscape".into()],
+                    ..Default::default()
+                }),
+                iptc_utf8: Some(IptcUtf8Input::default()),
+                ..Default::default()
+            },
+        };
+
+        let (edits, stats, _err, _calls) = process_image(
+            &item,
+            &[NormaliseGroup::Keywords, NormaliseGroup::IptcUtf8],
+            None,
+            None,
+        )
+        .await;
+
+        assert!(edits.contains_key(&crate::known_ids::iptc_keywords()));
+        assert_eq!(
+            edits[&crate::known_ids::iptc_coded_character_set()].value,
+            Some(MetadataValue::Text("UTF8".into()))
+        );
+        assert!(stats.iptc_output_groups.contains(&NormaliseGroup::Keywords));
+        assert_eq!(
+            stats.per_group[&NormaliseGroup::IptcUtf8].n_normalised_deterministic,
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn prospective_iptc_utf8_remains_opt_in() {
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                keywords: Some(KeywordsInput {
+                    dc_subject: vec!["landscape".into()],
+                    ..Default::default()
+                }),
+                iptc_utf8: Some(IptcUtf8Input::default()),
+                ..Default::default()
+            },
+        };
+
+        let (edits, stats, _err, _calls) =
+            process_image(&item, &[NormaliseGroup::Keywords], None, None).await;
+
+        assert!(edits.contains_key(&crate::known_ids::iptc_keywords()));
+        assert!(!edits.contains_key(&crate::known_ids::iptc_coded_character_set()));
+        assert!(!stats.per_group.contains_key(&NormaliseGroup::IptcUtf8));
+    }
+
+    #[tokio::test]
+    async fn prospective_utf8_preserves_unicode_description_projection() {
+        let canonical = "Café beside the Rhône.";
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    description: Some(canonical.into()),
+                    iptc_charset_is_utf8: false,
+                    ..Default::default()
+                }),
+                iptc_utf8: Some(IptcUtf8Input::default()),
+                ..Default::default()
+            },
+        };
+
+        let (edits, _stats, _err, _calls) = process_image(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::IptcUtf8],
+            None,
+            None,
+        )
+        .await;
+
+        assert_eq!(
+            edits[&crate::known_ids::iptc_caption()].value,
+            Some(MetadataValue::Text(canonical.into()))
+        );
+        assert_eq!(
+            edits[&crate::known_ids::iptc_coded_character_set()].value,
+            Some(MetadataValue::Text("UTF8".into()))
+        );
+    }
 
     #[tokio::test]
     async fn enabled_groups_filter() {
