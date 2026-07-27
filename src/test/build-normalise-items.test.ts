@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
+import {
+  KNOWN_METADATA_IDS as ID,
+  knownMetadataWriteTarget,
+} from "../metadata/knownIds";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
-import type { NormaliseGroup } from "../types";
+import type {
+  MetadataOccurrence,
+  MetadataValue,
+  NormaliseGroup,
+  SchemaDefinitionId,
+} from "../types";
 import {
   buildNormaliseItemForFile,
   buildNormaliseItems,
@@ -23,16 +31,55 @@ const ALL_GROUPS: NormaliseGroup[] = [
   "dates",
 ];
 
+function atDeclaredDestinations(
+  occurrences: MetadataOccurrence[],
+): MetadataOccurrence[] {
+  return occurrences.map((occurrence) => {
+    const destination = knownMetadataWriteTarget(occurrence.schema_id);
+    return destination === null
+      ? occurrence
+      : {
+          ...occurrence,
+          observed_selector: structuredClone(destination),
+          write_target: structuredClone(destination),
+        };
+  });
+}
+
+function destinationOccurrence(
+  id: SchemaDefinitionId,
+  value: MetadataValue,
+  group1: string,
+  ordinal: number,
+): MetadataOccurrence {
+  const occurrence = occurrenceFromSchemaValue(id, value, ordinal);
+  const declared = knownMetadataWriteTarget(id);
+  if (declared === null) throw new Error("Expected declared destination");
+  const selector = { ...declared, group1 };
+  return {
+    ...occurrence,
+    id: {
+      ...occurrence.id,
+      path: `JPEG-APP1-${group1}`,
+      copy: ordinal,
+    },
+    observed_selector: selector,
+    write_target: structuredClone(selector),
+  };
+}
+
 describe("target-aware normalise inputs", () => {
   it("packs semantic metadata without flattening LangAlt or list values", () => {
-    const occurrences = occurrencesFromMetadataCollection(
-      mockMetadata({
-        "XMP-dc:Subject": ["one", "two"],
-        "XMP-dc:Description": {
-          kind: "LangAlt",
-          value: { "x-default": "Caption", fr: "Légende" },
-        },
-      }),
+    const occurrences = atDeclaredDestinations(
+      occurrencesFromMetadataCollection(
+        mockMetadata({
+          "XMP-dc:Subject": ["one", "two"],
+          "XMP-dc:Description": {
+            kind: "LangAlt",
+            value: { "x-default": "Caption", fr: "Légende" },
+          },
+        }),
+      ),
     );
     const item = buildNormaliseItemForFile(
       "x.jpg",
@@ -50,11 +97,7 @@ describe("target-aware normalise inputs", () => {
       {
         kind: "NewProperty",
         schema_id: ID.xmpTitle,
-        write_target: {
-          group1: "XMP-test",
-          group7: "ID-Test",
-          tag_name: "TestTag",
-        },
+        write_target: knownMetadataWriteTarget(ID.xmpTitle)!,
       },
       { intent: "Set", value: { kind: "Text", value: "from-target" } },
     );
@@ -68,17 +111,19 @@ describe("target-aware normalise inputs", () => {
   });
 
   it("passes raw geocode evidence and camera coordinates to Location", () => {
-    const occurrences = occurrencesFromMetadataCollection(
-      mockMetadata({
-        "XMP-mlib:ReverseGeocodeGeocodeJSON": '{"features":[]}',
-        "XMP-mlib:ReverseGeocodeJSONv2": '{"display_name":"Ely"}',
-        "GPS:GPSLatitude": { kind: "Real", value: 52.4 },
-        "GPS:GPSLongitude": { kind: "Real", value: 0.26 },
-        "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
-        "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
-        "GPS:GPSAltitude": { kind: "Real", value: 12.5 },
-        "GPS:GPSAltitudeRef": { kind: "Integer", value: 0 },
-      }),
+    const occurrences = atDeclaredDestinations(
+      occurrencesFromMetadataCollection(
+        mockMetadata({
+          "XMP-mlib:ReverseGeocodeGeocodeJSON": '{"features":[]}',
+          "XMP-mlib:ReverseGeocodeJSONv2": '{"display_name":"Ely"}',
+          "GPS:GPSLatitude": { kind: "Real", value: 52.4 },
+          "GPS:GPSLongitude": { kind: "Real", value: 0.26 },
+          "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
+          "GPS:GPSLongitudeRef": { kind: "Text", value: "W" },
+          "GPS:GPSAltitude": { kind: "Real", value: 12.5 },
+          "GPS:GPSAltitudeRef": { kind: "Integer", value: 0 },
+        }),
+      ),
     );
     const item = buildNormaliseItemForFile(
       "ely.jpg",
@@ -112,12 +157,12 @@ describe("target-aware normalise inputs", () => {
   });
 
   it("builds IPTC UTF-8 input from the effective metadata view", () => {
-    const occurrences = [
+    const occurrences = atDeclaredDestinations([
       occurrenceFromSchemaValue(ID.iptcCodedCharacterSet, {
         kind: "Text",
         value: "Latin",
       }),
-    ];
+    ]);
     const item = buildNormaliseItemForFile(
       "legacy.jpg",
       ["iptc_utf8"],
@@ -128,5 +173,47 @@ describe("target-aware normalise inputs", () => {
       hasIptc: true,
       codedCharacterSet: "Latin",
     });
+  });
+
+  it("reads only the declared IFD0 ImageDescription destination", () => {
+    const occurrences = [
+      destinationOccurrence(
+        ID.imageDescription,
+        { kind: "Text", value: "primary" },
+        "IFD0",
+        0,
+      ),
+      destinationOccurrence(
+        ID.imageDescription,
+        { kind: "Text", value: "thumbnail" },
+        "IFD1",
+        1,
+      ),
+    ];
+
+    const item = buildNormaliseItemForFile(
+      "sony.jpg",
+      ["description"],
+      occurrences,
+    );
+
+    expect(item.groupInputs.description?.imageDescription).toBe("primary");
+  });
+
+  it("treats an IFD1-only ImageDescription as absent", () => {
+    const item = buildNormaliseItemForFile(
+      "thumbnail-only.jpg",
+      ["description"],
+      [
+        destinationOccurrence(
+          ID.imageDescription,
+          { kind: "Text", value: "thumbnail" },
+          "IFD1",
+          1,
+        ),
+      ],
+    );
+
+    expect(item.groupInputs.description?.imageDescription).toBeNull();
   });
 });

@@ -143,6 +143,13 @@ export function useNormaliseMetadata(
       relativePaths: (args) => args.items.map((item) => item.relPath),
       parseEstimatePayload: (raw) => raw as NormaliseEstimate,
       parseSummaryPayload: (raw) => raw as NormaliseSummary,
+      reconcileSummaryPayload: (summary, outcome) => ({
+        ...summary,
+        nSucceeded: outcome.succeeded.length,
+        nFailed: new Set(
+          outcome.failures.map((failure) => failure.relativePath),
+        ).size,
+      }),
       subscribeExtras: async (setState) => {
         const unlisteners: UnlistenFn[] = [];
         unlisteners.push(

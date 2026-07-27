@@ -132,6 +132,7 @@ const WRITE_DEFINITIONS: Array<
   [KNOWN_METADATA_IDS.iptcHeadline, "IPTC", "Headline"],
   [KNOWN_METADATA_IDS.iptcCopyright, "IPTC", "CopyrightNotice"],
   [KNOWN_METADATA_IDS.iptcCaption, "IPTC", "Caption-Abstract"],
+  [KNOWN_METADATA_IDS.iptcCodedCharacterSet, "IPTC", "CodedCharacterSet"],
   [KNOWN_METADATA_IDS.xmpDescription, "XMP-dc", "Description"],
   [KNOWN_METADATA_IDS.xmpTitle, "XMP-dc", "Title"],
   [KNOWN_METADATA_IDS.xmpSubject, "XMP-dc", "Subject"],
