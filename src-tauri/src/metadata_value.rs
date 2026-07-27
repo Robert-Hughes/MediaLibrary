@@ -190,9 +190,9 @@ fn parse_known(
                 json_type_name(raw)
             )
         }),
-        TagKind::Real => parse_f64(raw)
-            .map(MetadataValue::Real)
-            .ok_or_else(|| "expected JSON number for real tag".to_string()),
+        TagKind::Real => parse_f64(raw).map(MetadataValue::Real).ok_or_else(|| {
+            "expected finite JSON number or numeric string for real tag".to_string()
+        }),
         TagKind::Rational => parse_rational(raw, display),
         TagKind::Date => raw
             .as_str()
@@ -286,7 +286,14 @@ fn parse_i64(v: &serde_json::Value) -> Option<i64> {
 }
 
 fn parse_f64(v: &serde_json::Value) -> Option<f64> {
-    v.as_f64()
+    let value = match v {
+        serde_json::Value::Number(_) => v.as_f64()?,
+        // ExifTool quotes values with more than 16 fractional digits in JSON
+        // to protect consumers that cannot preserve their precision.
+        serde_json::Value::String(value) => value.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    value.is_finite().then_some(value)
 }
 
 fn parse_rational(
@@ -738,6 +745,19 @@ mod tests {
         assert_eq!(
             parse_metadata_value("X", Some(&TagKind::Real), &json!(2), None),
             MetadataValue::Real(2.0)
+        );
+    }
+
+    #[test]
+    fn real_parses_high_precision_numeric_string_from_exiftool() {
+        assert_eq!(
+            parse_metadata_value(
+                "GPS:GPSLongitude",
+                Some(&TagKind::Real),
+                &json!("0.00959444444444444"),
+                None
+            ),
+            MetadataValue::Real(0.00959444444444444)
         );
     }
 
