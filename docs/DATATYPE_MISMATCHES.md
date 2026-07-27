@@ -160,8 +160,9 @@ Defer **B** until we actually want to let the user edit these as arrays.
 ## Related questions to revisit
 
 - How should `GPSVersionID` render?
-- Should `XMP-mwg-rs:Regions` (a `Struct` per override) ever expose a
-  list/struct badge to make its nesting visible at a glance?
+- Should `XMP-mwg-rs:Regions` (a nested `Struct` reconstructed from ExifTool's
+  flattened member definitions) expose a list/struct badge to make its nesting
+  visible at a glance?
 - The 244 `count > 1` tags break down across many groups — IPTC has lots
   of fixed-width-padded fields like `ObjectPreviewData` (count=256000)
   that are clearly Binary, not Bag.

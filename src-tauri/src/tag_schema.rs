@@ -301,6 +301,9 @@ impl TagRegistry {
                                 tag_id: normalize_static_tag_id(
                                     attrs.get("id").map(String::as_str).unwrap_or_default(),
                                 ),
+                                struct_parent: attrs
+                                    .get("struct")
+                                    .map(|id| normalize_static_tag_id(id)),
                                 group: g1,
                                 name: tag_name,
                                 type_attr,
@@ -389,6 +392,7 @@ impl TagRegistry {
                                 *counts.entry(partial.tag_id.clone()).or_default() += 1;
                             }
                             let mut occurrences = BTreeMap::<String, u32>::new();
+                            let mut finalized = Vec::with_capacity(table_tags.len());
                             for partial in table_tags.drain(..) {
                                 let occurrence =
                                     occurrences.entry(partial.tag_id.clone()).or_default();
@@ -399,7 +403,12 @@ impl TagRegistry {
                                     tag_id: partial.tag_id.clone(),
                                     index,
                                 };
+                                let struct_member = partial.struct_member()?;
                                 let info = partial.finalize(id.clone());
+                                finalized.push((id, info, struct_member));
+                            }
+                            populate_struct_fields(&mut finalized)?;
+                            for (id, info, _) in finalized {
                                 if let Some(previous) = tags.insert(id.clone(), info.clone()) {
                                     return Err(SchemaError::XmlParseError(format!(
                                         "duplicate schema identity {id:?}: {previous:?} and {info:?}"
@@ -424,7 +433,7 @@ impl TagRegistry {
             buf.clear();
         }
 
-        // Apply XMP list/struct overrides where listx is silent.
+        // Apply semantic overrides where physical listx types are insufficient.
         apply_overrides(&mut tags);
 
         Ok(TagRegistry { tags })
@@ -548,7 +557,7 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
 // Bump this when the logic that converts ExifTool `-listx` XML into our
 // `TagKind` model changes in a way that should invalidate existing schema
 // cache files, even if the ExifTool version itself did not change.
-const TAG_SCHEMA_PARSER_VERSION: u32 = 9;
+const TAG_SCHEMA_PARSER_VERSION: u32 = 10;
 
 fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     let dir = dirs::cache_dir()?;
@@ -595,6 +604,7 @@ impl<'de> Deserialize<'de> for TagRegistry {
 
 struct PartialTag {
     tag_id: String,
+    struct_parent: Option<String>,
     group: String,
     name: String,
     type_attr: String,
@@ -606,6 +616,48 @@ struct PartialTag {
 }
 
 impl PartialTag {
+    fn struct_member(&self) -> Result<Option<StructMember>, SchemaError> {
+        let Some(parent_tag_id) = &self.struct_parent else {
+            return Ok(None);
+        };
+        let Some(field_name) = self.tag_id.strip_prefix(parent_tag_id) else {
+            return Err(SchemaError::XmlParseError(format!(
+                "flattened struct member {} does not begin with parent tag id {}",
+                self.tag_id, parent_tag_id
+            )));
+        };
+        if field_name.is_empty() {
+            return Err(SchemaError::XmlParseError(format!(
+                "flattened struct member {} has an empty field name",
+                self.tag_id
+            )));
+        }
+
+        // ExifTool propagates a plain `List` flag from a repeatable ancestor
+        // onto every flattened descendant. The specific Bag/Seq/Alt flags,
+        // however, describe the member itself and must be retained.
+        let member_flags = self
+            .flags
+            .iter()
+            .filter(|flag| flag.as_str() != "Flattened" && flag.as_str() != "List")
+            .cloned()
+            .collect::<Vec<_>>();
+        let kind = derive_kind_for_tag(
+            &self.group,
+            &self.name,
+            &self.type_attr,
+            self.count.as_deref().and_then(|value| value.parse().ok()),
+            &self.enum_options,
+        );
+
+        Ok(Some(StructMember {
+            parent_tag_id: parent_tag_id.clone(),
+            child_tag_id: self.tag_id.clone(),
+            field_name: field_name.to_string(),
+            kind: wrap_list_flag(kind, &member_flags),
+        }))
+    }
+
     fn finalize(self, id: SchemaDefinitionId) -> TagInfo {
         let kind = derive_kind_for_tag(
             &self.group,
@@ -625,6 +677,76 @@ impl PartialTag {
             storage_count: self.count,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct StructMember {
+    parent_tag_id: String,
+    child_tag_id: String,
+    field_name: String,
+    kind: TagKind,
+}
+
+fn populate_struct_fields(
+    finalized: &mut [(SchemaDefinitionId, TagInfo, Option<StructMember>)],
+) -> Result<(), SchemaError> {
+    let members = finalized
+        .iter()
+        .filter_map(|(_, _, member)| member.clone())
+        .fold(
+            BTreeMap::<String, Vec<StructMember>>::new(),
+            |mut by_parent, member| {
+                by_parent
+                    .entry(member.parent_tag_id.clone())
+                    .or_default()
+                    .push(member);
+                by_parent
+            },
+        );
+
+    fn populate_kind(
+        kind: &mut TagKind,
+        owner_tag_id: &str,
+        members: &BTreeMap<String, Vec<StructMember>>,
+        visiting: &mut Vec<String>,
+    ) -> Result<(), SchemaError> {
+        match kind {
+            TagKind::Bag(inner) | TagKind::Seq(inner) | TagKind::Alt(inner) => {
+                populate_kind(inner, owner_tag_id, members, visiting)
+            }
+            TagKind::Struct(fields) => {
+                if visiting.iter().any(|id| id == owner_tag_id) {
+                    let mut cycle = visiting.clone();
+                    cycle.push(owner_tag_id.to_string());
+                    return Err(SchemaError::XmlParseError(format!(
+                        "cyclic flattened struct schema: {}",
+                        cycle.join(" -> ")
+                    )));
+                }
+                visiting.push(owner_tag_id.to_string());
+                for member in members.get(owner_tag_id).into_iter().flatten() {
+                    let mut member_kind = member.kind.clone();
+                    populate_kind(&mut member_kind, &member.child_tag_id, members, visiting)?;
+                    if let Some(previous) =
+                        fields.insert(member.field_name.clone(), member_kind.clone())
+                    {
+                        return Err(SchemaError::XmlParseError(format!(
+                            "duplicate field {} in flattened struct {}: {:?} and {:?}",
+                            member.field_name, owner_tag_id, previous, member_kind
+                        )));
+                    }
+                }
+                visiting.pop();
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    for (id, info, _) in finalized {
+        populate_kind(&mut info.kind, &id.tag_id, &members, &mut Vec::new())?;
+    }
+    Ok(())
 }
 
 fn collect_attrs(e: &quick_xml::events::BytesStart) -> BTreeMap<String, String> {
@@ -648,8 +770,9 @@ fn collect_attrs(e: &quick_xml::events::BytesStart) -> BTreeMap<String, String> 
 /// `lang-alt`, `struct`, `undef`, `?` (unknown).
 ///
 /// `int*` and friends → Integer; rational → Rational; float/double → Real;
-/// any date-flavoured type → DateTime; lang-alt → LangAlt; struct → Struct
-/// (we leave fields empty here — populated by override table if known).
+/// any date-flavoured type → DateTime; lang-alt → LangAlt; struct → Struct.
+/// Struct fields are populated in a second pass from listx's flattened member
+/// definitions and their explicit `struct="ParentTagId"` relationships.
 ///
 /// Phase 8 fix-up: `date+` (multiple dates) and `datetime` (XMP-flavoured
 /// alias used by some namespaces) were previously unrecognised and fell
@@ -662,6 +785,17 @@ fn derive_kind_for_tag(
     count: Option<u32>,
     options: &[EnumOption],
 ) -> TagKind {
+    // XMP stores GPS coordinates using string/rational physical types, while
+    // ExifTool's raw (`-n`) API exposes scalar decimal values. This applies
+    // equally to top-level XMP-exif tags and flattened struct members such as
+    // LocationCreatedGPSLatitude.
+    if group.starts_with("XMP-")
+        && (name.ends_with("GPSLatitude")
+            || name.ends_with("GPSLongitude")
+            || name.ends_with("GPSAltitude"))
+    {
+        return TagKind::Real;
+    }
     if group == "ExifIFD"
         && matches!(
             name,
@@ -729,9 +863,9 @@ fn wrap_list_flag(kind: TagKind, flags: &[String]) -> TagKind {
     }
 }
 
-/// Hand-curated overrides for XMP list/seq/alt and well-known struct types
-/// that listx does not describe, plus targeted fix-ups for the long tail of
-/// `type='undef'` EXIF tags.  See `AGENTS.md` (Tag-schema overrides) for the
+/// Hand-curated semantic overrides for cases where listx's physical storage
+/// type is insufficient, plus targeted fix-ups for the long tail of
+/// `type='undef'` EXIF tags. See `AGENTS.md` (Tag-schema overrides) for the
 /// invariants this table is allowed to break.
 fn apply_overrides(tags: &mut BTreeMap<SchemaDefinitionId, TagInfo>) {
     // `Binary` overrides also force `writable=false`: ExifTool reports these
@@ -743,10 +877,6 @@ fn apply_overrides(tags: &mut BTreeMap<SchemaDefinitionId, TagInfo>) {
     }
     type TagKindFactory = fn() -> TagKind;
     let overrides: &[(&str, TagKindFactory)] = &[
-        // MWG regions: bag of structs. Inner fields not enumerated here —
-        // the editor will treat unknown struct fields as text. Acceptable
-        // first cut; Phase 4 can populate `Struct` field maps explicitly.
-        ("XMP-mwg-rs:Regions", || TagKind::Struct(BTreeMap::new())),
         // Phase 8 fix-up: XMP and classic EXIF store these datetime values
         // as strings even though their semantics are defined date/time
         // formats. Promoting them here means the DateTime editor lights up,
@@ -779,34 +909,6 @@ fn apply_overrides(tags: &mut BTreeMap<SchemaDefinitionId, TagInfo>) {
         // JSON (`2 3 0 0`) expose one version string, not a numeric array,
         // so keep the app-facing schema aligned with that scalar shape.
         ("GPS:GPSVersionID", || TagKind::Text),
-        ("XMP-exif:GPSLatitude", || TagKind::Real),
-        ("XMP-exif:GPSLongitude", || TagKind::Real),
-        ("XMP-exif:GPSAltitude", || TagKind::Real),
-        // IPTC Extension defines LocationCreated as a repeatable Location
-        // structure. listx exposes the outer tag but not the member types,
-        // so spell them out to preserve numbers and the nested LocationId bag.
-        ("XMP-iptcExt:LocationCreated", || {
-            TagKind::Bag(Box::new(TagKind::Struct(BTreeMap::from([
-                ("City".into(), TagKind::Text),
-                ("CountryCode".into(), TagKind::Text),
-                ("CountryName".into(), TagKind::Text),
-                ("GPSAltitude".into(), TagKind::Real),
-                (
-                    "GPSAltitudeRef".into(),
-                    TagKind::Integer {
-                        min: Some(0),
-                        max: Some(1),
-                    },
-                ),
-                ("GPSLatitude".into(), TagKind::Real),
-                ("GPSLongitude".into(), TagKind::Real),
-                ("LocationId".into(), TagKind::Bag(Box::new(TagKind::Text))),
-                ("LocationName".into(), TagKind::LangAlt),
-                ("ProvinceState".into(), TagKind::Text),
-                ("Sublocation".into(), TagKind::Text),
-                ("WorldRegion".into(), TagKind::Text),
-            ]))))
-        }),
         // ── XMP-mlib namespace (AI-generated metadata) ────────────────
         // Registered with exiftool via the embedded user-defined config
         // (see `exiftool_config.rs`). `-listx` does not enumerate
@@ -1410,7 +1512,117 @@ mod tests {
 
     #[test]
     fn schema_parser_cache_version_is_current() {
-        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 9);
+        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 10);
+    }
+
+    #[test]
+    fn flattened_members_populate_repeatable_and_nested_struct_schemas() {
+        let xml = r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='XMP::iptcExt' g0='XMP' g1='XMP-iptcExt' g2='Image'>
+ <tag id='LocationCreated' name='LocationCreated' type='struct' writable='true' flags='Bag,List'>
+  <desc lang='en'>Location Created</desc>
+ </tag>
+ <tag id='LocationCreatedCity' name='LocationCreatedCity' type='string' writable='true' flags='Flattened,List' struct='LocationCreated'>
+  <desc lang='en'>Location Created City</desc>
+ </tag>
+ <tag id='LocationCreatedGPSAltitude' name='LocationCreatedGPSAltitude' type='rational' writable='true' flags='Flattened,List' struct='LocationCreated'>
+  <desc lang='en'>Location Created GPS Altitude</desc>
+ </tag>
+ <tag id='LocationCreatedGPSAltitudeRef' name='LocationCreatedGPSAltitudeRef' type='integer' writable='true' flags='Flattened,List' struct='LocationCreated'>
+  <desc lang='en'>Location Created GPS Altitude Ref</desc>
+  <values>
+   <key id='0'><val lang='en'>Above Sea Level</val></key>
+   <key id='1'><val lang='en'>Below Sea Level</val></key>
+  </values>
+ </tag>
+ <tag id='LocationCreatedGPSLatitude' name='LocationCreatedGPSLatitude' type='string' writable='true' flags='Flattened,List' struct='LocationCreated'>
+  <desc lang='en'>Location Created GPS Latitude</desc>
+ </tag>
+ <tag id='LocationCreatedLocationId' name='LocationCreatedLocationId' type='string' writable='true' flags='Bag,Flattened,List' struct='LocationCreated'>
+  <desc lang='en'>Location Created Location Id</desc>
+ </tag>
+ <tag id='LocationCreatedLocationName' name='LocationCreatedLocationName' type='lang-alt' writable='true' flags='Flattened,List' struct='LocationCreated'>
+  <desc lang='en'>Location Created Location Name</desc>
+ </tag>
+ <tag id='Root' name='Root' type='struct' writable='true'>
+  <desc lang='en'>Root</desc>
+ </tag>
+ <tag id='RootChild' name='RootChild' type='struct' writable='true' flags='Flattened' struct='Root'>
+  <desc lang='en'>Root Child</desc>
+ </tag>
+ <tag id='RootChildScore' name='RootChildScore' type='integer' writable='true' flags='Flattened' struct='RootChild'>
+  <desc lang='en'>Root Child Score</desc>
+ </tag>
+</table>
+</taginfo>"#;
+        let r = TagRegistry::from_listx_xml(xml).expect("parse flattened struct fixture");
+
+        let location = r
+            .lookup(&test_id("XMP::iptcExt", "LocationCreated"))
+            .unwrap();
+        let TagKind::Bag(location_item) = &location.kind else {
+            panic!("LocationCreated should be a Bag, got {:?}", location.kind);
+        };
+        let TagKind::Struct(fields) = location_item.as_ref() else {
+            panic!(
+                "LocationCreated items should be Struct, got {:?}",
+                location_item
+            );
+        };
+        assert!(matches!(fields["City"], TagKind::Text));
+        assert!(matches!(fields["GPSAltitude"], TagKind::Real));
+        assert!(matches!(fields["GPSLatitude"], TagKind::Real));
+        assert!(matches!(fields["LocationName"], TagKind::LangAlt));
+        assert!(matches!(
+            fields["LocationId"],
+            TagKind::Bag(ref inner) if matches!(inner.as_ref(), TagKind::Text)
+        ));
+        assert!(matches!(
+            fields["GPSAltitudeRef"],
+            TagKind::Enum {
+                repr: EnumRepr::Integer,
+                ref options,
+            } if options
+                == &vec![
+                    EnumOption {
+                        code: "0".into(),
+                        label: "Above Sea Level".into(),
+                    },
+                    EnumOption {
+                        code: "1".into(),
+                        label: "Below Sea Level".into(),
+                    },
+                ]
+        ));
+
+        // The flattened accessor is a list across repeated parent structures,
+        // while the corresponding field inside each structure remains scalar.
+        let flat_city = r
+            .lookup(&test_id("XMP::iptcExt", "LocationCreatedCity"))
+            .unwrap();
+        assert!(matches!(
+            flat_city.kind,
+            TagKind::Bag(ref inner) if matches!(inner.as_ref(), TagKind::Text)
+        ));
+
+        let root = r.lookup(&test_id("XMP::iptcExt", "Root")).unwrap();
+        let TagKind::Struct(root_fields) = &root.kind else {
+            panic!("Root should be Struct, got {:?}", root.kind);
+        };
+        let TagKind::Struct(child_fields) = &root_fields["Child"] else {
+            panic!(
+                "Root.Child should be Struct, got {:?}",
+                root_fields["Child"]
+            );
+        };
+        assert!(matches!(
+            child_fields["Score"],
+            TagKind::Integer {
+                min: None,
+                max: None
+            }
+        ));
     }
 
     #[test]
@@ -1758,10 +1970,10 @@ mod tests {
     #[test]
     fn cache_path_sanitises_version_string() {
         let p = cache_path_for("13.57").unwrap();
-        assert!(p.to_string_lossy().contains("tag_schema_p9_13.57.json"));
+        assert!(p.to_string_lossy().contains("tag_schema_p10_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
-        assert!(s.contains("tag_schema_p9_13_57_weird_.json"));
+        assert!(s.contains("tag_schema_p10_13_57_weird_.json"));
         assert!(
             !s.contains('/') || s.contains("MediaLibrary"),
             "no stray slashes in version segment"
@@ -1771,7 +1983,7 @@ mod tests {
     }
 
     #[test]
-    fn mwg_regions_override_present_even_without_listx_entry() {
+    fn mwg_regions_is_not_synthesized_without_listx_entry() {
         let r = fixture_registry();
         assert!(r.lookup(&test_id("XMP::mwg-rs", "Regions")).is_none());
     }
