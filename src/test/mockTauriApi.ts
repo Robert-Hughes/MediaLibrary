@@ -684,6 +684,8 @@ export function createMockTauriApi(): MockTauriApi {
             title: { ...detOutcome },
             headline: { ...detOutcome },
           },
+          iptcUtf8BaseApplicablePaths: [],
+          iptcUtf8OutputPathsByGroup: {},
           aiTokenBreakdown: null,
           pricing: null,
           locationPricing: null,

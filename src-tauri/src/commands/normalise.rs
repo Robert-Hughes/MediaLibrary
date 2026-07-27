@@ -98,6 +98,13 @@ struct NormaliseEstimateCompletePayload {
     /// client-side from `ai_token_breakdown` + `pricing` without
     /// re-walking.
     per_group_outcomes: BTreeMap<normalise::NormaliseGroup, PerGroupOutcomeCounts>,
+    /// Files where existing effective IPTC is present without a UTF-8
+    /// marker, independent of any semantic group selected in the dialog.
+    iptc_utf8_base_applicable_paths: Vec<String>,
+    /// Files where each semantic group actually emitted IPTC while the
+    /// effective marker was not already UTF-8. The frontend unions the
+    /// selected groups to keep IPTC UTF-8 applicability selection-aware.
+    iptc_utf8_output_paths_by_group: BTreeMap<normalise::NormaliseGroup, Vec<String>>,
     /// AI input-token totals split by which AI branch fires. Frontend
     /// uses this to recompute cost when the user toggles Description /
     /// Title rows. `None` when the API key is missing (we still walk
@@ -448,6 +455,9 @@ pub async fn estimate_normalise_cost_cmd(
     let mut n_images_with_ai_c: u32 = 0;
     let mut n_images_with_ai_g: u32 = 0;
     let mut n_images_no_ai: u32 = 0;
+    let mut iptc_utf8_base_applicable_paths = Vec::new();
+    let mut iptc_utf8_output_paths_by_group: BTreeMap<normalise::NormaliseGroup, Vec<String>> =
+        BTreeMap::new();
     for (index, item) in items.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             normalise_state.clear();
@@ -470,6 +480,25 @@ pub async fn estimate_normalise_cost_cmd(
         let fires_description_ai = !description_prompts.is_empty();
         let fires_title_ai = !title_prompts.is_empty();
         let fires_location_ai = !location_prompts.is_empty();
+
+        let iptc_input = item.group_inputs.iptc_utf8.as_ref();
+        let marker_is_utf8 = iptc_input.is_some_and(|input| {
+            matches!(
+                input.coded_character_set.as_deref(),
+                Some("UTF8" | "\u{1b}%G")
+            )
+        });
+        if !marker_is_utf8 {
+            if iptc_input.is_some_and(|input| input.has_iptc) {
+                iptc_utf8_base_applicable_paths.push(item.rel_path.clone());
+            }
+            for group in &stats.iptc_output_groups {
+                iptc_utf8_output_paths_by_group
+                    .entry(*group)
+                    .or_default()
+                    .push(item.rel_path.clone());
+            }
+        }
 
         // Roll per-image stats into the outcome map. PerGroupStats
         // counters are 0/1 at the per-image scale; this turns them
@@ -678,6 +707,8 @@ pub async fn estimate_normalise_cost_cmd(
             model: model_out,
             location_model: location_model_out,
             per_group_outcomes,
+            iptc_utf8_base_applicable_paths,
+            iptc_utf8_output_paths_by_group,
             ai_token_breakdown: breakdown_out,
             pricing: pricing_out,
             location_pricing: location_pricing_out,
