@@ -88,6 +88,31 @@ function FailureList({ failures }: { failures: GeocodeFailure[] }) {
   );
 }
 
+function SkippedList({ skipped }: { skipped: GeocodeFailure[] }) {
+  if (skipped.length === 0) return null;
+  return (
+    <details style={{ marginTop: 12 }} data-testid="geocode-skipped-list">
+      <summary style={{ cursor: "pointer", color: "var(--text-secondary)" }}>
+        {skipped.length} skipped — no GPS coordinates
+      </summary>
+      <ul
+        style={{
+          marginTop: 6,
+          paddingLeft: 18,
+          fontSize: 12,
+          color: "var(--text-secondary)",
+        }}
+      >
+        {skipped.map((item) => (
+          <li key={item.relativePath}>
+            <strong>{item.relativePath}</strong>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
 function SummaryBreakdown({ s }: { s: GeocodeSummary }) {
   // Each counter rendered separately so the user can see exactly what
   // came from cache vs. the network — useful both for trust ("did this
@@ -232,6 +257,11 @@ export function GeocodeProgressDialog({
   onCancel,
   onClose,
 }: Props) {
+  const skipped = state.failures.filter((failure) => failure.kind === "no_gps");
+  const failures = state.failures.filter(
+    (failure) => failure.kind !== "no_gps",
+  );
+
   return (
     <BatchJobDialog
       testidPrefix="geocode"
@@ -256,7 +286,7 @@ export function GeocodeProgressDialog({
           current={state.current}
           total={state.total}
           noun="image"
-          failureCount={state.failures.length}
+          failureCount={failures.length}
           currentFile={state.currentFile}
           cancelling={state.cancelling}
           onCancel={onCancel}
@@ -279,16 +309,22 @@ export function GeocodeProgressDialog({
         <>
           <div className="dialog-hint" data-testid="geocode-done-summary">
             Completed: {state.succeeded.length}/{state.total} succeeded
-            {state.failures.length > 0 && (
+            {skipped.length > 0 && (
+              <span style={{ marginLeft: 8, color: "var(--text-secondary)" }}>
+                , {skipped.length} skipped
+              </span>
+            )}
+            {failures.length > 0 && (
               <span
                 style={{ marginLeft: 8, color: "var(--accent-error, #d33)" }}
               >
-                , {state.failures.length} failed
+                , {failures.length} failed
               </span>
             )}
           </div>
           {state.summary && <SummaryBreakdown s={state.summary} />}
-          <FailureList failures={state.failures} />
+          <SkippedList skipped={skipped} />
+          <FailureList failures={failures} />
           <div
             style={{
               marginTop: 20,
