@@ -130,6 +130,86 @@ describe("GalleryView", () => {
     expect(img).toHaveAttribute("src", "data:image/jpeg;base64,FAKE");
   });
 
+  it.each([
+    ["image", "still.jpg", "asset://still.jpg", "gallery-image", "load"],
+    [
+      "audio",
+      "track.flac",
+      "asset://track.flac",
+      "gallery-audio",
+      "loadedData",
+    ],
+    ["video", "clip.mp4", "asset://clip.mp4", "gallery-video", "loadedData"],
+  ] as const)(
+    "keeps the loading indicator visible until the %s element is ready",
+    async (mediaKind, relativePath, src, testId, readyEvent) => {
+      const files: FileInfo[] = [
+        { ...makeFiles([relativePath])[0], media_kind: mediaKind },
+      ];
+
+      render(
+        <GalleryView
+          onRemoveMetadataTargets={vi.fn()}
+          onDiscardTargetDraftBatch={vi.fn()}
+          files={files}
+          currentIndex={0}
+          folderPath="/files"
+          onClose={() => {}}
+          onNavigate={() => {}}
+          fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
+          loadMedia={async () => src}
+        />,
+      );
+
+      const media = await screen.findByTestId(testId);
+      expect(screen.getByTestId("gallery-spinner")).toBeInTheDocument();
+      expect(media).not.toBeVisible();
+
+      fireEvent[readyEvent](media);
+
+      expect(screen.queryByTestId("gallery-spinner")).not.toBeInTheDocument();
+      expect(media).toBeVisible();
+    },
+  );
+  it("ignores a stale asset URL that resolves after navigation", async () => {
+    let resolveFirst!: (src: string | null) => void;
+    let resolveSecond!: (src: string | null) => void;
+    const loadMedia = vi
+      .fn<(path: string) => Promise<string | null>>()
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (resolveFirst = resolve)),
+      )
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (resolveSecond = resolve)),
+      );
+    const occurrences = new FileMetadataOccurrencesStore();
+    const props = {
+      onRemoveMetadataTargets: vi.fn(),
+      onDiscardTargetDraftBatch: vi.fn(),
+      files: PHOTOS,
+      folderPath: "/files",
+      onClose: () => {},
+      onNavigate: () => {},
+      fileMetadataOccurrences: occurrences,
+      loadMedia,
+    };
+
+    const { rerender } = render(<GalleryView {...props} currentIndex={0} />);
+    rerender(<GalleryView {...props} currentIndex={1} />);
+
+    resolveSecond("asset://b.jpg");
+    const current = await screen.findByTestId("gallery-image");
+    expect(current).toHaveAttribute("src", "asset://b.jpg");
+
+    resolveFirst("asset://a.jpg");
+    await Promise.resolve();
+
+    expect(screen.getByTestId("gallery-image")).toHaveAttribute(
+      "src",
+      "asset://b.jpg",
+    );
+  });
+
   it("does not close when clicking the gallery content or dialog element", async () => {
     const onClose = vi.fn();
     render(
