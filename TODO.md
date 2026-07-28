@@ -12,7 +12,6 @@ Current
 Bugs/quirks/tweaks/improvements
 =================================
 
-- Some image thumbnails are rotated - D:\OneDrive\Pictures\2017\20170414_175708.jpg. ALso the AI describe sees it sideways!
 - Loading metadata is slow for large folders, maybe need to cache this in a local db file. Need a way to tell if out of date, e.g. file timestamp changed or some kind of hash?
 - Loading thumbnails might be slow for large folders, maybe need to cache this in a local db file. Need a way to tell if out of date, e.g. file timestamp changed or some kind of hash?
 
