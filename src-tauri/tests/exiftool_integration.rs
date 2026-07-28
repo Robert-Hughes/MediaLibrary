@@ -941,6 +941,21 @@ fn malformed_truncated_does_not_kill_batch() {
         "bad file must be present in either results or failures"
     );
 }
+#[test]
+fn metadata_read_error_fixture_fails_deterministically() {
+    let Some(bad) = fixture_path("metadata_read_error.jpg") else {
+        return;
+    };
+    let (_dir, bad_dst) = copy_to_temp(&bad);
+
+    let error = scanner::read_file_metadata_batch(&["bad.jpg".to_string()], &[bad_dst])
+        .expect_err("the empty JPEG fixture must produce a metadata read failure");
+
+    assert!(
+        error.contains("ExifTool display pass failed"),
+        "unexpected error: {error}"
+    );
+}
 
 // ── Semantic apply path: MetadataDraftEdit with Bag<Text> ────────────────────
 
