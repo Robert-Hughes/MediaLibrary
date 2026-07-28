@@ -16,7 +16,6 @@ Bugs/quirks/tweaks/improvements
 - If order of photos changes whilst in the gallery (e.g. metadata finishes loading), it can change which photo you're looking at!
 - Clarify behaviour when metadata fails to load for a photo. Currently we show no metadata for the photo at all, but potentially we could show just the ones that loaded successfully etc.
   - What about if you make a draft edit and try to apply it when the metadata has failed? Is that safe?
-- If open a parent/child folder, the drafts database etc. won't be found. COuld be conflicting. Maybe we should always make a database in the folder of the photo, not the folder that was opened. Then it's always consistent no matter what folder you open
 - Loading metadata is slow for large folders, maybe need to cache this in a local db file. Need a way to tell if out of date, e.g. file timestamp changed or some kind of hash?
 - Loading thumbnails might be slow for large folders, maybe need to cache this in a local db file. Need a way to tell if out of date, e.g. file timestamp changed or some kind of hash?
 - Disable text-select as it messes up selection of file rows? Maybe have a key to press to re-enable it as it can be useful to copy things
