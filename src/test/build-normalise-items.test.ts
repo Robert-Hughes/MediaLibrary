@@ -175,6 +175,34 @@ describe("target-aware normalise inputs", () => {
     });
   });
 
+  it("keeps arbitrary IPTC schemas in the restricted effective view", () => {
+    const occurrence = occurrenceFromSchemaValue(ID.iptcCodedCharacterSet, {
+      kind: "Text",
+      value: "custom IPTC value",
+    });
+    const customId: SchemaDefinitionId = {
+      table: "IPTC::CustomRecord",
+      tag_id: "201",
+    };
+    occurrence.schema_id = customId;
+    occurrence.tag_info = occurrence.tag_info
+      ? { ...occurrence.tag_info, id: customId }
+      : null;
+    occurrence.observed_selector = null;
+    occurrence.write_target = null;
+
+    const item = buildNormaliseItemForFile(
+      "custom-iptc.jpg",
+      ["iptc_utf8"],
+      [occurrence],
+    );
+
+    expect(item.groupInputs.iptcUtf8).toEqual({
+      hasIptc: true,
+      codedCharacterSet: null,
+    });
+  });
+
   it("reads only the declared IFD0 ImageDescription destination", () => {
     const occurrences = [
       destinationOccurrence(
