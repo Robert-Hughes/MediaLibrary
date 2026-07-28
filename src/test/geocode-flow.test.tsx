@@ -440,7 +440,7 @@ describe("Reverse-geocoding flow", () => {
     });
   });
 
-  it("renders no_gps failures in the done panel without crashing the flow", async () => {
+  it("renders no_gps results as neutral skips rather than failures", async () => {
     // Image has no GPS in metadata or drafts — frontend sends null/null,
     // backend (mock) emits no_gps for that item. The friendly label
     // must show "No GPS coordinates" so the user understands why it
@@ -474,9 +474,49 @@ describe("Reverse-geocoding flow", () => {
     });
 
     await screen.findByTestId("geocode-done-summary");
-    expect(screen.getByTestId("geocode-failure-list")).toHaveTextContent(
-      /No GPS coordinates/,
+    expect(screen.getByTestId("geocode-done-summary")).toHaveTextContent(
+      /1 skipped/i,
     );
+    expect(screen.getByTestId("geocode-skipped-list")).toHaveTextContent(
+      /1 skipped — no GPS coordinates/i,
+    );
+    expect(
+      screen.queryByTestId("geocode-failure-list"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("retains the error treatment for genuine geocode failures", async () => {
+    mockApiInstance.geocodeSchedule = [
+      {
+        relativePath: "test.jpg",
+        status: "network",
+        error: "connection reset",
+      },
+    ];
+    mockApiInstance.geocodeSummary = {
+      nSucceededFromNominatim: 0,
+      nSucceededFromCache: 0,
+      nNoGps: 0,
+      nFailed: 1,
+    };
+
+    const { user } = await openFolderAndSelectFile(
+      "test.jpg",
+      rawGpsMetadata(),
+    );
+    await user.click(screen.getByTestId("details-pane-geocode-btn"));
+    await user.click(await screen.findByTestId("geocode-confirm-btn"));
+
+    await screen.findByTestId("geocode-done-summary");
+    expect(screen.getByTestId("geocode-done-summary")).toHaveTextContent(
+      /1 failed/i,
+    );
+    expect(screen.getByTestId("geocode-failure-list")).toHaveTextContent(
+      /Network error.*connection reset/i,
+    );
+    expect(
+      screen.queryByTestId("geocode-skipped-list"),
+    ).not.toBeInTheDocument();
   });
 
   it("Cancel before confirm closes the dialog and signals backend", async () => {
