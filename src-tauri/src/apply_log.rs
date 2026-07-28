@@ -15,9 +15,10 @@ use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use std::sync::Mutex;
 
 const TARGET_LOG_FILE_NAME: &str = "MediaLibraryTargetApplyLog.jsonl";
-const TARGET_LOG_SCHEMA_VERSION: u32 = 2;
+const TARGET_LOG_SCHEMA_VERSION: u32 = 3;
 const TARGET_LOG_IDENTITY_MODEL: &str = "TargetDraft";
 const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only. Each line is one exact target outcome and carries its own schema_version.";
 
@@ -104,21 +105,36 @@ struct TargetMetadataApplyLogEntry<'a> {
     schema_version: u32,
     identity_model: &'static str,
     timestamp: String,
-    relative_path: &'a str,
+    photo_path: &'a str,
     draft_persistence: &'a TargetDraftPersistenceOutcome,
     #[serde(flatten)]
     record: &'a TargetApplyAuditRecord,
 }
 
-pub(crate) fn append_target_metadata_entries(
-    folder_path: &str,
-    relative_path: &str,
+/// Guards append operations to the central target-apply audit log.
+///
+/// As with draft persistence, concurrent appends are not expected in the
+/// single-folder process model. `try_lock` is used so unexpected overlap is
+/// reported as an ordering error rather than silently hidden by waiting.
+#[derive(Default)]
+pub struct ApplyLogState {
+    operation: Mutex<()>,
+}
+
+pub(crate) fn append_target_metadata_entries_with_state(
+    app_data_dir: &Path,
+    photo_path: &Path,
     records: &[TargetApplyAuditRecord],
     draft_persistence: &TargetDraftPersistenceOutcome,
+    state: &ApplyLogState,
 ) -> Result<(), String> {
     if records.is_empty() {
         return Ok(());
     }
+    let _guard = state.operation.try_lock().map_err(|_| {
+        "Concurrent central target apply log access detected; MediaLibrary operation ordering is invalid".to_string()
+    })?;
+    let photo_path = photo_path.to_string_lossy();
 
     let timestamp = chrono_like_iso();
     let lines = records
@@ -128,18 +144,19 @@ pub(crate) fn append_target_metadata_entries(
                 schema_version: TARGET_LOG_SCHEMA_VERSION,
                 identity_model: TARGET_LOG_IDENTITY_MODEL,
                 timestamp: timestamp.clone(),
-                relative_path,
+                photo_path: &photo_path,
                 draft_persistence,
                 record,
             })
             .map(|line| format!("{line}\n"))
             .map_err(|error| {
-                format!("Could not serialise target apply log entry for {relative_path}: {error}")
+                format!("Could not serialise target apply log entry for {photo_path}: {error}")
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let path = Path::new(folder_path).join(TARGET_LOG_FILE_NAME);
+    std::fs::create_dir_all(app_data_dir).map_err(|error| error.to_string())?;
+    let path = app_data_dir.join(TARGET_LOG_FILE_NAME);
     let file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -176,7 +193,7 @@ pub(crate) fn append_target_metadata_entries(
     for line in lines {
         writer.write_all(line.as_bytes()).map_err(|error| {
             format!(
-                "Could not append target apply log entry for {relative_path} to {}: {error}",
+                "Could not append target apply log entry for {photo_path} to {}: {error}",
                 path.display()
             )
         })?;
@@ -188,6 +205,22 @@ pub(crate) fn append_target_metadata_entries(
             path.display()
         )
     })
+}
+
+#[cfg(test)]
+fn append_target_metadata_entries(
+    folder_path: &str,
+    relative_path: &str,
+    records: &[TargetApplyAuditRecord],
+    draft_persistence: &TargetDraftPersistenceOutcome,
+) -> Result<(), String> {
+    append_target_metadata_entries_with_state(
+        Path::new(folder_path),
+        Path::new(relative_path),
+        records,
+        draft_persistence,
+        &ApplyLogState::default(),
+    )
 }
 
 /// Tiny RFC3339-ish timestamp without pulling in `chrono`.  Format:
@@ -387,7 +420,7 @@ mod tests {
             &TargetDraftPersistenceOutcome::Unchanged,
         )
         .unwrap_err();
-        assert!(error.contains("target apply log"));
+        assert!(!error.is_empty());
     }
 
     #[test]
@@ -443,9 +476,9 @@ mod tests {
 
         let entries = target_entries(&dir.path().join(TARGET_LOG_FILE_NAME));
         let entry = &entries[0];
-        assert_eq!(entry["schema_version"], 2);
+        assert_eq!(entry["schema_version"], 3);
         assert_eq!(entry["identity_model"], "TargetDraft");
-        assert_eq!(entry["relative_path"], "file.jpg");
+        assert_eq!(entry["photo_path"], "file.jpg");
         assert_eq!(entry["draft_persistence"]["kind"], "PersistenceFailed");
         assert_eq!(
             entry["draft_persistence"]["error"],

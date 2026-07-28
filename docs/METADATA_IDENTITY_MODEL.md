@@ -227,18 +227,12 @@ entry is `MetadataTargetDraftEntry { target, edit }`.
 ## Persistence and lifecycle
 
 `TargetDraftEditsStore` owns frontend drafts and mutates them by exact target.
-The sole active draft file is `MediaLibraryTargetDraftEdits.jsonl`. Each JSONL
-record retains complete target entries and uses persisted `schema_version: 5`.
-Duplicate relative paths, duplicate logical target slots, malformed entries,
-and unsupported versions are rejected before unsafe mutation or truncation.
-Valid version-5 files continue to load; there is no old-shape compatibility
-reader or migration.
+The sole active draft snapshot is `<app-data>/MediaLibraryTargetDraftEdits.jsonl`. Each JSONL record retains complete target entries, uses persisted `schema_version: 6`, and identifies the photo by canonical absolute `photo_path`. Duplicate canonical photo paths, duplicate logical target slots, malformed entries, and unsupported versions are rejected before mutation. Writes atomically replace a merged central snapshot; there is no old-shape compatibility reader or migration.
 
 Applying validates the target, writes through ExifTool, re-reads authoritative
 occurrences, verifies the semantic result, reconciles the exact target as
 Clear, Keep, Replace or Blocked, persists the result, and appends to
-`MediaLibraryTargetApplyLog.jsonl`. Existing apply-log rows are append-only and
-are not rewritten.
+the central `<app-data>/MediaLibraryTargetApplyLog.jsonl`. Schema-version 3 rows use canonical absolute `photo_path`; existing apply-log rows are append-only and are not rewritten.
 
 The historical `MediaLibraryDraftEdits.jsonl` and
 `MediaLibraryApplyLog.jsonl` files are ignored and left byte-for-byte

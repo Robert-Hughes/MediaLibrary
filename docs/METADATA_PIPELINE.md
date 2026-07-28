@@ -70,10 +70,7 @@ exact-target invariants.
 
 ## Draft state and persistence
 
-One `TargetDraftEditsStore` owns frontend drafts. Loading
-`MediaLibraryTargetDraftEdits.jsonl` is strict: a failure blocks draft mutation
-and apply for that folder and does not fall back. Autosave serialises only
-complete target entries using persisted draft schema version 5.
+One `TargetDraftEditsStore` owns frontend drafts. Loading the central `<app-data>/MediaLibraryTargetDraftEdits.jsonl` snapshot is strict: a failure blocks draft mutation and apply and does not fall back. The backend projects canonical absolute photo records into the opened root-relative frontend view. Autosave serialises only complete target entries using persisted draft schema version 6 and merges that root view back into the central snapshot.
 
 The historical `MediaLibraryDraftEdits.jsonl` file is ignored, not migrated,
 and never touched.
@@ -156,9 +153,7 @@ possible staged destinations are ambiguous and are never first-selected.
 Selector uniqueness is checked across authoritative occurrences, stored drafts
 and every target in the incoming batch.
 
-`MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. The
-current schema-version 2 rows record one ordered argument vector and one raw
-write status for each exact target. Older rows remain append-only and are not
+The central `<app-data>/MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. Current schema-version 3 rows identify photos by canonical absolute `photo_path` and record one ordered argument vector and one raw write status for each exact target. Older rows remain append-only and are not
 rewritten. The historical `MediaLibraryApplyLog.jsonl` is ignored and left
 unchanged.
 

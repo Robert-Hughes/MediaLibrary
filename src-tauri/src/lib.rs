@@ -812,15 +812,21 @@ fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String
 fn save_metadata_draft_edits(
     folder_path: String,
     data: draft_edits::MetadataTargetDraftsByFile,
+    app: AppHandle,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
 ) -> Result<(), String> {
-    draft_edits::save_metadata_draft_edits(&folder_path, &data)
+    let app_data_dir = commands::shared::app_data_dir(&app)?;
+    draft_edits::save_metadata_draft_edits(&app_data_dir, &folder_path, &data, &repository_state)
 }
 
 #[tauri::command]
 fn load_metadata_draft_edits(
     folder_path: String,
+    app: AppHandle,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
 ) -> Result<draft_edits::MetadataTargetDraftsByFile, String> {
-    draft_edits::load_metadata_draft_edits(&folder_path)
+    let app_data_dir = commands::shared::app_data_dir(&app)?;
+    draft_edits::load_metadata_draft_edits(&app_data_dir, &folder_path, &repository_state)
 }
 
 /// Production occurrence-aware metadata apply.
@@ -956,15 +962,28 @@ mod tests {
             vec![ifd0, ifd1, created],
         )]);
 
-        save_metadata_draft_edits(folder_path.clone(), data.clone()).unwrap();
-        let loaded = load_metadata_draft_edits(folder_path).unwrap();
+        std::fs::create_dir(dir.path().join("folder")).unwrap();
+        std::fs::write(dir.path().join("folder/file.jpg"), b"photo").unwrap();
+        let state = draft_edits::DraftRepositoryState::default();
+        draft_edits::save_metadata_draft_edits(dir.path(), &folder_path, &data, &state).unwrap();
+        let loaded =
+            draft_edits::load_metadata_draft_edits(dir.path(), &folder_path, &state).unwrap();
 
         assert_eq!(loaded, data);
         let bytes =
             std::fs::read_to_string(dir.path().join("MediaLibraryTargetDraftEdits.jsonl")).unwrap();
         let line: serde_json::Value = serde_json::from_str(bytes.lines().nth(1).unwrap()).unwrap();
-        assert_eq!(line["schema_version"], 5);
-        assert_eq!(line["relative_path"], "folder/file.jpg");
+        assert_eq!(line["schema_version"], 6);
+        assert!(
+            line["photo_path"]
+                .as_str()
+                .unwrap()
+                .ends_with("folder\\file.jpg")
+                || line["photo_path"]
+                    .as_str()
+                    .unwrap()
+                    .ends_with("folder/file.jpg")
+        );
         let edits = line["edits"].as_array().unwrap();
         assert_eq!(edits.len(), 3);
         assert!(edits.iter().all(|entry| {
@@ -986,16 +1005,19 @@ mod tests {
             vec![command_target_existing("JPEG-APP1-IFD0", "IFD0")],
         )]);
 
-        save_metadata_draft_edits(folder_path.clone(), data.clone()).unwrap();
-        let loaded = load_metadata_draft_edits(folder_path).unwrap();
+        std::fs::write(dir.path().join("__proto__"), b"photo").unwrap();
+        let state = draft_edits::DraftRepositoryState::default();
+        draft_edits::save_metadata_draft_edits(dir.path(), &folder_path, &data, &state).unwrap();
+        let loaded =
+            draft_edits::load_metadata_draft_edits(dir.path(), &folder_path, &state).unwrap();
 
         assert_eq!(loaded, data);
         assert_eq!(loaded["__proto__"].len(), 1);
         let bytes =
             std::fs::read_to_string(dir.path().join("MediaLibraryTargetDraftEdits.jsonl")).unwrap();
         let line: serde_json::Value = serde_json::from_str(bytes.lines().nth(1).unwrap()).unwrap();
-        assert_eq!(line["schema_version"], 5);
-        assert_eq!(line["relative_path"], "__proto__");
+        assert_eq!(line["schema_version"], 6);
+        assert!(line["photo_path"].as_str().unwrap().ends_with("__proto__"));
     }
 
     #[test]
@@ -1009,7 +1031,10 @@ mod tests {
         let data =
             std::collections::HashMap::from([("file.jpg".to_owned(), vec![entry.clone(), entry])]);
 
-        let error = save_metadata_draft_edits(folder_path, data).unwrap_err();
+        std::fs::write(dir.path().join("file.jpg"), b"photo").unwrap();
+        let state = draft_edits::DraftRepositoryState::default();
+        let error = draft_edits::save_metadata_draft_edits(dir.path(), &folder_path, &data, &state)
+            .unwrap_err();
 
         assert!(error.contains("Duplicate metadata draft slot"), "{error}");
         assert_eq!(std::fs::read(draft_path).unwrap(), original);

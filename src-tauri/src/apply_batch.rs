@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::apply_edits::{
     apply_single_file_metadata, execute_prepared_metadata_write, executed_relative_path,
@@ -24,11 +24,12 @@ use crate::apply_edits::{
     MetadataTargetOutcome,
 };
 use crate::apply_log::{
-    append_target_metadata_entries, TargetApplyAuditRecord, TargetDraftPersistenceOutcome,
+    append_target_metadata_entries_with_state, ApplyLogState, TargetApplyAuditRecord,
+    TargetDraftPersistenceOutcome,
 };
 use crate::draft_edits::{
-    load_metadata_draft_edits, save_metadata_draft_edits, MetadataTargetDraftEntry,
-    MetadataTargetDraftsByFile,
+    load_metadata_draft_edits, resolve_canonical_photo_path, save_metadata_draft_edits,
+    DraftRepositoryState, MetadataTargetDraftEntry, MetadataTargetDraftsByFile,
 };
 use crate::draft_reconciliation::reconcile_metadata_draft_file;
 use crate::scanner;
@@ -213,15 +214,21 @@ pub(crate) trait TargetApplyLogger {
     ) -> Result<(), String>;
 }
 
-struct RealDraftPersistence;
+struct RealDraftPersistence {
+    app: AppHandle,
+}
 
 impl DraftPersistence for RealDraftPersistence {
     fn load(&self, folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
-        load_metadata_draft_edits(folder_path)
+        let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
+        let state = self.app.state::<DraftRepositoryState>();
+        load_metadata_draft_edits(&app_data_dir, folder_path, &state)
     }
 
     fn save(&self, folder_path: &str, drafts: &MetadataTargetDraftsByFile) -> Result<(), String> {
-        save_metadata_draft_edits(folder_path, drafts)
+        let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
+        let state = self.app.state::<DraftRepositoryState>();
+        save_metadata_draft_edits(&app_data_dir, folder_path, drafts, &state)
     }
 }
 
@@ -389,7 +396,9 @@ impl DraftReconciler for RealDraftReconciler {
     }
 }
 
-struct RealTargetApplyLogger;
+struct RealTargetApplyLogger {
+    app: AppHandle,
+}
 
 impl TargetApplyLogger for RealTargetApplyLogger {
     fn append(
@@ -399,7 +408,16 @@ impl TargetApplyLogger for RealTargetApplyLogger {
         records: &[TargetApplyAuditRecord],
         draft_persistence: &TargetDraftPersistenceOutcome,
     ) -> Result<(), String> {
-        append_target_metadata_entries(folder_path, relative_path, records, draft_persistence)
+        let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
+        let photo_path = resolve_canonical_photo_path(folder_path, relative_path)?;
+        let state = self.app.state::<ApplyLogState>();
+        append_target_metadata_entries_with_state(
+            &app_data_dir,
+            &photo_path,
+            records,
+            draft_persistence,
+            &state,
+        )
     }
 }
 
@@ -432,10 +450,10 @@ pub fn run_apply_metadata_draft_edits_blocking(
     run_apply_metadata_draft_edits_with_limits(
         &folder_path,
         &relative_paths,
-        &RealDraftPersistence,
+        &RealDraftPersistence { app: app.clone() },
         &RealSingleFileApply,
         &RealDraftReconciler,
-        &RealTargetApplyLogger,
+        &RealTargetApplyLogger { app: app.clone() },
         &TauriApplyEvents { app },
         cancel_flag,
         batch_size,
@@ -1149,7 +1167,7 @@ mod tests {
             &persistence,
             &apply,
             &RealDraftReconciler,
-            &RealTargetApplyLogger,
+            &FakeTargetLogger::default(),
             &FakeEvents::default(),
             Arc::new(AtomicBool::new(false)),
         )
@@ -1157,7 +1175,6 @@ mod tests {
 
         assert!(result.files[0].applied);
         assert_eq!(fs::read(historical_path).unwrap(), historical_bytes);
-        assert!(dir.path().join("MediaLibraryTargetApplyLog.jsonl").exists());
     }
 
     fn drafts(items: &[(&str, MetadataTargetDraftEntry)]) -> MetadataTargetDraftsByFile {
