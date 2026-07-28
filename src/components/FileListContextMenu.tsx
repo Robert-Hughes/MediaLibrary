@@ -7,7 +7,7 @@
  * the union of selected rows. Apply/Discard further filter to rows
  * that actually carry drafts.
  */
-import type { FileInfo } from "../types";
+import type { FileInfo, FileMetadataOccurrencesStore } from "../types";
 import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import { ContextMenu } from "./ContextMenu";
 import {
@@ -21,6 +21,7 @@ interface Props {
   contextMenuIndex: number;
   selectedIndices: Set<number>;
   files: FileInfo[];
+  fileMetadataOccurrences?: FileMetadataOccurrencesStore;
   targetDraftEdits: TargetDraftEditsByFile;
   onFileOpen: (index: number) => void;
   onShowInExplorer: (index: number) => void;
@@ -41,6 +42,7 @@ export function FileListContextMenu({
   contextMenuIndex,
   selectedIndices,
   files,
+  fileMetadataOccurrences,
   targetDraftEdits,
   onFileOpen,
   onShowInExplorer,
@@ -60,6 +62,13 @@ export function FileListContextMenu({
     .map((i) => files[i])
     .filter((file): file is FileInfo => file !== undefined);
   const selectedPaths = selectedFiles.map((file) => file.relative_path);
+  const failedMetadataPath = selectedPaths.find(
+    (path) => fileMetadataOccurrences?.get(path) === "failed",
+  );
+  const hasMetadataFailure = failedMetadataPath !== undefined;
+  const metadataFailureTitle = hasMetadataFailure
+    ? `Metadata could not be loaded for '${failedMetadataPath}'. This action is unavailable while the selection contains a metadata error.`
+    : undefined;
   const selectedImageCount = selectedFiles.filter(
     (file) => file.media_kind === "image",
   ).length;
@@ -108,6 +117,8 @@ export function FileListContextMenu({
           ? [
               {
                 label: `Bulk Edit (${count} ${noun})...`,
+                disabled: hasMetadataFailure,
+                title: metadataFailureTitle,
                 onClick: () => {
                   onClose();
                   onBulkEdit(selectedPaths);
@@ -120,6 +131,8 @@ export function FileListContextMenu({
               {
                 label:
                   count > 1 ? `Show on Map (${count} ${noun})` : "Show on Map",
+                disabled: hasMetadataFailure,
+                title: metadataFailureTitle,
                 onClick: () => {
                   onClose();
                   onShowOnMap(selectedPaths);
@@ -136,10 +149,10 @@ export function FileListContextMenu({
                   count > 1
                     ? `Generate AI Description… (${count} ${noun})`
                     : "Generate AI Description…",
-                disabled: !allSelectedFilesAreImages,
+                disabled: !allSelectedFilesAreImages || hasMetadataFailure,
                 title: mixedMediaSelection
                   ? "AI Describe requires an image-only selection"
-                  : undefined,
+                  : metadataFailureTitle,
                 onClick: () => {
                   onClose();
                   onGenerateAiDescription(selectedPaths);
@@ -157,6 +170,8 @@ export function FileListContextMenu({
                   count > 1
                     ? `Reverse Geocode… (${count} ${noun})`
                     : "Reverse Geocode…",
+                disabled: hasMetadataFailure,
+                title: metadataFailureTitle,
                 onClick: () => {
                   onClose();
                   onGeocode(selectedPaths);
@@ -174,6 +189,8 @@ export function FileListContextMenu({
                   count > 1
                     ? `Normalise Metadata… (${count} ${noun})`
                     : "Normalise Metadata…",
+                disabled: hasMetadataFailure,
+                title: metadataFailureTitle,
                 onClick: () => {
                   onClose();
                   onNormalise(selectedPaths);
@@ -188,6 +205,8 @@ export function FileListContextMenu({
                   editablePaths.length > 1
                     ? `Apply edits… (${editablePaths.length} ${editablePaths.length === 1 ? "file" : "files"})`
                     : "Apply edits…",
+                disabled: hasMetadataFailure,
+                title: metadataFailureTitle,
                 onClick: async () => {
                   const target =
                     editablePaths.length === 1

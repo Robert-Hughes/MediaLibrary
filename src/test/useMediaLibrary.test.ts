@@ -1187,6 +1187,18 @@ describe("useMediaLibrary", () => {
         "ExifTool could not read the file",
       );
       expect(state.metadataProgress.getRemaining()).toBe(0);
+      act(() => {
+        expect(result.current[1].canOpenBulkMetadataEditor(["failed.jpg"])).toBe(false);
+        expect(result.current[1].canStageGeneratedMetadata(["failed.jpg"])).toBe(false);
+      });
+      expect(result.current[0].kind).toBe("loaded");
+      if (result.current[0].kind === "loaded") {
+        expect(
+          result.current[0].applicationErrors.some((error) =>
+            error.error_message.includes("Metadata could not be loaded for 'failed.jpg'"),
+          ),
+        ).toBe(true);
+      }
     }
   });
 
