@@ -2597,3 +2597,21 @@ body {
   background: color-mix(in srgb, var(--accent-draft) 15%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent-draft) 30%, transparent);
 }
+
+/* Displayed app text behaves like native application chrome by default.
+   Hold Alt to temporarily enable copying; editing controls always remain
+   selectable. */
+body {
+  user-select: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable="true"] {
+  user-select: text;
+}
+
+body.text-selection-mode {
+  user-select: text;
+}

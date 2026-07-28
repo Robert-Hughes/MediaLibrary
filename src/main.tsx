@@ -3,7 +3,9 @@ import ReactDOM from "react-dom/client";
 import "@fontsource-variable/geist/wght.css";
 import App from "./App";
 import { setupConsoleLogging } from "./consoleLogger";
+import { installAltTextSelectionMode } from "./textSelectionMode";
 
+installAltTextSelectionMode(document, window);
 // Setup console logging to forward to Rust stdout — must happen before any
 // log we want to see in the Rust stdout pipe.
 setupConsoleLogging();
