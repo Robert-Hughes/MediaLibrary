@@ -796,6 +796,25 @@ export function useMediaLibrary(
           payload.error_message,
         );
 
+        if (
+          payload.scan_id === activeScanIdRef.current &&
+          payload.error_type === "metadata"
+        ) {
+          let newlyFailed = 0;
+          for (const path of payload.affected_files) {
+            if (fileMetadataOccurrencesStoreRef.current.get(path) === "loading") {
+              newlyFailed += 1;
+            }
+            fileMetadataOccurrencesStoreRef.current.setFailed(
+              path,
+              payload.error_message,
+            );
+          }
+          if (newlyFailed > 0) {
+            metadataProgressStoreRef.current.incrementReceived(newlyFailed);
+          }
+        }
+
         // Add error to the state so UI can display it (capped — see MAX_APPLICATION_ERRORS)
         setAppState((prev) => {
           if (prev.kind !== "loaded") return prev;
@@ -1513,7 +1532,7 @@ export function useMediaLibrary(
 
       const occurrenceState =
         fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
-      if (occurrenceState === "loading") {
+      if (!Array.isArray(occurrenceState)) {
         pushApplicationError(
           "metadata-target-occurrence-unavailable",
           "Authoritative metadata occurrences are still loading. Wait for the file to be scanned before editing this row.",
@@ -1614,7 +1633,7 @@ export function useMediaLibrary(
         }
         const occurrenceState =
           fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
-        if (occurrenceState === "loading") {
+        if (!Array.isArray(occurrenceState)) {
           pushApplicationError(
             "metadata-target-new-property-occurrences-loading",
             "Authoritative metadata occurrences are still loading. No new-property draft was staged.",
@@ -1825,7 +1844,7 @@ export function useMediaLibrary(
 
         const occurrenceState =
           fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
-        if (occurrenceState === "loading") {
+        if (!Array.isArray(occurrenceState)) {
           pushApplicationError(
             "metadata-target-new-property-move-occurrences-loading",
             "Authoritative metadata occurrences are still loading. Nothing was moved.",

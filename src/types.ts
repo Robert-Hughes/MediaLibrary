@@ -133,7 +133,10 @@ export type FileMetadataEntry = MetadataValue & {
   readonly id: import("./types/generated/SchemaDefinitionId").SchemaDefinitionId;
 };
 
-export type FileMetadataOccurrencesState = "loading" | MetadataOccurrences;
+export type FileMetadataOccurrencesState =
+  | "loading"
+  | "failed"
+  | MetadataOccurrences;
 export type FileMetadataOccurrencesListener = (
   path: string,
   value: FileMetadataOccurrencesState,
@@ -144,6 +147,7 @@ export class FileMetadataOccurrencesStore {
   private data = new Map<string, FileMetadataOccurrencesState>();
   private subscribers = new Map<string, Set<() => void>>();
   private globalSubscribers = new Set<FileMetadataOccurrencesListener>();
+  private failures = new Map<string, string>();
 
   add(path: string): void {
     if (this.data.has(path)) return;
@@ -153,9 +157,23 @@ export class FileMetadataOccurrencesStore {
 
   set(path: string, value: FileMetadataOccurrencesState): void {
     if (Object.is(this.data.get(path), value)) return;
+    if (value !== "failed") this.failures.delete(path);
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((callback) => callback());
     this.globalSubscribers.forEach((callback) => callback(path, value));
+  }
+
+  setFailed(path: string, error: string): void {
+    const changed = this.data.get(path) !== "failed" || this.failures.get(path) !== error;
+    if (!changed) return;
+    this.failures.set(path, error);
+    this.data.set(path, "failed");
+    this.subscribers.get(path)?.forEach((callback) => callback());
+    this.globalSubscribers.forEach((callback) => callback(path, "failed"));
+  }
+
+  getFailure(path: string): string | undefined {
+    return this.failures.get(path);
   }
 
   /** Mark a file's occurrence collection unavailable without claiming it is empty. */
@@ -175,6 +193,7 @@ export class FileMetadataOccurrencesStore {
     const paths = Array.from(this.data.keys());
     if (paths.length === 0) return;
     this.data.clear();
+    this.failures.clear();
     for (const path of paths) {
       this.subscribers.get(path)?.forEach((callback) => callback());
       this.globalSubscribers.forEach((callback) => callback(path, "loading"));

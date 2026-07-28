@@ -264,6 +264,26 @@ describe("DetailsPane component", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows a failure state when metadata could not be loaded", () => {
+    render(
+      <DetailsPane
+        onRemoveMetadataTargets={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+        file={file}
+        occurrences="failed"
+      />,
+    );
+
+    const failedSection = screen.getByTestId("details-section-failed");
+    expect(failedSection).toBeInTheDocument();
+    expect(
+      within(failedSection).getByText(
+        "Metadata could not be loaded for this file.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("details-section-empty")).not.toBeInTheDocument();
+  });
+
   it("shows empty state when metadata has no keys", () => {
     render(
       <DetailsPane
@@ -273,7 +293,6 @@ describe("DetailsPane component", () => {
         occurrences={[]}
       />,
     );
-
     const emptySection = screen.getByTestId("details-section-empty");
     expect(emptySection).toBeInTheDocument();
     expect(

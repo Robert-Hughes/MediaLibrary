@@ -416,14 +416,6 @@ fn start_scan(
                                         },
                                     );
                                 }
-
-                                for fail in outcome.failures {
-                                    batch_results.push(scanner::FileMetadata {
-                                        relative_path: fail.relative_path,
-                                        occurrences:
-                                            crate::metadata_occurrence::MetadataOccurrences::default(),
-                                    });
-                                }
                             }
                             Err(error_msg) => {
                                 log::error!("[metadata] Error reading metadata: {}", error_msg);
@@ -439,15 +431,6 @@ fn start_scan(
                                         affected_files: rel_paths.clone(),
                                     },
                                 );
-
-                                // Send empty occurrence results for failed files so the frontend clears loading.
-                                for rel_path in rel_paths {
-                                    batch_results.push(scanner::FileMetadata {
-                                        relative_path: rel_path,
-                                        occurrences:
-                                            crate::metadata_occurrence::MetadataOccurrences::default(),
-                                    });
-                                }
                             }
                         }
 

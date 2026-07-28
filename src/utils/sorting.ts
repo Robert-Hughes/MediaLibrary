@@ -49,7 +49,7 @@ function precomputeImageSortValues(
   for (const file of files) {
     const occurrences = occurrencesStore.get(file.relative_path);
     const fileValues = new Map<string, string>();
-    if (occurrences !== "loading") {
+    if (Array.isArray(occurrences)) {
       const projection = buildSchemaValueResolutionIndex(occurrences);
       for (const id of ids) {
         const token = schemaDefinitionIdToken(id);

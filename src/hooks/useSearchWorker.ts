@@ -26,7 +26,7 @@ const INITIAL_REPLAY_RETRY_DELAYS_MS = [250, 1_000, 5_000] as const;
 export function toSearchOccurrencesState(
   occurrences: FileMetadataOccurrencesState,
 ): SearchOccurrencesState {
-  if (occurrences === "loading") return "loading";
+  if (!Array.isArray(occurrences)) return "loading";
   return occurrences.map((occurrence) => ({
     schemaId: structuredClone(occurrence.schema_id),
     value: structuredClone(occurrence.value),

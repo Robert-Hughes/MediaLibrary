@@ -155,7 +155,7 @@ export const FileRow = memo(function FileRow({
   );
   const metadata = useMemo(
     () =>
-      occurrences === "loading"
+      !Array.isArray(occurrences)
         ? undefined
         : schemaMetadataCollectionFromOccurrences(occurrences),
     [occurrences],
@@ -172,7 +172,7 @@ export const FileRow = memo(function FileRow({
   const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
   const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
 
-  const metadataLoading = occurrences === "loading";
+  const metadataLoading = !Array.isArray(occurrences);
 
   const handleSelect = useCallback(
     (e: React.MouseEvent) => {

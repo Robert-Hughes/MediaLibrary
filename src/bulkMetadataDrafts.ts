@@ -144,7 +144,7 @@ function emptyPreview(fileCount: number): BulkMetadataDraftPreview {
 }
 
 function requireOccurrences(file: BulkMetadataFileState): MetadataOccurrence[] {
-  if (file.occurrences === "loading") {
+  if (!Array.isArray(file.occurrences)) {
     fail(
       "occurrences-loading",
       `Authoritative metadata occurrences are still loading for '${file.relativePath}'. Nothing was staged.`,

@@ -563,7 +563,7 @@ export function DetailsPane({
 }: Props) {
   const metadata = useMemo(
     () =>
-      occurrences === "loading"
+      !Array.isArray(occurrences)
         ? undefined
         : schemaMetadataCollectionFromOccurrences(occurrences),
     [occurrences],
@@ -1252,7 +1252,17 @@ export function DetailsPane({
         )}
 
         {/* Image Metadata */}
-        {metadata === undefined ? (
+        {occurrences === "failed" ? (
+          <section
+            className="details-section"
+            data-testid="details-section-failed"
+          >
+            <h3 className="details-section-header">Image Metadata</h3>
+            <div className="details-empty">
+              Metadata could not be loaded for this file.
+            </div>
+          </section>
+        ) : metadata === undefined ? (
           <section
             className="details-section"
             data-testid="details-section-loading"
@@ -1645,7 +1655,7 @@ export function DetailsPane({
             setNewPropertyDestinationInitial(null);
           }}
           existingOccurrences={
-            occurrences === undefined || occurrences === "loading"
+            occurrences === undefined || !Array.isArray(occurrences)
               ? undefined
               : occurrences
           }

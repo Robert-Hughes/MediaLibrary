@@ -127,7 +127,7 @@ export function planGpsTargetDraftBatch(
   occurrences: FileMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
 ): PlannedGpsTargetDraft[] {
-  if (occurrences === "loading") {
+  if (!Array.isArray(occurrences)) {
     throw new GpsTargetDraftPlanError(
       "occurrences-loading",
       "Authoritative metadata occurrences are still loading. Nothing was saved.",
@@ -231,7 +231,7 @@ export function validateGpsTargetDraftEntries(
   occurrences: FileMetadataOccurrencesState,
   targetDrafts: TargetDraftCollection | undefined,
 ): MetadataTargetDraftEntry[] {
-  if (occurrences === "loading") {
+  if (!Array.isArray(occurrences)) {
     throw new GpsTargetDraftPlanError(
       "occurrences-loading",
       "Authoritative metadata occurrences are still loading. Nothing was saved.",
