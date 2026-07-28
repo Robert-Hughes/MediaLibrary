@@ -161,7 +161,7 @@ export function planGeneratedTargetDraftBatch(input: {
     };
   }
 
-  if (input.occurrences === "loading") {
+  if (!Array.isArray(input.occurrences)) {
     fail(
       "occurrences_loading",
       "Authoritative metadata occurrences are still loading for this file.",

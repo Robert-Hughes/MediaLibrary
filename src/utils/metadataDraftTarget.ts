@@ -282,7 +282,7 @@ export function currentValueForMetadataDraftTarget(
   occurrences: FileMetadataOccurrencesState,
   target: MetadataDraftTarget,
 ): MetadataOccurrence["value"] | undefined {
-  if (target.kind === "NewProperty" || occurrences === "loading") {
+  if (target.kind === "NewProperty" || !Array.isArray(occurrences)) {
     return undefined;
   }
   const exact = resolveExactMetadataOccurrence(

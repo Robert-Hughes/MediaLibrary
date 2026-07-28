@@ -144,7 +144,7 @@ export function applyPreparedTargetApplyFileResult(
   if (prepared.occurrences !== null) {
     const currentOccurrences = stores.occurrences.get(prepared.relativePath);
     occurrencesChanged =
-      currentOccurrences === "loading" ||
+      !Array.isArray(currentOccurrences) ||
       !metadataOccurrencesEqualExact(currentOccurrences, prepared.occurrences);
     if (occurrencesChanged) {
       stores.occurrences.set(prepared.relativePath, prepared.occurrences);

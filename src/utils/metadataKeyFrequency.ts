@@ -24,7 +24,7 @@ export function computeEffectiveMetadataKeyFrequency(
     const idsForFile = new Map<string, SchemaDefinitionId>();
     const occurrences = occurrencesStore.get(file.relative_path);
 
-    if (occurrences !== "loading") {
+    if (Array.isArray(occurrences)) {
       for (const occurrence of occurrences) {
         const token = schemaDefinitionIdToken(occurrence.schema_id);
         keysForFile.add(token);

@@ -303,7 +303,7 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") {
       const metadata = state.fileMetadataOccurrences.get("a.jpg");
       expect(metadata).not.toBe("loading");
-      if (metadata !== "loading") {
+      if (Array.isArray(metadata)) {
         expect(
           metadata.find(
             (item) =>
@@ -1152,7 +1152,7 @@ describe("useMediaLibrary", () => {
       ]);
       const loaded = state.fileMetadataOccurrences.get("a.jpg");
       expect(loaded).not.toBe("loading");
-      if (loaded !== "loading") {
+      if (Array.isArray(loaded)) {
         expect(
           loaded.filter(
             (item) =>
@@ -1166,19 +1166,27 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("empty failed-file payloads clear occurrence loading", async () => {
+  it("metadata worker failures retain an explicit failed state", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitFileFound(makeFile({ relative_path: "failed.jpg" })));
     await act(async () => vi.advanceTimersByTimeAsync(150));
-    act(() => mock.emitFileMetadataReady("failed.jpg", {}));
-    await act(async () => vi.advanceTimersByTimeAsync(250));
+    act(() =>
+      mock.emitWorkerError("metadata", "ExifTool could not read the file", [
+        "failed.jpg",
+      ]),
+    );
 
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.fileMetadataOccurrences.get("failed.jpg")).toEqual([]);
+      expect(state.fileMetadataOccurrences.get("failed.jpg")).toBe("failed");
+      expect(state.fileMetadataOccurrences.getFailure("failed.jpg")).toBe(
+        "ExifTool could not read the file",
+      );
+      expect(state.metadataProgress.getRemaining()).toBe(0);
     }
   });
 
@@ -1384,7 +1392,7 @@ describe("useMediaLibrary", () => {
     if (state.kind !== "loaded") return;
     const occurrences = state.fileMetadataOccurrences.get("a.jpg");
     expect(occurrences).not.toBe("loading");
-    if (occurrences === "loading") return;
+    if (!Array.isArray(occurrences)) return;
     expect(occurrences[0]?.value).toEqual({
       kind: "Text",
       value: "fresh post-write value",
