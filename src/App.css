@@ -1583,6 +1583,23 @@ body {
   font-style: italic;
 }
 
+.details-metadata-error {
+  font-size: 13px;
+  color: var(--accent-error);
+  padding: 16px 0;
+  text-align: center;
+  font-weight: 600;
+}
+
+.details-metadata-error-message {
+  margin-top: 8px;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 400;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* ── Context Menu ─────────────────────────────────────────────────────────── */
 
 .context-menu {

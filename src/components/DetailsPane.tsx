@@ -95,6 +95,8 @@ interface Props {
   file: FileInfo;
   /** Authoritative occurrences are the sole metadata state. */
   occurrences: FileMetadataOccurrencesState;
+  /** Diagnostic retained when occurrence loading failed. */
+  metadataFailure?: string;
   /** Exact-target drafts for New Property and exact existing occurrence rows. */
   targetDraftEdits?: TargetDraftCollection;
   /** Folder-scoped safety state for the strict target-aware persistence file. */
@@ -544,6 +546,7 @@ function DetailsGroupContextMenu({
 export function DetailsPane({
   file,
   occurrences,
+  metadataFailure,
   targetDraftEdits,
   targetDraftPersistence = { status: "ready" },
   onSetExistingOccurrenceDraft,
@@ -1258,8 +1261,13 @@ export function DetailsPane({
             data-testid="details-section-failed"
           >
             <h3 className="details-section-header">Image Metadata</h3>
-            <div className="details-empty">
-              Metadata could not be loaded for this file.
+            <div className="details-metadata-error">
+              <div>Metadata could not be loaded for this file.</div>
+              {metadataFailure ? (
+                <div className="details-metadata-error-message">
+                  {metadataFailure}
+                </div>
+              ) : null}
             </div>
           </section>
         ) : metadata === undefined ? (
