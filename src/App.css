@@ -1628,9 +1628,20 @@ body {
   transition: background 0.1s;
 }
 
-.context-menu-btn:hover {
+.context-menu-btn:not(:disabled):hover {
   background: var(--accent);
   color: #fff;
+}
+
+.context-menu-btn:disabled {
+  color: var(--text-dim);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.context-menu-btn:disabled:hover {
+  background: transparent;
+  color: var(--text-dim);
 }
 
 /* ── Error Banner ─────────────────────────────────────────────────────────── */
