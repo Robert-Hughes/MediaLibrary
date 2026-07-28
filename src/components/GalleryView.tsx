@@ -159,8 +159,12 @@ export function GalleryView({
   onOpenFullMap,
 }: Props) {
   const file = files[currentIndex];
-  const [mediaSrc, setImageSrc] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [mediaSource, setMediaSource] = useState<{
+    path: string;
+    src: string;
+  } | null>(null);
+  const [readyPath, setReadyPath] = useState<string | null>(null);
+  const [failedPath, setFailedPath] = useState<string | null>(null);
   const [detailsVisible, setDetailsVisibleState] =
     useState<boolean>(loadDetailsVisible);
   const [detailsWidth, setDetailsWidth] = useState(loadDetailsWidth);
@@ -250,18 +254,44 @@ export function GalleryView({
     () => fileMetadataOccurrences.get(file?.relative_path ?? ""),
   );
 
-  // Load the full image whenever the current file changes.
+  // Resolve the asset URL whenever the current file changes. The media remains
+  // in its loading state until the newly-mounted element reports readiness.
   useEffect(() => {
     if (!file || !loadMedia) return;
-    setLoading(true);
-    setImageSrc(null);
-    const absPath = `${folderPath}/${file.relative_path}`.replace(/\\/g, "/");
-    loadMedia(absPath).then((src) => {
-      setImageSrc(src);
-      setLoading(false);
-    });
+    const path = file.relative_path;
+    let current = true;
+    setFailedPath(null);
+    const absPath = `${folderPath}/${path}`.replace(/\\/g, "/");
+
+    loadMedia(absPath)
+      .then((src) => {
+        if (!current) return;
+        if (src) setMediaSource({ path, src });
+        else setFailedPath(path);
+      })
+      .catch(() => {
+        if (current) setFailedPath(path);
+      });
+
+    return () => {
+      current = false;
+    };
   }, [file, folderPath, loadMedia]);
 
+  const currentPath = file?.relative_path ?? null;
+  const mediaSrc = mediaSource?.path === currentPath ? mediaSource.src : null;
+  const loading =
+    currentPath !== null &&
+    failedPath !== currentPath &&
+    readyPath !== currentPath;
+  const markMediaReady = () => {
+    if (currentPath) setReadyPath(currentPath);
+  };
+  const markMediaFailed = () => {
+    if (!currentPath) return;
+    setFailedPath(currentPath);
+    setMediaSource((source) => (source?.path === currentPath ? null : source));
+  };
   const onKey = (e: React.KeyboardEvent<HTMLDialogElement>) => {
     const target = e.target as HTMLElement | null;
     if (
@@ -417,20 +447,25 @@ export function GalleryView({
           }
           style={{ overflow: "hidden" }}
         >
-          {loading ? (
+          {loading && (
             <div
               style={spinStyle}
               className="gallery-spinner"
               data-testid="gallery-spinner"
             />
-          ) : mediaSrc ? (
-            file.media_kind === "image" ? (
+          )}
+          {mediaSrc &&
+            (file.media_kind === "image" ? (
               <img
+                key={currentPath}
                 src={mediaSrc}
                 alt={file.relative_path}
                 className="gallery-image"
                 data-testid="gallery-image"
+                onLoad={markMediaReady}
+                onError={markMediaFailed}
                 style={{
+                  visibility: loading ? "hidden" : "visible",
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
                   transition: isDragging ? "none" : "transform 0.1s ease-out",
                   cursor:
@@ -440,20 +475,28 @@ export function GalleryView({
               />
             ) : file.media_kind === "audio" ? (
               <audio
+                key={currentPath}
                 src={mediaSrc}
                 className="gallery-audio"
                 data-testid="gallery-audio"
+                onLoadedData={markMediaReady}
+                onError={markMediaFailed}
+                style={{ visibility: loading ? "hidden" : "visible" }}
                 controls
               />
             ) : (
               <video
+                key={currentPath}
                 src={mediaSrc}
                 className="gallery-video"
                 data-testid="gallery-video"
+                onLoadedData={markMediaReady}
+                onError={markMediaFailed}
+                style={{ visibility: loading ? "hidden" : "visible" }}
                 controls
               />
-            )
-          ) : (
+            ))}
+          {!loading && !mediaSrc && (
             <div className="gallery-error" data-testid="gallery-error">
               Could not load file
             </div>
