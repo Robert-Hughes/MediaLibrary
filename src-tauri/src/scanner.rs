@@ -350,10 +350,18 @@ fn run_exiftool_pass(
         )
     })?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+    let json = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if json.trim().is_empty() {
+        if output.status.success() {
+            return Ok(ExifToolPassOutput {
+                values_by_source: HashMap::new(),
+                failures_by_source: HashMap::new(),
+            });
+        }
         log::error!(
-            "[exiftool] ExifTool {} failed (status {:?}): {}",
+            "[exiftool] ExifTool {} failed without usable output (status {:?}): {}",
             pass_label,
             output.status,
             stderr
@@ -361,18 +369,37 @@ fn run_exiftool_pass(
         return Err(format!("status {:?}: {}", output.status, stderr));
     }
 
-    let json = String::from_utf8_lossy(&output.stdout);
-    if json.trim().is_empty() {
-        return Ok(ExifToolPassOutput {
-            values_by_source: HashMap::new(),
-            failures_by_source: HashMap::new(),
-        });
-    }
-    try_parse_exiftool_pass_json_raw_with_registry_and_context(
+    let parsed = try_parse_exiftool_pass_json_raw_with_registry_and_context(
         &json,
         crate::tag_schema::get_registry().ok(),
         Some(pass_label),
-    )
+    );
+
+    if output.status.success() {
+        return parsed;
+    }
+
+    match parsed {
+        Ok(parsed)
+            if !parsed.values_by_source.is_empty() || !parsed.failures_by_source.is_empty() =>
+        {
+            log::warn!(
+                "[exiftool] ExifTool {} exited with status {:?}, but returned usable per-file JSON: {}",
+                pass_label,
+                output.status,
+                stderr
+            );
+            Ok(parsed)
+        }
+        Ok(_) => Err(format!(
+            "status {:?}: {}; ExifTool returned no classified file results",
+            output.status, stderr
+        )),
+        Err(parse_error) => Err(format!(
+            "status {:?}: {}; failed to parse ExifTool output: {}",
+            output.status, stderr, parse_error
+        )),
+    }
 }
 
 fn exiftool_read_args(numeric: bool) -> Vec<&'static str> {
@@ -751,6 +778,22 @@ fn try_parse_exiftool_pass_json_raw_with_registry_and_context(
         };
 
         let normalized_path = s.replace('\\', "/");
+
+        let exiftool_error = obj.iter().find_map(|(key, value)| {
+            let parsed_key = parse_runtime_property_key(key).ok()?;
+            if parsed_key.group1 != "ExifTool" || parsed_key.tag_name != "Error" {
+                return None;
+            }
+            let runtime = parse_runtime_value(value).ok()?;
+            Some(match runtime.value {
+                serde_json::Value::String(message) => message,
+                value => safe_value_diagnostic(&value),
+            })
+        });
+        if let Some(error) = exiftool_error {
+            failures_by_source.insert(normalized_path, error);
+            continue;
+        }
 
         match parse_single_source_object_with_context(obj, registry, &normalized_path, pass_context)
         {
