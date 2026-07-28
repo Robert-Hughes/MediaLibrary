@@ -153,6 +153,10 @@ export const FileRow = memo(function FileRow({
     subscribeOccurrences,
     getOccurrencesSnapshot,
   );
+  const metadataFailure = useSyncExternalStore(
+    subscribeOccurrences,
+    () => fileMetadataOccurrences.getFailure(file.relative_path),
+  );
   const metadata = useMemo(
     () =>
       !Array.isArray(occurrences)
@@ -172,7 +176,7 @@ export const FileRow = memo(function FileRow({
   const hasSrc = thumbnail !== "loading" && thumbnail !== "failed";
   const src = hasSrc ? `data:image/jpeg;base64,${thumbnail}` : null;
 
-  const metadataLoading = !Array.isArray(occurrences);
+  const metadataLoading = occurrences === "loading";
 
   const handleSelect = useCallback(
     (e: React.MouseEvent) => {
@@ -300,6 +304,22 @@ export const FileRow = memo(function FileRow({
                   aria-label="Loading"
                   data-testid="metadata-loading"
                 />
+              ) : (
+                <span className="cell-loading-placeholder" aria-hidden="true">
+                  {EMPTY_CELL}
+                </span>
+              )
+            ) : occurrences === "failed" ? (
+              i === firstImageIdx ? (
+                <span
+                  className="metadata-error"
+                  role="img"
+                  aria-label="Metadata failed to load"
+                  title={metadataFailure ?? "Metadata failed to load"}
+                  data-testid="metadata-error"
+                >
+                  ⚠
+                </span>
               ) : (
                 <span className="cell-loading-placeholder" aria-hidden="true">
                   {EMPTY_CELL}

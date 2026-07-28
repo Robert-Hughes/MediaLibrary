@@ -68,6 +68,45 @@ describe("FileRow", () => {
     _setTagInfoCacheEntry("ExifIFD:DateTimeOriginal", null);
   });
 
+  it("shows a metadata error icon instead of a loading spinner after failure", () => {
+    const thumbnails = new ThumbnailStore();
+    const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.set("1.jpg", "base64string");
+    metadata.add("1.jpg");
+    metadata.setFailed("1.jpg", "File is empty");
+
+    render(
+      <FileList
+        targetDraftEdits={{}}
+        files={[
+          {
+            relative_path: "1.jpg",
+            filename: "1.jpg",
+            media_kind: "image" as const,
+            date_modified: null,
+            date_created: null,
+          },
+        ]}
+        thumbnails={thumbnails}
+        fileMetadataOccurrences={metadata}
+        visibleColumns={[imgCol("IFD0:Model")]}
+        sortConfig={{ primary: null, secondary: null }}
+        onSortChange={() => {}}
+        selectedPath={null}
+        onSelect={vi.fn()}
+        onShowInExplorer={vi.fn()}
+        onVisibilityChange={vi.fn()}
+        onFileOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("metadata-loading")).not.toBeInTheDocument();
+    expect(screen.getByTestId("metadata-error")).toHaveAttribute(
+      "title",
+      "File is empty",
+    );
+  });
+
   it("renders FileList with files without crashing", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();

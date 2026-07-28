@@ -249,9 +249,15 @@ export function GalleryView({
 
   // This hook is unconditional so navigation changes the subscribed path and
   // unsubscribes from the previously displayed file.
+  const subscribeMetadata = (cb: () => void) =>
+    fileMetadataOccurrences.subscribe(file?.relative_path ?? "", cb);
   const occurrencesState: FileMetadataOccurrencesState = useSyncExternalStore(
-    (cb) => fileMetadataOccurrences.subscribe(file?.relative_path ?? "", cb),
+    subscribeMetadata,
     () => fileMetadataOccurrences.get(file?.relative_path ?? ""),
+  );
+  const metadataFailure = useSyncExternalStore(
+    subscribeMetadata,
+    () => fileMetadataOccurrences.getFailure(file?.relative_path ?? ""),
   );
 
   // Resolve the asset URL whenever the current file changes. The media remains
@@ -542,6 +548,7 @@ export function GalleryView({
             <DetailsPane
               file={file}
               occurrences={occurrencesState}
+              metadataFailure={metadataFailure}
               targetDraftEdits={targetDraftEdits}
               targetDraftPersistence={targetDraftPersistence}
               onSetExistingOccurrenceDraft={(target, edit) =>
