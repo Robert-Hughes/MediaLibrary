@@ -36,7 +36,7 @@ function renderWith(visibleColumns: VisibleColumn[]) {
       visibleColumns={visibleColumns}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
-      selectedIndex={null}
+      selectedPath={null}
       onSelect={() => {}}
       onShowInExplorer={() => {}}
       onVisibilityChange={() => {}}

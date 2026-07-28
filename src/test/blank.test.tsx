@@ -33,7 +33,7 @@ describe("FileList", () => {
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}

@@ -52,7 +52,7 @@ function renderTargetDraftRow(
       visibleColumns={[imgCol("IFD0:Model")]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
-      selectedIndex={null}
+      selectedPath={null}
       onSelect={vi.fn()}
       onShowInExplorer={vi.fn()}
       onVisibilityChange={vi.fn()}
@@ -103,7 +103,7 @@ describe("FileRow", () => {
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
@@ -136,7 +136,7 @@ describe("FileRow", () => {
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
@@ -180,7 +180,7 @@ describe("FileRow", () => {
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
@@ -224,7 +224,7 @@ describe("FileRow", () => {
         visibleColumns={[imgCol("IFD0:Model")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
@@ -279,7 +279,7 @@ describe("FileRow", () => {
         visibleColumns={[imgCol("IFD0:Orientation")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
@@ -326,7 +326,7 @@ describe("FileRow", () => {
         visibleColumns={[imgCol("IFD0:Orientation")]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={vi.fn()}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}

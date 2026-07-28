@@ -208,7 +208,7 @@ describe("useMediaLibrary gallery state", () => {
     vi.useRealTimers();
   });
 
-  it("galleryIndex starts as null after first file_found", async () => {
+  it("galleryPath starts as null after first file_found", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -220,10 +220,10 @@ describe("useMediaLibrary gallery state", () => {
     });
     const state = result.current[0];
     expect(state.kind).toBe("loaded");
-    if (state.kind === "loaded") expect(state.galleryIndex).toBeNull();
+    if (state.kind === "loaded") expect(state.galleryPath).toBeNull();
   });
 
-  it("openGallery sets the correct index", async () => {
+  it("openGallery stores the correct path", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -235,41 +235,18 @@ describe("useMediaLibrary gallery state", () => {
     });
 
     act(() => {
-      result.current[1].openGallery(0);
+      result.current[1].openGallery("a.jpg");
     });
     const state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(0);
-  });
-
-  it("navigateGallery(1) increments the index", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => {
-      await result.current[1].openFolder();
-    });
-    act(() => {
-      PHOTOS.forEach((p) => mock.emitFileFound(p));
-    });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150);
-    });
-    act(() => {
-      result.current[1].openGallery(0);
-    });
-    act(() => {
-      result.current[1].navigateGallery(1);
-    });
-    const state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
+    if (state.kind === "loaded") expect(state.galleryPath).toBe("a.jpg");
   });
 });
 
 describe("FileList interaction", () => {
   function renderList(
     files: FileInfo[],
-    onFileOpen: (i: number) => void,
-    onSelect: (i: number | null) => void,
+    onFileOpen: (path: string) => void,
+    onSelect: (path: string | null) => void,
   ) {
     const thumbs = makeStore(files);
     const fileMetadata = new FileMetadataOccurrencesStore();
@@ -286,7 +263,7 @@ describe("FileList interaction", () => {
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={onSelect}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -296,21 +273,21 @@ describe("FileList interaction", () => {
     );
   }
 
-  it("calls onFileOpen with the correct index when a row is double-clicked", async () => {
+  it("calls onFileOpen with the correct path when a row is double-clicked", async () => {
     const onFileOpen = vi.fn();
     const files = makeFiles(["a.jpg", "b.jpg", "c.jpg"]);
     renderList(files, onFileOpen, () => {});
     const rows = screen.getAllByTestId("file-row");
     await userEvent.dblClick(rows[1]);
-    expect(onFileOpen).toHaveBeenCalledWith(1);
+    expect(onFileOpen).toHaveBeenCalledWith("b.jpg");
   });
 
-  it("calls onSelect with the correct index when a row is clicked", async () => {
+  it("calls onSelect with the correct path when a row is clicked", async () => {
     const onSelect = vi.fn();
     const files = makeFiles(["a.jpg", "b.jpg", "c.jpg"]);
     renderList(files, () => {}, onSelect);
     const rows = screen.getAllByTestId("file-row");
     await userEvent.click(rows[2]);
-    expect(onSelect).toHaveBeenCalledWith(2);
+    expect(onSelect).toHaveBeenCalledWith("c.jpg");
   });
 });

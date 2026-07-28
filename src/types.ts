@@ -402,8 +402,8 @@ export type AppState =
       fileMetadataOccurrences: FileMetadataOccurrencesStore;
       metadataProgress: MetadataProgressStore;
       scanning: boolean; // true while the directory walk is still running
-      galleryIndex: number | null;
-      selectedIndex: number | null;
+      galleryPath: string | null;
+      selectedPath: string | null;
 
       // Unified, ordered list of metadata columns (mix of OS and image kinds)
       visibleColumns: VisibleColumn[];

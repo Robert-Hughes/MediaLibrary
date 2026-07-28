@@ -60,7 +60,7 @@ describe("column header draggable attribute", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -82,7 +82,7 @@ describe("column header draggable attribute", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[os("date_modified"), os("date_created")]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -104,7 +104,7 @@ describe("column header draggable attribute", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -133,7 +133,7 @@ describe("metadata column reorder insertion", () => {
         ]}
         onColumnsReorder={onColumnsReorder}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -218,7 +218,7 @@ describe("OS metadata column reorder insertion", () => {
         visibleColumns={[os("date_modified"), os("date_created")]}
         onColumnsReorder={onColumnsReorder}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -268,7 +268,7 @@ describe("metadata column header gridColumn positions follow visibleColumns orde
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={visibleColumns}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -329,7 +329,7 @@ describe("cross-kind drop is allowed (unified columns)", () => {
         ]}
         onColumnsReorder={onColumnsReorder}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -367,7 +367,7 @@ describe("drag-over drop indicator", () => {
         visibleColumns={[img("IFD0:Model"), img("ExifIFD:DateTimeOriginal")]}
         onColumnsReorder={() => {}}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -484,7 +484,7 @@ describe("combined metadata header interactions", () => {
         onColumnsReorder={onColumnsReorder}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
