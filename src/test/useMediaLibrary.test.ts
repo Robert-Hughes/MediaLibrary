@@ -1351,6 +1351,46 @@ describe("useMediaLibrary", () => {
     ).toEqual(["a.jpg", "b.jpg"]);
   });
 
+  it("keeps authoritative post-write metadata when an older scan result flushes later", async () => {
+    const mock = createMockTauriApi();
+    const draftId = testId("XMP-dc:Subject");
+    const metadataId = testId("XMP-dc:Title");
+    const persistedDrafts = new TargetDraftEditsStore();
+    persistedDrafts.setMetadataTarget("a.jpg", newPropertyTargetFor(draftId), {
+      intent: "Set",
+      value: { kind: "Text", value: "draft" },
+    });
+    mock.targetDraftEditsByFolder["/files"] = persistedDrafts.getAllMetadata();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitFileFound(makeFile({ relative_path: "a.jpg" })));
+    await act(async () => vi.advanceTimersByTimeAsync(150));
+
+    act(() => {
+      mock.emitFileMetadataReady("a.jpg", {
+        "XMP-dc:Title": { kind: "Text", value: "stale scan value" },
+      });
+    });
+    mock.targetApplyFinalResultsByPath["a.jpg"] = targetDraftResult(
+      "a.jpg",
+      metadataId,
+      "fresh post-write value",
+    );
+    await act(async () => result.current[1].applyDraftEdits("a.jpg"));
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    const occurrences = state.fileMetadataOccurrences.get("a.jpg");
+    expect(occurrences).not.toBe("loading");
+    if (occurrences === "loading") return;
+    expect(occurrences[0]?.value).toEqual({
+      kind: "Text",
+      value: "fresh post-write value",
+    });
+    expect(state.metadataProgress.getRemaining()).toBe(0);
+  });
   it("invalidates target-aware final-only metadata and invalidates again for a genuinely different final result", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");

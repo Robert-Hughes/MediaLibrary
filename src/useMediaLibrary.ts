@@ -326,13 +326,15 @@ export function useMediaLibrary(
   const fileBufferRef = useRef<FileInfo[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
-
   const metadataBufferRef = useRef<FileMetadata[]>([]);
+  // Once apply returns an authoritative post-write read for a file, any
+  // outstanding metadata result from the current folder scan is older by
+  // construction and must not replace it.
+  const scanMetadataSupersededPathsRef = useRef<Set<string>>(new Set());
   const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
   const isFirstMetadataFlushRef = useRef<boolean>(true);
-
   const thumbnailBufferRef = useRef<
     { relative_path: string; thumbnail: string | null }[]
   >([]);
@@ -360,7 +362,12 @@ export function useMediaLibrary(
           autosaveGate: targetDraftAutosaveGateRef.current,
         },
         {
-          onProgress: (_payload, application) => {
+          onProgress: (payload, application) => {
+            if (payload.result.fresh_file_metadata !== null) {
+              scanMetadataSupersededPathsRef.current.add(
+                payload.result.relative_path,
+              );
+            }
             if (!application.occurrencesChanged) return;
             setAppState((prev) =>
               prev.kind === "loaded"
@@ -368,7 +375,12 @@ export function useMediaLibrary(
                 : prev,
             );
           },
-          onFinalApplied: (_result, application) => {
+          onFinalApplied: (result, application) => {
+            for (const file of result.files) {
+              if (file.fresh_file_metadata !== null) {
+                scanMetadataSupersededPathsRef.current.add(file.relative_path);
+              }
+            }
             if (!application.files.some((file) => file.occurrencesChanged)) {
               return;
             }
@@ -450,12 +462,13 @@ export function useMediaLibrary(
       // Stop any existing scan before starting a new one.
       await api.invoke("stop_scan").catch(() => {});
 
-      // Switch to new scan_id immediately — no gap where it's -1
+      // Switch to new scan_id immediately — no gap where it's -1.
       activeScanIdRef.current = scanId;
 
-      // Clear all buffers + timers from any previous scan
+      // Clear all buffers + timers from any previous scan.
       fileBufferRef.current = [];
       metadataBufferRef.current = [];
+      scanMetadataSupersededPathsRef.current.clear();
       thumbnailBufferRef.current = [];
       isFirstFlushRef.current = true;
       isFirstMetadataFlushRef.current = true;
@@ -590,27 +603,35 @@ export function useMediaLibrary(
       if (batch.length === 0) return;
       console.debug(`[metadata] flushing ${batch.length} results`);
 
+      let acceptedCount = 0;
       for (const res of batch) {
+        if (scanMetadataSupersededPathsRef.current.has(res.relative_path)) {
+          continue;
+        }
         fileMetadataOccurrencesStoreRef.current.set(
           res.relative_path,
           normalizeMetadataOccurrencesFromTauri(res.occurrences),
         );
+        acceptedCount += 1;
       }
 
-      // Update progress store - this triggers updates only in components that subscribe to it
+      // Superseded scan results still complete their scan-progress slot even
+      // though their older values are deliberately not installed.
       metadataProgressStoreRef.current.incrementReceived(batch.length);
 
       // Increment metadataVersion so that any active sort on image metadata fields
       // causes the sortedFiles useMemo to recompute.
-      setAppState((prev) => {
-        if (prev.kind !== "loaded") return prev;
-        if (
-          !prev.sortConfig.primary ||
-          prev.sortConfig.primary.kind !== "image"
-        )
-          return prev;
-        return { ...prev, metadataVersion: prev.metadataVersion + 1 };
-      });
+      if (acceptedCount > 0) {
+        setAppState((prev) => {
+          if (prev.kind !== "loaded") return prev;
+          if (
+            !prev.sortConfig.primary ||
+            prev.sortConfig.primary.kind !== "image"
+          )
+            return prev;
+          return { ...prev, metadataVersion: prev.metadataVersion + 1 };
+        });
+      }
       logSlowFrontendOperation("scan-metadata-flush", startedAt, {
         items: batch.length,
       });
