@@ -20,6 +20,7 @@ Bugs/quirks/tweaks/improvements
 - Loading thumbnails might be slow for large folders, maybe need to cache this in a local db file. Need a way to tell if out of date, e.g. file timestamp changed or some kind of hash?
 - Disable text-select as it messes up selection of file rows? Maybe have a key to press to re-enable it as it can be useful to copy things
 - How dioes "Apply Edits" work if metadata isn't loaded yet?
+- Gallery view should show 'loading' indicator rather than showing the old photo for a few seconds
 
 Features
 ========
