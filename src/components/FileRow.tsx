@@ -175,12 +175,17 @@ export const FileRow = memo(function FileRow({
   const metadataLoading = occurrences === "loading";
 
   const handleSelect = useCallback(
-    (e: React.MouseEvent) =>
-      onSelect(index, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey }),
+    (e: React.MouseEvent) => {
+      if (e.altKey) return;
+      onSelect(index, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+    },
     [onSelect, index],
   );
   const handleDoubleClick = useCallback(
-    () => onFileOpen(index),
+    (e: React.MouseEvent) => {
+      if (e.altKey) return;
+      onFileOpen(index);
+    },
     [onFileOpen, index],
   );
   const handleContextMenuEvent = useCallback(
