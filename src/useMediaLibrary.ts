@@ -1138,15 +1138,21 @@ export function useMediaLibrary(
     ): boolean => {
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
-      const unavailable = paths.find(
-        (relativePath) =>
-          fileMetadataOccurrencesStoreRef.current.get(relativePath) ===
-          "loading",
+      const unavailable = paths.find((relativePath) =>
+        !Array.isArray(
+          fileMetadataOccurrencesStoreRef.current.get(relativePath),
+        ),
       );
       if (unavailable !== undefined) {
+        const state =
+          fileMetadataOccurrencesStoreRef.current.get(unavailable);
+        const reason =
+          state === "failed"
+            ? `Metadata could not be loaded for '${unavailable}'.`
+            : `Authoritative metadata occurrences are still loading for '${unavailable}'.`;
         pushApplicationError(
           errorType,
-          `Authoritative metadata occurrences are still loading for '${unavailable}'. ${blockedAction}`,
+          `${reason} ${blockedAction}`,
           [unavailable],
         );
         return false;

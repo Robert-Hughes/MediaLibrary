@@ -690,6 +690,7 @@ function FileListImpl(
           contextMenuIndex={contextMenu.index}
           selectedIndices={selectedIndices}
           files={files}
+          fileMetadataOccurrences={fileMetadataOccurrences}
           targetDraftEdits={targetDraftEdits}
           onFileOpen={openFileAtIndex}
           onShowInExplorer={onShowInExplorer}
