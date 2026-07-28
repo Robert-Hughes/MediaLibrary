@@ -319,34 +319,19 @@ fn merge_response_label(aggregate: &mut String, next: &str) {
 
 // ── Client ───────────────────────────────────────────────────────────────────
 
-/// Vision-call client. Thin wrapper around `OpenAiHttp` (the shared
-/// reqwest_middleware client with retries) plus the describe-specific
-/// behaviour. Cheap to clone.
+/// Describe-specific client over the shared OpenAI transport.
 #[derive(Clone)]
-pub struct OpenAiClient {
+pub struct OpenAiDescribeClient {
     http: OpenAiHttp,
 }
 
-impl OpenAiClient {
-    /// Wrap an existing `OpenAiHttp`. The normaliser flow constructs
-    /// its own client over the same `OpenAiHttp`, so production code
-    /// can share a single retry middleware across both surfaces.
+impl OpenAiDescribeClient {
+    /// Wrap a task-local `OpenAiHttp`.
     pub fn from_http(http: OpenAiHttp) -> Self {
         Self { http }
     }
 
-    /// Access the underlying HTTP layer. Used by `openai_normalise` to
-    /// build a `OpenAiNormaliseClient` that shares this client's
-    /// retry middleware.
-    pub fn http(&self) -> &OpenAiHttp {
-        &self.http
-    }
-
-    /// Convenience constructor used by `make_openai_client` in `lib.rs`
-    /// and tests. `max_retries` of 3 with exponential backoff is the
-    /// production balance — enough to ride out transient 429s without
-    /// delaying the user beyond ~30s on a hard failure. Tests inject
-    /// `1` to keep the suite fast.
+    /// Convenience constructor for tests and manual diagnostics.
     pub fn new(base_url: impl Into<String>, api_key: impl Into<String>, max_retries: u32) -> Self {
         Self {
             http: OpenAiHttp::new(base_url, api_key, max_retries),
@@ -453,7 +438,7 @@ fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
 /// exact server-counted input token total.  Hard-fails on any HTTP error —
 /// no local-math fallback (deliberate; see `docs/IMAGE_ANALYSIS.md`).
 pub async fn count_input_tokens(
-    client: &OpenAiClient,
+    client: &OpenAiDescribeClient,
     model: &str,
     image_bytes: &[u8],
 ) -> Result<u32, String> {
@@ -586,7 +571,7 @@ fn find_refusal(response: &serde_json::Value) -> Option<String> {
 /// Call `/responses` once for a single image.  Returns parsed structured
 /// output + usage on success; structured error otherwise.
 pub async fn describe_one(
-    client: &OpenAiClient,
+    client: &OpenAiDescribeClient,
     model: &str,
     image_bytes: &[u8],
 ) -> Result<(AiOutput, UsageStats), DescribeError> {
@@ -1033,7 +1018,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let client = OpenAiClient::new(server.uri(), "k", 1);
+        let client = OpenAiDescribeClient::new(server.uri(), "k", 1);
         let (out, usage) = describe_one(&client, "gpt-4o", &tiny_png_bytes())
             .await
             .unwrap();
@@ -1060,7 +1045,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&server)
             .await;
-        let client = OpenAiClient::new(server.uri(), "k", 1);
+        let client = OpenAiDescribeClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
             Err(DescribeError::Incomplete { reason, usage, .. }) => {
                 assert_eq!(reason, "max_output_tokens");
@@ -1113,7 +1098,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&server)
             .await;
-        let client = OpenAiClient::new(server.uri(), "k", 1);
+        let client = OpenAiDescribeClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
             Err(DescribeError::Refused { detail, .. }) => assert_eq!(detail, "cannot help"),
             other => panic!("expected Refused, got {:?}", other),
@@ -1137,7 +1122,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(200).set_body_json(body))
             .mount(&server)
             .await;
-        let client = OpenAiClient::new(server.uri(), "k", 1);
+        let client = OpenAiDescribeClient::new(server.uri(), "k", 1);
         match describe_one(&client, "gpt-4o", &tiny_png_bytes()).await {
             Err(DescribeError::UsageParse { detail, .. }) => {
                 assert!(detail.contains("usage"), "got: {}", detail);
@@ -1189,13 +1174,14 @@ mod tests {
 
     #[tokio::test]
     async fn describe_one_retries_then_succeeds_on_429() {
-        // First call returns 429, second returns 200. RetryTransientMiddleware
-        // should ride through the 429 transparently and the caller never sees
-        // the failure.
+        // First call returns a retryable OpenAI TPM limit, second returns 200.
+        // The shared transport should ride through it transparently.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/responses"))
-            .respond_with(ResponseTemplate::new(429).set_body_string("rate limited"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(serde_json::json!({
+                "error": {"code": "rate_limit_exceeded"}
+            })))
             .up_to_n_times(1)
             .mount(&server)
             .await;
@@ -1208,7 +1194,7 @@ mod tests {
                            "output_tokens": 1, "output_tokens_details": {"reasoning_tokens":0} }
             })))
             .mount(&server).await;
-        let client = OpenAiClient::new(server.uri(), "k", 3);
+        let client = OpenAiDescribeClient::new(server.uri(), "k", 3);
         let (out, _) = describe_one(&client, "gpt-4o", &tiny_png_bytes())
             .await
             .unwrap();
@@ -1236,7 +1222,7 @@ mod tests {
                 )]
             };
         assert!(!image_paths.is_empty(), "at least one image is required");
-        let client = OpenAiClient::new(DEFAULT_BASE_URL, &settings.openai_api_key, 1);
+        let client = OpenAiDescribeClient::new(DEFAULT_BASE_URL, &settings.openai_api_key, 1);
 
         for image_path in image_paths {
             let bytes = load_and_downscale_image(&image_path).expect("load diagnostic image");
@@ -1282,7 +1268,7 @@ mod tests {
             })))
             .mount(&server)
             .await;
-        let client = OpenAiClient::new(server.uri(), "k", 1);
+        let client = OpenAiDescribeClient::new(server.uri(), "k", 1);
         let n = count_input_tokens(&client, "gpt-4o", &tiny_png_bytes())
             .await
             .unwrap();

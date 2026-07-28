@@ -23,7 +23,6 @@ use crate::normalise::{
     AiCallUsage, DescriptionMergePrompt, LocationAiResult, LocationResolvePrompt,
     NormaliseAiClient, NormaliseAiError, TitleGenPrompt,
 };
-use crate::openai_describe::OpenAiClient;
 use crate::openai_http::OpenAiHttp;
 use crate::openai_request::{
     apply_responses_model_parameters, find_output_text, LOW_REASONING_EFFORT,
@@ -139,38 +138,31 @@ pub struct OpenAiNormaliseClient {
 }
 
 impl OpenAiNormaliseClient {
-    /// Construct from an `OpenAiClient` so production code shares the
-    /// same retry middleware between describe and normalise.
-    pub fn new(inner: OpenAiClient, model: impl Into<String>) -> Self {
-        let model = model.into();
-        Self {
-            http: inner.http().clone(),
-            metadata_model: model.clone(),
-            location_model: model,
-        }
-    }
-
-    pub fn with_models(
-        inner: OpenAiClient,
-        metadata_model: impl Into<String>,
-        location_model: impl Into<String>,
-    ) -> Self {
-        Self {
-            http: inner.http().clone(),
-            metadata_model: metadata_model.into(),
-            location_model: location_model.into(),
-        }
-    }
-
-    /// Construct directly over an `OpenAiHttp`. Used by tests that
-    /// don't need the describe-flow wrapper.
-    pub fn from_http(http: OpenAiHttp, model: impl Into<String>) -> Self {
+    /// Construct over a task-local shared HTTP transport.
+    pub fn new(http: OpenAiHttp, model: impl Into<String>) -> Self {
         let model = model.into();
         Self {
             http,
             metadata_model: model.clone(),
             location_model: model,
         }
+    }
+
+    pub fn with_models(
+        http: OpenAiHttp,
+        metadata_model: impl Into<String>,
+        location_model: impl Into<String>,
+    ) -> Self {
+        Self {
+            http,
+            metadata_model: metadata_model.into(),
+            location_model: location_model.into(),
+        }
+    }
+
+    /// Explicit alias retained for tests that emphasize transport injection.
+    pub fn from_http(http: OpenAiHttp, model: impl Into<String>) -> Self {
+        Self::new(http, model)
     }
 }
 

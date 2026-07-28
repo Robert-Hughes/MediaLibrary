@@ -48,9 +48,13 @@ adaptations:
   `DescribeOutcome { fields, usage, raw_json }`.
 - Shared bounded async runner over `Vec<rel_path>`, with completion-order
   progress and the concurrency limit loaded at the start of each run.
-- `reqwest-retry` middleware: exp-backoff on 429/5xx, max 3 attempts,
-  honour `Retry-After`. Each retry attempt emits a `describe_retry` event
-  so the dialog can surface "rate-limited, retrying…".
+- Shared `OpenAiHttp` transport: explicit retries for network failures,
+  408, 5xx, and OpenAI `rate_limit_exceeded` responses. Production uses
+  fixed 0.5s, 1s, 2s, 4s, and 8s delays. A task-local gate pauses sibling
+  workers after a TPM limit and permits one half-open probe before
+  reopening dispatch. `insufficient_quota` and other permanent 4xx
+  responses are never retried. Attempts, cooldowns, recovery, and final
+  failures are written to the app log.
 - Cancellation flag in new `DescribeState` (mirrors `ApplyEditsState`).
   Once set, the runner schedules no new images and lets already-dispatched
   requests finish.
@@ -64,8 +68,6 @@ adaptations:
   - `describe_started { total }` — user confirmed, real work begins
   - `describe_progress { current, total, rel_path, status, error }`
     where `status ∈ { ok, retrying, failed_decode, failed_api, refused, incomplete }`
-  - `describe_retry { rel_path, attempt, reason }` — separate from progress so
-    dialog can show "rate-limited…" inline without bumping the counter
   - `describe_complete { applied: [...], failed: [{rel_path, reason}], usage_summary }`
 
 ### Tauri commands
@@ -226,7 +228,9 @@ as `failed_api` with a clear reason; user can rerun.
 | --------------------------------- | --------------------------------- | ---------------------------------------------------------- |
 | Image decode fails                | `image` crate error pre-call      | Skip image, mark failed, continue batch                    |
 | `/responses/input_tokens` errors  | non-2xx during exact preflight    | Abort estimate (hard fail, no fallback)                    |
-| 429 / 5xx during describe         | reqwest-retry layer               | Auto-retry (≤3) w/ exp-backoff; emit `describe_retry`      |
+| TPM 429 during describe           | OpenAI error code                 | Pause sibling workers; retry with fixed backoff            |
+| Quota/other permanent 429         | OpenAI error code                 | Do not retry; return final failure                         |
+| Network / 408 / 5xx               | shared `OpenAiHttp` transport     | Retry current request with fixed backoff                   |
 | Retries exhausted                 | error returned to handler         | Mark image failed, continue batch                          |
 | Content-moderation refusal        | `response.error` or refusal field | Mark failed with refusal text, continue batch              |
 | `status=="incomplete"`            | response field                    | Mark failed (do not auto-retry); surface raw text in error |
@@ -239,13 +243,14 @@ result phase of the dialog.
 ### Tests
 
 - Mock OpenAI via `wiremock` (or hand-rolled axum mock) — drive happy
-  path, 429-then-200, 5xx-exhausted, incomplete-status, refused-content,
-  malformed-JSON, network drop mid-stream.
+  path, retryable-429-then-200, non-retryable quota 429, single half-open
+  probe, 5xx-exhausted, incomplete-status, refused-content, malformed-JSON,
+  and network drop mid-stream.
 - Unit tests for: cost math, prompt-version bumping, exiftool-config
   materialisation hash check, partial-progress draft persistence,
   cancellation between images.
 - Frontend: Vitest for dialog phase transitions (estimating → confirm →
-  running → done), retry inline note, results list rendering.
+  running → done) and results-list rendering.
 
 ## Coupling to follow-up metadata-normalization feature
 
