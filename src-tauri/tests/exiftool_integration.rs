@@ -942,18 +942,54 @@ fn malformed_truncated_does_not_kill_batch() {
     );
 }
 #[test]
+fn metadata_read_error_is_isolated_from_valid_batch_neighbours() {
+    let Some(good) = fixture_path("keywords_basic.jpg") else {
+        return;
+    };
+    let Some(bad) = fixture_path("metadata_read_error.jpg") else {
+        return;
+    };
+    let (_good_dir, good_dst) = copy_to_temp(&good);
+    let (_bad_dir, bad_dst) = copy_to_temp(&bad);
+
+    let outcome = scanner::read_file_metadata_batch(
+        &["good.jpg".to_string(), "bad.jpg".to_string()],
+        &[good_dst, bad_dst],
+    )
+    .expect("a per-file ExifTool error must not fail the whole batch");
+
+    assert!(
+        outcome
+            .results
+            .iter()
+            .any(|result| result.relative_path == "good.jpg" && !result.occurrences.is_empty()),
+        "the valid neighbour must retain its metadata"
+    );
+    assert_eq!(outcome.failures.len(), 1);
+    assert_eq!(outcome.failures[0].relative_path, "bad.jpg");
+    assert!(
+        outcome.failures[0].error_message.contains("File is empty"),
+        "unexpected failure: {}",
+        outcome.failures[0].error_message
+    );
+}
+#[test]
 fn metadata_read_error_fixture_fails_deterministically() {
     let Some(bad) = fixture_path("metadata_read_error.jpg") else {
         return;
     };
     let (_dir, bad_dst) = copy_to_temp(&bad);
 
-    let error = scanner::read_file_metadata_batch(&["bad.jpg".to_string()], &[bad_dst])
-        .expect_err("the empty JPEG fixture must produce a metadata read failure");
+    let outcome = scanner::read_file_metadata_batch(&["bad.jpg".to_string()], &[bad_dst])
+        .expect("the process-level failure should be classified per file");
 
+    assert!(outcome.results.is_empty());
+    assert_eq!(outcome.failures.len(), 1);
+    assert_eq!(outcome.failures[0].relative_path, "bad.jpg");
     assert!(
-        error.contains("ExifTool display pass failed"),
-        "unexpected error: {error}"
+        outcome.failures[0].error_message.contains("File is empty"),
+        "unexpected failure: {}",
+        outcome.failures[0].error_message
     );
 }
 
