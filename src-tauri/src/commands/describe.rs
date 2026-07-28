@@ -14,7 +14,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::batch_job;
-use crate::commands::shared::{app_data_dir, make_openai_client, resolve_rel};
+use crate::commands::shared::{app_data_dir, make_openai_http, resolve_rel};
 use crate::describe_log;
 use crate::openai_describe;
 use crate::settings::{self, AiCostEstimateMode};
@@ -50,10 +50,8 @@ struct DescribeEstimateErrorPayload {
     message: String,
 }
 
-// `describe_retry` event surface deferred: reqwest_retry doesn't expose
-// a per-attempt hook, so retries are visible in logs but not in the UI
-// for V1. Adding a custom middleware that emits events is the natural
-// follow-up (see docs/IMAGE_ANALYSIS.md "Rate-limit visibility" bullet).
+// The shared OpenAI transport logs retry attempts and coordinates
+// task-local cooldowns across these workers.
 
 // `describe_started`, `describe_progress`, `describe_complete` are
 // emitted through `batch_job::BatchProgressEmitter` — the wire shape
@@ -141,7 +139,7 @@ impl DescribeEventSink for batch_job::BatchProgressEmitter<'_> {
 
 async fn process_describe_item(
     folder_path: Arc<String>,
-    client: openai_describe::OpenAiClient,
+    client: openai_describe::OpenAiDescribeClient,
     model: Arc<String>,
     batch_started_at: std::time::Instant,
     item: DescribeWorkItem,
@@ -430,7 +428,8 @@ pub async fn estimate_describe_cost_cmd(
         return Ok(());
     }
 
-    let (client, _) = make_openai_client(&app)?;
+    let (http, _) = make_openai_http(&app)?;
+    let client = openai_describe::OpenAiDescribeClient::from_http(http);
     let pricing = openai_describe::pricing_for(&s.openai_model)
         .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
     let mut total_input_tokens: u64 = 0;
@@ -517,7 +516,8 @@ pub async fn describe_images_cmd(
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
-    let (client, s) = make_openai_client(&app)?;
+    let (http, s) = make_openai_http(&app)?;
+    let client = openai_describe::OpenAiDescribeClient::from_http(http);
     let pricing = openai_describe::pricing_for(&s.openai_model)
         .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
     let cancel_flag = describe_state.install();

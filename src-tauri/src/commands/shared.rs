@@ -1,9 +1,9 @@
-//! Cross-feature command helpers: per-user app data dir, OpenAI client
+//! Cross-feature command helpers: per-user app data dir, OpenAI transport
 //! construction, relative-to-absolute path resolution.
 
 use tauri::AppHandle;
 
-use crate::openai_describe;
+use crate::openai_http;
 use crate::settings;
 
 /// Locate the per-user app-data directory for settings/log files.  Uses
@@ -17,23 +17,23 @@ pub fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
         .map_err(|e| format!("app_data_dir unavailable: {}", e))
 }
 
-/// Build a fresh OpenAI client using the stored settings. Fails fast if
+/// Build a fresh task-local OpenAI transport using the stored settings. Fails fast if
 /// the API key is empty so the caller can show a "Settings → API key"
 /// hint.
-pub fn make_openai_client(
+pub fn make_openai_http(
     app: &AppHandle,
-) -> Result<(openai_describe::OpenAiClient, settings::Settings), String> {
+) -> Result<(openai_http::OpenAiHttp, settings::Settings), String> {
     let dir = app_data_dir(app)?;
     let s = settings::load_settings(&dir)?;
     if s.openai_api_key.trim().is_empty() {
         return Err("OpenAI API key is not configured. Open Settings to enter your key.".into());
     }
-    let client = openai_describe::OpenAiClient::new(
-        openai_describe::DEFAULT_BASE_URL,
+    let http = openai_http::OpenAiHttp::new(
+        openai_http::DEFAULT_BASE_URL,
         s.openai_api_key.clone(),
-        3,
+        openai_http::DEFAULT_MAX_RETRIES,
     );
-    Ok((client, s))
+    Ok((http, s))
 }
 
 /// Resolve a relative path under `folder_path` to an absolute path,

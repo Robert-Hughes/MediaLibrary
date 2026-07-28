@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::batch_audit_log;
 use crate::batch_job;
-use crate::commands::shared::{app_data_dir, make_openai_client};
+use crate::commands::shared::{app_data_dir, make_openai_http};
 use crate::normalise;
 use crate::openai_describe;
 use crate::openai_normalise;
@@ -410,8 +410,8 @@ pub async fn estimate_normalise_cost_cmd(
     // still walk for outcome counts but emit `ai_token_breakdown=None`
     // so the frontend renders an "API key required" notice if the user
     // selects an AI group.
-    let preflight = match make_openai_client(&app) {
-        Ok((client, settings)) => {
+    let preflight = match make_openai_http(&app) {
+        Ok((http, settings)) => {
             let metadata_model = settings.normalise_metadata_model.clone();
             let location_model = settings.normalise_location_model.clone();
             match (
@@ -420,7 +420,7 @@ pub async fn estimate_normalise_cost_cmd(
             ) {
                 (Some(metadata_pricing), Some(location_pricing)) => Some((
                     openai_normalise::OpenAiNormaliseClient::with_models(
-                        client,
+                        http,
                         metadata_model.clone(),
                         location_model.clone(),
                     ),
@@ -759,9 +759,9 @@ pub async fn normalise_metadata_cmd(
         || enabled_groups.contains(&normalise::NormaliseGroup::Title)
         || enabled_groups.contains(&normalise::NormaliseGroup::Location);
     let ai_client: Option<openai_normalise::OpenAiNormaliseClient> = if wants_ai {
-        match make_openai_client(&app) {
-            Ok((client, settings)) => Some(openai_normalise::OpenAiNormaliseClient::with_models(
-                client,
+        match make_openai_http(&app) {
+            Ok((http, settings)) => Some(openai_normalise::OpenAiNormaliseClient::with_models(
+                http,
                 settings.normalise_metadata_model.clone(),
                 settings.normalise_location_model.clone(),
             )),

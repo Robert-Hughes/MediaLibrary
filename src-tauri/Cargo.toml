@@ -41,8 +41,6 @@ dirs = "6"
 # avoids dragging in OpenSSL on Windows. multipart isn't needed — we send
 # base64 image data inline in JSON.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip"] }
-reqwest-middleware = "0.3"
-reqwest-retry = "0.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 regex = "1"
@@ -67,5 +65,4 @@ strip = "debuginfo"
 
 [profile.dev]
 debug = 1
-
 
