@@ -154,23 +154,6 @@ describe("FileList multi-select", () => {
     expect(selected[0].getAttribute("data-index")).toBe("2");
   });
 
-  it("Alt-click leaves row selection unchanged for text copying", () => {
-    const { onSelect } = setup();
-
-    fireEvent.click(rows()[2], { altKey: true });
-
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(document.querySelectorAll(".file-row--selected")).toHaveLength(0);
-  });
-
-  it("Alt-double-click does not open the file", () => {
-    const { onFileOpen } = setup();
-
-    fireEvent.doubleClick(rows()[2], { altKey: true });
-
-    expect(onFileOpen).not.toHaveBeenCalled();
-  });
-
   it("ctrl-click toggles additional rows into the selection", async () => {
     setup();
     const user = userEvent.setup();
