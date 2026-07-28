@@ -134,8 +134,9 @@ function EstimatingPanel({
   return (
     <div data-testid="normalise-estimating-panel">
       <div className="dialog-hint">
-        Walking {state.total} {state.total === 1 ? "image" : "images"} to
-        estimate AI cost…
+        {state.preparing ? "Preparing metadata for" : "Walking"} {state.total}{" "}
+        {state.total === 1 ? "image" : "images"}
+        {state.preparing ? "…" : " to estimate AI cost…"}
       </div>
       <RunningProgressPanel
         testidPrefix="normalise-estimate"

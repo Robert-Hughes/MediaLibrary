@@ -9,7 +9,7 @@
  *
  * See `docs/NORMALISE_METADATA_PLAN.md` §7, §9.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 import type {
@@ -33,6 +33,8 @@ import {
  */
 export interface NormaliseProgressState {
   phase: BatchJobPhase;
+  /** Frontend request construction before the backend estimate starts. */
+  preparing?: boolean;
   total: number;
   current: number;
   currentFile: string | null;
@@ -51,6 +53,12 @@ export interface NormaliseActions {
     folderPath: string,
     items: NormaliseRequestItem[],
     enabledGroups: NormaliseGroup[],
+  ) => void;
+  startFromPaths: (
+    folderPath: string,
+    relPaths: string[],
+    enabledGroups: NormaliseGroup[],
+    buildItems: () => NormaliseRequestItem[],
   ) => void;
   setEnabledGroups: (groups: NormaliseGroup[]) => void;
   confirm: () => void;
@@ -117,6 +125,17 @@ export function useNormaliseMetadata(
   const [enabledGroupsState, setEnabledGroupsState] = useState<
     NormaliseGroup[]
   >([]);
+  const [preparingPaths, setPreparingPaths] = useState<string[] | null>(null);
+  const prepareTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (prepareTimerRef.current !== null) {
+        clearTimeout(prepareTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const config = useMemo<
     BatchJobConfig<StartArgs, NormaliseEstimate, NormaliseSummary>
@@ -251,24 +270,67 @@ export function useNormaliseMetadata(
     setEnabledGroupsState(groups);
   };
 
+  const startWithItems = (
+    folderPath: string,
+    items: NormaliseRequestItem[],
+    initialEnabledGroups: NormaliseGroup[],
+  ) => {
+    stash.items = items;
+    stash.enabledGroups = [...initialEnabledGroups];
+    stash.confirmedEnabledGroups = [];
+    setEnabledGroupsState(initialEnabledGroups);
+    job.actions.start(folderPath, {
+      items,
+      enabledGroups: initialEnabledGroups,
+    });
+  };
+
   const actions: NormaliseActions = {
-    start: (folderPath, items, initialEnabledGroups) => {
-      stash.items = items;
+    start: startWithItems,
+    startFromPaths: (
+      folderPath,
+      relPaths,
+      initialEnabledGroups,
+      buildItems,
+    ) => {
+      if (prepareTimerRef.current !== null) {
+        clearTimeout(prepareTimerRef.current);
+      }
+      stash.items = [];
       stash.enabledGroups = [...initialEnabledGroups];
       stash.confirmedEnabledGroups = [];
       setEnabledGroupsState(initialEnabledGroups);
-      job.actions.start(folderPath, {
-        items,
-        enabledGroups: initialEnabledGroups,
-      });
+      setPreparingPaths([...relPaths]);
+      prepareTimerRef.current = setTimeout(() => {
+        prepareTimerRef.current = null;
+        const items = buildItems();
+        setPreparingPaths(null);
+        startWithItems(folderPath, items, initialEnabledGroups);
+      }, 0);
     },
     setEnabledGroups,
     confirm: () => {
       stash.confirmedEnabledGroups = structuredClone(stash.enabledGroups);
       job.actions.confirm();
     },
-    cancel: job.actions.cancel,
+    cancel: () => {
+      if (preparingPaths !== null) {
+        if (prepareTimerRef.current !== null) {
+          clearTimeout(prepareTimerRef.current);
+          prepareTimerRef.current = null;
+        }
+        setPreparingPaths(null);
+        stash.items = [];
+        return;
+      }
+      job.actions.cancel();
+    },
     close: () => {
+      if (prepareTimerRef.current !== null) {
+        clearTimeout(prepareTimerRef.current);
+        prepareTimerRef.current = null;
+      }
+      setPreparingPaths(null);
       stash.items = [];
       stash.enabledGroups = [];
       stash.confirmedEnabledGroups = [];
@@ -277,9 +339,30 @@ export function useNormaliseMetadata(
     },
   };
 
+  const preparingState: NormaliseProgressState | null =
+    preparingPaths === null
+      ? null
+      : {
+          phase: "estimating",
+          preparing: true,
+          total: preparingPaths.length,
+          current: 0,
+          currentFile: null,
+          cancelling: false,
+          failures: [],
+          succeeded: [],
+          summary: null,
+          estimate: null,
+          estimateError: null,
+          items: [],
+          enabledGroups: enabledGroupsState,
+        };
+
   return {
-    open: job.open,
-    state: toNormaliseShape(job.state, stash.items, enabledGroupsState),
+    open: preparingState !== null || job.open,
+    state:
+      preparingState ??
+      toNormaliseShape(job.state, stash.items, enabledGroupsState),
     actions,
   };
 }

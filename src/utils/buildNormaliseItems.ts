@@ -25,6 +25,37 @@ import { filterGeneratedMetadataDestinationView } from "./generatedMetadataDesti
 
 type EffectiveMetadataEntry = MetadataValue | null;
 
+/**
+ * Normalise reads a closed set of generated-workflow schemas plus arbitrary
+ * IPTC schemas for the IPTC-presence check. Restricting the effective
+ * projection to those definitions avoids grouping, sorting and deep-cloning
+ * every camera/manufacturer metadata value for every selected file.
+ */
+const NORMALISE_KNOWN_INPUT_IDS: readonly SchemaDefinitionId[] =
+  Object.values(ID);
+
+function normaliseEffectiveIds(input: {
+  occurrences: FileMetadataOccurrencesState | undefined;
+  targetDrafts: TargetDraftCollection | undefined;
+}): SchemaDefinitionId[] {
+  const ids = [...NORMALISE_KNOWN_INPUT_IDS];
+  if (Array.isArray(input.occurrences)) {
+    for (const occurrence of input.occurrences) {
+      if (occurrence.schema_id.table.startsWith("IPTC::")) {
+        ids.push(occurrence.schema_id);
+      }
+    }
+  }
+  if (input.targetDrafts !== undefined) {
+    for (const entry of Object.values(input.targetDrafts)) {
+      if (entry.target.schema_id.table.startsWith("IPTC::")) {
+        ids.push(entry.target.schema_id);
+      }
+    }
+  }
+  return ids;
+}
+
 function metadataValueOnly(
   entry: FileMetadataEntry | undefined,
 ): MetadataValue | null {
@@ -142,12 +173,13 @@ export function buildNormaliseItemForFile(
   occurrences?: FileMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
 ): NormaliseRequestItem {
-  const effective = buildEffectiveMetadataForFile(
-    filterGeneratedMetadataDestinationView({
-      occurrences,
-      targetDrafts,
-    }),
-  );
+  const destinationView = filterGeneratedMetadataDestinationView({
+    occurrences,
+    targetDrafts,
+  });
+  const effective = buildEffectiveMetadataForFile(destinationView, {
+    ids: normaliseEffectiveIds(destinationView),
+  });
   const groupSet = new Set(enabledGroups);
   const groupInputs: NormaliseRequestItem["groupInputs"] = {
     keywords: null,

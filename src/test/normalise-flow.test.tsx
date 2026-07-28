@@ -85,6 +85,29 @@ afterEach(() => {
 });
 
 describe("Metadata-normalisation flow", () => {
+  it("opens from paths before constructing normalise request items", async () => {
+    const { result } = renderHook(() => useNormaliseMetadata());
+    const buildItems = vi.fn(() => [
+      { relPath: "one.jpg" } as NormaliseRequestItem,
+    ]);
+
+    act(() =>
+      result.current.actions.startFromPaths(
+        "/files",
+        ["one.jpg"],
+        ["title"],
+        buildItems,
+      ),
+    );
+
+    expect(result.current.open).toBe(true);
+    expect(result.current.state.phase).toBe("estimating");
+    expect(result.current.state.total).toBe(1);
+    expect(buildItems).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(buildItems).toHaveBeenCalledOnce());
+  });
+
   it("stages one backend progress batch through the batch callback", async () => {
     const edits = mockGeneratedDraftEntries({
       "XMP-dc:Title": {

@@ -405,13 +405,18 @@ function LoadedView({
           // Default enabled groups: every v1 group. User can untick
           // individual groups in the confirm dialog.
           const initialGroups = ALL_NORMALISE_GROUPS;
-          const items = buildNormaliseItems(
+          normalise.actions.startFromPaths(
+            state.folder,
             relPaths,
-            metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
-            state.targetDraftEdits,
-            initialGroups,
+            [...initialGroups],
+            () =>
+              buildNormaliseItems(
+                relPaths,
+                metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
+                state.targetDraftEdits,
+                initialGroups,
+              ),
           );
-          normalise.actions.start(state.folder, items, [...initialGroups]);
         }}
         onCopyPaths={onCopyPaths}
         onBulkEdit={(relativePaths) => {
@@ -485,13 +490,18 @@ function LoadedView({
           onNormalise={(relPath) => {
             if (!actions.canStageGeneratedMetadata([relPath])) return;
             const initialGroups = ALL_NORMALISE_GROUPS;
-            const items = buildNormaliseItems(
+            normalise.actions.startFromPaths(
+              state.folder,
               [relPath],
-              metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
-              state.targetDraftEdits,
-              initialGroups,
+              [...initialGroups],
+              () =>
+                buildNormaliseItems(
+                  [relPath],
+                  metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
+                  state.targetDraftEdits,
+                  initialGroups,
+                ),
             );
-            normalise.actions.start(state.folder, items, [...initialGroups]);
           }}
           onShowInFileExplorer={(relPath) => {
             const idx = displayFiles.findIndex(
