@@ -973,8 +973,21 @@ mod tests {
         .unwrap();
 
         let first_dir = tempdir().unwrap();
-        save_metadata_draft_edits(first_dir.path().to_str().unwrap(), &reconciled).unwrap();
-        let loaded = load_metadata_draft_edits(first_dir.path().to_str().unwrap()).unwrap();
+        fs::create_dir(first_dir.path().join("album")).unwrap();
+        fs::write(first_dir.path().join("album/file.jpg"), b"photo").unwrap();
+        save_metadata_draft_edits(
+            first_dir.path(),
+            first_dir.path().to_str().unwrap(),
+            &reconciled,
+            &crate::draft_edits::DraftRepositoryState::default(),
+        )
+        .unwrap();
+        let loaded = load_metadata_draft_edits(
+            first_dir.path(),
+            first_dir.path().to_str().unwrap(),
+            &crate::draft_edits::DraftRepositoryState::default(),
+        )
+        .unwrap();
         assert_eq!(loaded, reconciled);
 
         let loaded_entries = &loaded["album/file.jpg"];
@@ -992,7 +1005,12 @@ mod tests {
             fs::read_to_string(first_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
                 .unwrap();
         assert_eq!(
-            load_metadata_draft_edits(first_dir.path().to_str().unwrap()).unwrap(),
+            load_metadata_draft_edits(
+                first_dir.path(),
+                first_dir.path().to_str().unwrap(),
+                &crate::draft_edits::DraftRepositoryState::default()
+            )
+            .unwrap(),
             reconciled
         );
         let data_line = first_text
@@ -1000,7 +1018,16 @@ mod tests {
             .find(|line| !line.starts_with("//"))
             .unwrap();
         let json: serde_json::Value = serde_json::from_str(data_line).unwrap();
-        assert_eq!(json["relative_path"], "album/file.jpg");
+        assert!(
+            json["photo_path"]
+                .as_str()
+                .unwrap()
+                .ends_with("album\\file.jpg")
+                || json["photo_path"]
+                    .as_str()
+                    .unwrap()
+                    .ends_with("album/file.jpg")
+        );
         assert!(json["edits"]
             .as_array()
             .unwrap()
@@ -1008,11 +1035,22 @@ mod tests {
             .all(|item| item["target"].get("relative_path").is_none()));
 
         let second_dir = tempdir().unwrap();
-        save_metadata_draft_edits(second_dir.path().to_str().unwrap(), &loaded).unwrap();
-        let second_text =
-            fs::read_to_string(second_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
-                .unwrap();
-        assert_eq!(second_text, first_text);
+        fs::create_dir(second_dir.path().join("album")).unwrap();
+        fs::write(second_dir.path().join("album/file.jpg"), b"photo").unwrap();
+        save_metadata_draft_edits(
+            second_dir.path(),
+            second_dir.path().to_str().unwrap(),
+            &loaded,
+            &crate::draft_edits::DraftRepositoryState::default(),
+        )
+        .unwrap();
+        let second_loaded = load_metadata_draft_edits(
+            second_dir.path(),
+            second_dir.path().to_str().unwrap(),
+            &crate::draft_edits::DraftRepositoryState::default(),
+        )
+        .unwrap();
+        assert_eq!(second_loaded, reconciled);
     }
 
     #[test]

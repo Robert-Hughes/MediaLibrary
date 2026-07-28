@@ -60,16 +60,12 @@ schema-wide removal remains a separate column or multi-file request boundary.
 
 ## Draft and audit persistence
 
-`MediaLibraryTargetDraftEdits.jsonl` is the only draft file read or written.
-Records use persisted `schema_version: 5`; there is no old-shape compatibility
-reader or migration. New Property logical slots contain both exact schema and
+The sole active draft snapshot is `<app-data>/MediaLibraryTargetDraftEdits.jsonl`.
+Records use persisted `schema_version: 6` and canonical absolute `photo_path` identity; opened-folder-relative paths remain a frontend view only. There is no old-shape compatibility reader or migration. New Property logical slots contain both exact schema and
 exact destination, so same-schema destinations do not overwrite one another.
-Duplicate paths, duplicate logical slots and malformed entries are rejected
-before a save can truncate the file.
+Duplicate canonical photo paths, duplicate logical slots and malformed entries are rejected before atomic replacement. Root-scoped saves merge into the central snapshot and preserve records outside the opened root.
 
-`MediaLibraryTargetApplyLog.jsonl` is the only active apply audit. Its existing
-identity marker is unchanged. New schema-version 2 rows retain complete
-targets, semantic values, the single ordered raw-write argument vector and
+The sole active apply audit is `<app-data>/MediaLibraryTargetApplyLog.jsonl`. Its identity marker is unchanged. Schema-version 3 rows use canonical absolute `photo_path` and retain complete targets, semantic values, the single ordered raw-write argument vector and
 status, verification results and reconciliation decisions. Existing rows are
 append-only and are never rewritten.
 
