@@ -360,15 +360,18 @@ impl OpenAiClient {
 ///
 /// Decode failures are returned as an error (commonly: HEIC, RAW, broken
 /// JPEG headers) — the caller marks the image failed and continues the
-/// batch.  Strips metadata as a side effect of the re-encode, which is
-/// fine for our use case: only pixels matter for the vision model.
+/// batch. EXIF orientation is applied to the pixels before resizing. The
+/// re-encode then strips metadata, which is fine because the resulting pixels
+/// are already display-oriented.
 pub fn load_and_downscale_image(path: &Path) -> Result<Vec<u8>, String> {
+    let orientation = crate::image_orientation::primary_orientation(path).unwrap_or(1);
     let img = ImageReader::open(path)
         .map_err(|e| format!("open {}: {}", path.display(), e))?
         .with_guessed_format()
         .map_err(|e| format!("sniff format {}: {}", path.display(), e))?
         .decode()
         .map_err(|e| format!("decode {}: {}", path.display(), e))?;
+    let img = crate::image_orientation::apply(img, orientation);
 
     let (w, h) = (img.width(), img.height());
     let resized = if w.max(h) > MAX_IMAGE_DIMENSION {
@@ -796,6 +799,21 @@ mod tests {
             .write_to(&mut Cursor::new(&mut buf), image::ImageFormat::Png)
             .unwrap();
         buf
+    }
+
+    #[test]
+    fn image_preprocessing_applies_primary_exif_orientation() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../test_images/orientation_rotate90.jpg");
+        let bytes = load_and_downscale_image(&path).expect("preprocess orientation fixture");
+        let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)
+            .expect("preprocessed output should be a JPEG");
+
+        assert_eq!(
+            (image.width(), image.height()),
+            (68, 100),
+            "the 100x68 stored pixels have EXIF orientation 6"
+        );
     }
 
     #[test]

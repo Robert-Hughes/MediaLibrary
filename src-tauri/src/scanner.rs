@@ -1735,6 +1735,9 @@ fn extract_exif_thumbnail(path: &Path) -> Option<String> {
         Ok(e) => e,
         Err(_) => return None,
     };
+    let orientation = crate::image_orientation::orientation_from_exif(&exif, exif::In::THUMBNAIL)
+        .or_else(|| crate::image_orientation::orientation_from_exif(&exif, exif::In::PRIMARY))
+        .unwrap_or(1);
 
     // Look for thumbnail in EXIF data
     let offset_field = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
@@ -1770,11 +1773,20 @@ fn extract_exif_thumbnail(path: &Path) -> Option<String> {
                 if let Ok(img) = image::load_from_memory(thumbnail_bytes) {
                     let largest = img.width().max(img.height());
                     if largest >= 160 {
-                        // Embedded thumbnail is large enough — use as-is
-                        return Some(base64::Engine::encode(
-                            &base64::engine::general_purpose::STANDARD,
-                            thumbnail_bytes,
-                        ));
+                        if orientation == 1 {
+                            // Embedded thumbnail is already display-oriented,
+                            // so preserve the fast byte-for-byte path.
+                            return Some(base64::Engine::encode(
+                                &base64::engine::general_purpose::STANDARD,
+                                thumbnail_bytes,
+                            ));
+                        }
+
+                        // IFD1 orientation lives outside the embedded JPEG.
+                        // Once extracted, browsers cannot see it, so normalize
+                        // the pixels and emit a self-contained thumbnail.
+                        let oriented = crate::image_orientation::apply(img, orientation);
+                        return encode_thumbnail_jpeg(&oriented);
                     }
                     // Embedded thumbnail is too small; fall through to full decode
                 }
@@ -1808,20 +1820,25 @@ fn find_tiff_offset(data: &[u8]) -> Option<usize> {
     None
 }
 
-fn full_decode_thumbnail(path: &Path) -> Option<String> {
-    let img = image::open(path).ok()?;
-    let thumb = img.thumbnail(160, 160);
+fn encode_thumbnail_jpeg(img: &image::DynamicImage) -> Option<String> {
     let mut buf = Vec::new();
-    thumb
-        .write_to(
-            &mut std::io::Cursor::new(&mut buf),
-            image::ImageFormat::Jpeg,
-        )
-        .ok()?;
+    img.write_to(
+        &mut std::io::Cursor::new(&mut buf),
+        image::ImageFormat::Jpeg,
+    )
+    .ok()?;
     Some(base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         &buf,
     ))
+}
+
+fn full_decode_thumbnail(path: &Path) -> Option<String> {
+    let orientation = crate::image_orientation::primary_orientation(path).unwrap_or(1);
+    let img = image::open(path).ok()?;
+    let img = crate::image_orientation::apply(img, orientation);
+    let thumb = img.thumbnail(160, 160);
+    encode_thumbnail_jpeg(&thumb)
 }
 
 #[cfg(test)]
@@ -3722,6 +3739,104 @@ mod tests {
         let result = thumbnail_for(&path);
         assert!(result.is_some());
         assert!(!result.unwrap().is_empty());
+    }
+
+    fn decode_thumbnail(encoded: &str) -> image::DynamicImage {
+        let bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded).unwrap();
+        image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg).unwrap()
+    }
+
+    #[test]
+    fn full_decode_thumbnail_applies_primary_exif_orientation() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../test_images/orientation_rotate90.jpg");
+        let encoded = thumbnail_for(&path).expect("fixture should produce a thumbnail");
+        let thumbnail = decode_thumbnail(&encoded);
+
+        assert_eq!(
+            (thumbnail.width(), thumbnail.height()),
+            (109, 160),
+            "the 100x68 stored pixels have EXIF orientation 6 before thumbnail sizing"
+        );
+    }
+
+    fn solid_jpeg(width: u32, height: u32, color: image::Rgb<u8>) -> Vec<u8> {
+        let image = image::RgbImage::from_pixel(width, height, color);
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgb8(image)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        bytes
+    }
+
+    fn jpeg_with_oriented_embedded_thumbnail() -> Vec<u8> {
+        let primary = solid_jpeg(320, 200, image::Rgb([10, 20, 30]));
+        let thumbnail = solid_jpeg(200, 120, image::Rgb([40, 50, 60]));
+
+        // Little-endian TIFF with Orientation=1 in IFD0 and, in IFD1,
+        // Orientation=6 plus an embedded JPEG at TIFF-relative offset 68.
+        let mut tiff = Vec::new();
+        tiff.extend_from_slice(b"II");
+        tiff.extend_from_slice(&42_u16.to_le_bytes());
+        tiff.extend_from_slice(&8_u32.to_le_bytes());
+
+        tiff.extend_from_slice(&1_u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0112_u16.to_le_bytes());
+        tiff.extend_from_slice(&3_u16.to_le_bytes());
+        tiff.extend_from_slice(&1_u32.to_le_bytes());
+        tiff.extend_from_slice(&1_u16.to_le_bytes());
+        tiff.extend_from_slice(&0_u16.to_le_bytes());
+        tiff.extend_from_slice(&26_u32.to_le_bytes());
+
+        tiff.extend_from_slice(&3_u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0112_u16.to_le_bytes());
+        tiff.extend_from_slice(&3_u16.to_le_bytes());
+        tiff.extend_from_slice(&1_u32.to_le_bytes());
+        tiff.extend_from_slice(&6_u16.to_le_bytes());
+        tiff.extend_from_slice(&0_u16.to_le_bytes());
+        tiff.extend_from_slice(&0x0201_u16.to_le_bytes());
+        tiff.extend_from_slice(&4_u16.to_le_bytes());
+        tiff.extend_from_slice(&1_u32.to_le_bytes());
+        tiff.extend_from_slice(&68_u32.to_le_bytes());
+        tiff.extend_from_slice(&0x0202_u16.to_le_bytes());
+        tiff.extend_from_slice(&4_u16.to_le_bytes());
+        tiff.extend_from_slice(&1_u32.to_le_bytes());
+        tiff.extend_from_slice(&(thumbnail.len() as u32).to_le_bytes());
+        tiff.extend_from_slice(&0_u32.to_le_bytes());
+        assert_eq!(tiff.len(), 68);
+        tiff.extend_from_slice(&thumbnail);
+
+        let mut app1 = b"Exif\0\0".to_vec();
+        app1.extend_from_slice(&tiff);
+        let app1_length = u16::try_from(app1.len() + 2).unwrap();
+
+        let mut jpeg = Vec::new();
+        jpeg.extend_from_slice(&primary[..2]);
+        jpeg.extend_from_slice(&[0xff, 0xe1]);
+        jpeg.extend_from_slice(&app1_length.to_be_bytes());
+        jpeg.extend_from_slice(&app1);
+        jpeg.extend_from_slice(&primary[2..]);
+        jpeg
+    }
+
+    #[test]
+    fn embedded_thumbnail_applies_ifd1_exif_orientation() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("embedded-orientation.jpg");
+        fs::write(&path, jpeg_with_oriented_embedded_thumbnail()).unwrap();
+
+        let encoded = thumbnail_for(&path).expect("embedded thumbnail should be extracted");
+        let thumbnail = decode_thumbnail(&encoded);
+
+        assert_eq!(
+            (thumbnail.width(), thumbnail.height()),
+            (120, 200),
+            "the embedded thumbnail's IFD1 orientation should be applied"
+        );
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub mod draft_reconciliation;
 pub mod exiftool_config;
 pub mod geocode;
 pub mod geocode_cache;
+mod image_orientation;
 pub mod known_ids;
 pub mod metadata_draft_target;
 pub mod metadata_occurrence;
