@@ -737,8 +737,16 @@ fn show_in_explorer(folder: String, relative_path: String) -> Result<(), String>
 fn set_window_title(title: String, app: AppHandle) -> Result<(), String> {
     app.get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?
-        .set_title(&title)
+        .set_title(&display_window_title(&title))
         .map_err(|e| e.to_string())
+}
+
+fn display_window_title(title: &str) -> String {
+    if cfg!(debug_assertions) {
+        format!("{title} (DEBUG)")
+    } else {
+        title.to_owned()
+    }
 }
 
 /// Look up schema info for a single tag.  Returns `Ok(None)` when the registry
@@ -1258,6 +1266,16 @@ mod tests {
         assert!(source.contains(".manage(draft_edits::DraftRepositoryState::default())"));
         assert!(source.contains(".manage(apply_log::ApplyLogState::default())"));
     }
+
+    #[test]
+    fn debug_window_titles_are_visibly_marked() {
+        let title = display_window_title("Media Library");
+        if cfg!(debug_assertions) {
+            assert_eq!(title, "Media Library (DEBUG)");
+        } else {
+            assert_eq!(title, "Media Library");
+        }
+    }
 }
 
 // ── App entry point ───────────────────────────────────────────────────────────
@@ -1331,7 +1349,10 @@ pub fn run() {
             commands::normalise::cancel_normalise_cmd,
             commands::normalise::estimate_normalise_cost_cmd
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            app.get_webview_window("main")
+                .expect("main window should exist during setup")
+                .set_title(&display_window_title("Media Library"))?;
             log::info!(
                 "[startup] tauri setup() callback fired +{}ms wall={}ms",
                 since_startup_ms(),
