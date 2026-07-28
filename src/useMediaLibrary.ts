@@ -802,7 +802,9 @@ export function useMediaLibrary(
         ) {
           let newlyFailed = 0;
           for (const path of payload.affected_files) {
-            if (fileMetadataOccurrencesStoreRef.current.get(path) === "loading") {
+            if (
+              fileMetadataOccurrencesStoreRef.current.get(path) === "loading"
+            ) {
               newlyFailed += 1;
             }
             fileMetadataOccurrencesStoreRef.current.setFailed(
@@ -1138,23 +1140,21 @@ export function useMediaLibrary(
     ): boolean => {
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
-      const unavailable = paths.find((relativePath) =>
-        !Array.isArray(
-          fileMetadataOccurrencesStoreRef.current.get(relativePath),
-        ),
+      const unavailable = paths.find(
+        (relativePath) =>
+          !Array.isArray(
+            fileMetadataOccurrencesStoreRef.current.get(relativePath),
+          ),
       );
       if (unavailable !== undefined) {
-        const state =
-          fileMetadataOccurrencesStoreRef.current.get(unavailable);
+        const state = fileMetadataOccurrencesStoreRef.current.get(unavailable);
         const reason =
           state === "failed"
             ? `Metadata could not be loaded for '${unavailable}'.`
             : `Authoritative metadata occurrences are still loading for '${unavailable}'.`;
-        pushApplicationError(
-          errorType,
-          `${reason} ${blockedAction}`,
-          [unavailable],
-        );
+        pushApplicationError(errorType, `${reason} ${blockedAction}`, [
+          unavailable,
+        ]);
         return false;
       }
       return true;

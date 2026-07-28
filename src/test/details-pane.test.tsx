@@ -281,7 +281,9 @@ describe("DetailsPane component", () => {
         "Metadata could not be loaded for this file.",
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByTestId("details-section-empty")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("details-section-empty"),
+    ).not.toBeInTheDocument();
   });
 
   it("shows empty state when metadata has no keys", () => {
