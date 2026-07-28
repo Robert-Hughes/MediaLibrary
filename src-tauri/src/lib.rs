@@ -1267,6 +1267,13 @@ mod tests {
         assert!(!state.wait_until_finished(Duration::from_millis(50)));
         assert!(start.elapsed() >= Duration::from_millis(50));
     }
+
+    #[test]
+    fn app_builder_registers_central_metadata_persistence_state() {
+        let source = include_str!("lib.rs");
+        assert!(source.contains(".manage(draft_edits::DraftRepositoryState::default())"));
+        assert!(source.contains(".manage(apply_log::ApplyLogState::default())"));
+    }
 }
 
 // ── App entry point ───────────────────────────────────────────────────────────
@@ -1304,6 +1311,8 @@ pub fn run() {
         .manage(ActiveQueues::new())
         .manage(apply_batch::ApplyEditsState::new())
         .manage(openai_describe::DescribeState::default())
+        .manage(draft_edits::DraftRepositoryState::default())
+        .manage(apply_log::ApplyLogState::default())
         .manage(geocode::GeocodeState::default())
         .manage(normalise::NormaliseState::default())
         .invoke_handler(tauri::generate_handler![
