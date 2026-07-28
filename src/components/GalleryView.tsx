@@ -255,9 +255,8 @@ export function GalleryView({
     subscribeMetadata,
     () => fileMetadataOccurrences.get(file?.relative_path ?? ""),
   );
-  const metadataFailure = useSyncExternalStore(
-    subscribeMetadata,
-    () => fileMetadataOccurrences.getFailure(file?.relative_path ?? ""),
+  const metadataFailure = useSyncExternalStore(subscribeMetadata, () =>
+    fileMetadataOccurrences.getFailure(file?.relative_path ?? ""),
   );
 
   // Resolve the asset URL whenever the current file changes. The media remains

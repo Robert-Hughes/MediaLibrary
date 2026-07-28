@@ -134,9 +134,7 @@ export type FileMetadataEntry = MetadataValue & {
 };
 
 export type FileMetadataOccurrencesState =
-  | "loading"
-  | "failed"
-  | MetadataOccurrences;
+  "loading" | "failed" | MetadataOccurrences;
 export type FileMetadataOccurrencesListener = (
   path: string,
   value: FileMetadataOccurrencesState,
@@ -164,7 +162,8 @@ export class FileMetadataOccurrencesStore {
   }
 
   setFailed(path: string, error: string): void {
-    const changed = this.data.get(path) !== "failed" || this.failures.get(path) !== error;
+    const changed =
+      this.data.get(path) !== "failed" || this.failures.get(path) !== error;
     if (!changed) return;
     this.failures.set(path, error);
     this.data.set(path, "failed");

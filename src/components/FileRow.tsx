@@ -153,9 +153,8 @@ export const FileRow = memo(function FileRow({
     subscribeOccurrences,
     getOccurrencesSnapshot,
   );
-  const metadataFailure = useSyncExternalStore(
-    subscribeOccurrences,
-    () => fileMetadataOccurrences.getFailure(file.relative_path),
+  const metadataFailure = useSyncExternalStore(subscribeOccurrences, () =>
+    fileMetadataOccurrences.getFailure(file.relative_path),
   );
   const metadata = useMemo(
     () =>

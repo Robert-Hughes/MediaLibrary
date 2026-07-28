@@ -70,7 +70,8 @@ describe("FileListContextMenu bulk metadata entry", () => {
       expect(screen.getByRole("button", { name })).toBeDisabled();
     }
     expect(screen.getByRole("button", { name: /Copy Paths/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Discard all edits/ })).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: /Discard all edits/ }),
+    ).toBeEnabled();
   });
-
 });
