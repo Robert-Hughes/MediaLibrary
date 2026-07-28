@@ -43,7 +43,7 @@ describe("column resize handles", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -65,7 +65,7 @@ describe("column resize handles", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -90,7 +90,7 @@ describe("column resize handles", () => {
           { key: "date_created", kind: "os" },
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -115,7 +115,7 @@ describe("column resize handles", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[imgCol("IFD0:Model")]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -142,7 +142,7 @@ describe("column resize handles", () => {
         columnWidths={{}}
         onColumnWidthChange={onColumnWidthChange}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -178,7 +178,7 @@ describe("column resize handles", () => {
         columnWidths={{ preview: 52 }}
         onColumnWidthChange={onColumnWidthChange}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -249,7 +249,7 @@ describe("column resize handles", () => {
             setColumnWidths({ [col]: width });
           }}
           {...defaultSortProps}
-          selectedIndex={null}
+          selectedPath={null}
           onSelect={() => {}}
           onShowInExplorer={() => {}}
           onVisibilityChange={() => {}}
@@ -298,7 +298,7 @@ describe("column resize handles", () => {
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -325,7 +325,7 @@ describe("column resize handles", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -357,7 +357,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         columnWidths={{ preview: 84, relative_path: 350, date_modified: 140 }}
         onColumnWidthChange={() => {}}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -389,7 +389,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         columnWidths={{ preview: 84 }}
         onColumnWidthChange={() => {}}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -416,7 +416,7 @@ describe("buildGridTemplate (via rendered styles)", () => {
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}

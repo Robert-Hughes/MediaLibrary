@@ -44,7 +44,7 @@ describe("FileList per-column kind labels", () => {
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -65,7 +65,7 @@ describe("FileList per-column kind labels", () => {
         thumbnails={thumbnails}
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[osCol("date_modified")]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -86,7 +86,7 @@ describe("FileList per-column kind labels", () => {
         thumbnails={thumbnails}
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -107,7 +107,7 @@ describe("FileList per-column kind labels", () => {
         thumbnails={thumbnails}
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -147,7 +147,7 @@ describe("FileList per-column kind labels", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
           imgCol("IFD0:Model"),
         ]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -173,7 +173,7 @@ describe("FileList kind-label context menu", () => {
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -198,7 +198,7 @@ describe("FileList kind-label context menu", () => {
         thumbnails={thumbnails}
         fileMetadataOccurrences={fileMetadata}
         visibleColumns={[imgCol("ExifIFD:DateTimeOriginal")]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -228,7 +228,7 @@ describe("FileList kind-label context menu", () => {
           osCol("date_modified"),
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}

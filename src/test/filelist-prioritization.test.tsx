@@ -61,7 +61,7 @@ describe("FileList prioritization optimization", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
@@ -100,7 +100,7 @@ describe("FileList prioritization optimization", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
@@ -135,7 +135,7 @@ describe("FileList prioritization optimization", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
@@ -167,7 +167,7 @@ describe("FileList prioritization optimization", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
@@ -207,7 +207,7 @@ describe("FileList prioritization optimization", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
@@ -245,7 +245,7 @@ describe("FileList prioritization optimization", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
@@ -284,7 +284,7 @@ describe("FileList prioritization optimization", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={onVisibilityChangeMock}
@@ -331,7 +331,7 @@ describe("initial-kickstart prioritization fires once per scan", () => {
           fileMetadataOccurrences={metadata}
           visibleColumns={[]}
           {...defaultSortProps}
-          selectedIndex={null}
+          selectedPath={null}
           onSelect={() => {}}
           onShowInExplorer={() => {}}
           onVisibilityChange={onVisibilityChange}

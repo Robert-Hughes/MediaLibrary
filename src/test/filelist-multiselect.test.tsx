@@ -65,7 +65,7 @@ function setup(props: SetupProps = {}) {
       visibleColumns={[]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
-      selectedIndex={null}
+      selectedPath={null}
       onSelect={onSelect}
       onShowInExplorer={onShowInExplorer}
       onVisibilityChange={vi.fn()}
@@ -116,8 +116,10 @@ function setupStateful(
   }
   const onFileOpen = vi.fn();
   function Wrapper() {
-    const [selectedIndex, setSelectedIndex] = useState<number | null>(
-      opts.initialIndex ?? null,
+    const [selectedPath, setSelectedPath] = useState<string | null>(
+      typeof opts.initialIndex === "number"
+        ? (files[opts.initialIndex]?.relative_path ?? null)
+        : null,
     );
     return (
       <FileList
@@ -128,8 +130,8 @@ function setupStateful(
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={selectedIndex}
-        onSelect={setSelectedIndex}
+        selectedPath={selectedPath}
+        onSelect={setSelectedPath}
         onShowInExplorer={vi.fn()}
         onVisibilityChange={vi.fn()}
         onFileOpen={onFileOpen}
@@ -233,7 +235,7 @@ describe("FileList context menu (multi-select)", () => {
     fireEvent.contextMenu(rows()[3]);
     const view = await screen.findByRole("button", { name: /^View/ });
     await userEvent.click(view);
-    expect(onFileOpen).toHaveBeenCalledWith(1);
+    expect(onFileOpen).toHaveBeenCalledWith("1.jpg");
   });
 
   it("Show in File Explorer targets the first selected file only", async () => {
@@ -352,7 +354,7 @@ describe("FileList context menu (multi-select)", () => {
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={vi.fn()}
@@ -573,39 +575,39 @@ describe("FileList keyboard navigation", () => {
   beforeEach(() => cleanup());
 
   it("ArrowDown selects the next row", async () => {
-    const { onSelect } = setup({ selectedIndex: 1 });
+    const { onSelect } = setup({ selectedPath: "1.jpg" });
     fireEvent.keyDown(document, { key: "ArrowDown" });
-    expect(onSelect).toHaveBeenLastCalledWith(2);
+    expect(onSelect).toHaveBeenLastCalledWith("2.jpg");
   });
 
   it("ArrowUp selects the previous row", async () => {
-    const { onSelect } = setup({ selectedIndex: 3 });
+    const { onSelect } = setup({ selectedPath: "3.jpg" });
     fireEvent.keyDown(document, { key: "ArrowUp" });
-    expect(onSelect).toHaveBeenLastCalledWith(2);
+    expect(onSelect).toHaveBeenLastCalledWith("2.jpg");
   });
 
   it("ArrowDown from no selection lands on the first row", async () => {
-    const { onSelect } = setup({ selectedIndex: null });
+    const { onSelect } = setup({ selectedPath: null });
     fireEvent.keyDown(document, { key: "ArrowDown" });
-    expect(onSelect).toHaveBeenLastCalledWith(0);
+    expect(onSelect).toHaveBeenLastCalledWith("0.jpg");
   });
 
   it("ArrowDown clamps at the last row", async () => {
-    const { onSelect } = setup({ selectedIndex: 4 });
+    const { onSelect } = setup({ selectedPath: "4.jpg" });
     fireEvent.keyDown(document, { key: "ArrowDown" });
-    expect(onSelect).toHaveBeenLastCalledWith(4);
+    expect(onSelect).toHaveBeenLastCalledWith("4.jpg");
   });
 
   it("Home jumps to the first row, End jumps to the last", async () => {
-    const { onSelect } = setup({ selectedIndex: 2 });
+    const { onSelect } = setup({ selectedPath: "2.jpg" });
     fireEvent.keyDown(document, { key: "Home" });
-    expect(onSelect).toHaveBeenLastCalledWith(0);
+    expect(onSelect).toHaveBeenLastCalledWith("0.jpg");
     fireEvent.keyDown(document, { key: "End" });
-    expect(onSelect).toHaveBeenLastCalledWith(4);
+    expect(onSelect).toHaveBeenLastCalledWith("4.jpg");
   });
 
   it("Ctrl+A selects every row", async () => {
-    setup({ selectedIndex: 0 });
+    setup({ selectedPath: "0.jpg" });
     fireEvent.keyDown(document, { key: "a", ctrlKey: true });
     const selected = document.querySelectorAll(".file-row--selected");
     expect(selected.length).toBe(5);
@@ -631,7 +633,7 @@ describe("FileList keyboard navigation", () => {
   });
 
   it("ignores arrow keys when focus is in a text input", async () => {
-    const { onSelect } = setup({ selectedIndex: 1 });
+    const { onSelect } = setup({ selectedPath: "1.jpg" });
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
@@ -641,26 +643,26 @@ describe("FileList keyboard navigation", () => {
   });
 
   it("PageDown jumps roughly one page down and clamps at the last row", () => {
-    const { onSelect } = setup({ selectedIndex: 1 });
+    const { onSelect } = setup({ selectedPath: "1.jpg" });
     // jsdom reports clientHeight=0, so the handler falls back to a 10-row page step.
     fireEvent.keyDown(document, { key: "PageDown" });
-    expect(onSelect).toHaveBeenLastCalledWith(4);
+    expect(onSelect).toHaveBeenLastCalledWith("4.jpg");
   });
 
   it("PageUp jumps roughly one page up and clamps at the first row", () => {
-    const { onSelect } = setup({ selectedIndex: 4 });
+    const { onSelect } = setup({ selectedPath: "4.jpg" });
     fireEvent.keyDown(document, { key: "PageUp" });
-    expect(onSelect).toHaveBeenLastCalledWith(0);
+    expect(onSelect).toHaveBeenLastCalledWith("0.jpg");
   });
 
   it("Enter opens the currently selected file", () => {
-    const { onFileOpen } = setup({ selectedIndex: 2 });
+    const { onFileOpen } = setup({ selectedPath: "2.jpg" });
     fireEvent.keyDown(document, { key: "Enter" });
-    expect(onFileOpen).toHaveBeenCalledWith(2);
+    expect(onFileOpen).toHaveBeenCalledWith("2.jpg");
   });
 
   it("Enter is a no-op when nothing is selected", () => {
-    const { onFileOpen } = setup({ selectedIndex: null });
+    const { onFileOpen } = setup({ selectedPath: null });
     fireEvent.keyDown(document, { key: "Enter" });
     expect(onFileOpen).not.toHaveBeenCalled();
   });

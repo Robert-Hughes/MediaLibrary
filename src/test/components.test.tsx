@@ -39,10 +39,10 @@ function renderList(
   files: FileInfo[],
   opts: {
     thumbOverrides?: Record<string, string>;
-    selectedIndex?: number | null;
-    onSelect?: (i: number | null) => void;
-    onFileOpen?: (i: number) => void;
-    onShowInExplorer?: (i: number) => void;
+    selectedPath?: string | null;
+    onSelect?: (path: string | null) => void;
+    onFileOpen?: (path: string) => void;
+    onShowInExplorer?: (index: number) => void;
     visibleColumns?: import("../types").VisibleColumn[];
     onSelectColumns?: () => void;
   } = {},
@@ -61,7 +61,7 @@ function renderList(
           imgCol("IFD0:Model"),
         ]
       }
-      selectedIndex={opts.selectedIndex ?? null}
+      selectedPath={opts.selectedPath ?? null}
       onSelect={opts.onSelect ?? (() => {})}
       onShowInExplorer={opts.onShowInExplorer ?? (() => {})}
       sortConfig={{ primary: null, secondary: null }}
@@ -191,7 +191,7 @@ describe("FileList", () => {
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={noop}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={noop}
         onShowInExplorer={noop}
         onVisibilityChange={noop}
@@ -245,7 +245,7 @@ describe("FileList", () => {
         ]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={noop}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={noop}
         onShowInExplorer={noop}
         onVisibilityChange={noop}
@@ -266,7 +266,7 @@ describe("FileList", () => {
 
     const rows = screen.getAllByTestId("file-row");
     await userEvent.click(rows[1]);
-    expect(onSelect).toHaveBeenCalledWith(1);
+    expect(onSelect).toHaveBeenCalledWith("b.jpg");
   });
 
   it("calls onFileOpen with the correct index when a row is double-clicked", async () => {
@@ -276,12 +276,12 @@ describe("FileList", () => {
 
     const rows = screen.getAllByTestId("file-row");
     await userEvent.dblClick(rows[1]);
-    expect(onFileOpen).toHaveBeenCalledWith(1);
+    expect(onFileOpen).toHaveBeenCalledWith("b.jpg");
   });
 
   it("applies selected class to the correct row", () => {
     const files = makeFiles(["a.jpg", "b.jpg"]);
-    renderList(files, { selectedIndex: 1 });
+    renderList(files, { selectedPath: "b.jpg" });
 
     const rows = screen.getAllByTestId("file-row");
     expect(rows[0]).not.toHaveClass("file-row--selected");

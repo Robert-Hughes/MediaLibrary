@@ -2,7 +2,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi, type MockTauriApi } from "./mockTauriApi";
-import { makeFile, makeFiles, testId } from "./factories";
+import { makeFile, testId } from "./factories";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataApplyFileResult,
@@ -315,100 +315,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("navigateGallery increments and decrements", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => {
-      await result.current[1].openFolder();
-    });
-    makeFiles(["a.jpg", "b.jpg", "c.jpg"]).forEach((p) =>
-      act(() => {
-        mock.emitFileFound(p);
-      }),
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150);
-    });
-    act(() => {
-      result.current[1].openGallery(1);
-    });
-    act(() => {
-      result.current[1].navigateGallery(1);
-    });
-    let state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(2);
-    act(() => {
-      result.current[1].navigateGallery(-1);
-    });
-    state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
-  });
-
-  it("navigateGallery respects listLength when clamping", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => {
-      await result.current[1].openFolder();
-    });
-    makeFiles(["a.jpg", "b.jpg", "c.jpg"]).forEach((p) =>
-      act(() => {
-        mock.emitFileFound(p);
-      }),
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150);
-    });
-    act(() => {
-      result.current[1].openGallery(0);
-    });
-    act(() => {
-      result.current[1].navigateGallery(1, { listLength: 2 });
-    });
-    let state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
-    act(() => {
-      result.current[1].navigateGallery(1, { listLength: 2 });
-    });
-    state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
-  });
-
-  it("navigateGallery clamps at boundaries", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => {
-      await result.current[1].openFolder();
-    });
-    makeFiles(["a.jpg", "b.jpg"]).forEach((p) =>
-      act(() => {
-        mock.emitFileFound(p);
-      }),
-    );
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(150);
-    });
-    act(() => {
-      result.current[1].openGallery(0);
-    });
-    act(() => {
-      result.current[1].navigateGallery(-1);
-    });
-    let state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(0);
-    act(() => {
-      result.current[1].openGallery(1);
-    });
-    act(() => {
-      result.current[1].navigateGallery(1);
-    });
-    state = result.current[0];
-    if (state.kind === "loaded") expect(state.galleryIndex).toBe(1);
-  });
-
-  it("selectFile updates selectedIndex", async () => {
+  it("selectFile stores the selected relative path", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -418,17 +325,18 @@ describe("useMediaLibrary", () => {
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
-
-    act(() => {
-      result.current[1].selectFile(0);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
     });
-    expect(result.current[0].kind).toBe("loaded");
-    if (result.current[0].kind === "loaded") {
-      expect(result.current[0].selectedIndex).toBe(0);
-    }
+    act(() => {
+      result.current[1].selectFile("a.jpg");
+    });
+    const state = result.current[0];
+    if (state.kind === "loaded") expect(state.selectedPath).toBe("a.jpg");
+    act(() => result.current[1].closeFolder());
   });
 
-  it("openGallery also sets selectedIndex", async () => {
+  it("openGallery stores and selects the relative path", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -438,47 +346,19 @@ describe("useMediaLibrary", () => {
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
-
-    act(() => {
-      result.current[1].openGallery(0);
-    });
-    const state = result.current[0];
-    if (state.kind === "loaded") {
-      expect(state.galleryIndex).toBe(0);
-      expect(state.selectedIndex).toBe(0);
-    }
-  });
-
-  it("navigateGallery syncs selectedIndex", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => {
-      await result.current[1].openFolder();
-    });
-    makeFiles(["a.jpg", "b.jpg"]).forEach((p) =>
-      act(() => {
-        mock.emitFileFound(p);
-      }),
-    );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
     });
-
     act(() => {
-      result.current[1].openGallery(0);
+      result.current[1].openGallery("a.jpg");
     });
-    act(() => {
-      result.current[1].navigateGallery(1);
-    });
-
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.galleryIndex).toBe(1);
-      expect(state.selectedIndex).toBe(1);
+      expect(state.galleryPath).toBe("a.jpg");
+      expect(state.selectedPath).toBe("a.jpg");
     }
+    act(() => result.current[1].closeFolder());
   });
-
   it("showInExplorer passes folder and relativePath separately to the backend and is called once", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("C:/MyFiles");

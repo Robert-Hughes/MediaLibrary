@@ -415,7 +415,7 @@ describe("FileList sort indicator", () => {
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -439,7 +439,7 @@ describe("FileList sort indicator", () => {
           secondary: null,
         }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -465,7 +465,7 @@ describe("FileList sort indicator", () => {
           secondary: null,
         }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -489,7 +489,7 @@ describe("FileList sort indicator", () => {
         visibleColumns={[{ key: "date_modified", kind: "os" }]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={onSortChange}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -518,7 +518,7 @@ describe("FileList sort indicator", () => {
           secondary: null,
         }}
         onSortChange={onSortChange}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -549,7 +549,7 @@ describe("FileList sort indicator", () => {
           secondary: osSortKey("date_created", "desc"),
         }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -583,7 +583,7 @@ describe("FileList sortingDisabled", () => {
         sortConfig={sortConfig}
         onSortChange={() => {}}
         sortingDisabled
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
@@ -603,7 +603,7 @@ describe("FileList sortingDisabled", () => {
       visibleColumns: [osCol("date_modified")],
       sortConfig,
       onSortChange: () => {},
-      selectedIndex: null,
+      selectedPath: null,
       onSelect: () => {},
       onShowInExplorer: () => {},
       onVisibilityChange: () => {},
@@ -643,7 +643,7 @@ describe("FileList sortingDisabled", () => {
         sortConfig={imagePrimary}
         onSortChange={onSortChange}
         sortingDisabled
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}

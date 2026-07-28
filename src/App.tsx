@@ -199,18 +199,33 @@ function LoadedView({
     });
   }, [bulkEditPaths, state.files]);
 
+  const galleryIndex = useMemo(
+    () =>
+      state.galleryPath === null
+        ? -1
+        : displayFiles.findIndex(
+            (file) => file.relative_path === state.galleryPath,
+          ),
+    [displayFiles, state.galleryPath],
+  );
+
   useEffect(() => {
-    const len = displayFiles.length;
-    if (state.selectedIndex !== null && state.selectedIndex >= len) {
+    if (
+      state.selectedPath !== null &&
+      !displayFiles.some((file) => file.relative_path === state.selectedPath)
+    ) {
       actions.selectFile(null);
     }
-    if (
-      state.galleryIndex !== null &&
-      (len === 0 || state.galleryIndex >= len)
-    ) {
+    if (state.galleryPath !== null && galleryIndex < 0) {
       actions.closeGallery();
     }
-  }, [displayFiles.length, state.selectedIndex, state.galleryIndex, actions]);
+  }, [
+    displayFiles,
+    galleryIndex,
+    state.selectedPath,
+    state.galleryPath,
+    actions,
+  ]);
 
   const onShowInExplorer = useCallback(
     async (index: number) => {
@@ -241,9 +256,15 @@ function LoadedView({
 
   const onGalleryNavigate = useCallback(
     (delta: -1 | 1) => {
-      actions.navigateGallery(delta, { listLength: displayFiles.length });
+      if (galleryIndex < 0) return;
+      const nextIndex = Math.max(
+        0,
+        Math.min(displayFiles.length - 1, galleryIndex + delta),
+      );
+      const nextFile = displayFiles[nextIndex];
+      if (nextFile) actions.openGallery(nextFile.relative_path);
     },
-    [actions, displayFiles.length],
+    [actions, displayFiles, galleryIndex],
   );
 
   const listSearchActive = listSearchQueryIsActive(listSearchQuery);
@@ -347,7 +368,7 @@ function LoadedView({
         sortConfig={state.sortConfig}
         onSortChange={actions.setSortConfig}
         sortingDisabled={sortingDisabled}
-        selectedIndex={state.selectedIndex}
+        selectedPath={state.selectedPath}
         onSelect={actions.selectFile}
         onShowInExplorer={onShowInExplorer}
         onVisibilityChange={actions.prioritizeQueues}
@@ -415,19 +436,17 @@ function LoadedView({
           onClose={() => setBulkEditPaths(null)}
         />
       )}
-      {state.galleryIndex !== null && displayFiles.length > 0 && (
+      {state.galleryPath !== null && galleryIndex >= 0 && (
         <GalleryView
           files={displayFiles}
-          currentIndex={state.galleryIndex}
+          currentIndex={galleryIndex}
           folderPath={state.folder}
           onClose={actions.closeGallery}
           onNavigate={onGalleryNavigate}
           loadMedia={loadMedia}
           fileMetadataOccurrences={state.fileMetadataOccurrences}
           targetDraftEdits={
-            state.targetDraftEdits[
-              displayFiles[state.galleryIndex].relative_path
-            ]
+            state.targetDraftEdits[displayFiles[galleryIndex].relative_path]
           }
           targetDraftPersistence={state.targetDraftPersistence}
           onSetExistingOccurrenceDraft={actions.setExistingOccurrenceDraft}
@@ -793,7 +812,7 @@ export default function App() {
             columnWidths={state.columnWidths}
             sortConfig={state.sortConfig}
             onSortChange={() => {}}
-            selectedIndex={null}
+            selectedPath={null}
             onSelect={() => {}}
             onShowInExplorer={() => Promise.resolve()}
             onVisibilityChange={() => {}}

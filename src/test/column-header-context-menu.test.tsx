@@ -56,7 +56,7 @@ describe("FileList column header context menu", () => {
           imgCol("ExifIFD:DateTimeOriginal"),
         ]}
         {...defaultSortProps}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}

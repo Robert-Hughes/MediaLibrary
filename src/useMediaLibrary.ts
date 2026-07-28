@@ -109,11 +109,10 @@ export interface MediaLibraryActions {
   openRecent: (folder: string) => Promise<void>;
   closeFolder: () => void;
   prioritizeQueues: (visiblePaths: string[]) => void;
-  selectFile: (index: number | null) => void;
+  selectFile: (relativePath: string | null) => void;
   showInExplorer: (index: number) => Promise<void>;
-  openGallery: (index: number) => void;
+  openGallery: (relativePath: string) => void;
   closeGallery: () => void;
-  navigateGallery: (delta: -1 | 1, options?: { listLength?: number }) => void;
   setVisibleColumns: (columns: VisibleColumn[]) => void;
   setSortConfig: (config: SortConfig) => void;
   updateColumnWidth: (col: string, width: number) => void;
@@ -548,8 +547,8 @@ export function useMediaLibrary(
             fileMetadataOccurrences: fileMetadataOccurrencesStoreRef.current,
             metadataProgress: metadataProgressStoreRef.current,
             scanning: true,
-            galleryIndex: null,
-            selectedIndex: null,
+            galleryPath: null,
+            selectedPath: null,
             visibleColumns: prev.visibleColumns,
             columnWidths: prev.columnWidths,
             sortConfig: prev.sortConfig,
@@ -699,8 +698,8 @@ export function useMediaLibrary(
               fileMetadataOccurrences: fileMetadataOccurrencesStoreRef.current,
               metadataProgress: metadataProgressStoreRef.current,
               scanning: false,
-              galleryIndex: null,
-              selectedIndex: null,
+              galleryPath: null,
+              selectedPath: null,
               visibleColumns: prev.visibleColumns,
               columnWidths: prev.columnWidths,
               sortConfig: prev.sortConfig,
@@ -869,9 +868,9 @@ export function useMediaLibrary(
     [api],
   );
 
-  const selectFile = useCallback((index: number | null) => {
+  const selectFile = useCallback((relativePath: string | null) => {
     setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, selectedIndex: index } : prev,
+      prev.kind === "loaded" ? { ...prev, selectedPath: relativePath } : prev,
     );
   }, []);
 
@@ -933,34 +932,19 @@ export function useMediaLibrary(
     [api],
   );
 
-  const openGallery = useCallback((index: number) => {
+  const openGallery = useCallback((relativePath: string) => {
     setAppState((prev) =>
       prev.kind === "loaded"
-        ? { ...prev, galleryIndex: index, selectedIndex: index }
+        ? { ...prev, galleryPath: relativePath, selectedPath: relativePath }
         : prev,
     );
   }, []);
 
   const closeGallery = useCallback(() => {
     setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, galleryIndex: null } : prev,
+      prev.kind === "loaded" ? { ...prev, galleryPath: null } : prev,
     );
   }, []);
-
-  const navigateGallery = useCallback(
-    (delta: number, options?: { listLength?: number }) => {
-      setAppState((prev) => {
-        if (prev.kind !== "loaded" || prev.galleryIndex === null) return prev;
-        const len = options?.listLength ?? prev.files.length;
-        const nextIndex = Math.max(
-          0,
-          Math.min(len - 1, prev.galleryIndex + delta),
-        );
-        return { ...prev, galleryIndex: nextIndex, selectedIndex: nextIndex };
-      });
-    },
-    [],
-  );
 
   const setVisibleColumns = useCallback((columns: VisibleColumn[]) => {
     setAppState((prev) => {
@@ -2118,7 +2102,6 @@ export function useMediaLibrary(
       showInExplorer,
       openGallery,
       closeGallery,
-      navigateGallery,
       setVisibleColumns,
       setSortConfig,
       updateColumnWidth,
@@ -2156,7 +2139,6 @@ export function useMediaLibrary(
       showInExplorer,
       openGallery,
       closeGallery,
-      navigateGallery,
       setVisibleColumns,
       setSortConfig,
       updateColumnWidth,

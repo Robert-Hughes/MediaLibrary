@@ -49,7 +49,7 @@ function setup(opts: SetupOptions = {}) {
       visibleColumns={[]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
-      selectedIndex={null}
+      selectedPath={null}
       onSelect={() => {}}
       onShowInExplorer={() => {}}
       onVisibilityChange={() => {}}
@@ -132,7 +132,7 @@ describe("FileList: Normalise Metadata context-menu entry", () => {
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}

@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -56,11 +57,11 @@ interface Props {
   /** When true, sort-toggle clicks are ignored and the ▲/▼ markers are hidden.
    *  Set during scanning to make it visually clear that sorting isn't active. */
   sortingDisabled?: boolean;
-  selectedIndex: number | null;
-  onSelect: (index: number | null) => void;
+  selectedPath: string | null;
+  onSelect: (relativePath: string | null) => void;
   onShowInExplorer: (index: number) => void;
   onVisibilityChange: (visiblePaths: string[]) => void;
-  onFileOpen: (index: number) => void;
+  onFileOpen: (relativePath: string) => void;
   onSelectColumns?: () => void;
   /** Case-insensitive substring match highlighting in visible cells. */
   searchQuery?: string;
@@ -337,7 +338,7 @@ function FileListImpl(
     sortConfig,
     onSortChange,
     sortingDisabled,
-    selectedIndex,
+    selectedPath,
     onSelect,
     onShowInExplorer,
     onVisibilityChange,
@@ -387,6 +388,17 @@ function FileListImpl(
 
   const filesRef = useRef(files);
   filesRef.current = files;
+  const filePaths = useMemo(
+    () => files.map((file) => file.relative_path),
+    [files],
+  );
+  const openFileAtIndex = useCallback(
+    (index: number) => {
+      const opened = files[index];
+      if (opened) onFileOpen(opened.relative_path);
+    },
+    [files, onFileOpen],
+  );
 
   // Set up virtualizer
   const rowVirtualizer = useVirtualizer({
@@ -472,16 +484,20 @@ function FileListImpl(
   }, [files, thumbnails, fileMetadataOccurrences, onVisibilityChange]);
 
   useEffect(() => {
-    if (selectedIndex !== null && listRef.current) {
-      // Scroll to selected index using virtualizer
-      rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+    if (selectedPath !== null && listRef.current) {
+      const selectedIndex = files.findIndex(
+        (file) => file.relative_path === selectedPath,
+      );
+      if (selectedIndex >= 0) {
+        rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+      }
     }
-  }, [selectedIndex, rowVirtualizer]);
+  }, [files, selectedPath, rowVirtualizer]);
 
   const { selectedIndices, toggleAll, handleRowSelect, handleRowContextMenu } =
     useRowSelection({
-      filesLength: files.length,
-      selectedIndex,
+      paths: filePaths,
+      selectedPath,
       onSelect,
       onFileOpen,
       listRef,
@@ -657,7 +673,7 @@ function FileListImpl(
                 }
                 visibleColumns={visibleColumns}
                 onSelect={handleRowSelect}
-                onFileOpen={onFileOpen}
+                onFileOpen={openFileAtIndex}
                 onContextMenu={handleContextMenu}
                 virtualStart={virtualRow.start}
                 searchQuery={searchQuery}
@@ -675,7 +691,7 @@ function FileListImpl(
           selectedIndices={selectedIndices}
           files={files}
           targetDraftEdits={targetDraftEdits}
-          onFileOpen={onFileOpen}
+          onFileOpen={openFileAtIndex}
           onShowInExplorer={onShowInExplorer}
           onCopyPaths={onCopyPaths}
           onBulkEdit={onBulkEdit}

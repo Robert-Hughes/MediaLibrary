@@ -78,7 +78,7 @@ function fileList(
       visibleColumns={visibleColumns}
       sortConfig={sortConfig}
       onSortChange={onSortChange}
-      selectedIndex={null}
+      selectedPath={null}
       onSelect={onSelect}
       onShowInExplorer={onShowInExplorer}
       onVisibilityChange={onVisibilityChange}

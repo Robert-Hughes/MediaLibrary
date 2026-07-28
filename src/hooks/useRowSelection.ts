@@ -1,27 +1,24 @@
-/**
- * Owns the file-list multi-selection state and its keyboard nav.
- *
- * The parent's `selectedIndex` is the *anchor*; `selectedIndices`
- * captures additional rows added via Ctrl/Shift-click. Plain clicks
- * collapse the set back to a single item. Keyboard nav (arrows,
- * PageUp/Down, Home/End, Ctrl+A) lives on `document` so the list
- * responds even when no specific row currently has focus.
- */
-import { useCallback, useEffect, useRef, useState } from "react";
+/** Owns path-based file-list multi-selection and keyboard navigation. */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-function indexRange(startIndex: number, endIndex: number): Set<number> {
+function pathRange(
+  paths: readonly string[],
+  startPath: string,
+  endPath: string,
+) {
+  const startIndex = paths.indexOf(startPath);
+  const endIndex = paths.indexOf(endPath);
+  if (startIndex < 0 || endIndex < 0) return new Set([endPath]);
   const start = Math.min(startIndex, endIndex);
   const end = Math.max(startIndex, endIndex);
-  const range = new Set<number>();
-  for (let i = start; i <= end; i++) range.add(i);
-  return range;
+  return new Set(paths.slice(start, end + 1));
 }
 
 export interface RowSelectionConfig {
-  filesLength: number;
-  selectedIndex: number | null;
-  onSelect: (index: number | null) => void;
-  onFileOpen: (index: number) => void;
+  paths: readonly string[];
+  selectedPath: string | null;
+  onSelect: (relativePath: string | null) => void;
+  onFileOpen: (relativePath: string) => void;
   listRef: React.RefObject<HTMLDivElement | null>;
   rowHeight: number;
   onSelectionCountChange?: (count: number) => void;
@@ -29,125 +26,122 @@ export interface RowSelectionConfig {
 
 export function useRowSelection(cfg: RowSelectionConfig) {
   const {
-    filesLength,
-    selectedIndex,
+    paths,
+    selectedPath,
     onSelect,
     onFileOpen,
     listRef,
     rowHeight,
     onSelectionCountChange,
   } = cfg;
-
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(() =>
-    selectedIndex !== null ? new Set([selectedIndex]) : new Set(),
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() =>
+    selectedPath === null ? new Set() : new Set([selectedPath]),
   );
-  const selectedIndicesRef = useRef(selectedIndices);
-  selectedIndicesRef.current = selectedIndices;
-  const anchorRef = useRef<number | null>(selectedIndex);
+  const selectedPathsRef = useRef(selectedPaths);
+  selectedPathsRef.current = selectedPaths;
+  const anchorPathRef = useRef<string | null>(selectedPath);
 
-  // Reset multi-selection when the parent's anchor changes externally
-  // (e.g. keyboard nav, search clearing) so we never display stale
-  // highlights.
+  const selectedIndices = useMemo(() => {
+    const result = new Set<number>();
+    paths.forEach((path, index) => {
+      if (selectedPaths.has(path)) result.add(index);
+    });
+    return result;
+  }, [paths, selectedPaths]);
+
   useEffect(() => {
-    if (selectedIndex === null) {
-      setSelectedIndices(new Set());
-      anchorRef.current = null;
+    if (selectedPath === null) {
+      setSelectedPaths(new Set());
+      anchorPathRef.current = null;
       return;
     }
-    setSelectedIndices((prev) =>
-      prev.has(selectedIndex) && prev.size > 0
-        ? prev
-        : new Set([selectedIndex]),
+    setSelectedPaths((prev) =>
+      prev.has(selectedPath) && prev.size > 0 ? prev : new Set([selectedPath]),
     );
-    if (anchorRef.current === null) anchorRef.current = selectedIndex;
-  }, [selectedIndex]);
+    if (anchorPathRef.current === null) anchorPathRef.current = selectedPath;
+  }, [selectedPath]);
 
   useEffect(() => {
-    onSelectionCountChange?.(selectedIndices.size);
-  }, [selectedIndices, onSelectionCountChange]);
+    onSelectionCountChange?.(selectedPaths.size);
+  }, [selectedPaths, onSelectionCountChange]);
 
-  // Drop selections that no longer point to valid rows (search filter, etc.).
+  // A completed filter change deliberately prunes hidden selections.
   useEffect(() => {
-    setSelectedIndices((prev) => {
-      const trimmed = new Set<number>();
-      for (const i of prev) if (i >= 0 && i < filesLength) trimmed.add(i);
+    const visible = new Set(paths);
+    setSelectedPaths((prev) => {
+      const trimmed = new Set([...prev].filter((path) => visible.has(path)));
       return trimmed.size === prev.size ? prev : trimmed;
     });
-  }, [filesLength]);
+    if (anchorPathRef.current !== null && !visible.has(anchorPathRef.current)) {
+      anchorPathRef.current =
+        selectedPath && visible.has(selectedPath) ? selectedPath : null;
+    }
+  }, [paths, selectedPath]);
 
   const selectAll = useCallback(() => {
-    if (filesLength === 0) return;
-    setSelectedIndices(
-      new Set(Array.from({ length: filesLength }, (_, i) => i)),
-    );
-    anchorRef.current = 0;
-    if (selectedIndex === null) onSelect(0);
-  }, [filesLength, onSelect, selectedIndex]);
+    if (paths.length === 0) return;
+    setSelectedPaths(new Set(paths));
+    anchorPathRef.current = paths[0];
+    if (selectedPath === null) onSelect(paths[0]);
+  }, [onSelect, paths, selectedPath]);
 
   const clearSelection = useCallback(() => {
-    setSelectedIndices(new Set());
-    anchorRef.current = null;
+    setSelectedPaths(new Set());
+    anchorPathRef.current = null;
     onSelect(null);
   }, [onSelect]);
 
   const toggleAll = useCallback(() => {
-    if (filesLength > 0 && selectedIndicesRef.current.size === filesLength) {
+    if (paths.length > 0 && selectedPathsRef.current.size === paths.length)
       clearSelection();
-      return;
-    }
-    selectAll();
-  }, [clearSelection, filesLength, selectAll]);
+    else selectAll();
+  }, [clearSelection, paths.length, selectAll]);
 
   const handleRowSelect = useCallback(
     (index: number, modifiers: { ctrl: boolean; shift: boolean }) => {
-      if (modifiers.shift && anchorRef.current !== null) {
-        setSelectedIndices(indexRange(anchorRef.current, index));
-        onSelect(index);
+      const path = paths[index];
+      if (!path) return;
+      if (modifiers.shift && anchorPathRef.current !== null) {
+        setSelectedPaths(pathRange(paths, anchorPathRef.current, path));
+        onSelect(path);
         return;
       }
       if (modifiers.ctrl) {
-        setSelectedIndices((prev) => {
+        setSelectedPaths((prev) => {
           const next = new Set(prev);
-          if (next.has(index)) next.delete(index);
-          else next.add(index);
+          if (next.has(path)) next.delete(path);
+          else next.add(path);
           return next;
         });
-        anchorRef.current = index;
-        onSelect(index);
+        anchorPathRef.current = path;
+        onSelect(path);
         return;
       }
-      anchorRef.current = index;
-      setSelectedIndices(new Set([index]));
-      onSelect(index);
+      anchorPathRef.current = path;
+      setSelectedPaths(new Set([path]));
+      onSelect(path);
     },
-    [onSelect],
+    [onSelect, paths],
   );
 
-  /**
-   * Right-click acts on the row under the cursor: if that row isn't
-   * already part of the selection, collapse to it (matches OS
-   * file-manager conventions and avoids surprising "this acts on N
-   * rows" prompts). Returns nothing — caller still owns the
-   * context-menu open state.
-   */
   const handleRowContextMenu = useCallback(
     (index: number) => {
-      setSelectedIndices((prev) => {
-        if (prev.has(index)) return prev;
-        anchorRef.current = index;
-        onSelect(index);
-        return new Set([index]);
+      const path = paths[index];
+      if (!path) return;
+      setSelectedPaths((prev) => {
+        if (prev.has(path)) return prev;
+        anchorPathRef.current = path;
+        onSelect(path);
+        return new Set([path]);
       });
     },
-    [onSelect],
+    [onSelect, paths],
   );
 
-  // Keyboard nav lives on document. Refs avoid rebinding on every
-  // files/selectedIndex/rowHeight tick.
-  const filesLenRef = useRef(filesLength);
-  filesLenRef.current = filesLength;
-  const selectedIndexRef = useRef(selectedIndex);
-  selectedIndexRef.current = selectedIndex;
+  const pathsRef = useRef(paths);
+  pathsRef.current = paths;
+  const selectedPathRef = useRef(selectedPath);
+  selectedPathRef.current = selectedPath;
   const rowHeightRef = useRef(rowHeight);
   rowHeightRef.current = rowHeight;
   const onFileOpenRef = useRef(onFileOpen);
@@ -155,82 +149,66 @@ export function useRowSelection(cfg: RowSelectionConfig) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t) {
-        const tag = t.tagName;
-        if (
-          tag === "INPUT" ||
-          tag === "TEXTAREA" ||
-          tag === "SELECT" ||
-          t.isContentEditable
-        )
-          return;
-      }
-      // Keyboard events bubbling from native dialogs belong to that dialog.
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      )
+        return;
       if ((e.target as Element | null)?.closest?.("dialog")) return;
-      const len = filesLenRef.current;
-      if (len === 0) return;
-      const cur = selectedIndexRef.current;
+      const currentPaths = pathsRef.current;
+      if (currentPaths.length === 0) return;
+      const currentPath = selectedPathRef.current;
+      const currentIndex =
+        currentPath === null ? -1 : currentPaths.indexOf(currentPath);
 
-      const moveTo = (next: number) => {
+      const moveTo = (index: number) => {
         e.preventDefault();
-        const clamped = Math.max(0, Math.min(len - 1, next));
+        const clamped = Math.max(0, Math.min(currentPaths.length - 1, index));
+        const destination = currentPaths[clamped];
         if (e.shiftKey) {
-          // Extend range from the existing anchor.  If no anchor yet,
-          // treat the current row (or the destination) as the anchor
-          // so the very first Shift+Arrow gesture still produces a
-          // sensible range.
-          if (anchorRef.current === null) {
-            anchorRef.current = cur ?? clamped;
-          }
-          const a = anchorRef.current;
-          setSelectedIndices(indexRange(a, clamped));
-          onSelect(clamped);
+          if (anchorPathRef.current === null)
+            anchorPathRef.current = currentPath ?? destination;
+          setSelectedPaths(
+            pathRange(currentPaths, anchorPathRef.current, destination),
+          );
+          onSelect(destination);
           return;
         }
         if (e.ctrlKey || e.metaKey) {
-          // Additive: keep existing selection, just add the
-          // destination row and make it the new anchor (matches
-          // Ctrl+click semantics).
-          setSelectedIndices((prev) => {
-            const next = new Set(prev);
-            next.add(clamped);
-            return next;
-          });
-          anchorRef.current = clamped;
-          onSelect(clamped);
+          setSelectedPaths((prev) => new Set(prev).add(destination));
+          anchorPathRef.current = destination;
+          onSelect(destination);
           return;
         }
-        anchorRef.current = clamped;
-        setSelectedIndices(new Set([clamped]));
-        onSelect(clamped);
+        anchorPathRef.current = destination;
+        setSelectedPaths(new Set([destination]));
+        onSelect(destination);
       };
 
-      // One page = number of fully-visible rows in the scroll
-      // viewport. Falls back to 10 if the list hasn't measured yet.
-      const pageStep = () => {
-        const h = listRef.current?.clientHeight ?? 0;
-        const rh = rowHeightRef.current || 1;
-        return Math.max(1, Math.floor(h / rh) || 10);
-      };
-
-      if (e.key === "ArrowDown") {
-        moveTo(cur === null ? 0 : cur + 1);
-      } else if (e.key === "ArrowUp") {
-        moveTo(cur === null ? 0 : cur - 1);
-      } else if (e.key === "PageDown") {
-        moveTo(cur === null ? 0 : cur + pageStep());
-      } else if (e.key === "PageUp") {
-        moveTo(cur === null ? 0 : cur - pageStep());
-      } else if (e.key === "Home") {
-        moveTo(0);
-      } else if (e.key === "End") {
-        moveTo(len - 1);
-      } else if (e.key === "Enter") {
-        if (cur !== null && cur >= 0 && cur < len) {
-          e.preventDefault();
-          onFileOpenRef.current(cur);
-        }
+      const pageStep = () =>
+        Math.max(
+          1,
+          Math.floor(
+            (listRef.current?.clientHeight ?? 0) / (rowHeightRef.current || 1),
+          ) || 10,
+        );
+      if (e.key === "ArrowDown")
+        moveTo(currentIndex < 0 ? 0 : currentIndex + 1);
+      else if (e.key === "ArrowUp")
+        moveTo(currentIndex < 0 ? 0 : currentIndex - 1);
+      else if (e.key === "PageDown")
+        moveTo(currentIndex < 0 ? 0 : currentIndex + pageStep());
+      else if (e.key === "PageUp")
+        moveTo(currentIndex < 0 ? 0 : currentIndex - pageStep());
+      else if (e.key === "Home") moveTo(0);
+      else if (e.key === "End") moveTo(currentPaths.length - 1);
+      else if (e.key === "Enter" && currentIndex >= 0 && currentPath !== null) {
+        e.preventDefault();
+        onFileOpenRef.current(currentPath);
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         selectAll();
@@ -238,7 +216,7 @@ export function useRowSelection(cfg: RowSelectionConfig) {
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onSelect, listRef, selectAll]);
+  }, [listRef, onSelect, selectAll]);
 
   return {
     selectedIndices,

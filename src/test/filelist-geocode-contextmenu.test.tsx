@@ -81,7 +81,7 @@ function setup(opts: SetupOptions = {}) {
       visibleColumns={[]}
       sortConfig={{ primary: null, secondary: null }}
       onSortChange={() => {}}
-      selectedIndex={null}
+      selectedPath={null}
       onSelect={() => {}}
       onShowInExplorer={() => {}}
       onVisibilityChange={() => {}}
@@ -153,7 +153,7 @@ describe("FileList: Reverse Geocode context-menu entry", () => {
         visibleColumns={[]}
         sortConfig={{ primary: null, secondary: null }}
         onSortChange={() => {}}
-        selectedIndex={null}
+        selectedPath={null}
         onSelect={() => {}}
         onShowInExplorer={() => {}}
         onVisibilityChange={() => {}}
