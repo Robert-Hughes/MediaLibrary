@@ -28,6 +28,7 @@ const id: SchemaDefinitionId = {
 function info(kind: TagKind = { kind: "Text" }): TagInfo {
   return {
     id: structuredClone(id),
+    group0: "XMP",
     group: "XMP-dc",
     name: "Subject",
     writable: true,
@@ -108,6 +109,7 @@ function gpsOccurrence(
   const item = occurrenceFromSchemaValue(schemaId, value, ordinal);
   item.tag_info = {
     id: structuredClone(schemaId),
+    group0: "EXIF",
     group: writeTarget.group1,
     name: writeTarget.tag_name,
     writable: true,

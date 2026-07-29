@@ -449,11 +449,12 @@ impl MetadataOccurrence {
 
     /// Returns true only when matching resolved schema interpretation and this
     /// concrete occurrence both permit an exact supported write.
-    pub fn is_writable(&self) -> bool {
-        self.tag_info
-            .as_ref()
-            .is_some_and(|info| info.id == self.schema_id && info.supports_metadata_write())
-            && self.write_target.is_some()
+    /// Whether this occurrence has the schema and selector needed to attempt
+    /// an edit. Actual write eligibility is decided later with the file format.
+    pub fn has_writable_target(&self) -> bool {
+        self.tag_info.as_ref().is_some_and(|info| {
+            info.id == self.schema_id && info.writable && info.kind.supports_metadata_write()
+        }) && self.write_target.is_some()
     }
 }
 
@@ -544,6 +545,7 @@ mod tests {
                 tag_id: "282".to_owned(),
                 index: None,
             },
+            group0: Some("EXIF".to_owned()),
             group: "IFD0".to_owned(),
             name: "XResolution".to_owned(),
             writable,
@@ -820,15 +822,15 @@ mod tests {
             Some(tag_info(true)),
             Some(target("IFD0"))
         )
-        .is_writable());
-        assert!(!occurrence(tag_info(true).id, None, Some(target("IFD0"))).is_writable());
+        .has_writable_target());
+        assert!(!occurrence(tag_info(true).id, None, Some(target("IFD0"))).has_writable_target());
         assert!(!occurrence(
             tag_info(false).id,
             Some(tag_info(false)),
             Some(target("IFD0"))
         )
-        .is_writable());
-        assert!(!occurrence(tag_info(true).id, Some(tag_info(true)), None).is_writable());
+        .has_writable_target());
+        assert!(!occurrence(tag_info(true).id, Some(tag_info(true)), None).has_writable_target());
     }
 
     #[test]
@@ -856,7 +858,7 @@ mod tests {
         assert_eq!(round_trip.schema_id, schema_id);
         assert!(round_trip.tag_info.is_none());
         assert!(round_trip.write_target.is_none());
-        assert!(!round_trip.is_writable());
+        assert!(!round_trip.has_writable_target());
     }
 
     #[test]
@@ -913,7 +915,8 @@ mod tests {
         let mut mismatched = tag_info(true);
         mismatched.id.table = "Exif::Other".to_owned();
         assert!(
-            !occurrence(schema_id.clone(), Some(mismatched), Some(target("IFD0"))).is_writable()
+            !occurrence(schema_id.clone(), Some(mismatched), Some(target("IFD0")))
+                .has_writable_target()
         );
 
         for kind in [TagKind::Binary, TagKind::Unknown] {
@@ -921,7 +924,7 @@ mod tests {
             unsupported.kind = kind;
             assert!(
                 !occurrence(schema_id.clone(), Some(unsupported), Some(target("IFD0")),)
-                    .is_writable()
+                    .has_writable_target()
             );
         }
     }

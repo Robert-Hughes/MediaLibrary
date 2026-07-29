@@ -41,7 +41,9 @@ use medialibrary_tauri_lib::{
 fn writable_registry_groups_and_schema_family7_ids_fit_the_selector_grammar() {
     let registry = get_registry().expect("load the real ExifTool schema registry");
     let failures = registry
-        .all_supported_writable()
+        .iter()
+        .map(|(_, info)| info)
+        .filter(|info| info.writable && info.kind.supports_metadata_write())
         .filter_map(|info| {
             let group7 = family7_group_from_schema_id(&info.id);
             let valid_group7 = group7.starts_with("ID-")

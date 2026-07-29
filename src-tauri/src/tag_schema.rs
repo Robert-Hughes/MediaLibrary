@@ -163,6 +163,12 @@ pub fn normalize_runtime_tag_id(value: &serde_json::value::RawValue) -> Result<S
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct TagInfo {
     pub id: SchemaDefinitionId,
+    /// ExifTool family-0 information type (for example `EXIF`, `XMP`,
+    /// `IPTC`, `ICC_Profile`, `PNG`, or `GIF`). This is the stable section
+    /// identifier used by the per-format metadata write allow-list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional, type = "string"))]
+    pub group0: Option<String>,
     /// Group-1 name (e.g. `XMP-dc`, `IFD0`, `IPTC`). Matches the prefix used
     /// in metadata keys produced by the scanner.
     pub group: String,
@@ -177,10 +183,66 @@ pub struct TagInfo {
     pub storage_count: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataWriteOperation {
+    Set,
+    DeleteExisting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetadataWriteIneligibility {
+    ReadOnlySchema,
+    UnsupportedSchemaKind,
+    UnsupportedFileFormat,
+    UnsupportedSectionForFormat,
+}
+
+impl std::fmt::Display for MetadataWriteIneligibility {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(match self {
+            Self::ReadOnlySchema => "metadata schema is read-only",
+            Self::UnsupportedSchemaKind => {
+                "metadata schema datatype is not supported by the write pipeline"
+            }
+            Self::UnsupportedFileFormat => "file format has no metadata write allow-list",
+            Self::UnsupportedSectionForFormat => {
+                "metadata section is not supported by this file format"
+            }
+        })
+    }
+}
+
 impl TagInfo {
-    /// Whether this exact schema is both writable and supported by the app.
-    pub fn supports_metadata_write(&self) -> bool {
-        self.writable && self.kind.supports_metadata_write()
+    /// The sole metadata-write eligibility decision.
+    ///
+    /// Set operations must pass ExifTool writability, app datatype support,
+    /// and the file-format/family-0 allow-list. Deleting an existing
+    /// occurrence deliberately bypasses only the format allow-list so users
+    /// can remove non-standard metadata that is already present.
+    pub fn metadata_write_eligibility(
+        &self,
+        file_name: &str,
+        operation: MetadataWriteOperation,
+    ) -> Result<(), MetadataWriteIneligibility> {
+        if !self.writable {
+            return Err(MetadataWriteIneligibility::ReadOnlySchema);
+        }
+        if !self.kind.supports_metadata_write() {
+            return Err(MetadataWriteIneligibility::UnsupportedSchemaKind);
+        }
+        if matches!(operation, MetadataWriteOperation::DeleteExisting) {
+            return Ok(());
+        }
+        let allowed = allowed_group0_for_file_name(file_name)
+            .ok_or(MetadataWriteIneligibility::UnsupportedFileFormat)?;
+        if !self
+            .group0
+            .as_deref()
+            .is_some_and(|group0| allowed.contains(&group0))
+        {
+            return Err(MetadataWriteIneligibility::UnsupportedSectionForFormat);
+        }
+        Ok(())
     }
 
     pub fn display_name(&self) -> String {
@@ -238,12 +300,13 @@ impl TagRegistry {
         self.tags.iter()
     }
 
-    /// Iterator over exact definitions supported by the metadata write pipeline.
-    /// Iteration is deterministic by `SchemaDefinitionId` as guaranteed by the underlying `BTreeMap`.
-    pub fn all_supported_writable(&self) -> impl Iterator<Item = &TagInfo> {
+    /// Transport set for the frontend. Each definition carries family-0 so the
+    /// UI can apply format policy before constructing targets. This is not a
+    /// write-eligibility decision and must not be used by Rust write paths.
+    pub(crate) fn schema_writable_transport_set(&self) -> impl Iterator<Item = &TagInfo> {
         self.tags
             .values()
-            .filter(|info| info.supports_metadata_write())
+            .filter(|info| info.writable && info.kind.supports_metadata_write())
     }
 
     /// Build from raw `exiftool -listx -f -lang en` XML output.
@@ -253,6 +316,7 @@ impl TagRegistry {
         reader.config_mut().trim_text(true);
 
         let mut tags: BTreeMap<SchemaDefinitionId, TagInfo> = BTreeMap::new();
+        let mut current_group0: Option<String> = None;
         let mut current_group: Option<String> = None;
         let mut current_table: Option<String> = None;
         let mut table_tags: Vec<PartialTag> = Vec::new();
@@ -274,6 +338,7 @@ impl TagRegistry {
                     let attrs = collect_attrs(&e);
                     match name.as_str() {
                         "table" => {
+                            current_group0 = attrs.get("g0").cloned();
                             current_group = attrs.get("g1").cloned();
                             current_table = attrs
                                 .get("name")
@@ -281,6 +346,11 @@ impl TagRegistry {
                             table_tags.clear();
                         }
                         "tag" => {
+                            let g0 = attrs
+                                .get("g0")
+                                .cloned()
+                                .or_else(|| current_group0.clone())
+                                .unwrap_or_default();
                             let g1 = attrs
                                 .get("g1")
                                 .cloned()
@@ -304,6 +374,7 @@ impl TagRegistry {
                                 struct_parent: attrs
                                     .get("struct")
                                     .map(|id| normalize_static_tag_id(id)),
+                                group0: g0,
                                 group: g1,
                                 name: tag_name,
                                 type_attr,
@@ -557,7 +628,7 @@ fn read_exiftool_version() -> Result<String, SchemaError> {
 // Bump this when the logic that converts ExifTool `-listx` XML into our
 // `TagKind` model changes in a way that should invalidate existing schema
 // cache files, even if the ExifTool version itself did not change.
-const TAG_SCHEMA_PARSER_VERSION: u32 = 10;
+const TAG_SCHEMA_PARSER_VERSION: u32 = 11;
 
 fn cache_path_for(version: &str) -> Option<std::path::PathBuf> {
     let dir = dirs::cache_dir()?;
@@ -605,6 +676,7 @@ impl<'de> Deserialize<'de> for TagRegistry {
 struct PartialTag {
     tag_id: String,
     struct_parent: Option<String>,
+    group0: String,
     group: String,
     name: String,
     type_attr: String,
@@ -669,6 +741,7 @@ impl PartialTag {
         let kind = wrap_list_flag(kind, &self.flags);
         TagInfo {
             id,
+            group0: Some(self.group0),
             group: self.group,
             name: self.name,
             writable: self.writable,
@@ -861,6 +934,50 @@ fn wrap_list_flag(kind: TagKind, flags: &[String]) -> TagKind {
     } else {
         kind
     }
+}
+
+struct FormatGroup0Support {
+    extensions: &'static [&'static str],
+    allowed_group0: &'static [&'static str],
+}
+
+// Explicit, fail-closed format-to-section write policy, kept beside the
+// hand-curated schema overrides below. The section names are ExifTool
+// family-0 strings taken directly from `-listx`; no app aliases are involved.
+const FORMAT_GROUP0_SUPPORT: &[FormatGroup0Support] = &[
+    FormatGroup0Support {
+        extensions: &["jpg", "jpeg", "jpe", "jfif", "jif"],
+        allowed_group0: &[
+            "JPEG",
+            "JFIF",
+            "Adobe",
+            "Ducky",
+            "EXIF",
+            "XMP",
+            "IPTC",
+            "ICC_Profile",
+            "Photoshop",
+        ],
+    },
+    FormatGroup0Support {
+        extensions: &["png"],
+        allowed_group0: &["PNG", "EXIF", "XMP", "ICC_Profile"],
+    },
+    FormatGroup0Support {
+        extensions: &["gif"],
+        allowed_group0: &["GIF", "XMP", "ICC_Profile"],
+    },
+];
+
+fn allowed_group0_for_file_name(file_name: &str) -> Option<&'static [&'static str]> {
+    let extension = std::path::Path::new(file_name)
+        .extension()?
+        .to_str()?
+        .to_ascii_lowercase();
+    FORMAT_GROUP0_SUPPORT
+        .iter()
+        .find(|support| support.extensions.contains(&extension.as_str()))
+        .map(|support| support.allowed_group0)
 }
 
 /// Hand-curated semantic overrides for cases where listx's physical storage
@@ -1071,6 +1188,7 @@ mod tests {
                 tag_id: "1".into(),
                 index: None,
             },
+            group0: Some("EXIF".into()),
             group: "Test".into(),
             name: "Field".into(),
             writable,
@@ -1078,14 +1196,22 @@ mod tests {
             description: None,
             storage_count: None,
         };
-        assert!(info(TagKind::Text, true).supports_metadata_write());
-        assert!(!info(TagKind::Text, false).supports_metadata_write());
-        assert!(!info(TagKind::Binary, true).supports_metadata_write());
-        assert!(!info(TagKind::Unknown, true).supports_metadata_write());
+        assert!(info(TagKind::Text, true)
+            .metadata_write_eligibility("photo.jpg", MetadataWriteOperation::Set)
+            .is_ok());
+        assert!(info(TagKind::Text, false)
+            .metadata_write_eligibility("photo.jpg", MetadataWriteOperation::Set)
+            .is_err());
+        assert!(info(TagKind::Binary, true)
+            .metadata_write_eligibility("photo.jpg", MetadataWriteOperation::Set)
+            .is_err());
+        assert!(info(TagKind::Unknown, true)
+            .metadata_write_eligibility("photo.jpg", MetadataWriteOperation::Set)
+            .is_err());
     }
 
     #[test]
-    fn supported_writable_iterator_filters_every_kind_and_preserves_id_order() {
+    fn writable_transport_filters_every_kind_and_preserves_id_order() {
         let cases = vec![
             ("01", TagKind::Text, true),
             ("02", TagKind::LangAlt, true),
@@ -1130,6 +1256,7 @@ mod tests {
                 };
                 let info = TagInfo {
                     id: id.clone(),
+                    group0: Some("EXIF".into()),
                     group: "Test".into(),
                     name: format!("Field{tag_id}"),
                     writable,
@@ -1142,8 +1269,11 @@ mod tests {
             .collect();
         let registry = TagRegistry { tags };
 
-        let supported = registry.all_supported_writable().collect::<Vec<_>>();
-        assert!(supported.iter().all(|info| info.supports_metadata_write()));
+        let supported = registry.schema_writable_transport_set().collect::<Vec<_>>();
+        assert!(supported.iter().all(|info| {
+            info.metadata_write_eligibility("photo.jpg", MetadataWriteOperation::Set)
+                .is_ok()
+        }));
         assert_eq!(
             supported
                 .iter()
@@ -1153,6 +1283,83 @@ mod tests {
                 "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14",
                 "15",
             ]
+        );
+    }
+
+    #[test]
+    fn write_eligibility_uses_file_format_and_raw_family_zero() {
+        let info = |group0: &str, writable: bool, kind: TagKind| TagInfo {
+            id: SchemaDefinitionId {
+                table: format!("{group0}::Main"),
+                tag_id: "Field".into(),
+                index: None,
+            },
+            group0: Some(group0.into()),
+            group: "DisplayGroup".into(),
+            name: "Field".into(),
+            writable,
+            kind,
+            description: None,
+            storage_count: None,
+        };
+
+        let exif = info("EXIF", true, TagKind::Text);
+        let xmp = info("XMP", true, TagKind::Text);
+        let iptc = info("IPTC", true, TagKind::Text);
+
+        assert!(exif
+            .metadata_write_eligibility("photo.JPEG", MetadataWriteOperation::Set)
+            .is_ok());
+        assert!(xmp
+            .metadata_write_eligibility("animation.gif", MetadataWriteOperation::Set)
+            .is_ok());
+        assert_eq!(
+            exif.metadata_write_eligibility("animation.gif", MetadataWriteOperation::Set),
+            Err(MetadataWriteIneligibility::UnsupportedSectionForFormat)
+        );
+        assert_eq!(
+            iptc.metadata_write_eligibility("image.png", MetadataWriteOperation::Set),
+            Err(MetadataWriteIneligibility::UnsupportedSectionForFormat)
+        );
+        assert_eq!(
+            xmp.metadata_write_eligibility("image.webp", MetadataWriteOperation::Set),
+            Err(MetadataWriteIneligibility::UnsupportedFileFormat)
+        );
+    }
+
+    #[test]
+    fn deleting_existing_incompatible_metadata_bypasses_only_format_policy() {
+        let info = |writable: bool, kind: TagKind| TagInfo {
+            id: SchemaDefinitionId {
+                table: "EXIF::Main".into(),
+                tag_id: "Field".into(),
+                index: None,
+            },
+            group0: Some("EXIF".into()),
+            group: "IFD0".into(),
+            name: "Field".into(),
+            writable,
+            kind,
+            description: None,
+            storage_count: None,
+        };
+
+        assert!(info(true, TagKind::Text)
+            .metadata_write_eligibility("animation.gif", MetadataWriteOperation::DeleteExisting,)
+            .is_ok());
+        assert_eq!(
+            info(false, TagKind::Text).metadata_write_eligibility(
+                "animation.gif",
+                MetadataWriteOperation::DeleteExisting,
+            ),
+            Err(MetadataWriteIneligibility::ReadOnlySchema)
+        );
+        assert_eq!(
+            info(true, TagKind::Binary).metadata_write_eligibility(
+                "animation.gif",
+                MetadataWriteOperation::DeleteExisting,
+            ),
+            Err(MetadataWriteIneligibility::UnsupportedSchemaKind)
         );
     }
 
@@ -1271,6 +1478,7 @@ mod tests {
             .map(|id| {
                 let info = TagInfo {
                     id: id.clone(),
+                    group0: Some("EXIF".into()),
                     group: "Shared".into(),
                     name: "Name".into(),
                     writable: true,
@@ -1345,11 +1553,17 @@ mod tests {
     #[test]
     fn registry_parses_basic_tags() {
         let r = fixture_registry();
-        assert!(r.lookup(&test_id("EXIF::Main", "274")).is_some());
+        assert_eq!(
+            r.lookup(&test_id("EXIF::Main", "274"))
+                .and_then(|info| info.group0.as_deref()),
+            Some("EXIF")
+        );
         assert!(r.lookup(&test_id("EXIF::Main", "306")).is_some());
-        assert!(r
-            .lookup(&test_id("IPTC::ApplicationRecord", "25"))
-            .is_some());
+        assert_eq!(
+            r.lookup(&test_id("IPTC::ApplicationRecord", "25"))
+                .and_then(|info| info.group0.as_deref()),
+            Some("IPTC")
+        );
         assert!(r.lookup(&test_id("XMP::dc", "subject")).is_some());
         assert!(r.lookup(&test_id("XMP::dc", "description")).is_some());
     }
@@ -1512,7 +1726,7 @@ mod tests {
 
     #[test]
     fn schema_parser_cache_version_is_current() {
-        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 10);
+        assert_eq!(TAG_SCHEMA_PARSER_VERSION, 11);
     }
 
     #[test]
@@ -1780,6 +1994,7 @@ mod tests {
             id.clone(),
             TagInfo {
                 id: id.clone(),
+                group0: Some("EXIF".to_string()),
                 group: "ExifIFD".to_string(),
                 name: "ExifVersion".to_string(),
                 writable: true,
@@ -1861,6 +2076,7 @@ mod tests {
             maker_id.clone(),
             TagInfo {
                 id: maker_id.clone(),
+                group0: Some("EXIF".to_string()),
                 group: "ExifIFD".to_string(),
                 name: "MakerNoteCanon".to_string(),
                 writable: true,
@@ -1878,6 +2094,7 @@ mod tests {
             preview_id.clone(),
             TagInfo {
                 id: preview_id.clone(),
+                group0: Some("EXIF".to_string()),
                 group: "IFD0".to_string(),
                 name: "PreviewImage".to_string(),
                 writable: true,
@@ -1907,6 +2124,7 @@ mod tests {
             id.clone(),
             TagInfo {
                 id: id.clone(),
+                group0: Some("EXIF".to_string()),
                 group: "ExifIFD".to_string(),
                 name: "MakerNoteCanon".to_string(),
                 writable: false,
@@ -1970,10 +2188,10 @@ mod tests {
     #[test]
     fn cache_path_sanitises_version_string() {
         let p = cache_path_for("13.57").unwrap();
-        assert!(p.to_string_lossy().contains("tag_schema_p10_13.57.json"));
+        assert!(p.to_string_lossy().contains("tag_schema_p11_13.57.json"));
         let p2 = cache_path_for("13/57 weird!").unwrap();
         let s = p2.to_string_lossy().into_owned();
-        assert!(s.contains("tag_schema_p10_13_57_weird_.json"));
+        assert!(s.contains("tag_schema_p11_13_57_weird_.json"));
         assert!(
             !s.contains('/') || s.contains("MediaLibrary"),
             "no stray slashes in version segment"

@@ -241,6 +241,11 @@ function fixtureId(name: string): SchemaDefinitionId {
   const colon = canonicalName.indexOf(":");
   _ensureTagInfoCacheEntry(id, {
     id,
+    group0: id.table.startsWith("XMP::")
+      ? "XMP"
+      : id.table.startsWith("IPTC::")
+        ? "IPTC"
+        : "EXIF",
     group: colon > 0 ? canonicalName.slice(0, colon) : "Test",
     name: colon > 0 ? canonicalName.slice(colon + 1) : canonicalName,
     writable: true,

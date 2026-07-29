@@ -1256,6 +1256,7 @@ export function useMediaLibrary(
           try {
             const plan = planGeneratedTargetDraftBatch({
               producer,
+              fileName: relativePath,
               edits,
               occurrences:
                 fileMetadataOccurrencesStoreRef.current.get(relativePath),
@@ -1740,7 +1741,7 @@ export function useMediaLibrary(
         );
         return false;
       }
-      if (!tagInfoSupportsMetadataWrite(info)) {
+      if (!tagInfoSupportsMetadataWrite(info, fileRelativePath, "Set")) {
         pushApplicationError(
           "metadata-target-new-property-unsupported-kind",
           "Binary and Unknown schema kinds are not supported by the metadata write pipeline. No new-property draft was staged.",
@@ -1924,7 +1925,7 @@ export function useMediaLibrary(
       if (
         !info ||
         !schemaDefinitionIdEquals(info.id, replacementTarget.schema_id) ||
-        !tagInfoSupportsMetadataWrite(info)
+        !tagInfoSupportsMetadataWrite(info, fileRelativePath, "Set")
       ) {
         pushApplicationError(
           "metadata-target-new-property-move-schema-invalid",

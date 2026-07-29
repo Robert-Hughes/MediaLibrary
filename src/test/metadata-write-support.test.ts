@@ -17,6 +17,7 @@ const id: SchemaDefinitionId = { table: "Test::Main", tag_id: "1" };
 function info(kind: TagKind, writable = true): TagInfo {
   return {
     id: structuredClone(id),
+    group0: "EXIF",
     group: "Test",
     name: "Field",
     writable,
@@ -67,7 +68,9 @@ describe("metadata write-kind support", () => {
   ];
 
   it.each(supportedKinds)("supports writable $kind schemas", (kind) => {
-    expect(tagInfoSupportsMetadataWrite(info(kind))).toBe(true);
+    expect(tagInfoSupportsMetadataWrite(info(kind), "photo.jpg", "Set")).toBe(
+      true,
+    );
   });
 
   it.each([{ kind: "Binary" }, { kind: "Unknown" }] satisfies TagKind[])(
@@ -76,7 +79,9 @@ describe("metadata write-kind support", () => {
       const tagInfo = info(kind);
       const current = occurrence(kind);
 
-      expect(tagInfoSupportsMetadataWrite(tagInfo)).toBe(false);
+      expect(tagInfoSupportsMetadataWrite(tagInfo, "photo.jpg", "Set")).toBe(
+        false,
+      );
       expect(existingOccurrenceTargetFromOccurrence(current)).toMatchObject({
         kind: "read-only",
         reason: expect.stringContaining("unsupported"),
@@ -93,12 +98,32 @@ describe("metadata write-kind support", () => {
   );
 
   it("rejects read-only schemas independently of kind support", () => {
-    expect(tagInfoSupportsMetadataWrite(info({ kind: "Text" }, false))).toBe(
-      false,
-    );
+    expect(
+      tagInfoSupportsMetadataWrite(
+        info({ kind: "Text" }, false),
+        "photo.jpg",
+        "Set",
+      ),
+    ).toBe(false);
     expect(newPropertyDraftTarget(info({ kind: "Text" }, false))).toEqual({
       kind: "unavailable",
       reason: "read_only_schema",
     });
+  });
+
+  it("uses family-0 for format Set support and permits safe existing deletion", () => {
+    const exif = info({ kind: "Text" });
+    const xmp = { ...info({ kind: "Text" }), group0: "XMP" };
+
+    expect(tagInfoSupportsMetadataWrite(exif, "animation.gif", "Set")).toBe(
+      false,
+    );
+    expect(tagInfoSupportsMetadataWrite(xmp, "animation.GIF", "Set")).toBe(
+      true,
+    );
+    expect(
+      tagInfoSupportsMetadataWrite(exif, "animation.gif", "DeleteExisting"),
+    ).toBe(true);
+    expect(tagInfoSupportsMetadataWrite(xmp, "image.webp", "Set")).toBe(false);
   });
 });

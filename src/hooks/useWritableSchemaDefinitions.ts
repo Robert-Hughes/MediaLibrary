@@ -23,7 +23,9 @@ async function fetchDefinitions(
   try {
     const result = (await invokeCommand("list_writable_schema_definitions")) as
       TagInfo[] | null;
-    cached = (result ?? []).filter(tagInfoSupportsMetadataWrite);
+    cached = (result ?? []).filter((info) =>
+      tagInfoSupportsMetadataWrite(info, undefined, "DeleteExisting"),
+    );
   } catch (e) {
     console.error("[useWritableSchemaDefinitions] schema lookup failed:", e);
     cached = [];
@@ -60,7 +62,21 @@ export function _resetWritableSchemaDefinitionsCache(): void {
 }
 
 export function _setWritableSchemaDefinitionsCache(tags: TagInfo[]): void {
-  cached = tags.filter(tagInfoSupportsMetadataWrite);
+  cached = tags
+    .map((info) => {
+      if (info.group0 !== undefined) return info;
+      const group0 = info.id.table.startsWith("XMP::")
+        ? "XMP"
+        : info.id.table.startsWith("IPTC::")
+          ? "IPTC"
+          : info.group.startsWith("XMP-")
+            ? "XMP"
+            : "EXIF";
+      return { ...info, group0 };
+    })
+    .filter((info) =>
+      tagInfoSupportsMetadataWrite(info, undefined, "DeleteExisting"),
+    );
   fetched = true;
   notify();
 }

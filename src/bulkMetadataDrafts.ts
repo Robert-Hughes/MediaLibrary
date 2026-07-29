@@ -95,6 +95,7 @@ export type BulkMetadataDraftPlanErrorCode =
   | "schema-mismatch"
   | "read-only-schema"
   | "unsupported-schema-kind"
+  | "schema-not-supported-for-format"
   | "stored-slot-mismatch"
   | "selector-collision"
   | "untargetable-occurrence"
@@ -214,7 +215,10 @@ function validateSetRequest(
       request.tagInfo.id,
     );
   }
-  if (!tagInfoSupportsMetadataWrite(request.tagInfo)) {
+  if (
+    request.tagInfo.kind.kind === "Binary" ||
+    request.tagInfo.kind.kind === "Unknown"
+  ) {
     fail(
       "unsupported-schema-kind",
       "The selected exact schema kind is not supported by the metadata write pipeline. Nothing was staged.",
@@ -359,6 +363,16 @@ function planSetForFile(
   editValue: MetadataValue,
   preview: BulkMetadataDraftPreview,
 ): ExactTargetMutationBatchItem | null {
+  if (
+    !tagInfoSupportsMetadataWrite(request.tagInfo, file.relativePath, "Set")
+  ) {
+    fail(
+      "schema-not-supported-for-format",
+      `The selected exact schema is not supported for '${file.relativePath}'. Nothing was staged.`,
+      file.relativePath,
+      request.tagInfo.id,
+    );
+  }
   const occurrences = requireOccurrences(file);
   const storedEntries = validateStoredDrafts(file);
   const schemaId = request.tagInfo.id;

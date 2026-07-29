@@ -19,6 +19,7 @@ import { GPS_IDS, knownMetadataWriteTarget } from "../metadata/knownIds";
 const id: SchemaDefinitionId = { table: "XMP::dc", tag_id: "title" };
 const info: TagInfo = {
   id,
+  group0: "XMP",
   group: "XMP-dc",
   name: "Title",
   writable: true,
@@ -31,6 +32,7 @@ const gpsInfos: TagInfo[] = Object.values(GPS_IDS).map((gpsId) => {
   const target = knownMetadataWriteTarget(gpsId)!;
   return {
     id: structuredClone(gpsId),
+    group0: "EXIF",
     group: target.group1,
     name: target.tag_name,
     writable: true,
@@ -148,6 +150,52 @@ describe("BulkMetadataEditorDialog", () => {
       screen.getByRole("button", { name: "Enter value..." }),
     ).toBeDisabled();
     expect(onPreview).not.toHaveBeenCalled();
+  });
+
+  it("offers Delete but not Set for existing format-incompatible metadata", async () => {
+    const incompatible = { ...info, group0: "EXIF" };
+    _setWritableSchemaDefinitionsCache([incompatible]);
+    _setTagInfoCacheEntry(id, incompatible);
+    const existing = occurrenceFromSchemaValue(
+      id,
+      { kind: "Text", value: "Old" },
+      0,
+    );
+    existing.tag_info = incompatible;
+
+    render(
+      <BulkMetadataEditorDialog
+        files={makeFiles(["animation.gif"])}
+        fileMetadataOccurrences={occurrenceStore({
+          "animation.gif": [existing],
+        })}
+        targetDraftEdits={{}}
+        onPreview={vi.fn(() => ({
+          kind: "ready" as const,
+          plan: {
+            mutations: [],
+            preview: {
+              fileCount: 1,
+              affectedFileCount: 0,
+              noOpFileCount: 1,
+              existingOccurrencesSet: 0,
+              existingOccurrencesDeleted: 0,
+              newPropertiesSet: 0,
+              stagedCreationsCancelled: 0,
+              draftsCleared: 0,
+            },
+          },
+        }))}
+        onStage={() => true}
+        onClose={() => {}}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /XMP-dc:Title/ }));
+
+    expect(screen.getByLabelText("Set")).toBeDisabled();
+    expect(screen.getByLabelText("Delete")).toBeChecked();
+    expect(screen.getByRole("button", { name: "Review Delete" })).toBeEnabled();
   });
 
   it("shows preview failures in the dialog error-banner style", async () => {

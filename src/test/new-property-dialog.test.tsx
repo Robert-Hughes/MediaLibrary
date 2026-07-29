@@ -17,6 +17,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 const testDefinitions: TagInfo[] = [
   {
     id: { table: "XMP::dc", tag_id: "title" },
+    group0: "XMP",
     group: "XMP-dc",
     name: "Title",
     writable: true,
@@ -25,6 +26,7 @@ const testDefinitions: TagInfo[] = [
   },
   {
     id: { table: "XMP::dc", tag_id: "description" },
+    group0: "XMP",
     group: "XMP-dc",
     name: "Description",
     writable: true,
@@ -33,6 +35,7 @@ const testDefinitions: TagInfo[] = [
   },
   {
     id: { table: "Canon::CameraInfo40D", tag_id: "4" },
+    group0: "EXIF",
     group: "Canon",
     name: "WhiteBalance",
     writable: true,
@@ -41,6 +44,7 @@ const testDefinitions: TagInfo[] = [
   },
   {
     id: { table: "Canon::CameraInfo5D", tag_id: "4" },
+    group0: "EXIF",
     group: "Canon",
     name: "WhiteBalance",
     writable: true,
@@ -49,6 +53,7 @@ const testDefinitions: TagInfo[] = [
   },
   {
     id: { table: "Vorbis::Comment", tag_id: "title" },
+    group0: "Vorbis",
     group: "Vorbis",
     name: "Title",
     writable: true,
@@ -57,6 +62,7 @@ const testDefinitions: TagInfo[] = [
   },
   {
     id: { table: "Exif::Main", tag_id: "271", index: 0 },
+    group0: "EXIF",
     group: "IFD0",
     name: "Make",
     writable: true,

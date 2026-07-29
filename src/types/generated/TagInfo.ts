@@ -7,6 +7,12 @@ import type { TagKind } from "./TagKind";
  */
 export type TagInfo = { id: SchemaDefinitionId, 
 /**
+ * ExifTool family-0 information type (for example `EXIF`, `XMP`,
+ * `IPTC`, `ICC_Profile`, `PNG`, or `GIF`). This is the stable section
+ * identifier used by the per-format metadata write allow-list.
+ */
+group0?: string, 
+/**
  * Group-1 name (e.g. `XMP-dc`, `IFD0`, `IPTC`). Matches the prefix used
  * in metadata keys produced by the scanner.
  */

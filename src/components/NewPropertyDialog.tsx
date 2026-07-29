@@ -2,7 +2,7 @@ import { ModalDialog } from "./ModalDialog";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useWritableSchemaDefinitions } from "../hooks/useWritableSchemaDefinitions";
 import { describeKind } from "./editors/editorHelpers";
-import { filterTagInfosByFilename } from "../utils/tagGroupApplicability";
+import { filterTagInfosByFilename } from "../utils/metadataWriteSupport";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import type {
   MetadataDraftTarget,

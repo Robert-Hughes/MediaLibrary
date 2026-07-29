@@ -1311,7 +1311,7 @@ fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
         let Some(tag_info) = canonical.occurrence.tag_info.as_ref() else {
             continue;
         };
-        if !tag_info.supports_metadata_write()
+        if (!tag_info.writable || !tag_info.kind.supports_metadata_write())
             || canonical.occurrence.id.document.is_some()
             || canonical.is_lang_alt
             || canonical.language.is_some()
@@ -1944,6 +1944,7 @@ mod tests {
     fn write_target_test_info(writable: bool, kind: TagKind) -> crate::tag_schema::TagInfo {
         crate::tag_schema::TagInfo {
             id: test_schema_id("Exif::Main", "282", None),
+            group0: Some("EXIF".into()),
             group: "IFD0".into(),
             name: "XResolution".into(),
             writable,
@@ -2629,8 +2630,8 @@ mod tests {
             canonical[1].occurrence.tag_info.as_ref().unwrap().group,
             "IFD0"
         );
-        assert!(canonical[0].occurrence.is_writable());
-        assert!(canonical[1].occurrence.is_writable());
+        assert!(canonical[0].occurrence.has_writable_target());
+        assert!(canonical[1].occurrence.has_writable_target());
     }
 
     #[test]
@@ -2695,7 +2696,7 @@ mod tests {
                 "unexpected target for {}",
                 occurrence.friendly_name
             );
-            assert!(!occurrence.occurrence.is_writable());
+            assert!(!occurrence.occurrence.has_writable_target());
         }
     }
 
@@ -2715,7 +2716,7 @@ mod tests {
 
         let target = occurrence.occurrence.write_target.as_ref().unwrap();
         assert_eq!(target.selector(), "1IFD1:7ID-282:XResolution");
-        assert!(occurrence.occurrence.is_writable());
+        assert!(occurrence.occurrence.has_writable_target());
     }
 
     #[test]
@@ -3059,7 +3060,7 @@ mod tests {
         assert_eq!(observed.group1, writable.group1);
         assert_eq!(observed.group7, writable.group7);
         assert_eq!(observed.tag_name, writable.tag_name);
-        assert!(occurrence.occurrence.is_writable());
+        assert!(occurrence.occurrence.has_writable_target());
     }
 
     #[test]

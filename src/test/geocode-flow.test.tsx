@@ -190,6 +190,7 @@ beforeEach(() => {
   mockApiInstance = createMockTauriApi();
   mockApiInstance.tagInfos = GENERATED_GEOCODE_IDS.map((id) => ({
     id: structuredClone(id),
+    group0: "XMP",
     group: "XMP-mlib",
     name: id.tag_id,
     writable: true,

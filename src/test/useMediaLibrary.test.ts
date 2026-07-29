@@ -89,6 +89,7 @@ function tagInfoFor(
 ): TagInfo {
   return {
     id: structuredClone(id),
+    group0: "XMP",
     group: "XMP-test",
     name: options.name ?? "TestField",
     writable: options.writable ?? true,
