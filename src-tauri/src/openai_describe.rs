@@ -16,7 +16,7 @@
 //! can point at a wiremock and run deterministic retry sequences without a
 //! real network.
 
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use base64::Engine;
 use chrono::{Datelike, Offset, Timelike};
@@ -692,10 +692,18 @@ pub fn compose_metadata_draft_edits(
         }
     }
     fn list_edit(items: Vec<String>) -> MetadataDraftEdit {
+        let mut seen = HashSet::new();
+        let items = items
+            .into_iter()
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .filter(|item| seen.insert(item.clone()))
+            .map(MetadataValue::Text)
+            .collect();
         MetadataDraftEdit {
             value: Some(MetadataValue::List {
                 list_kind: ListKind::Bag,
-                items: items.into_iter().map(MetadataValue::Text).collect(),
+                items,
             }),
             intent: EditIntent::Set,
         }
@@ -991,6 +999,41 @@ mod tests {
                 assert!(dt.time.offset.is_some(), "expected local offset");
             }
             other => panic!("expected datetime value, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn compose_metadata_draft_edits_cleans_ai_list_items() {
+        let out = AiOutput {
+            description: String::new(),
+            objects: vec![],
+            tags: vec![
+                " shoppers ".into(),
+                " ".into(),
+                "shoppers".into(),
+                "\tcar-park\r\n".into(),
+            ],
+            ocr_text: vec![],
+            interpretation: String::new(),
+        };
+        let generated_at = chrono::DateTime::parse_from_rfc3339("2024-06-01T12:34:56Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+
+        let edits = compose_metadata_draft_edits("gpt-4o", &out, generated_at);
+
+        match &edits[&crate::known_ids::mlib_ai_tags()].value {
+            Some(MetadataValue::List { list_kind, items }) => {
+                assert_eq!(*list_kind, ListKind::Bag);
+                assert_eq!(
+                    items,
+                    &vec![
+                        MetadataValue::Text("shoppers".to_string()),
+                        MetadataValue::Text("car-park".to_string()),
+                    ]
+                );
+            }
+            other => panic!("expected semantic list, got {:?}", other),
         }
     }
 
