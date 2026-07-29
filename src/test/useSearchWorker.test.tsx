@@ -135,6 +135,26 @@ afterEach(() => {
 });
 
 describe("useSearchWorker target-draft projection", () => {
+  it("forwards media kind and refreshes results when a file kind changes", async () => {
+    const image = makeFile({
+      relative_path: "song.mp3",
+      media_kind: "image",
+    });
+    const { result, rerender, props } = setup({
+      files: [image],
+      query: "kind:audio",
+    });
+    await waitFor(() => expect(result.current.matched).toEqual(new Set()));
+
+    rerender({
+      ...props,
+      files: [{ ...image, media_kind: "audio" }],
+    });
+    await waitFor(() =>
+      expect(result.current.matched).toEqual(new Set(["song.mp3"])),
+    );
+  });
+
   it("replays complete reserved-path drafts and searches value, exact ID, friendly name, description, and has:edits", async () => {
     const path = "__proto__";
     const drafts = new TargetDraftEditsStore();

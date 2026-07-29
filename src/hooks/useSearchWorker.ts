@@ -122,6 +122,7 @@ function diffFilePaths(
     if (
       !before ||
       before.filename !== p.filename ||
+      before.media_kind !== p.media_kind ||
       before.date_modified !== p.date_modified ||
       before.date_created !== p.date_created
     ) {
@@ -139,6 +140,7 @@ function fileToFields(p: FileInfo) {
   return {
     relative_path: p.relative_path,
     filename: p.filename,
+    media_kind: p.media_kind,
     date_modified: p.date_modified,
     date_created: p.date_created,
   };

@@ -71,7 +71,7 @@ export function MenuBar({
                 type="search"
                 className="list-search-input"
                 data-testid="list-search-input"
-                placeholder="Path, file dates, image metadata…"
+                placeholder="Path, dates, metadata, kind:audio…"
                 value={searchQuery ?? ""}
                 onChange={(e) => onSearchQueryChange(e.target.value)}
                 aria-label="Search files"

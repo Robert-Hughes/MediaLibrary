@@ -52,6 +52,7 @@ import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { arePathsImageOnly } from "./utils/mediaKind";
 import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
+import { parseSearchQuery } from "./search/searchQuery";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -183,6 +184,10 @@ function LoadedView({
     query: listSearchQuery,
     createWorker: createSearchWorker,
   });
+  const parsedListSearchQuery = useMemo(
+    () => parseSearchQuery(listSearchQuery),
+    [listSearchQuery],
+  );
 
   const displayFiles = useMemo(() => {
     if (searchMatched === null) return sortedFiles;
@@ -373,7 +378,7 @@ function LoadedView({
         onShowInExplorer={onShowInExplorer}
         onVisibilityChange={actions.prioritizeQueues}
         onFileOpen={actions.openGallery}
-        searchQuery={listSearchQuery}
+        searchQuery={parsedListSearchQuery.freeText}
         emptySearchMessage={emptySearchMessage}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}

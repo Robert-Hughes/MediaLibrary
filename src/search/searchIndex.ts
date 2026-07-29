@@ -10,10 +10,13 @@ import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdToken,
 } from "../utils/schemaDefinitionId";
+import type { MediaKind } from "../types";
+import { parseSearchQuery } from "./searchQuery";
 
 export interface SearchFileFields {
   relative_path: string;
   filename: string;
+  media_kind: MediaKind;
   date_modified: number | null;
   date_created: number | null;
 }
@@ -22,8 +25,6 @@ export interface SearchQueryResult {
   matched: string[];
   hasEditsFilter: boolean;
 }
-
-const HAS_EDITS_TOKEN = "has:edits";
 
 type SearchSchemaId = SearchSchemaLabel["id"];
 
@@ -126,7 +127,11 @@ export class SearchIndex {
   private drafts = new Map<string, SearchDraftEntry[]>();
   private schemaLabels = new Map<string, SearchSchemaLabel>();
   private haystacks = new Map<string, string>();
-  private priorQuery: { norm: string; matched: string[] } | null = null;
+  private priorQuery: {
+    norm: string;
+    filterKey: string;
+    matched: string[];
+  } | null = null;
 
   setFile(fields: SearchFileFields) {
     this.fileFields.set(fields.relative_path, fields);
@@ -183,18 +188,23 @@ export class SearchIndex {
   }
 
   query(rawQuery: string): SearchQueryResult {
-    let q = rawQuery.trim().toLowerCase();
-    const hasEditsFilter = q.includes(HAS_EDITS_TOKEN);
-    if (hasEditsFilter) q = q.replace(HAS_EDITS_TOKEN, "").trim();
+    const parsed = parseSearchQuery(rawQuery);
+    const q = parsed.normalizedFreeText;
+    const hasEditsFilter = parsed.filters.hasEdits;
+    const mediaKinds =
+      parsed.filters.mediaKinds.length > 0
+        ? new Set(parsed.filters.mediaKinds)
+        : null;
 
-    if (!q && !hasEditsFilter) {
+    if (!q && !hasEditsFilter && !mediaKinds) {
       const matched = Array.from(this.fileFields.keys());
-      this.priorQuery = { norm: "", matched };
+      this.priorQuery = { norm: "", filterKey: parsed.filterKey, matched };
       return { matched, hasEditsFilter: false };
     }
 
     const canNarrow =
       this.priorQuery !== null &&
+      parsed.filterKey === this.priorQuery.filterKey &&
       q.length >= this.priorQuery.norm.length &&
       q.startsWith(this.priorQuery.norm);
     const candidates: Iterable<string> = canNarrow
@@ -204,6 +214,9 @@ export class SearchIndex {
     const matched: string[] = [];
     for (const path of candidates) {
       if (hasEditsFilter && !this.drafts.has(path)) continue;
+      const fields = this.fileFields.get(path);
+      if (mediaKinds && (!fields || !mediaKinds.has(fields.media_kind)))
+        continue;
       if (!q) {
         matched.push(path);
         continue;
@@ -212,7 +225,11 @@ export class SearchIndex {
       if (haystack?.includes(q)) matched.push(path);
     }
 
-    this.priorQuery = hasEditsFilter ? null : { norm: q, matched };
+    this.priorQuery = {
+      norm: q,
+      filterKey: parsed.filterKey,
+      matched,
+    };
     return { matched, hasEditsFilter };
   }
 
