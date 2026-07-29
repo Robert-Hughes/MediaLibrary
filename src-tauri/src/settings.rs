@@ -66,7 +66,7 @@ pub fn default_describe_concurrency() -> u16 {
 }
 
 pub fn default_normalise_concurrency() -> u16 {
-    4
+    12
 }
 
 pub fn default_metadata_scan_concurrency() -> u16 {
@@ -334,6 +334,7 @@ mod tests {
         assert_eq!(s.openai_model, default_model());
         assert_eq!(s.normalise_location_model, RECOMMENDED_LOCATION_MODEL);
         assert_eq!(s.describe_concurrency, 12);
+        assert_eq!(s.normalise_concurrency, 12);
         assert_eq!(s.metadata_apply_batch_size, 32);
         assert_eq!(s.metadata_apply_concurrency, 8);
         assert!(s.openai_api_key.is_empty());
@@ -440,6 +441,10 @@ mod tests {
             default_normalise_location_model()
         );
         assert_eq!(loaded.describe_concurrency, default_describe_concurrency());
+        assert_eq!(
+            loaded.normalise_concurrency,
+            default_normalise_concurrency()
+        );
         assert_eq!(
             loaded.metadata_scan_concurrency,
             default_metadata_scan_concurrency()

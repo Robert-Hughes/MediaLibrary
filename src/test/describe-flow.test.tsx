@@ -118,6 +118,9 @@ describe("SettingsDialog", () => {
     const describeConcurrencySelect = screen.getByTestId(
       "settings-describe-concurrency-select",
     ) as HTMLSelectElement;
+    const normaliseConcurrencySelect = screen.getByTestId(
+      "settings-normalise-concurrency-select",
+    ) as HTMLSelectElement;
     const metadataConcurrencySelect = screen.getByTestId(
       "settings-metadata-scan-concurrency-select",
     ) as HTMLSelectElement;
@@ -136,6 +139,12 @@ describe("SettingsDialog", () => {
     expect(describeConcurrencySelect.value).toBe("6");
     expect(
       within(describeConcurrencySelect).getByRole("option", {
+        name: "12 (recommended)",
+      }),
+    ).toHaveValue("12");
+    expect(normaliseConcurrencySelect.value).toBe("4");
+    expect(
+      within(normaliseConcurrencySelect).getByRole("option", {
         name: "12 (recommended)",
       }),
     ).toHaveValue("12");
