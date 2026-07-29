@@ -1,5 +1,6 @@
 use crate::tag_schema::TagKind;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -114,6 +115,128 @@ pub fn parse_metadata_value(
 
     parse_known(kind, raw, display)
         .unwrap_or_else(|reason| unknown(Some(kind.clone()), raw, reason))
+}
+
+/// Parse an ExifTool value while its original JSON spelling is still available.
+///
+/// ExifTool sometimes emits values from text-typed metadata as JSON numbers.
+/// Deserializing those tokens directly into `serde_json::Value` normalizes their
+/// spelling (`1.60` becomes `1.6`) before the schema can identify them as text.
+/// Keep the raw JSON and apply the schema recursively first so text scalars,
+/// including values nested in lists and structures, retain their exact lexical
+/// representation while genuinely numeric fields continue to parse numerically.
+pub fn parse_metadata_value_from_raw_json(
+    key: &str,
+    kind: Option<&TagKind>,
+    raw_json: &RawValue,
+    display: Option<&serde_json::Value>,
+) -> MetadataValue {
+    let ordinary = || serde_json::from_str::<serde_json::Value>(raw_json.get());
+    let Some(kind) = kind else {
+        return ordinary()
+            .map(|raw| unknown(None, &raw, "no schema entry for tag"))
+            .unwrap_or_else(|error| {
+                unknown(
+                    None,
+                    &serde_json::Value::String(raw_json.get().to_string()),
+                    format!("invalid ExifTool JSON value: {error}"),
+                )
+            });
+    };
+
+    match coerce_raw_json_for_schema(kind, raw_json) {
+        Ok(raw) => parse_metadata_value(key, Some(kind), &raw, display),
+        Err(reason) => ordinary()
+            .map(|raw| unknown(Some(kind.clone()), &raw, reason.clone()))
+            .unwrap_or_else(|_| {
+                unknown(
+                    Some(kind.clone()),
+                    &serde_json::Value::String(raw_json.get().to_string()),
+                    reason,
+                )
+            }),
+    }
+}
+
+fn coerce_raw_json_for_schema(
+    kind: &TagKind,
+    raw_json: &RawValue,
+) -> Result<serde_json::Value, String> {
+    match kind {
+        TagKind::Text
+        | TagKind::Enum {
+            repr: crate::tag_schema::EnumRepr::String,
+            ..
+        } => coerce_raw_text_scalar(raw_json),
+        TagKind::Bag(inner) | TagKind::Seq(inner) | TagKind::Alt(inner) => {
+            match serde_json::from_str::<Vec<Box<RawValue>>>(raw_json.get()) {
+                Ok(items) => items
+                    .iter()
+                    .map(|item| coerce_raw_json_for_schema(inner, item))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(serde_json::Value::Array),
+                Err(_) => coerce_raw_json_for_schema(inner, raw_json),
+            }
+        }
+        TagKind::LangAlt => {
+            match serde_json::from_str::<BTreeMap<String, Box<RawValue>>>(raw_json.get()) {
+                Ok(languages) => languages
+                    .into_iter()
+                    .map(|(language, value)| {
+                        coerce_raw_text_scalar(&value).map(|value| (language, value))
+                    })
+                    .collect::<Result<serde_json::Map<_, _>, _>>()
+                    .map(serde_json::Value::Object),
+                Err(_) => coerce_raw_text_scalar(raw_json),
+            }
+        }
+        TagKind::Struct(fields) => {
+            let raw_fields =
+                serde_json::from_str::<BTreeMap<String, Box<RawValue>>>(raw_json.get())
+                    .map_err(|_| "expected JSON object for struct tag".to_string())?;
+            raw_fields
+                .into_iter()
+                .map(|(field, value)| {
+                    let schema_kind = fields.get(&field).or_else(|| {
+                        fields
+                            .iter()
+                            .filter(|(_, kind)| matches!(kind, TagKind::LangAlt))
+                            .filter_map(|(parent, kind)| {
+                                field
+                                    .strip_prefix(parent)
+                                    .and_then(|suffix| suffix.strip_prefix('-'))
+                                    .filter(|language| is_exiftool_language_identifier(language))
+                                    .map(|_| (parent.len(), kind))
+                            })
+                            .max_by_key(|(length, _)| *length)
+                            .map(|(_, kind)| kind)
+                    });
+                    let parsed = match schema_kind {
+                        Some(kind) => coerce_raw_json_for_schema(kind, &value)?,
+                        None => serde_json::from_str(value.get())
+                            .map_err(|error| format!("invalid struct field {field}: {error}"))?,
+                    };
+                    Ok((field, parsed))
+                })
+                .collect::<Result<serde_json::Map<_, _>, String>>()
+                .map(serde_json::Value::Object)
+        }
+        _ => serde_json::from_str(raw_json.get())
+            .map_err(|error| format!("invalid ExifTool JSON value: {error}")),
+    }
+}
+
+fn coerce_raw_text_scalar(raw_json: &RawValue) -> Result<serde_json::Value, String> {
+    let parsed: serde_json::Value = serde_json::from_str(raw_json.get())
+        .map_err(|error| format!("invalid ExifTool JSON value: {error}"))?;
+    match parsed {
+        serde_json::Value::Number(_) => Ok(serde_json::Value::String(raw_json.get().to_string())),
+        serde_json::Value::String(_) | serde_json::Value::Bool(_) => Ok(parsed),
+        _ => Err(format!(
+            "expected text scalar, got {}",
+            json_type_name(&parsed)
+        )),
+    }
 }
 
 fn json_type_name(v: &serde_json::Value) -> &'static str {
@@ -718,6 +841,87 @@ mod tests {
         assert_eq!(
             parse_metadata_value("X", Some(&TagKind::Text), &json!("hello"), None),
             MetadataValue::Text("hello".into())
+        );
+    }
+
+    #[test]
+    fn raw_json_uses_schema_to_distinguish_text_from_real_numbers() {
+        let raw: Box<RawValue> = serde_json::from_str("1.60").unwrap();
+
+        assert_eq!(
+            parse_metadata_value_from_raw_json("X:Text", Some(&TagKind::Text), &raw, None),
+            MetadataValue::Text("1.60".into())
+        );
+        assert_eq!(
+            parse_metadata_value_from_raw_json("X:Real", Some(&TagKind::Real), &raw, None),
+            MetadataValue::Real(1.6)
+        );
+    }
+
+    #[test]
+    fn raw_json_preserves_numeric_spelling_in_text_collections() {
+        let raw: Box<RawValue> = serde_json::from_str(r#"[1.60,2e3,true,"03.00"]"#).unwrap();
+
+        assert_eq!(
+            parse_metadata_value_from_raw_json(
+                "X:AIOcrText",
+                Some(&TagKind::Bag(Box::new(TagKind::Text))),
+                &raw,
+                None,
+            ),
+            MetadataValue::List {
+                list_kind: ListKind::Bag,
+                items: vec![
+                    MetadataValue::Text("1.60".into()),
+                    MetadataValue::Text("2e3".into()),
+                    MetadataValue::Text("true".into()),
+                    MetadataValue::Text("03.00".into()),
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn raw_json_applies_nested_struct_field_schemas() {
+        let raw: Box<RawValue> =
+            serde_json::from_str(r#"{"Label":1.60,"Score":1.60,"Codes":[2.00]}"#).unwrap();
+        let kind = TagKind::Struct(BTreeMap::from([
+            ("Label".into(), TagKind::Text),
+            ("Score".into(), TagKind::Real),
+            ("Codes".into(), TagKind::Seq(Box::new(TagKind::Text))),
+        ]));
+
+        assert_eq!(
+            parse_metadata_value_from_raw_json("X:Struct", Some(&kind), &raw, None),
+            MetadataValue::Struct(BTreeMap::from([
+                ("Label".into(), MetadataValue::Text("1.60".into())),
+                ("Score".into(), MetadataValue::Real(1.6)),
+                (
+                    "Codes".into(),
+                    MetadataValue::List {
+                        list_kind: ListKind::Seq,
+                        items: vec![MetadataValue::Text("2.00".into())],
+                    },
+                ),
+            ]))
+        );
+    }
+
+    #[test]
+    fn raw_json_preserves_numeric_spelling_in_language_alternatives() {
+        let raw: Box<RawValue> = serde_json::from_str(r#"{"x-default":1.60,"en":2e3}"#).unwrap();
+
+        assert_eq!(
+            parse_metadata_value_from_raw_json(
+                "XMP-dc:Description",
+                Some(&TagKind::LangAlt),
+                &raw,
+                None,
+            ),
+            MetadataValue::LangAlt(BTreeMap::from([
+                ("en".into(), "2e3".into()),
+                ("x-default".into(), "1.60".into()),
+            ]))
         );
     }
 

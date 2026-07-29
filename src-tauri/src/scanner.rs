@@ -19,7 +19,8 @@ use crate::metadata_occurrence::{
     RuntimeTagIdScope,
 };
 use crate::metadata_value::{
-    consolidate_lang_alt_maps, is_exiftool_language_identifier, parse_metadata_value, MetadataValue,
+    consolidate_lang_alt_maps, is_exiftool_language_identifier, parse_metadata_value_from_raw_json,
+    MetadataValue,
 };
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
 
@@ -450,6 +451,7 @@ struct ExifToolRuntimeValue {
     pub tag_id_scope: RuntimeTagIdScope,
     pub language: Option<String>,
     pub value: serde_json::Value,
+    pub raw_value: Box<RawValue>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -462,7 +464,11 @@ struct ExifToolRuntimeValueWire {
     pub id: Box<RawValue>,
     pub index: Option<u32>,
     pub lang: Option<String>,
-    pub val: serde_json::Value,
+    /// ExifTool may serialize text-typed metadata as an unquoted JSON number.
+    /// Retain the complete token tree until the schema is known: eagerly
+    /// parsing to `serde_json::Value` would normalize text such as `1.60` to
+    /// `1.6`, including when it appears inside a Bag, Seq, Alt, or Struct.
+    pub val: Box<RawValue>,
 }
 
 #[derive(Debug, Clone)]
@@ -473,6 +479,7 @@ struct RuntimeProperty {
     pub friendly_name: String,
     pub language: Option<String>,
     pub value: serde_json::Value,
+    pub raw_value: Box<RawValue>,
 }
 
 type RuntimeMap = BTreeMap<MetadataOccurrenceId, RuntimeProperty>;
@@ -570,6 +577,8 @@ fn parse_runtime_value(value: &RawValue) -> Result<ExifToolRuntimeValue, String>
         )
     })?;
     let tag_id = normalize_runtime_tag_id(&wire.id)?;
+    let parsed_value = serde_json::from_str(wire.val.get())
+        .map_err(|error| format!("invalid wrapped ExifTool `val`: {error}"))?;
     Ok(ExifToolRuntimeValue {
         tag_id_scope: RuntimeTagIdScope {
             table: wire.table,
@@ -577,7 +586,8 @@ fn parse_runtime_value(value: &RawValue) -> Result<ExifToolRuntimeValue, String>
             index: wire.index,
         },
         language: wire.lang,
-        value: wire.val,
+        value: parsed_value,
+        raw_value: wire.val,
     })
 }
 
@@ -676,12 +686,15 @@ fn parse_single_source_object_with_context(
             copy: parsed_key.copy,
         };
         let raw_schema_id = occurrence_id.tag_id_scope.as_schema_definition_id();
-        let value = if is_binary_tag(&raw_schema_id, registry)
+        let (value, raw_value) = if is_binary_tag(&raw_schema_id, registry)
             || is_exiftool_binary_placeholder(&runtime.value)
         {
-            serde_json::Value::String("<binary>".to_string())
+            let value = serde_json::Value::String("<binary>".to_string());
+            let raw_value =
+                serde_json::value::to_raw_value(&value).map_err(|error| error.to_string())?;
+            (value, raw_value)
         } else {
-            runtime.value
+            (runtime.value, runtime.raw_value)
         };
         let property = RuntimeProperty {
             occurrence_id,
@@ -690,6 +703,7 @@ fn parse_single_source_object_with_context(
             friendly_name,
             language: runtime.language,
             value,
+            raw_value,
         };
         debug_assert_eq!(
             property.friendly_name,
@@ -1377,15 +1391,26 @@ fn canonical_occurrences_from_exiftool_pair(
             }
         }
         let (id, info, language) = resolve_schema_identity(property, registry);
-        let primary = &raw_property.unwrap_or(property).value;
+        let primary_property = raw_property.unwrap_or(property);
+        let primary = &primary_property.value;
+        let primary_raw = &primary_property.raw_value;
         let display_hint = display_property.map(|p| &p.value);
         if let (Some(language), Some(info)) = (language, info) {
             if matches!(info.kind, TagKind::LangAlt) {
-                let text = primary
-                    .as_str()
-                    .or_else(|| display_hint.and_then(serde_json::Value::as_str))
-                    .unwrap_or_default()
-                    .to_string();
+                let text_value = parse_metadata_value_from_raw_json(
+                    &property.friendly_name,
+                    Some(&TagKind::Text),
+                    primary_raw,
+                    display_hint,
+                );
+                let text = match text_value {
+                    MetadataValue::Text(text) => text,
+                    _ => primary
+                        .as_str()
+                        .or_else(|| display_hint.and_then(serde_json::Value::as_str))
+                        .unwrap_or_default()
+                        .to_string(),
+                };
                 let occurrence = MetadataOccurrence::try_new(
                     occurrence_id,
                     id.clone(),
@@ -1410,10 +1435,10 @@ fn canonical_occurrences_from_exiftool_pair(
                 continue;
             }
         }
-        let value = parse_metadata_value(
+        let value = parse_metadata_value_from_raw_json(
             &property.friendly_name,
             info.map(|i| &i.kind),
-            primary,
+            primary_raw,
             display_hint,
         );
         warn_unknown_metadata_value(
@@ -1896,6 +1921,8 @@ mod tests {
             tag_id: schema_id.tag_id,
             index: schema_id.index,
         };
+        let raw_value =
+            serde_json::value::to_raw_value(&value).expect("test value serializes as JSON");
         RuntimeProperty {
             occurrence_id,
             group1: group1.into(),
@@ -1903,6 +1930,7 @@ mod tests {
             friendly_name: format!("{group1}:{tag_name}"),
             language: language.map(str::to_owned),
             value,
+            raw_value,
         }
     }
 
@@ -2260,7 +2288,7 @@ mod tests {
                 "Fixture:Main::Fixture-Metadata:ID-precise:PreciseId": {
                     "table": "TestFixture::Unknown",
                     "id": 0.10000000000000000000000000000000000001,
-                    "val": 1
+                    "val": [1.60]
                 },
                 "Fixture:Main::Fixture-Metadata:ID-exponent:ExponentId": {
                     "table": "TestFixture::Unknown",
@@ -2297,6 +2325,11 @@ mod tests {
             .find(|property| property.tag_name == "MPImageFlags")
             .unwrap();
         assert_eq!(flags.value, serde_json::json!(20));
+        let precise = properties
+            .values()
+            .find(|property| property.tag_name == "PreciseId")
+            .unwrap();
+        assert_eq!(precise.raw_value.get(), "[1.60]");
     }
 
     #[test]
@@ -4141,6 +4174,8 @@ mod tests {
             },
             copy,
         };
+        let raw_value =
+            serde_json::value::to_raw_value(&value).expect("test value serializes as JSON");
         RuntimeProperty {
             occurrence_id,
             group1: group1.to_owned(),
@@ -4148,6 +4183,7 @@ mod tests {
             friendly_name: format!("{group1}:{tag_name}"),
             language: None,
             value,
+            raw_value,
         }
     }
 
