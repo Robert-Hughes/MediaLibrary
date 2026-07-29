@@ -2,10 +2,6 @@ Current
 =======
 
 - Continue from 2019
-  - AI Describe failures:
-    - 20191101_182543.jpg
-
-  - Normalize all
 
 - Check all photos at the end
   - Any missing GPS?
