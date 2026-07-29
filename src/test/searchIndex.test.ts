@@ -62,10 +62,16 @@ const drafts = (entries: Record<string, MetadataDraftEdit>) =>
   }));
 
 function seed(idx: SearchIndex) {
-  for (const path of ["a.jpg", "b.jpg", "sub/c.jpg"]) {
+  const files = [
+    { path: "a.jpg", mediaKind: "image" },
+    { path: "b.jpg", mediaKind: "audio" },
+    { path: "sub/c.jpg", mediaKind: "video" },
+  ] as const;
+  for (const { path, mediaKind } of files) {
     idx.setFile({
       relative_path: path,
       filename: path.split("/").slice(-1)[0]!,
+      media_kind: mediaKind,
       date_modified: 1_700_000_000,
       date_created: null,
     });
@@ -249,6 +255,33 @@ describe("SearchIndex", () => {
     expect(matchedSet(idx, "muffin")).toEqual(new Set());
   });
 
+  it("filters by media kind and combines structured operators with free text", () => {
+    const idx = new SearchIndex();
+    seed(idx);
+    idx.setDrafts("b.jpg", drafts({ "X:Y": edit("Beatles live") }));
+
+    expect(matchedSet(idx, "kind:IMAGE")).toEqual(new Set(["a.jpg"]));
+    expect(matchedSet(idx, "kind:audio")).toEqual(new Set(["b.jpg"]));
+    expect(matchedSet(idx, "kind:video")).toEqual(new Set(["sub/c.jpg"]));
+    expect(matchedSet(idx, "kind:audio kind:video")).toEqual(
+      new Set(["b.jpg", "sub/c.jpg"]),
+    );
+    expect(matchedSet(idx, "kind:audio has:edits Beatles")).toEqual(
+      new Set(["b.jpg"]),
+    );
+    expect(matchedSet(idx, "kind:video has:edits")).toEqual(new Set());
+  });
+
+  it("does not narrow from cached results when structured filters change", () => {
+    const idx = new SearchIndex();
+    seed(idx);
+
+    expect(matchedSet(idx, "kind:audio")).toEqual(new Set(["b.jpg"]));
+    expect(matchedSet(idx, "kind:video")).toEqual(new Set(["sub/c.jpg"]));
+    expect(matchedSet(idx, "kind:video sub")).toEqual(new Set(["sub/c.jpg"]));
+    expect(matchedSet(idx, "kind:image a")).toEqual(new Set(["a.jpg"]));
+  });
+
   it("handles deletion, clear and file upserts", () => {
     const idx = new SearchIndex();
     seed(idx);
@@ -257,6 +290,7 @@ describe("SearchIndex", () => {
     idx.setFile({
       relative_path: "b.jpg",
       filename: "renamed.jpg",
+      media_kind: "image",
       date_modified: null,
       date_created: null,
     });

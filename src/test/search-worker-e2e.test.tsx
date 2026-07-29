@@ -45,8 +45,8 @@ async function openFolderWithThreeFiles() {
 
   const files = [
     makeFile({ relative_path: "alpha.jpg" }),
-    makeFile({ relative_path: "beta.jpg" }),
-    makeFile({ relative_path: "gamma.jpg" }),
+    makeFile({ relative_path: "beta.mp3", media_kind: "audio" }),
+    makeFile({ relative_path: "gamma.mp4", media_kind: "video" }),
   ];
   await act(async () => {
     for (const p of files) mockApiInstance.emitFileFound(p);
@@ -55,10 +55,10 @@ async function openFolderWithThreeFiles() {
     mockApiInstance.emitFileMetadataReady("alpha.jpg", {
       "IFD0:Make": { kind: "Text", value: "Canon" },
     });
-    mockApiInstance.emitFileMetadataReady("beta.jpg", {
+    mockApiInstance.emitFileMetadataReady("beta.mp3", {
       "IFD0:Make": { kind: "Text", value: "Sony" },
     });
-    mockApiInstance.emitFileMetadataReady("gamma.jpg", {
+    mockApiInstance.emitFileMetadataReady("gamma.mp4", {
       "IFD0:Make": { kind: "Text", value: "Nikon" },
       "Hidden:Tag": { kind: "Text", value: "ultraspecific-tag-value" },
     });
@@ -91,8 +91,25 @@ describe("Off-thread list search (end-to-end)", () => {
     await waitFor(() => {
       const rows = screen.getAllByTestId("file-row");
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toHaveAttribute("data-path", "beta.jpg");
+      expect(rows[0]).toHaveAttribute("data-path", "beta.mp3");
     });
+  });
+
+  it("combines a media-kind operator with free text and highlights only the free text", async () => {
+    const { user } = await openFolderWithThreeFiles();
+    await waitFor(() => {
+      expect(screen.getAllByTestId("file-row")).toHaveLength(3);
+    });
+
+    const input = screen.getByTestId("list-search-input");
+    await user.type(input, "kind:audio beta");
+    await waitFor(() => {
+      const rows = screen.getAllByTestId("file-row");
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toHaveAttribute("data-path", "beta.mp3");
+      expect(rows[0].querySelector("mark")).toHaveTextContent("beta");
+    });
+    expect(input).toHaveValue("kind:audio beta");
   });
 
   it("matches on a hidden metadata key not shown in any column", async () => {
@@ -108,7 +125,7 @@ describe("Off-thread list search (end-to-end)", () => {
     await waitFor(() => {
       const rows = screen.getAllByTestId("file-row");
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toHaveAttribute("data-path", "gamma.jpg");
+      expect(rows[0]).toHaveAttribute("data-path", "gamma.mp4");
     });
   });
 
