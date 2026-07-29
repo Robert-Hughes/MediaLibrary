@@ -319,7 +319,7 @@ export function createMockTauriApi(): MockTauriApi {
       normalise_location_model: "gpt-5.4-nano",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 12,
-      normalise_concurrency: 4,
+      normalise_concurrency: 12,
       metadata_scan_concurrency: 4,
       metadata_scan_batch_size: 20,
       metadata_apply_batch_size: 32,

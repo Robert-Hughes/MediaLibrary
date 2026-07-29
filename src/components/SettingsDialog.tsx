@@ -425,7 +425,7 @@ export function SettingsDialog({ onClose }: Props) {
                 >
                   {CONCURRENCY_OPTIONS.map((value) => (
                     <option key={value} value={value}>
-                      {value === 4 ? `${value} (recommended)` : value}
+                      {value === 12 ? `${value} (recommended)` : value}
                     </option>
                   ))}
                 </select>
