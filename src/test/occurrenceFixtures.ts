@@ -51,6 +51,11 @@ function infoFor(id: SchemaDefinitionId, value: MetadataValue): TagInfo {
   const colon = friendly.indexOf(":");
   return {
     id: structuredClone(id),
+    group0: id.table.startsWith("XMP::")
+      ? "XMP"
+      : id.table.startsWith("IPTC::")
+        ? "IPTC"
+        : "EXIF",
     group: colon > 0 ? friendly.slice(0, colon) : "Test",
     name: colon > 0 ? friendly.slice(colon + 1) : friendly,
     writable: true,

@@ -796,7 +796,7 @@ fn preload_schema() -> Result<(), String> {
 #[tauri::command]
 fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String> {
     let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.all_supported_writable().cloned().collect())
+    Ok(registry.schema_writable_transport_set().cloned().collect())
 }
 
 // Target-aware draft persistence and apply are the sole metadata-editing boundary.
@@ -1078,6 +1078,7 @@ mod tests {
         };
         let tag_info = TagInfo {
             id: schema_id.clone(),
+            group0: Some("EXIF".into()),
             group: "IFD0".into(),
             name: "XResolution".into(),
             writable: true,

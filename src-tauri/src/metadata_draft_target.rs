@@ -172,7 +172,7 @@ impl MetadataDraftTarget {
             .tag_info
             .as_ref()
             .ok_or(MetadataDraftTargetError::UnknownSchema)?;
-        if !info.supports_metadata_write() {
+        if !info.writable || !info.kind.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
         let write_target = occurrence
@@ -190,7 +190,7 @@ impl MetadataDraftTarget {
     /// Creates a schema-driven property target from one exactly resolved,
     /// writable schema definition.
     pub fn from_new_property(info: &TagInfo) -> Result<Self, MetadataDraftTargetError> {
-        if !info.supports_metadata_write() {
+        if !info.writable || !info.kind.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
 
@@ -217,7 +217,7 @@ impl MetadataDraftTarget {
         if schema_id != &info.id {
             return Err(MetadataDraftTargetError::SchemaIdMismatch);
         }
-        if !info.supports_metadata_write() {
+        if !info.writable || !info.kind.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
         validate_family1_group(&write_target.group1)
@@ -259,7 +259,7 @@ impl MetadataDraftTarget {
             .tag_info
             .as_ref()
             .ok_or(MetadataDraftTargetError::UnknownSchema)?;
-        if !info.supports_metadata_write() {
+        if !info.writable || !info.kind.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
         let fresh_write_target = occurrence
@@ -291,6 +291,7 @@ mod tests {
     fn info(writable: bool, index: Option<u32>) -> TagInfo {
         TagInfo {
             id: schema_id(index),
+            group0: Some("EXIF".to_owned()),
             group: "SchemaGroupMustNotBecomeTarget".to_owned(),
             name: "FriendlyNameMustNotBecomeTarget".to_owned(),
             writable,

@@ -10,12 +10,30 @@ type CacheEntry = "loading" | TagInfo | null;
 
 export { _clearTagInfoCache };
 
+function withDefaultGroup0<T extends TagInfo | Omit<TagInfo, "id">>(
+  value: T,
+): T {
+  if (value.group0 !== undefined) return value;
+  const table = "id" in value ? value.id.table : "";
+  const group0 = table.startsWith("XMP::")
+    ? "XMP"
+    : table.startsWith("IPTC::")
+      ? "IPTC"
+      : value.group.startsWith("XMP-")
+        ? "XMP"
+        : "EXIF";
+  return { ...value, group0 };
+}
+
 export function _setTagInfoCacheEntry(
   key: SchemaDefinitionId | string,
   value: CacheEntry | Omit<TagInfo, "id">,
 ): void {
   const id = typeof key === "string" ? testIdForFriendlyName(key) : key;
-  setExact(id, value);
+  setExact(
+    id,
+    value === "loading" || value === null ? value : withDefaultGroup0(value),
+  );
 }
 
 export function _ensureTagInfoCacheEntry(
@@ -23,5 +41,5 @@ export function _ensureTagInfoCacheEntry(
   value: TagInfo | Omit<TagInfo, "id">,
 ): void {
   const id = typeof key === "string" ? testIdForFriendlyName(key) : key;
-  ensureExact(id, value);
+  ensureExact(id, withDefaultGroup0(value));
 }

@@ -83,6 +83,7 @@ describe("Draft Metadata Editing Integration", () => {
     const makeId = testIdForFriendlyName("IFD0:Make");
     const descriptionId = testIdForFriendlyName("XMP-dc:Description");
     _setTagInfoCacheEntry(makeId, {
+      group0: "EXIF",
       group: "IFD0",
       name: "Make",
       writable: true,
@@ -90,6 +91,7 @@ describe("Draft Metadata Editing Integration", () => {
       description: null,
     });
     _setTagInfoCacheEntry(descriptionId, {
+      group0: "XMP",
       group: "XMP-dc",
       name: "Description",
       writable: true,
@@ -98,6 +100,7 @@ describe("Draft Metadata Editing Integration", () => {
     });
     const descriptionInfo = {
       id: descriptionId,
+      group0: "XMP",
       group: "XMP-dc",
       name: "Description",
       writable: true,

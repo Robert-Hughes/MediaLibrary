@@ -35,11 +35,12 @@ const del = (): MetadataDraftEdit => ({ intent: "Delete", value: null });
 
 function schemaInfo(
   id: SchemaDefinitionId,
-  options: { group?: string; name?: string } = {},
+  options: { group0?: string; group?: string; name?: string } = {},
 ): TagInfo {
   const destination = knownMetadataWriteTarget(id);
   return {
     id: structuredClone(id),
+    group0: options.group0 ?? "XMP",
     group: options.group ?? destination?.group1 ?? "Test",
     name: options.name ?? destination?.tag_name ?? id.tag_id,
     writable: true,
@@ -59,6 +60,7 @@ function occurrence(
     writeTarget?: boolean;
     schemaId?: SchemaDefinitionId;
     destinationGroup1?: string;
+    group0?: string;
   } = {},
 ): MetadataOccurrence {
   const declared = knownMetadataWriteTarget(id);
@@ -95,6 +97,7 @@ function occurrence(
         ? null
         : {
             id: structuredClone(id),
+            group0: options.group0 ?? "XMP",
             group: "Test",
             name: id.tag_id,
             writable: options.writable ?? true,
@@ -128,6 +131,7 @@ function targetCollection(
 
 function plan(options: {
   producer?: GeneratedMetadataProducer;
+  fileName?: string;
   edits?: SchemaMetadataEdit[];
   occurrences?: MetadataOccurrence[] | "loading";
   targetDrafts?: TargetDraftCollection;
@@ -136,6 +140,7 @@ function plan(options: {
   const edits = options.edits ?? [];
   return planGeneratedTargetDraftBatch({
     producer: options.producer ?? { kind: "describe" },
+    fileName: options.fileName ?? "photo.jpg",
     edits,
     occurrences: options.occurrences ?? [],
     targetDrafts: options.targetDrafts,
@@ -176,6 +181,59 @@ describe("planGeneratedTargetDraftBatch", () => {
       upserts: [],
       deletes: [],
       noops: [],
+    });
+  });
+
+  it("does not create incompatible generated Set drafts for GIF files", () => {
+    const schemaId = ID.imageDescription;
+    const result = plan({
+      producer: { kind: "normalise", enabledGroups: ["description"] },
+      fileName: "animation.gif",
+      edits: [{ schema_id: schemaId, edit: set("Generated") }],
+      writableSchemaDefinitions: [schemaInfo(schemaId, { group0: "EXIF" })],
+    });
+
+    expect(result.upserts).toEqual([]);
+    expect(result.deletes).toEqual([]);
+    expect(result.noops).toEqual([schemaId]);
+  });
+
+  it("clears a previously staged generated Set that is incompatible with GIF", () => {
+    const schemaId = ID.imageDescription;
+    const tagInfo = schemaInfo(schemaId, { group0: "EXIF" });
+    const target = newPropertyDraftTarget(tagInfo);
+    if (target.kind !== "available") throw new Error(target.reason);
+    const owner: MetadataTargetDraftEntry = {
+      target: target.target,
+      edit: set("Previously generated"),
+    };
+    const result = plan({
+      producer: { kind: "normalise", enabledGroups: ["description"] },
+      fileName: "animation.gif",
+      edits: [{ schema_id: schemaId, edit: set("Generated") }],
+      targetDrafts: targetCollection(owner),
+      writableSchemaDefinitions: [tagInfo],
+    });
+
+    expect(result.upserts).toEqual([]);
+    expect(result.deletes).toEqual([target.target]);
+    expect(result.noops).toEqual([]);
+  });
+
+  it("still stages deletion of existing incompatible GIF metadata", () => {
+    const schemaId = ID.imageDescription;
+    const existing = occurrence(schemaId, "Old", { group0: "EXIF" });
+    const result = plan({
+      producer: { kind: "normalise", enabledGroups: ["description"] },
+      fileName: "animation.gif",
+      edits: [{ schema_id: schemaId, edit: del() }],
+      occurrences: [existing],
+    });
+
+    expect(result.upserts).toHaveLength(1);
+    expect(result.upserts[0]).toMatchObject({
+      target: { kind: "ExistingOccurrence" },
+      edit: { intent: "Delete", value: null },
     });
   });
 

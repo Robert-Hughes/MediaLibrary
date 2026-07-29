@@ -14,13 +14,15 @@ import type {
 import { computeEffectiveMetadataKeyFrequency } from "../utils/metadataKeyFrequency";
 import { useTagInfos } from "../hooks/useTagInfo";
 import { useWritableSchemaDefinitions } from "../hooks/useWritableSchemaDefinitions";
-import { filterTagInfosByFilename } from "../utils/tagGroupApplicability";
 import {
   schemaDefinitionIdToken,
   tagInfoDisplayName,
 } from "../utils/schemaDefinitionId";
 import { metadataEditCapabilities } from "../metadataEditCapabilities";
-import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
+import {
+  filterTagInfosByFilename,
+  tagInfoSupportsMetadataWrite,
+} from "../utils/metadataWriteSupport";
 import { GPS_IDS } from "../metadata/knownIds";
 import type { GpsTagGroup } from "../metadata/tag_overrides";
 import { buildEffectiveMetadataForFile } from "../utils/effectiveMetadata";
@@ -107,7 +109,9 @@ function readOnlyReason(candidate: Candidate | null): string | null {
   if (candidate.info.kind.kind === "Unknown") {
     return "ExifTool does not provide a supported writable datatype for this property.";
   }
-  if (!tagInfoSupportsMetadataWrite(candidate.info)) {
+  if (
+    !tagInfoSupportsMetadataWrite(candidate.info, undefined, "DeleteExisting")
+  ) {
     return "This property's schema is not supported by the metadata write pipeline.";
   }
   return null;
@@ -280,6 +284,11 @@ export function BulkMetadataEditorDialog({
   const selected =
     candidates.find((candidate) => candidate.token === selectedToken) ?? null;
   const selectedReadOnlyReason = readOnlyReason(selected);
+  const selectedSetUnavailable =
+    selected?.kind === "schema" &&
+    !files.every((file) =>
+      tagInfoSupportsMetadataWrite(selected.info, file.filename, "Set"),
+    );
   const capabilities =
     selected?.kind === "schema"
       ? metadataEditCapabilities(selected.info)
@@ -471,6 +480,23 @@ export function BulkMetadataEditorDialog({
                         aria-pressed={active}
                         onClick={() => {
                           setSelectedToken(candidate.token);
+                          if (
+                            candidate.kind === "schema" &&
+                            tagInfoSupportsMetadataWrite(
+                              candidate.info,
+                              undefined,
+                              "DeleteExisting",
+                            ) &&
+                            !files.every((file) =>
+                              tagInfoSupportsMetadataWrite(
+                                candidate.info,
+                                file.filename,
+                                "Set",
+                              ),
+                            )
+                          ) {
+                            setOperation("Delete");
+                          }
                           setMerge(false);
                           setError(null);
                         }}
@@ -525,6 +551,7 @@ export function BulkMetadataEditorDialog({
                         type="radio"
                         name="bulk-operation"
                         checked={operation === "Set"}
+                        disabled={selectedSetUnavailable}
                         onChange={() => setOperation("Set")}
                       />{" "}
                       Set

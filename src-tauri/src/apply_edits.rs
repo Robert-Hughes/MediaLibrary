@@ -32,7 +32,9 @@ use crate::metadata_write_execution::{
     run_exiftool_write,
 };
 use crate::scanner;
-use crate::tag_schema::{SchemaDefinitionId, TagInfo, TagKind};
+use crate::tag_schema::{
+    MetadataWriteIneligibility, MetadataWriteOperation, SchemaDefinitionId, TagInfo, TagKind,
+};
 use crate::write_args::BuiltArgs;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -635,6 +637,16 @@ where
                         reason: error.to_string(),
                     })?;
                 let info = occurrence.tag_info.as_ref().expect("validated schema");
+                let operation = if matches!(entry.edit.intent, EditIntent::Delete) {
+                    MetadataWriteOperation::DeleteExisting
+                } else {
+                    MetadataWriteOperation::Set
+                };
+                info.metadata_write_eligibility(&abs_path.to_string_lossy(), operation)
+                    .map_err(|error| TargetApplyError::ArgumentPlanningFailure {
+                        target: Box::new(entry.target.clone()),
+                        reason: error.to_string(),
+                    })?;
                 let selector = occurrence
                     .write_target
                     .as_ref()
@@ -667,10 +679,19 @@ where
                 let info = schema_lookup(schema_id).ok_or_else(|| {
                     TargetApplyError::NewPropertySchemaMissing(Box::new(entry.target.clone()))
                 })?;
-                if !info.supports_metadata_write() {
-                    return Err(TargetApplyError::NewPropertySchemaReadOnly(Box::new(
-                        entry.target.clone(),
-                    )));
+                if let Err(error) = info.metadata_write_eligibility(
+                    &abs_path.to_string_lossy(),
+                    MetadataWriteOperation::Set,
+                ) {
+                    if error == MetadataWriteIneligibility::ReadOnlySchema {
+                        return Err(TargetApplyError::NewPropertySchemaReadOnly(Box::new(
+                            entry.target.clone(),
+                        )));
+                    }
+                    return Err(TargetApplyError::ArgumentPlanningFailure {
+                        target: Box::new(entry.target.clone()),
+                        reason: error.to_string(),
+                    });
                 }
                 entry.target.validate_new_property(&info).map_err(|error| {
                     TargetApplyError::ArgumentPlanningFailure {
@@ -855,7 +876,13 @@ where
                     reason: "the occurrence has no interpreted writable schema".to_string(),
                 }
             })?;
-            if !info.supports_metadata_write() {
+            if info
+                .metadata_write_eligibility(
+                    &abs_path.to_string_lossy(),
+                    MetadataWriteOperation::Set,
+                )
+                .is_err()
+            {
                 return Err(TargetApplyError::IptcUtf8RewriteUnavailable {
                     occurrence_id: Box::new(occurrence.id.clone()),
                     reason: "the occurrence is not writable by the application".to_string(),
@@ -1811,6 +1838,7 @@ mod tests {
                 tag_id: tag_id.to_string(),
                 index: None,
             },
+            group0: Some("EXIF".to_string()),
             group: group.to_string(),
             name: name.to_string(),
             writable,
@@ -1914,6 +1942,7 @@ mod tests {
     fn iptc_schema(id: SchemaDefinitionId, name: &str, kind: TagKind) -> TagInfo {
         TagInfo {
             id,
+            group0: Some("IPTC".to_string()),
             group: "IPTC".to_string(),
             name: name.to_string(),
             writable: true,
@@ -2050,7 +2079,7 @@ mod tests {
 
         assert!(matches!(
             plan_batch(
-                Path::new("p"),
+                Path::new("p.jpg"),
                 std::slice::from_ref(&entry),
                 &image(vec![fresh.clone(), fresh.clone()]),
                 |_| None
@@ -2059,7 +2088,7 @@ mod tests {
         ));
         assert!(matches!(
             plan_batch(
-                Path::new("p"),
+                Path::new("p.jpg"),
                 std::slice::from_ref(&entry),
                 &image(vec![]),
                 |_| None
@@ -2086,7 +2115,7 @@ mod tests {
         for changed in cases {
             assert!(matches!(
                 plan_batch(
-                    Path::new("p"),
+                    Path::new("p.jpg"),
                     std::slice::from_ref(&entry),
                     &image(vec![changed]),
                     |_| None
@@ -2125,6 +2154,73 @@ mod tests {
             planned.targets[0].args.args,
             vec!["-1IFD0:7ID-1:Name=after"]
         );
+    }
+
+    #[test]
+    fn format_policy_blocks_sets_but_allows_safe_existing_deletion() {
+        let exif = schema("1", "IFD0", "Name", true, TagKind::Text);
+        let existing = occurrence(
+            occurrence_id("GIF-EXIF", "1", 0),
+            MetadataValue::Text("before".into()),
+            Some(exif.clone()),
+            Some("IFD0"),
+            "Name",
+        );
+        let set = existing_entry(
+            &existing,
+            edit(EditIntent::Set, Some(MetadataValue::Text("after".into()))),
+        );
+        let delete = existing_entry(&existing, edit(EditIntent::Delete, None));
+
+        assert!(matches!(
+            plan_batch(
+                Path::new("animation.gif"),
+                &[set],
+                &image(vec![existing.clone()]),
+                |_| None,
+            ),
+            Err(TargetApplyError::ArgumentPlanningFailure { reason, .. })
+                if reason.contains("not supported by this file format")
+        ));
+
+        let planned = plan_batch(
+            Path::new("animation.gif"),
+            &[delete],
+            &image(vec![existing]),
+            |_| None,
+        )
+        .expect("deleting an existing writable EXIF occurrence from GIF is safe");
+        assert_eq!(planned.targets.len(), 1);
+        assert_eq!(planned.targets[0].args.args, vec!["-1IFD0:7ID-1:Name="]);
+
+        let new_exif = new_entry(
+            &exif,
+            edit(EditIntent::Set, Some(MetadataValue::Text("new".into()))),
+        );
+        assert!(matches!(
+            plan_batch(
+                Path::new("animation.gif"),
+                &[new_exif],
+                &image(vec![]),
+                |_| Some(exif.clone()),
+            ),
+            Err(TargetApplyError::ArgumentPlanningFailure { reason, .. })
+                if reason.contains("not supported by this file format")
+        ));
+
+        let mut xmp = schema("2", "XMP-test", "Name", true, TagKind::Text);
+        xmp.group0 = Some("XMP".into());
+        let new_xmp = new_entry(
+            &xmp,
+            edit(EditIntent::Set, Some(MetadataValue::Text("new".into()))),
+        );
+        assert!(plan_batch(
+            Path::new("animation.gif"),
+            &[new_xmp],
+            &image(vec![]),
+            |_| Some(xmp.clone()),
+        )
+        .is_ok());
     }
 
     #[test]
@@ -2519,7 +2615,7 @@ mod tests {
         );
         assert!(matches!(
             plan_batch(
-                Path::new("p"),
+                Path::new("p.jpg"),
                 std::slice::from_ref(&set),
                 &image(vec![]),
                 |_| None
@@ -2528,7 +2624,7 @@ mod tests {
         ));
         assert!(matches!(
             plan_batch(
-                Path::new("p"),
+                Path::new("p.jpg"),
                 std::slice::from_ref(&set),
                 &image(vec![]),
                 |_| Some(readonly.clone())
@@ -2545,7 +2641,7 @@ mod tests {
         );
         assert!(matches!(
             plan_batch(
-                Path::new("p"),
+                Path::new("p.jpg"),
                 std::slice::from_ref(&set),
                 &image(vec![present]),
                 |_| Some(writable.clone())
@@ -2556,13 +2652,13 @@ mod tests {
         for intent in [EditIntent::Delete, EditIntent::ListRemove] {
             let unsupported = new_entry(&writable, edit(intent.clone(), None));
             assert!(matches!(
-                plan_batch(Path::new("p"), &[unsupported], &image(vec![]), |_| Some(writable.clone())),
+                plan_batch(Path::new("p.jpg"), &[unsupported], &image(vec![]), |_| Some(writable.clone())),
                 Err(TargetApplyError::UnsupportedNewPropertyIntent { intent: actual, .. }) if actual == intent
             ));
         }
 
         assert!(plan_batch(
-            Path::new("p"),
+            Path::new("p.jpg"),
             std::slice::from_ref(&set),
             &image(vec![]),
             |_| Some(writable.clone())
@@ -2579,10 +2675,12 @@ mod tests {
             &list,
             edit(EditIntent::ListAdd, Some(MetadataValue::Text("x".into()))),
         );
-        assert!(plan_batch(Path::new("p"), &[add], &image(vec![]), |_| Some(
-            list.clone()
-        ))
-        .is_ok());
+        assert!(
+            plan_batch(Path::new("p.jpg"), &[add], &image(vec![]), |_| Some(
+                list.clone()
+            ))
+            .is_ok()
+        );
     }
 
     #[test]
@@ -2608,9 +2706,9 @@ mod tests {
             ),
         ];
         assert!(matches!(
-            plan_batch(Path::new("p"), &entries, &image(vec![existing]), |_| Some(
-                info_b.clone()
-            )),
+            plan_batch(Path::new("p.jpg"), &entries, &image(vec![existing]), |_| {
+                Some(info_b.clone())
+            }),
             Err(TargetApplyError::NewPropertySelectorOccupied { .. })
         ));
 
@@ -2627,7 +2725,7 @@ mod tests {
             ),
         ];
         assert!(matches!(
-            plan_batch(Path::new("p"), &two_new, &image(vec![]), |id| [
+            plan_batch(Path::new("p.jpg"), &two_new, &image(vec![]), |id| [
                 info_b.clone(),
                 info_c.clone()
             ]
@@ -2661,7 +2759,7 @@ mod tests {
             "XResolution",
         );
         assert!(plan_batch(
-            Path::new("p"),
+            Path::new("p.jpg"),
             std::slice::from_ref(&entry),
             &image(vec![existing_elsewhere.clone()]),
             |_| Some(info.clone()),
@@ -2677,7 +2775,7 @@ mod tests {
         );
         assert!(matches!(
             plan_batch(
-                Path::new("p"),
+                Path::new("p.jpg"),
                 std::slice::from_ref(&entry),
                 &image(vec![exact]),
                 |_| Some(info.clone()),
@@ -2689,9 +2787,12 @@ mod tests {
         ambiguous.observed_selector = None;
         ambiguous.write_target = None;
         assert!(matches!(
-            plan_batch(Path::new("p"), &[entry], &image(vec![ambiguous]), |_| Some(
-                info.clone()
-            ),),
+            plan_batch(
+                Path::new("p.jpg"),
+                &[entry],
+                &image(vec![ambiguous]),
+                |_| Some(info.clone()),
+            ),
             Err(TargetApplyError::NewPropertySchemaOccupancyUnknown { .. })
         ));
     }
@@ -2715,7 +2816,7 @@ mod tests {
         existing.write_target = None;
 
         let Err(error) = plan_batch(
-            Path::new("p"),
+            Path::new("p.jpg"),
             &[entry],
             &image(vec![existing.clone()]),
             |_| Some(proposed.clone()),

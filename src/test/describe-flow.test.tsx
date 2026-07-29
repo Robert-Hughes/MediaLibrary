@@ -66,6 +66,7 @@ beforeEach(() => {
   mockApiInstance = createMockTauriApi();
   mockApiInstance.tagInfos = DESCRIBE_TARGET_TAGS.map((id) => ({
     id: structuredClone(id),
+    group0: "XMP",
     group: "XMP-mlib",
     name: id.tag_id,
     writable: true,

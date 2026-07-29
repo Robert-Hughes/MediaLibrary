@@ -35,6 +35,7 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./utils/schemaDefinitionId";
+import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 export type GeneratedMetadataProducer =
   | { kind: "describe" }
   | { kind: "geocode" }
@@ -148,6 +149,7 @@ function clonePlan(plan: GeneratedTargetDraftPlan): GeneratedTargetDraftPlan {
  */
 export function planGeneratedTargetDraftBatch(input: {
   producer: GeneratedMetadataProducer;
+  fileName: string;
   edits: readonly SchemaMetadataEdit[];
   occurrences: FileMetadataOccurrencesState;
   targetDrafts: TargetDraftCollection | undefined;
@@ -278,18 +280,26 @@ export function planGeneratedTargetDraftBatch(input: {
             occurrence: destinationOccurrences[0],
           } as const);
 
+    const tagInfo =
+      occurrence.kind === "unique"
+        ? occurrence.occurrence.tag_info
+        : input.writableSchemaDefinitions.find(
+            (candidate) => schemaDefinitionIdToken(candidate.id) === token,
+          );
+    if (!tagInfo) {
+      fail(
+        "schema_definition_missing",
+        `No exact writable schema definition is available for ${token}.`,
+        schemaId,
+      );
+    }
+    const formatIncompatibleSet =
+      entry.edit.intent === "Set" &&
+      tagInfoSupportsMetadataWrite(tagInfo, input.fileName, "DeleteExisting") &&
+      !tagInfoSupportsMetadataWrite(tagInfo, input.fileName, "Set");
+
     let plannedTarget: MetadataDraftTarget;
     if (occurrence.kind === "missing") {
-      const tagInfo = input.writableSchemaDefinitions.find(
-        (candidate) => schemaDefinitionIdToken(candidate.id) === token,
-      );
-      if (!tagInfo) {
-        fail(
-          "schema_definition_missing",
-          `No exact writable schema definition is available for ${token}.`,
-          schemaId,
-        );
-      }
       const target = newPropertyDraftTarget(tagInfo);
       if (target.kind !== "available") {
         fail(
@@ -338,6 +348,15 @@ export function planGeneratedTargetDraftBatch(input: {
       );
     }
     const owner = slotOwner;
+
+    if (formatIncompatibleSet) {
+      if (owner === undefined) {
+        plan.noops.push(structuredClone(schemaId));
+      } else {
+        plan.deletes.push(structuredClone(plannedTarget));
+      }
+      continue;
+    }
 
     if (occurrence.kind === "missing" && entry.edit.intent === "Delete") {
       if (owner === undefined) {

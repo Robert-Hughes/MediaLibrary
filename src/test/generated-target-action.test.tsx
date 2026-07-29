@@ -47,6 +47,7 @@ function occurrence(
     value: { kind: "Text", value },
     tag_info: {
       id,
+      group0: "XMP",
       group: "XMP-mlib",
       name: id.tag_id,
       writable: options.writable ?? true,
@@ -71,6 +72,7 @@ function installGeneratedSchemaDefinitions(
 ): void {
   mock.tagInfos = DESCRIBE_TARGET_TAGS.map((id) => ({
     id: structuredClone(id),
+    group0: "XMP",
     group: "XMP-mlib",
     name: id.tag_id,
     writable: true,
