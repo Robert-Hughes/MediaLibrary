@@ -85,4 +85,65 @@ describe("CoalescingAsyncQueue", () => {
     await flush;
     expect(flushed).toBe(true);
   });
+
+  it("throttles runs while retaining the newest trailing value", async () => {
+    vi.useFakeTimers();
+    try {
+      const started: number[] = [];
+      const queue = new CoalescingAsyncQueue<number>(
+        async (value) => {
+          started.push(value);
+        },
+        vi.fn(),
+        { minIntervalMs: 3_000 },
+      );
+
+      queue.schedule(1);
+      await vi.advanceTimersByTimeAsync(0);
+      queue.schedule(2);
+      queue.schedule(3);
+      await vi.advanceTimersByTimeAsync(2_999);
+      expect(started).toEqual([1]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(started).toEqual([1, 3]);
+      await queue.flush();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("flush bypasses the throttle and persists the newest value", async () => {
+    vi.useFakeTimers();
+    try {
+      const started: number[] = [];
+      const queue = new CoalescingAsyncQueue<number>(
+        async (value) => {
+          started.push(value);
+        },
+        vi.fn(),
+        { minIntervalMs: 3_000 },
+      );
+
+      queue.schedule(1);
+      await vi.advanceTimersByTimeAsync(0);
+      queue.schedule(2);
+      const flush = queue.flush();
+      await flush;
+
+      expect(started).toEqual([1, 2]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects invalid throttle intervals", () => {
+    expect(
+      () =>
+        new CoalescingAsyncQueue(vi.fn(), vi.fn(), {
+          minIntervalMs: -1,
+        }),
+    ).toThrow("minIntervalMs must be a finite non-negative number");
+  });
 });

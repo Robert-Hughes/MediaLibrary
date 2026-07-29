@@ -74,6 +74,9 @@ import {
   type BulkMetadataDraftPlan,
   type BulkMetadataDraftRequest,
 } from "./bulkMetadataDrafts";
+
+const TARGET_DRAFT_AUTOSAVE_MIN_INTERVAL_MS = 3_000;
+
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
   errorType: string,
@@ -302,6 +305,7 @@ export function useMediaLibrary(
         });
       },
       (error) => pushApplicationError("metadata-target-save", error),
+      { minIntervalMs: TARGET_DRAFT_AUTOSAVE_MIN_INTERVAL_MS },
     );
   }
 

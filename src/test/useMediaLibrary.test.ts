@@ -37,6 +37,7 @@ async function expectConsoleErrorMessages(
 
 async function settleAutosaves(): Promise<void> {
   await act(async () => {
+    await vi.advanceTimersByTimeAsync(3_000);
     for (let index = 0; index < 5; index += 1) await Promise.resolve();
   });
 }
@@ -1727,6 +1728,7 @@ describe("useMediaLibrary", () => {
     act(() => {
       stateStore().setMetadataTarget("owned.jpg", existingTarget, edit);
     });
+    await settleAutosaves();
     const ownedSaveCount = saveCount();
     await act(async () => {
       await result.current[1].setNewPropertyDraft(
@@ -1735,6 +1737,7 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
+    await settleAutosaves();
     expect(saveCount()).toBe(ownedSaveCount + 1);
     expect(
       Object.values(stateStore().getMetadataFile("owned.jpg") ?? {}).map(
@@ -1775,6 +1778,7 @@ describe("useMediaLibrary", () => {
         );
       }
     });
+    await settleAutosaves();
     const ambiguousSaveCount = saveCount();
     await act(async () => {
       await result.current[1].setNewPropertyDraft(
@@ -1783,6 +1787,7 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
+    await settleAutosaves();
     expect(saveCount()).toBe(ambiguousSaveCount + 1);
     expect(
       Object.values(stateStore().getMetadataFile("ambiguous.jpg") ?? {}),
@@ -1813,6 +1818,7 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
+    await settleAutosaves();
     const collisionSaveCount = saveCount();
     await expectConsoleErrorMessages(
       [
@@ -1850,7 +1856,8 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
-    expect(saveCount()).toBe(family7SaveCount + 2);
+    await settleAutosaves();
+    expect(saveCount()).toBe(family7SaveCount + 1);
     expect(
       Object.values(stateStore().getMetadataFile("family7-case.jpg") ?? {}),
     ).toHaveLength(2);
@@ -1873,6 +1880,7 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
+    await settleAutosaves();
     expect(saveCount()).toBe(supportedSaveCount + 1);
     expect(
       Object.values(stateStore().getMetadataFile("supported.jpg") ?? {})[0]
@@ -1916,6 +1924,7 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
+    await settleAutosaves();
     expect(moved).toBe(true);
     const state = result.current[0];
     if (state.kind !== "loaded") throw new Error("expected loaded state");
@@ -2608,6 +2617,7 @@ describe("useMediaLibrary", () => {
     act(() =>
       result.current[1].acceptTargetVerifyOutcome("replace.jpg", replacement),
     );
+    await settleAutosaves();
     let current = result.current[0];
     if (current.kind !== "loaded") return;
     expect(
@@ -3108,6 +3118,7 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
+    await settleAutosaves();
     const saveFolders = mock.invocations
       .filter(({ cmd }) => cmd === "save_metadata_draft_edits")
       .map(({ args }) => args?.folderPath);
