@@ -407,6 +407,8 @@ function FileListImpl(
     estimateSize: () => rowHeight, // Matches --row-height below.
     overscan: 10, // Render 10 extra rows above/below viewport for smooth scrolling
   });
+  const rowVirtualizerRef = useRef(rowVirtualizer);
+  rowVirtualizerRef.current = rowVirtualizer;
 
   // When rowHeight changes (e.g. preview column resize), the virtualizer's
   // cached item sizes become stale.  measure() clears the cache so every item
@@ -485,14 +487,16 @@ function FileListImpl(
 
   useEffect(() => {
     if (selectedPath !== null && listRef.current) {
-      const selectedIndex = files.findIndex(
+      const selectedIndex = filesRef.current.findIndex(
         (file) => file.relative_path === selectedPath,
       );
       if (selectedIndex >= 0) {
-        rowVirtualizer.scrollToIndex(selectedIndex, { align: "auto" });
+        rowVirtualizerRef.current.scrollToIndex(selectedIndex, {
+          align: "auto",
+        });
       }
     }
-  }, [files, selectedPath, rowVirtualizer]);
+  }, [selectedPath]);
 
   const { selectedIndices, toggleAll, handleRowSelect, handleRowContextMenu } =
     useRowSelection({
