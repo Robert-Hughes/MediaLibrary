@@ -72,7 +72,7 @@ impl ComparableTimestamp {
             // stay canonical and verify against ExifTool's offset-bearing read.
             time.offset = fallback_offset.cloned();
         }
-        time
+        canonicalize_iptc_time_for_write(time)
     }
 
     fn compare_for_dates_normaliser(&self, other: &Self) -> TimestampComparison {
@@ -90,6 +90,36 @@ impl ComparableTimestamp {
             _ => TimestampComparison::Equivalent,
         }
     }
+}
+
+fn canonicalize_iptc_time_for_write(mut time: TimeValue) -> TimeValue {
+    if let Some(offset) = &mut time.offset {
+        // ExifTool canonicalises negative zero only for IPTC IIM time fields.
+        // Preserve the source sign for EXIF/XMP, but project the value that
+        // IPTC will actually store so a successful write verifies exactly.
+        if offset.hours == 0 && offset.minutes == 0 {
+            offset.sign = OffsetSign::Plus;
+        }
+    }
+    time
+}
+
+fn iptc_times_match(left: &TimeValue, right: &TimeValue) -> bool {
+    left.hour == right.hour
+        && left.minute == right.minute
+        && left.second == right.second
+        && left.subsecond == right.subsecond
+        && match (&left.offset, &right.offset) {
+            (Some(left), Some(right))
+                if left.hours == 0
+                    && left.minutes == 0
+                    && right.hours == 0
+                    && right.minutes == 0 =>
+            {
+                true
+            }
+            (left, right) => left == right,
+        }
 }
 
 fn set_edit(value: MetadataValue) -> MetadataDraftEdit {
@@ -402,7 +432,10 @@ fn process_date_subgroup(
     if date_from_value(effective_iptc_date).as_ref() != Some(&iptc_date) {
         edits.insert(iptc_date_id, set_edit(MetadataValue::Date(iptc_date)));
     }
-    if effective_iptc_time.as_ref() != Some(&iptc_time) {
+    if !effective_iptc_time
+        .as_ref()
+        .is_some_and(|current| iptc_times_match(current, &iptc_time))
+    {
         edits.insert(iptc_time_id, set_edit(MetadataValue::Time(iptc_time)));
     }
 
@@ -693,6 +726,14 @@ mod tests {
         }
     }
 
+    fn negative_zero() -> UtcOffsetValue {
+        UtcOffsetValue {
+            sign: OffsetSign::Minus,
+            hours: 0,
+            minutes: 0,
+        }
+    }
+
     fn edit_value<'a>(g: &'a GroupOutput, k: &str) -> &'a MetadataValue {
         g.edits
             .get(&crate::known_ids::test_id(k))
@@ -854,6 +895,43 @@ mod tests {
     }
 
     #[test]
+    fn related_exif_negative_zero_is_canonicalized_only_for_new_iptc_time() {
+        let input = DatesInput {
+            date_time_original: Some(dt(2021, 2, 25, 12, 19, 11, None)),
+            offset_time_original: Some(MetadataValue::TimeOffset(negative_zero())),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)))
+            .output
+            .unwrap();
+
+        assert_eq!(
+            display(edit_value(&out, "XMP-photoshop:DateCreated")),
+            "2021-02-25T12:19:11-00:00"
+        );
+        assert_eq!(
+            display(edit_value(&out, "IPTC:TimeCreated")),
+            "12:19:11+00:00"
+        );
+    }
+
+    #[test]
+    fn existing_iptc_negative_zero_does_not_trigger_sign_only_rewrite() {
+        let input = DatesInput {
+            date_time_original: Some(dt(2021, 2, 25, 12, 19, 11, None)),
+            offset_time_original: Some(MetadataValue::TimeOffset(negative_zero())),
+            photoshop_date_created: Some(dt(2021, 2, 25, 12, 19, 11, Some(negative_zero()))),
+            iptc_date_created: Some(date(2021, 2, 25)),
+            iptc_time_created: Some(time(12, 19, 11, Some(negative_zero()))),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
+
+        assert!(out.output.is_none(), "unexpected edits: {:?}", out.output);
+        assert_eq!(out.n_date_conflict, 0);
+    }
+
+    #[test]
     fn digital_creation_time_uses_same_offset_rules() {
         let input = DatesInput {
             create_date: Some(dt(2024, 6, 15, 14, 30, 45, None)),
@@ -866,6 +944,27 @@ mod tests {
         assert_eq!(
             display(edit_value(&out, "IPTC:DigitalCreationTime")),
             "14:30:45+01:00"
+        );
+    }
+
+    #[test]
+    fn digital_creation_negative_zero_is_canonicalized_for_iptc() {
+        let input = DatesInput {
+            create_date: Some(dt(2021, 2, 25, 12, 19, 11, None)),
+            offset_time_digitized: Some(MetadataValue::TimeOffset(negative_zero())),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)))
+            .output
+            .unwrap();
+
+        assert_eq!(
+            display(edit_value(&out, "XMP-xmp:CreateDate")),
+            "2021-02-25T12:19:11-00:00"
+        );
+        assert_eq!(
+            display(edit_value(&out, "IPTC:DigitalCreationTime")),
+            "12:19:11+00:00"
         );
     }
 
