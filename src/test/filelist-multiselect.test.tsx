@@ -18,6 +18,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { FileList, type FileListSelectionHandle } from "../components/FileList";
 import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
 import type { FileInfo, MetadataDraftEdit } from "../types";
+import { getVirtualizerScrollToIndexMock } from "./setup";
 
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 vi.mock("@tauri-apps/plugin-dialog", () => ({
@@ -572,6 +573,62 @@ describe("FileList context menu (multi-select)", () => {
 
 describe("FileList keyboard navigation", () => {
   beforeEach(() => cleanup());
+
+  it("does not reveal an unchanged selection when the files array changes", () => {
+    const virtualizerScrollToIndex = getVirtualizerScrollToIndexMock();
+    virtualizerScrollToIndex.mockClear();
+    const files = makeFiles(3);
+    const thumbnails = new ThumbnailStore();
+    const fileMetadata = new FileMetadataOccurrencesStore();
+    for (const file of files) {
+      thumbnails.add(file.relative_path);
+      fileMetadata.add(file.relative_path);
+    }
+    const props = {
+      targetDraftEdits: {},
+      thumbnails,
+      fileMetadataOccurrences: fileMetadata,
+      visibleColumns: [],
+      sortConfig: { primary: null, secondary: null },
+      onSortChange: vi.fn(),
+      onSelect: vi.fn(),
+      onShowInExplorer: vi.fn(),
+      onVisibilityChange: vi.fn(),
+      onFileOpen: vi.fn(),
+    } satisfies Omit<
+      React.ComponentProps<typeof FileList>,
+      "files" | "selectedPath"
+    >;
+    const { rerender } = render(
+      <FileList {...props} files={files} selectedPath="0.jpg" />,
+    );
+    expect(virtualizerScrollToIndex).toHaveBeenLastCalledWith(0, {
+      align: "auto",
+    });
+    virtualizerScrollToIndex.mockClear();
+
+    const appendedFiles = [
+      ...files,
+      ...makeFiles(1).map((file) => ({
+        ...file,
+        relative_path: "3.jpg",
+        filename: "3.jpg",
+      })),
+    ];
+    thumbnails.add("3.jpg");
+    fileMetadata.add("3.jpg");
+    rerender(
+      <FileList {...props} files={appendedFiles} selectedPath="0.jpg" />,
+    );
+    expect(virtualizerScrollToIndex).not.toHaveBeenCalled();
+
+    rerender(
+      <FileList {...props} files={appendedFiles} selectedPath="2.jpg" />,
+    );
+    expect(virtualizerScrollToIndex).toHaveBeenLastCalledWith(2, {
+      align: "auto",
+    });
+  });
 
   it("ArrowDown selects the next row", async () => {
     const { onSelect } = setup({ selectedPath: "1.jpg" });

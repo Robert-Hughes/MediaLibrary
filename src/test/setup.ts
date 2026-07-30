@@ -272,6 +272,12 @@ if (typeof Worker === "undefined") {
 
 // Mock @tanstack/react-virtual to render all items in tests (no virtualization)
 // This allows tests to find all rows without needing to simulate scrolling
+const virtualizerScrollToIndex = vi.hoisted(() => vi.fn());
+
+export function getVirtualizerScrollToIndexMock() {
+  return virtualizerScrollToIndex;
+}
+
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({
     count,
@@ -293,7 +299,7 @@ vi.mock("@tanstack/react-virtual", () => ({
     return {
       getVirtualItems: () => items,
       getTotalSize: () => count * size,
-      scrollToIndex: () => {},
+      scrollToIndex: virtualizerScrollToIndex,
       measure: () => {},
     };
   },
