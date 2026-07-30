@@ -149,14 +149,13 @@ pub struct TitleGenPrompt {
     pub keywords: Vec<String>,
 }
 
-/// Raw reverse-geocode evidence supplied verbatim to the location resolver.
+/// Compact, labelled reverse-geocode evidence supplied to the location
+/// resolver. Raw Nominatim documents remain in `LocationInput` for
+/// deterministic identifiers and are projected into this text before AI.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub struct LocationResolvePrompt {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub geocode_json: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub json_v2: Option<String>,
+    pub evidence: String,
 }
 
 /// Human-facing LocationCreated members selected or composed by AI. Factual

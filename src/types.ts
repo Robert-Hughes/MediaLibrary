@@ -505,6 +505,8 @@ export interface NormaliseEstimateAiTokenBreakdown {
 
 export interface NormaliseEstimatePricing {
   inputPer1M: number;
+  cachedInputPer1M: number;
+  cacheWriteInputPer1M: number;
   outputPer1M: number;
 }
 
@@ -548,6 +550,8 @@ export interface NormaliseEstimate {
   maxOutPerCallC: number;
   expectedOutPerCallG: number;
   maxOutPerCallG: number;
+  locationCachePrefixTokens: number;
+  locationCachePartitions: number;
 }
 
 export interface DescribeFailure {

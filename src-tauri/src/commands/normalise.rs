@@ -76,6 +76,10 @@ struct EstimatePricing {
     // would silently break the frontend cost recompute.
     #[serde(rename = "inputPer1M")]
     input_per_1m: f64,
+    #[serde(rename = "cachedInputPer1M")]
+    cached_input_per_1m: f64,
+    #[serde(rename = "cacheWriteInputPer1M")]
+    cache_write_input_per_1m: f64,
     #[serde(rename = "outputPer1M")]
     output_per_1m: f64,
 }
@@ -121,6 +125,8 @@ struct NormaliseEstimateCompletePayload {
     max_out_per_call_c: u32,
     expected_out_per_call_g: u32,
     max_out_per_call_g: u32,
+    location_cache_prefix_tokens: u32,
+    location_cache_partitions: u32,
 }
 
 #[derive(Clone, Serialize)]
@@ -629,15 +635,15 @@ pub async fn estimate_normalise_cost_cmd(
         );
     }
 
-    // Predicted = expected-output tokens. Upper bound = max-output tokens.
-    // Output-token-only spread per plan §7 ("predicted vs upper bound
-    // reflects only output-token uncertainty").
+    // Predicted = calibrated expected output plus the explicit location-cache
+    // warm-up/read model. Upper = uncached input plus calibrated likely-high
+    // output, not the deliberately generous runtime generation cap.
     let expected_out_per_call_b: u32 = openai_normalise::EXPECTED_DESCRIPTION_OUTPUT_TOKENS;
-    let max_out_per_call_b: u32 = openai_normalise::DESCRIPTION_OUTPUT_TOKENS;
+    let max_out_per_call_b: u32 = openai_normalise::ESTIMATED_UPPER_DESCRIPTION_OUTPUT_TOKENS;
     let expected_out_per_call_c: u32 = openai_normalise::EXPECTED_TITLE_OUTPUT_TOKENS;
-    let max_out_per_call_c: u32 = openai_normalise::TITLE_OUTPUT_TOKENS;
+    let max_out_per_call_c: u32 = openai_normalise::ESTIMATED_UPPER_TITLE_OUTPUT_TOKENS;
     let expected_out_per_call_g: u32 = openai_normalise::EXPECTED_LOCATION_OUTPUT_TOKENS;
-    let max_out_per_call_g: u32 = openai_normalise::LOCATION_OUTPUT_TOKENS;
+    let max_out_per_call_g: u32 = openai_normalise::ESTIMATED_UPPER_LOCATION_OUTPUT_TOKENS;
 
     let total_input_tokens = description_input_tokens + title_input_tokens + location_input_tokens;
     let (
@@ -670,10 +676,14 @@ pub async fn estimate_normalise_cost_cmd(
             location_model.clone(),
             Some(EstimatePricing {
                 input_per_1m: pricing.input_per_1m,
+                cached_input_per_1m: pricing.cached_input_per_1m,
+                cache_write_input_per_1m: pricing.cache_write_input_per_1m,
                 output_per_1m: pricing.output_per_1m,
             }),
             Some(EstimatePricing {
                 input_per_1m: location_pricing.input_per_1m,
+                cached_input_per_1m: location_pricing.cached_input_per_1m,
+                cache_write_input_per_1m: location_pricing.cache_write_input_per_1m,
                 output_per_1m: location_pricing.output_per_1m,
             }),
             Some(EstimateAiTokenBreakdown {
@@ -718,6 +728,8 @@ pub async fn estimate_normalise_cost_cmd(
             max_out_per_call_c,
             expected_out_per_call_g,
             max_out_per_call_g,
+            location_cache_prefix_tokens: openai_normalise::LOCATION_CACHE_PREFIX_TOKENS,
+            location_cache_partitions: openai_normalise::LOCATION_CACHE_PARTITIONS,
         },
     );
     normalise_state.clear();

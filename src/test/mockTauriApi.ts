@@ -695,6 +695,8 @@ export function createMockTauriApi(): MockTauriApi {
           maxOutPerCallC: 30,
           expectedOutPerCallG: 100,
           maxOutPerCallG: 250,
+          locationCachePrefixTokens: 1306,
+          locationCachePartitions: 8,
         });
         return;
       }

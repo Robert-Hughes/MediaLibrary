@@ -31,7 +31,7 @@ use crate::openai_request::{
 /// Version stamp recorded in the audit log per AI call. Bump when
 /// either prompt or schema changes; old log entries retain the prior
 /// string for archaeology.
-pub const NORMALISE_PROMPT_VERSION: &str = "v6";
+pub const NORMALISE_PROMPT_VERSION: &str = "v7";
 
 const DESCRIPTION_SYSTEM_PROMPT: &str = "You generate or normalise a factual photo description for a personal media library. \
 Produce a single factual paragraph in `x-default` English. \
@@ -47,27 +47,58 @@ const TITLE_SYSTEM_PROMPT: &str = "You generate a short photo title. \
 ≤8 words. Title case. No trailing punctuation. \
 Use the description as the primary source; use location and keywords for disambiguation.";
 
-const LOCATION_SYSTEM_PROMPT: &str = "You convert two raw Nominatim reverse-geocode responses into canonical human-facing members of one IPTC Extension LocationCreated structure for a personal photo library. \
-Return English or commonly anglicised place names. Reconcile GeocodeJSON and JSONv2 using their full contents; neither format has automatic precedence. \
-Produce useful, conventional location metadata that a reasonable person would enter after considering both responses as a whole. Use ordinary geographic knowledge to interpret formatter-specific and administrative labels rather than copying their categories mechanically. Prefer a well-supported conventional inference over null, while keeping identical evidence stable. Preserve supported proper-name spelling. Do not add explanatory words, parenthetical glosses, or alternate phrasings. \
-LocationName is the most recognisable supported name of a venue, building, landmark, attraction, or geographic feature. An ordinary road, street, path, or route is not a LocationName; represent it in Sublocation instead. Return null when there is no meaningful named place. \
-Sublocation is a useful containing locality below City, such as an address, road, path, neighbourhood, suburb, or site. Prefer a supported house-number-plus-road address, then a road or path, then a neighbourhood or suburb. Use one concise value. Join a house number and road with one space, such as `55 Impala Drive`; never put a comma between them. Do not append City, ProvinceState, or CountryName. It may duplicate LocationName when that is the most reasonable representation. \
-City is the general populated-locality field, despite its name: it may contain a city, town, village, hamlet, municipality, or other conventional populated place. Prefer an explicit populated-place value from fields such as city, town, village, hamlet, municipality, or locality over a formatter's administratively assigned city or district label. Interpret administrative and metropolitan labels instead of copying their Nominatim category mechanically. A locality may be inferred from strongly and unambiguously supporting evidence; for example, Greater London together with a London borough or landmark supports London. A supported ward or borough may be combined with its metropolitan city, such as `Minato, Tokyo`, only when that is the clearest ordinary locality. Do not use a county, state, province, or unrelated administrative district as City. \
-ProvinceState is the supported first-order state, province, or region above City. Prefer an explicit state or admin-level-4 equivalent. Do not use a county or state district when a first-order division is available. \
-CountryName is the conventional English country name. \
-WorldRegion is a broad geographic region such as Europe or East Asia. Set it when the supplied country makes it unambiguous; otherwise return null. \
-Use facts supported by the responses as a whole plus ordinary geographic knowledge. Return null only when the evidence is genuinely insufficient or ambiguous. Do not return coordinates, country codes, or identifiers; the application supplies those deterministically.";
+const LOCATION_SYSTEM_PROMPT: &str = r#"Convert compact evidence from matching Nominatim formats into one IPTC LocationCreated object. Reconcile both sources without automatic precedence. Return conventional English or commonly anglicised names.
+LocationName is a distinct named venue, site, building, landmark, attraction, or geographic feature. A settlement belongs only in City; an ordinary road/path belongs only in Sublocation.
+Sublocation: prefer an agreed house-number + road, then an agreed road/path, then a supported neighbourhood or site distinct from City and LocationName. If the sources disagree on the road/address, use neither; fall back to an agreed containing place or null. Do not append City, ProvinceState, or CountryName.
+City is the ordinary populated locality: city, town, village, hamlet, or municipality. Prefer explicit populated-place fields. Nominatim values labelled city may actually be councils, districts, communities, or municipal units; interpret them rather than copying mechanically. City must be an explicit supplied locality or a conventional translation, transliteration, or shortening of one; never introduce a different locality name absent from the evidence. Never use a county or unrelated administrative district. For a compound community or municipal-unit label, prefer its primary conventional settlement when that shortening is unambiguous. In the pattern `X-Y Community/Municipal Unit` together with `Municipality of X - Z`, use X as City. Return null when no populated locality is supported.
+ProvinceState is the conventional first-order state, province, or region above City, not a county or state district. Remove formatter wrappers such as "Region of" when appropriate.
+CountryName is the conventional English country name. WorldRegion must be a stable broad region determined by CountryName: identical countries must produce identical regions; use Europe for European countries rather than subregions such as Southern Europe.
+Preserve complete supported proper names, including meaningful qualifiers in parentheses. Use conventional English title capitalization for LocationName without changing its words. Translate or transliterate generic/non-English place wording when the conventional English form is clear. Do not add explanatory wording.
+place_rank describes granularity, not confidence; search_importance is only a weak prominence hint. Return null only when evidence is genuinely insufficient.
+Before returning, enforce these routing invariants:
+- LocationName is null when its only candidate is the City/settlement or an ordinary road/path.
+- Sublocation is distinct from both City and LocationName; otherwise it is null.
+- When road/address evidence conflicts, do not use either road, but retain an agreed supported neighbourhood or site distinct from City when one exists.
+
+Decision reference:
+First classify every candidate by what the evidence says it is, not merely by the field in which a formatter placed it. A populated settlement can be City. A state, province, region, county, district, council, community, civil parish, or other administrative container is not automatically a populated settlement. A venue, building, attraction, monument, fort, hospital, club, station, airport, bridge, or named natural feature can be LocationName. A numbered address, road, lane, path, pedestrian way, or road-like square belongs in Sublocation. A neighbourhood, suburb, quarter, or named site may be Sublocation when it is useful below City.
+
+Then reconcile the two sources. Agreement is strong evidence. When one source is more specific, use that detail only if it is compatible with the other source. When two road names or house-number-and-road combinations conflict, reject both conflicting address candidates. Continue checking their shared neighbourhood, site, populated locality, region, and country instead of discarding all location information. Never combine pieces from conflicting addresses into a new address.
+
+Keep the fields semantic and non-redundant. LocationName identifies what the photo location is; Sublocation says where within the populated locality it is; City is the populated locality; ProvinceState is the first-order division; CountryName is the country; WorldRegion is the stable broad region. Do not move a value into another field merely to avoid null. Do not repeat a venue as Sublocation, repeat City as Sublocation or LocationName, or build comma-separated chains containing higher-level fields.
+
+Use ranking metadata only as supporting context. A detailed place_rank can indicate a finer feature without proving that its name is correct. Higher search_importance can help choose between otherwise equally supported named features, but cannot override source conflict or change a road into a landmark. Preserve evidence-backed spelling and meaningful qualifiers. Conventional translation, transliteration, capitalization, and removal of administrative wrappers are allowed; invention of an unsupported locality is not.
+
+When a field has no supported candidate after this process, return null for that field rather than borrowing a value from another level.
+
+Name handling reference:
+Treat a supplied full proper name as an atomic value unless the instructions explicitly permit translation, transliteration, or removal of an administrative wrapper. Keep meaningful text in parentheses and preserve its words and internal capitalization; title capitalization applies to the main English LocationName, not to descriptive text inside parentheses. Do not silently shorten a venue, replace it with a broader complex, expand an acronym, or add a category word that the evidence did not supply. If both sources give variants of a name, prefer the complete compatible variant. If the variants are genuinely different rather than spelling or language variants, do not splice them together.
+
+Hierarchy reference:
+Work from the most specific feature outward, but fill each output independently according to its semantic role. A detailed feature can coexist with a containing road, neighbourhood, settlement, region, and country. Specificity does not justify promoting an administrative unit into City or a road into LocationName. Conversely, prominence does not justify discarding a supported detailed feature. Null is correct when the required semantic level is absent, even if adjacent levels are well supported.
+
+Consistency reference:
+Apply the same country spelling and WorldRegion mapping throughout the batch. Resolve equivalent source labels the same way when their retained evidence is identical. Prefer a stable literal result over stylistic variation in punctuation or explanatory wording. Return only the six schema fields; the application adds coordinates, country code, and OpenStreetMap identifiers separately."#;
 
 /// Output-token caps for cost-estimation purposes. Mirror plan §6.
 pub const DESCRIPTION_OUTPUT_TOKENS: u32 = 400;
 pub const TITLE_OUTPUT_TOKENS: u32 = 30;
 pub const LOCATION_OUTPUT_TOKENS: u32 = 1_000;
-pub const EXPECTED_DESCRIPTION_OUTPUT_TOKENS: u32 = 250;
-pub const EXPECTED_TITLE_OUTPUT_TOKENS: u32 = 15;
-pub const EXPECTED_LOCATION_OUTPUT_TOKENS: u32 = 150;
-pub const HEURISTIC_DESCRIPTION_INPUT_TOKENS: u32 = 800;
-pub const HEURISTIC_TITLE_INPUT_TOKENS: u32 = 300;
-pub const HEURISTIC_LOCATION_INPUT_TOKENS: u32 = 2_000;
+/// Expected output usage calibrated from successful v6 audit rows and the v11
+/// location corpus. These are estimates, not runtime generation limits.
+pub const EXPECTED_DESCRIPTION_OUTPUT_TOKENS: u32 = 75;
+pub const EXPECTED_TITLE_OUTPUT_TOKENS: u32 = 22;
+pub const EXPECTED_LOCATION_OUTPUT_TOKENS: u32 = 120;
+/// Likely upper output usage used by the confirmation UI. Runtime caps remain
+/// deliberately higher so rare reasoning spikes are not truncated.
+pub const ESTIMATED_UPPER_DESCRIPTION_OUTPUT_TOKENS: u32 = 150;
+pub const ESTIMATED_UPPER_TITLE_OUTPUT_TOKENS: u32 = 30;
+pub const ESTIMATED_UPPER_LOCATION_OUTPUT_TOKENS: u32 = 400;
+pub const LOCATION_CACHE_PREFIX_TOKENS: u32 = 1_306;
+pub const LOCATION_CACHE_PARTITIONS: u32 = 8;
+pub const HEURISTIC_DESCRIPTION_INPUT_TOKENS: u32 = 450;
+pub const HEURISTIC_TITLE_INPUT_TOKENS: u32 = 215;
+pub const HEURISTIC_LOCATION_INPUT_TOKENS: u32 = 1_565;
 
 /// Synthetic typical cost shown next to each model in the settings
 /// dropdown. Plan §6: assumes the worst case (both Group B and Group C
@@ -106,8 +137,9 @@ pub fn estimate_normalise_cost_from_tokens(
     let predicted_out_total = description_call_count as u64
         * EXPECTED_DESCRIPTION_OUTPUT_TOKENS as u64
         + title_call_count as u64 * EXPECTED_TITLE_OUTPUT_TOKENS as u64;
-    let upper_out_total = description_call_count as u64 * DESCRIPTION_OUTPUT_TOKENS as u64
-        + title_call_count as u64 * TITLE_OUTPUT_TOKENS as u64;
+    let upper_out_total = description_call_count as u64
+        * ESTIMATED_UPPER_DESCRIPTION_OUTPUT_TOKENS as u64
+        + title_call_count as u64 * ESTIMATED_UPPER_TITLE_OUTPUT_TOKENS as u64;
     let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
     let predicted = input_cost + (predicted_out_total as f64 / 1_000_000.0) * p.output_per_1m;
     let upper = input_cost + (upper_out_total as f64 / 1_000_000.0) * p.output_per_1m;
@@ -121,12 +153,29 @@ pub fn estimate_location_cost_from_tokens(
 ) -> Result<(f64, f64), String> {
     let pricing = crate::openai_describe::pricing_for(model)
         .ok_or_else(|| format!("no pricing entry for model {}", model))?;
-    let input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m;
-    let predicted = input_cost
+    let cache_writes = call_count.min(LOCATION_CACHE_PARTITIONS) as u64;
+    let cache_reads = call_count.saturating_sub(LOCATION_CACHE_PARTITIONS) as u64;
+    let (cached_tokens, cache_write_tokens) = if model.starts_with("gpt-5.6") {
+        (
+            cache_reads * u64::from(LOCATION_CACHE_PREFIX_TOKENS),
+            cache_writes * u64::from(LOCATION_CACHE_PREFIX_TOKENS),
+        )
+    } else {
+        (0, 0)
+    };
+    let non_cached_tokens = input_tokens
+        .saturating_sub(cached_tokens)
+        .saturating_sub(cache_write_tokens);
+    let predicted_input_cost = (non_cached_tokens as f64 / 1_000_000.0) * pricing.input_per_1m
+        + (cached_tokens as f64 / 1_000_000.0) * pricing.cached_input_per_1m
+        + (cache_write_tokens as f64 / 1_000_000.0) * pricing.cache_write_input_per_1m;
+    let uncached_input_cost = (input_tokens as f64 / 1_000_000.0) * pricing.input_per_1m;
+    let predicted = predicted_input_cost
         + (call_count as f64 * EXPECTED_LOCATION_OUTPUT_TOKENS as f64 / 1_000_000.0)
             * pricing.output_per_1m;
-    let upper = input_cost
-        + (call_count as f64 * LOCATION_OUTPUT_TOKENS as f64 / 1_000_000.0) * pricing.output_per_1m;
+    let upper = uncached_input_cost
+        + (call_count as f64 * ESTIMATED_UPPER_LOCATION_OUTPUT_TOKENS as f64 / 1_000_000.0)
+            * pricing.output_per_1m;
     Ok((predicted, upper))
 }
 
@@ -248,15 +297,48 @@ fn location_schema() -> serde_json::Value {
     })
 }
 
-fn build_location_request_body(model: &str, user_payload: serde_json::Value) -> serde_json::Value {
-    let mut request = build_request_body(
-        model,
-        LOCATION_SYSTEM_PROMPT,
-        user_payload,
-        location_schema(),
-        "location_resolution",
-        LOCATION_OUTPUT_TOKENS,
+fn location_cache_partition(evidence: &str) -> u8 {
+    (evidence.bytes().fold(0_u32, |hash, byte| {
+        hash.wrapping_mul(16_777_619) ^ u32::from(byte)
+    }) % LOCATION_CACHE_PARTITIONS) as u8
+}
+
+fn build_location_request_body(model: &str, evidence: &str) -> serde_json::Value {
+    let cache_key = format!(
+        "medialibrary-location-{}-{}",
+        NORMALISE_PROMPT_VERSION,
+        location_cache_partition(evidence)
     );
+    let system_content = if model.starts_with("gpt-5.6") {
+        serde_json::json!([{
+            "type": "input_text",
+            "text": LOCATION_SYSTEM_PROMPT,
+            "prompt_cache_breakpoint": { "mode": "explicit" }
+        }])
+    } else {
+        serde_json::json!(LOCATION_SYSTEM_PROMPT)
+    };
+    let mut request = serde_json::json!({
+        "model": model,
+        "service_tier": "default",
+        "input": [
+            { "role": "system", "content": system_content },
+            { "role": "user", "content": evidence }
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "location_resolution",
+                "schema": location_schema(),
+                "strict": true
+            }
+        },
+        "max_output_tokens": LOCATION_OUTPUT_TOKENS,
+        "prompt_cache_key": cache_key,
+    });
+    if model.starts_with("gpt-5.6") {
+        request["prompt_cache_options"] = serde_json::json!({ "mode": "explicit" });
+    }
     apply_responses_model_parameters(&mut request, model, Some(LOW_REASONING_EFFORT));
     request
 }
@@ -302,8 +384,7 @@ impl OpenAiNormaliseClient {
     }
 
     pub fn location_request_body(&self, prompt: &LocationResolvePrompt) -> serde_json::Value {
-        let user_payload = serde_json::to_value(prompt).unwrap_or(serde_json::json!({}));
-        build_location_request_body(&self.location_model, user_payload)
+        build_location_request_body(&self.location_model, &prompt.evidence)
     }
 
     pub fn model(&self) -> &str {
@@ -321,7 +402,14 @@ impl OpenAiNormaliseClient {
     pub async fn count_input_tokens(&self, body: &serde_json::Value) -> Result<u32, String> {
         let mut body = body.clone();
         if let Some(obj) = body.as_object_mut() {
-            for k in ["temperature", "top_p", "max_output_tokens", "service_tier"] {
+            for k in [
+                "temperature",
+                "top_p",
+                "max_output_tokens",
+                "service_tier",
+                "prompt_cache_key",
+                "prompt_cache_options",
+            ] {
                 obj.remove(k);
             }
         }
@@ -405,9 +493,7 @@ impl NormaliseAiClient for OpenAiNormaliseClient {
         &self,
         prompt: LocationResolvePrompt,
     ) -> Result<(LocationAiResult, AiCallUsage), NormaliseAiError> {
-        let user_payload = serde_json::to_value(&prompt)
-            .map_err(|e| NormaliseAiError::from(format!("serialise location prompt: {}", e)))?;
-        let body = build_location_request_body(&self.location_model, user_payload);
+        let body = build_location_request_body(&self.location_model, &prompt.evidence);
         let response = post_responses(&self.http, &body)
             .await
             .map_err(NormaliseAiError::from)?;
@@ -484,12 +570,20 @@ mod tests {
             location_model: "gpt-5.6-luna".into(),
         };
         let body = client.location_request_body(&LocationResolvePrompt {
-            geocode_json: Some(r#"{"features":[]}"#.into()),
-            json_v2: None,
+            evidence: "feature:\n  type: \"museum\"".into(),
         });
         assert_eq!(body["model"], "gpt-5.6-luna");
         assert_eq!(body["max_output_tokens"], LOCATION_OUTPUT_TOKENS);
         assert_eq!(body["reasoning"]["effort"], LOW_REASONING_EFFORT);
+        assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
+        assert!(body["prompt_cache_key"]
+            .as_str()
+            .unwrap()
+            .starts_with("medialibrary-location-v7-"));
+        assert_eq!(
+            body["input"][0]["content"][0]["prompt_cache_breakpoint"]["mode"],
+            "explicit"
+        );
         assert!(body.get("temperature").is_none());
         assert!(body.get("top_p").is_none());
         assert_eq!(body["text"]["format"]["name"], "location_resolution");
@@ -509,25 +603,43 @@ mod tests {
             body["text"]["format"]["schema"]["properties"]["city"]["type"],
             serde_json::json!(["string", "null"])
         );
-        assert!(body["input"][1]["content"]
-            .as_str()
-            .unwrap()
-            .contains(r#"\"features\""#));
-        let system_prompt = body["input"][0]["content"].as_str().unwrap();
-        assert!(system_prompt.contains("reasonable person"));
-        assert!(system_prompt.contains("Greater London"));
+        assert_eq!(
+            body["input"][1]["content"].as_str().unwrap(),
+            "feature:\n  type: \"museum\""
+        );
+        let system_prompt = body["input"][0]["content"][0]["text"].as_str().unwrap();
+        assert!(system_prompt.contains("compact evidence"));
+        assert!(system_prompt.contains("without automatic precedence"));
         assert!(system_prompt.contains("city, town, village, hamlet"));
-        assert!(system_prompt.contains("ordinary road, street, path, or route"));
-        assert!(system_prompt
-            .contains("Return null only when the evidence is genuinely insufficient or ambiguous"));
+        assert!(system_prompt.contains("place_rank describes granularity, not confidence"));
+        assert!(system_prompt.contains("Sublocation is distinct from both City and LocationName"));
     }
 
     #[test]
     fn normalise_cost_math_matches_hand_calc_for_gpt_4o() {
         let (predicted, upper) =
             estimate_normalise_cost_from_tokens("gpt-4o", 800, 300, 1, 1).unwrap();
-        let expected_predicted = (1100.0 / 1e6) * 2.50 + (265.0 / 1e6) * 10.00;
-        let expected_upper = (1100.0 / 1e6) * 2.50 + (430.0 / 1e6) * 10.00;
+        let expected_predicted = (1100.0 / 1e6) * 2.50 + (97.0 / 1e6) * 10.00;
+        let expected_upper = (1100.0 / 1e6) * 2.50 + (180.0 / 1e6) * 10.00;
+        assert!((predicted - expected_predicted).abs() < 1e-9);
+        assert!((upper - expected_upper).abs() < 1e-9);
+    }
+
+    #[test]
+    fn location_cost_estimate_models_partitioned_cache_warmup_and_hits() {
+        let calls = 10;
+        let input_tokens = 15_650;
+        let (predicted, upper) =
+            estimate_location_cost_from_tokens("gpt-5.6-luna", input_tokens, calls).unwrap();
+        let write_tokens = 8.0 * f64::from(LOCATION_CACHE_PREFIX_TOKENS);
+        let cached_tokens = 2.0 * f64::from(LOCATION_CACHE_PREFIX_TOKENS);
+        let uncached_tokens = input_tokens as f64 - write_tokens - cached_tokens;
+        let expected_predicted = (uncached_tokens / 1e6) * 1.00
+            + (cached_tokens / 1e6) * 0.10
+            + (write_tokens / 1e6) * 1.25
+            + (calls as f64 * f64::from(EXPECTED_LOCATION_OUTPUT_TOKENS) / 1e6) * 6.00;
+        let expected_upper = (input_tokens as f64 / 1e6) * 1.00
+            + (calls as f64 * f64::from(ESTIMATED_UPPER_LOCATION_OUTPUT_TOKENS) / 1e6) * 6.00;
         assert!((predicted - expected_predicted).abs() < 1e-9);
         assert!((upper - expected_upper).abs() < 1e-9);
     }
