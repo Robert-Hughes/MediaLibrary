@@ -23,7 +23,8 @@ use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::known_ids;
 use crate::metadata_value::{ListKind, MetadataValue};
 use crate::tag_schema::SchemaDefinitionId;
-use std::collections::BTreeMap;
+use serde_json::{Map as JsonMap, Value as JsonValue};
+use std::collections::{BTreeMap, BTreeSet};
 
 const IPTC_SUB_LOCATION_LIMIT: usize = 32;
 
@@ -280,13 +281,232 @@ fn evidence_text(value: &Option<String>) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn evidence_scalar(value: &JsonValue) -> Option<String> {
+    match value {
+        JsonValue::String(value) if !value.trim().is_empty() => serde_json::to_string(value).ok(),
+        JsonValue::Number(_) | JsonValue::Bool(_) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+fn evidence_string(value: Option<&JsonValue>) -> Option<&str> {
+    value
+        .and_then(JsonValue::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn push_evidence_section<'a>(
+    lines: &mut Vec<String>,
+    name: &str,
+    entries: impl IntoIterator<Item = (String, &'a JsonValue)>,
+) {
+    let entries: Vec<_> = entries
+        .into_iter()
+        .filter_map(|(key, value)| evidence_scalar(value).map(|value| (key, value)))
+        .collect();
+    if entries.is_empty() {
+        return;
+    }
+    lines.push(format!("{name}:"));
+    lines.extend(
+        entries
+            .into_iter()
+            .map(|(key, value)| format!("  {key}: {value}")),
+    );
+}
+
+fn object_entries<'a>(
+    object: Option<&'a JsonMap<String, JsonValue>>,
+    keys: &[&str],
+) -> Vec<(String, &'a JsonValue)> {
+    let Some(object) = object else {
+        return Vec::new();
+    };
+    keys.iter()
+        .filter_map(|key| object.get(*key).map(|value| ((*key).into(), value)))
+        .collect()
+}
+
+fn collect_represented_strings(
+    represented: &mut BTreeSet<String>,
+    object: Option<&JsonMap<String, JsonValue>>,
+) {
+    let Some(object) = object else {
+        return;
+    };
+    represented.extend(
+        object
+            .values()
+            .filter_map(JsonValue::as_str)
+            .filter_map(|value| {
+                let value = value.trim();
+                (!value.is_empty()).then(|| value.to_lowercase())
+            }),
+    );
+}
+
+/// Keep the naming and hierarchy evidence used by the resolver while dropping
+/// Nominatim transport metadata, coordinates, bounding boxes, licensing and
+/// identifiers. Values use JSON scalar quoting inside a compact YAML-like
+/// layout so punctuation and non-ASCII names remain unambiguous.
+fn compact_location_evidence(
+    geocode_raw: Option<&str>,
+    json_v2_raw: Option<&str>,
+) -> Option<String> {
+    let geocode_doc = geocode_raw.and_then(|raw| serde_json::from_str::<JsonValue>(raw).ok());
+    let json_v2_doc = json_v2_raw.and_then(|raw| serde_json::from_str::<JsonValue>(raw).ok());
+    if geocode_doc.is_none() && json_v2_doc.is_none() {
+        return None;
+    }
+
+    let geocode = geocode_doc
+        .as_ref()
+        .and_then(|doc| doc.pointer("/features/0/properties/geocoding"))
+        .and_then(JsonValue::as_object);
+    let json_v2 = json_v2_doc.as_ref().and_then(JsonValue::as_object);
+    let json_address = json_v2
+        .and_then(|object| object.get("address"))
+        .and_then(JsonValue::as_object);
+    let geocode_admin = geocode
+        .and_then(|object| object.get("admin"))
+        .and_then(JsonValue::as_object);
+
+    let geocode_name = evidence_string(geocode.and_then(|object| object.get("name")));
+    let json_v2_name = evidence_string(json_v2.and_then(|object| object.get("name")));
+    let names_agree = geocode_name == json_v2_name;
+
+    let mut lines = Vec::new();
+    let mut feature = Vec::new();
+    for (key, value) in [
+        (
+            "geocode_type",
+            geocode.and_then(|object| object.get("type")),
+        ),
+        (
+            "category",
+            json_v2
+                .and_then(|object| object.get("category"))
+                .or_else(|| geocode.and_then(|object| object.get("osm_key"))),
+        ),
+        (
+            "type",
+            json_v2
+                .and_then(|object| object.get("type"))
+                .or_else(|| geocode.and_then(|object| object.get("osm_value"))),
+        ),
+        (
+            "address_type",
+            json_v2.and_then(|object| object.get("addresstype")),
+        ),
+        (
+            "place_rank",
+            json_v2.and_then(|object| object.get("place_rank")),
+        ),
+        (
+            "search_importance",
+            json_v2.and_then(|object| object.get("importance")),
+        ),
+    ] {
+        if let Some(value) = value {
+            feature.push((key.into(), value));
+        }
+    }
+    if names_agree {
+        if let Some(value) = json_v2.and_then(|object| object.get("name")) {
+            feature.push(("name".into(), value));
+        }
+    } else {
+        if let Some(value) = geocode.and_then(|object| object.get("name")) {
+            feature.push(("geocode_name".into(), value));
+        }
+        if let Some(value) = json_v2.and_then(|object| object.get("name")) {
+            feature.push(("jsonv2_name".into(), value));
+        }
+    }
+    push_evidence_section(&mut lines, "feature", feature);
+
+    push_evidence_section(
+        &mut lines,
+        "geocode_address",
+        object_entries(
+            geocode,
+            &[
+                "housenumber",
+                "street",
+                "locality",
+                "district",
+                "city",
+                "county",
+                "state",
+                "postcode",
+                "country",
+            ],
+        )
+        .into_iter()
+        .map(|(key, value)| {
+            (
+                if key == "housenumber" {
+                    "house_number".into()
+                } else {
+                    key
+                },
+                value,
+            )
+        }),
+    );
+
+    push_evidence_section(
+        &mut lines,
+        "jsonv2_address",
+        json_address.into_iter().flat_map(|address| {
+            address
+                .iter()
+                .filter(|(key, _)| {
+                    *key != "country_code" && !key.to_ascii_uppercase().starts_with("ISO3166")
+                })
+                .map(|(key, value)| (key.clone(), value))
+        }),
+    );
+    push_evidence_section(
+        &mut lines,
+        "geocode_admin",
+        geocode_admin
+            .into_iter()
+            .flat_map(|admin| admin.iter().map(|(key, value)| (key.clone(), value))),
+    );
+
+    let mut represented = BTreeSet::new();
+    collect_represented_strings(&mut represented, geocode);
+    collect_represented_strings(&mut represented, json_address);
+    collect_represented_strings(&mut represented, geocode_admin);
+    if let Some(name) = json_v2_name {
+        represented.insert(name.to_lowercase());
+    }
+    let label = evidence_string(json_v2.and_then(|object| object.get("display_name")))
+        .or_else(|| evidence_string(geocode.and_then(|object| object.get("label"))));
+    let extras: Vec<_> = label
+        .into_iter()
+        .flat_map(|label| label.split(','))
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && !represented.contains(&part.to_lowercase()))
+        .collect();
+    if !extras.is_empty() {
+        lines.push("unclassified_label:".into());
+        lines.push(format!(
+            "  parts: {}",
+            serde_json::to_string(&extras.join(" | ")).unwrap_or_default()
+        ));
+    }
+
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
 fn location_evidence_prompt(input: &LocationInput) -> Option<LocationResolvePrompt> {
     let geocode_json = evidence_text(&input.geocode_json);
     let json_v2 = evidence_text(&input.json_v2);
-    (geocode_json.is_some() || json_v2.is_some()).then_some(LocationResolvePrompt {
-        geocode_json,
-        json_v2,
-    })
+    compact_location_evidence(geocode_json.as_deref(), json_v2.as_deref())
+        .map(|evidence| LocationResolvePrompt { evidence })
 }
 
 fn normalise_optional_text(value: Option<String>) -> Option<String> {
@@ -378,12 +598,28 @@ fn location_created_from_ai(
     input: &LocationInput,
     result: LocationAiResult,
 ) -> Option<(MetadataValue, LocationContext)> {
-    let sublocation = normalise_optional_text(result.sublocation);
+    let mut sublocation = normalise_optional_text(result.sublocation);
     let city = normalise_optional_text(result.city);
     let state = normalise_optional_text(result.province_state);
     let country = normalise_optional_text(result.country_name);
     let world_region = normalise_optional_text(result.world_region);
-    let location_name = normalise_optional_text(result.location_name);
+    let mut location_name = normalise_optional_text(result.location_name);
+    if location_name
+        .as_deref()
+        .zip(city.as_deref())
+        .is_some_and(|(location_name, city)| location_name.eq_ignore_ascii_case(city))
+    {
+        location_name = None;
+    }
+    if sublocation.as_deref().is_some_and(|sublocation| {
+        city.as_deref()
+            .is_some_and(|city| sublocation.eq_ignore_ascii_case(city))
+            || location_name
+                .as_deref()
+                .is_some_and(|location_name| sublocation.eq_ignore_ascii_case(location_name))
+    }) {
+        sublocation = None;
+    }
     let country_code = deterministic_country_code(input);
 
     if sublocation.is_none()
@@ -749,6 +985,64 @@ mod tests {
     }
 
     #[test]
+    fn location_evidence_is_compacted_and_keeps_ranking_hints() {
+        let input = LocationInput {
+            geocode_json: Some(
+                r#"{"type":"FeatureCollection","licence":"ignored","features":[{"geometry":{"coordinates":[0,0]},"properties":{"geocoding":{"place_id":123,"type":"house","osm_key":"place","osm_value":"house","name":"41 Lucerne Close","label":"41 Lucerne Close, Fulbourn, United Kingdom","housenumber":"41","street":"Lucerne Close","city":"South Cambridgeshire","county":"Cambridgeshire","state":"England","country":"United Kingdom","admin":{"level8":"Fulbourn"}}}}]}"#
+                    .into(),
+            ),
+            json_v2: Some(
+                r#"{"place_id":456,"licence":"ignored","lat":"0","lon":"0","category":"place","type":"house","addresstype":"place","name":"41 Lucerne Close","place_rank":30,"importance":0.0001,"address":{"house_number":"41","road":"Lucerne Close","village":"Fulbourn","county":"Cambridgeshire","state":"England","ISO3166-2-lvl4":"GB-ENG","country":"United Kingdom","country_code":"gb"},"boundingbox":["0","1","2","3"]}"#
+                    .into(),
+            ),
+            ..Default::default()
+        };
+
+        let prompt = location_evidence_prompt(&input).expect("valid evidence");
+        assert!(prompt.evidence.contains("feature:"));
+        assert!(prompt.evidence.contains("place_rank: 30"));
+        assert!(prompt.evidence.contains("search_importance: 0.0001"));
+        assert!(prompt.evidence.contains("geocode_address:"));
+        assert!(prompt.evidence.contains("jsonv2_address:"));
+        assert!(prompt.evidence.contains("geocode_admin:"));
+        assert!(prompt.evidence.contains("village: \"Fulbourn\""));
+        for omitted in [
+            "place_id",
+            "licence",
+            "country_code",
+            "ISO3166",
+            "boundingbox",
+            "coordinates",
+        ] {
+            assert!(!prompt.evidence.contains(omitted), "{omitted} leaked");
+        }
+        assert!(prompt.evidence.len() < 700);
+    }
+
+    #[test]
+    fn malformed_evidence_is_ignored_when_the_other_source_is_valid() {
+        let input = LocationInput {
+            geocode_json: Some("not json".into()),
+            json_v2: Some(r#"{"display_name":"Ely, United Kingdom"}"#.into()),
+            ..Default::default()
+        };
+        let prompt = location_evidence_prompt(&input).expect("JSONv2 remains useful");
+        assert!(prompt.evidence.contains("unclassified_label:"));
+        assert!(prompt.evidence.contains("Ely | United Kingdom"));
+        assert!(!prompt.evidence.contains("not json"));
+    }
+
+    #[test]
+    fn entirely_malformed_evidence_does_not_call_ai() {
+        let input = LocationInput {
+            geocode_json: Some("not json".into()),
+            json_v2: Some("{also broken".into()),
+            ..Default::default()
+        };
+        assert!(location_evidence_prompt(&input).is_none());
+    }
+
+    #[test]
     fn all_empty_returns_no_drafts() {
         let out = normalise_location(&LocationInput::default());
         assert!(out.output.is_none());
@@ -1110,11 +1404,11 @@ mod tests {
     fn ai_evidence_input() -> LocationInput {
         LocationInput {
             geocode_json: Some(
-                r#"{"features":[{"properties":{"geocoding":{"osm_type":"node","osm_id":42,"country_code":"jp"}}}]}"#
+                r#"{"features":[{"properties":{"geocoding":{"osm_type":"node","osm_id":42,"country_code":"jp","name":"Sengaku-ji","locality":"Takanawa","city":"Tokyo","country":"Japan"}}}]}"#
                     .into(),
             ),
             json_v2: Some(
-                r#"{"osm_type":"node","osm_id":42,"address":{"country_code":"jp"}}"#.into(),
+                r#"{"osm_type":"node","osm_id":42,"name":"Sengaku-ji","address":{"suburb":"Takanawa","city":"Tokyo","country":"Japan","country_code":"jp"}}"#.into(),
             ),
             gps_latitude: Some(35.62857),
             gps_longitude: Some(139.7367),
@@ -1181,6 +1475,37 @@ mod tests {
                 )],
             })
         );
+    }
+
+    #[tokio::test]
+    async fn ai_field_duplicates_are_removed_before_writing() {
+        let input = ai_evidence_input();
+        let ai = LocationMock {
+            result: LocationAiResult {
+                sublocation: Some("Tokyo".into()),
+                city: Some("Tokyo".into()),
+                location_name: Some("Tokyo".into()),
+                ..Default::default()
+            },
+        };
+        let output = normalise_location_with_ai(&input, Some(&ai))
+            .await
+            .output
+            .expect("City still produces a draft");
+        let Some(MetadataValue::List { items, .. }) =
+            &output.edits[&known_ids::xmp_location_created()].value
+        else {
+            panic!("expected LocationCreated bag")
+        };
+        let MetadataValue::Struct(fields) = &items[0] else {
+            panic!("expected LocationCreated struct")
+        };
+        assert_eq!(
+            fields.get("City"),
+            Some(&MetadataValue::Text("Tokyo".into()))
+        );
+        assert!(!fields.contains_key("Sublocation"));
+        assert!(!fields.contains_key("LocationName"));
     }
 
     #[tokio::test]

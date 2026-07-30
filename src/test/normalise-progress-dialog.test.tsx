@@ -80,6 +80,8 @@ function mockEstimate(
     maxOutPerCallC: 30,
     expectedOutPerCallG: 100,
     maxOutPerCallG: 250,
+    locationCachePrefixTokens: 1306,
+    locationCachePartitions: 8,
     ...over,
   };
 }
@@ -537,7 +539,12 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
         titleCallCount: 0,
         locationCallCount: 0,
       },
-      pricing: { inputPer1M: 1.0, outputPer1M: 4.0 },
+      pricing: {
+        inputPer1M: 1.0,
+        cachedInputPer1M: 0.1,
+        cacheWriteInputPer1M: 1.25,
+        outputPer1M: 4.0,
+      },
       model: "gpt-test",
     });
     const { rerender } = render(
@@ -581,7 +588,12 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
         titleCallCount: 0,
         locationCallCount: 2,
       },
-      locationPricing: { inputPer1M: 1.0, outputPer1M: 4.0 },
+      locationPricing: {
+        inputPer1M: 1.0,
+        cachedInputPer1M: 0.1,
+        cacheWriteInputPer1M: 1.25,
+        outputPer1M: 4.0,
+      },
     });
     render(
       <NormaliseProgressDialog

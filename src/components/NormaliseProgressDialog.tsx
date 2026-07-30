@@ -227,7 +227,26 @@ function computeCostForSelection(
   const locationUpperOut = locationCalls * estimate.maxOutPerCallG;
   const inputCost =
     pricing == null ? 0 : (inputTokens / 1_000_000) * pricing.inputPer1M;
+  const cacheEligible = estimate.locationModel.startsWith("gpt-5.6");
+  const cacheWriteCalls = cacheEligible
+    ? Math.min(locationCalls, estimate.locationCachePartitions)
+    : 0;
+  const cacheReadCalls = cacheEligible
+    ? Math.max(0, locationCalls - estimate.locationCachePartitions)
+    : 0;
+  const cacheWriteTokens = cacheWriteCalls * estimate.locationCachePrefixTokens;
+  const cachedTokens = cacheReadCalls * estimate.locationCachePrefixTokens;
+  const uncachedLocationTokens = Math.max(
+    0,
+    locationInputTokens - cacheWriteTokens - cachedTokens,
+  );
   const locationInputCost =
+    locationPricing == null
+      ? 0
+      : (uncachedLocationTokens / 1_000_000) * locationPricing.inputPer1M +
+        (cachedTokens / 1_000_000) * locationPricing.cachedInputPer1M +
+        (cacheWriteTokens / 1_000_000) * locationPricing.cacheWriteInputPer1M;
+  const uncachedLocationInputCost =
     locationPricing == null
       ? 0
       : (locationInputTokens / 1_000_000) * locationPricing.inputPer1M;
@@ -241,7 +260,7 @@ function computeCostForSelection(
   const upper =
     inputCost +
     (pricing == null ? 0 : (upperOut / 1_000_000) * pricing.outputPer1M) +
-    locationInputCost +
+    uncachedLocationInputCost +
     (locationPricing == null
       ? 0
       : (locationUpperOut / 1_000_000) * locationPricing.outputPer1M);
@@ -317,9 +336,10 @@ function CostPreview({
         )}
       </ul>
       <div>
-        <strong>Cost:</strong> {formatCost(cost.predictedUsd)} predicted, up to{" "}
-        {formatCost(cost.upperBoundUsd)} worst case (output-token variation
-        only).
+        <strong>Estimated cost:</strong> {formatCost(cost.predictedUsd)}{" "}
+        typical, likely up to {formatCost(cost.upperBoundUsd)}. The typical
+        estimate includes expected prompt-cache warm-up and hits; the upper
+        estimate assumes no cache hits.
       </div>
     </div>
   );
