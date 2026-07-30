@@ -1,6 +1,6 @@
 //! Semantic verification shared by the target-aware metadata apply pipeline.
 
-use crate::metadata_value::{ListKind, MetadataValue};
+use crate::metadata_value::{ListKind, MetadataValue, OffsetSign, UtcOffsetValue};
 use crate::tag_schema::{SchemaDefinitionId, TagKind};
 
 pub(crate) fn verify_set_value(
@@ -44,6 +44,14 @@ pub(crate) fn verify_set_value(
         // IIM escape sequence (`ESC % G`) depending on the read mode. They
         // are the same declaration and must not leave a successful
         // conversion draft stuck in mismatch reconciliation.
+        return ("Match".to_string(), None);
+    }
+    if is_iptc_iim_time(key)
+        && observed.is_some_and(|actual| iptc_negative_zero_normalisation_matches(actual, expected))
+    {
+        // ExifTool stores an IPTC IIM `-00:00` offset as `+00:00`. Accept
+        // that target-specific canonicalisation without weakening EXIF/XMP
+        // offset verification, where the negative-zero sign is preserved.
         return ("Match".to_string(), None);
     }
     if observed.is_some_and(|value| metadata_strict_eq(value, expected)) {
@@ -154,6 +162,40 @@ fn iptc_utf8_marker_values_match(actual: &MetadataValue, expected: &MetadataValu
     }
 
     is_utf8(actual) && is_utf8(expected)
+}
+
+fn is_iptc_iim_time(key: &SchemaDefinitionId) -> bool {
+    key.table == "IPTC::ApplicationRecord"
+        && matches!(key.tag_id.as_str(), "60" | "63")
+        && key.index.is_none()
+}
+
+fn iptc_negative_zero_normalisation_matches(
+    actual: &MetadataValue,
+    expected: &MetadataValue,
+) -> bool {
+    let (MetadataValue::Time(actual), MetadataValue::Time(expected)) = (actual, expected) else {
+        return false;
+    };
+    actual.hour == expected.hour
+        && actual.minute == expected.minute
+        && actual.second == expected.second
+        && actual.subsecond == expected.subsecond
+        && matches!(
+            (&actual.offset, &expected.offset),
+            (
+                Some(UtcOffsetValue {
+                    sign: OffsetSign::Plus,
+                    hours: 0,
+                    minutes: 0,
+                }),
+                Some(UtcOffsetValue {
+                    sign: OffsetSign::Minus,
+                    hours: 0,
+                    minutes: 0,
+                })
+            )
+        )
 }
 
 fn metadata_list_contains_all(
@@ -577,6 +619,65 @@ mod tests {
         });
         assert_eq!(
             verify_set_value(&key, Some(&plain), Some(&offset), None).0,
+            "Mismatch"
+        );
+    }
+
+    #[test]
+    fn only_iptc_iim_times_accept_exiftool_negative_zero_normalisation() {
+        let time = |sign, hours| {
+            MetadataValue::Time(TimeValue {
+                hour: 12,
+                minute: 19,
+                second: 11,
+                subsecond: None,
+                offset: Some(UtcOffsetValue {
+                    sign,
+                    hours,
+                    minutes: 0,
+                }),
+            })
+        };
+        let negative_zero = time(OffsetSign::Minus, 0);
+        let positive_zero = time(OffsetSign::Plus, 0);
+
+        for key in [
+            id("IPTC::ApplicationRecord", "60"),
+            id("IPTC::ApplicationRecord", "63"),
+        ] {
+            assert_eq!(
+                verify_set_value(&key, Some(&negative_zero), Some(&positive_zero), None).0,
+                "Match"
+            );
+        }
+        assert_eq!(
+            verify_set_value(
+                &id("XMP::photoshop", "DateCreated"),
+                Some(&negative_zero),
+                Some(&positive_zero),
+                None
+            )
+            .0,
+            "Mismatch"
+        );
+        assert_eq!(
+            verify_set_value(
+                &id("IPTC::ApplicationRecord", "60"),
+                Some(&time(OffsetSign::Minus, 1)),
+                Some(&time(OffsetSign::Plus, 1)),
+                None
+            )
+            .0,
+            "Mismatch"
+        );
+        assert_eq!(
+            verify_set_value(
+                &id("IPTC::ApplicationRecord", "60"),
+                Some(&positive_zero),
+                Some(&negative_zero),
+                None
+            )
+            .0,
             "Mismatch"
         );
     }
