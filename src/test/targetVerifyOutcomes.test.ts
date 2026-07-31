@@ -99,12 +99,6 @@ describe("target-aware verification model", () => {
       "accept-current-state",
     ],
     [
-      "Coerced",
-      { kind: "Keep" } as const,
-      { kind: "Integer", value: 1 } as const,
-      "accept-current-state",
-    ],
-    [
       "DeleteLingering",
       { kind: "Keep" } as const,
       { kind: "Text", value: "x" } as const,

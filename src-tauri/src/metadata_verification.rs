@@ -69,7 +69,7 @@ pub(crate) fn verify_set_value(
         return (
             "Coerced".to_string(),
             Some(format!(
-                "exiftool normalised {key}: sent {expected:?}, file holds {observed:?}"
+                "ExifTool normalised {key} during storage; numeric readback is equivalent within {COERCED_FLOAT_EPS}"
             )),
         );
     }
@@ -260,6 +260,7 @@ fn metadata_empty_or_absent(value: Option<&MetadataValue>) -> bool {
 }
 
 const STRICT_FLOAT_EPS: f64 = 1e-9;
+const COERCED_FLOAT_EPS: f64 = 1e-6;
 
 fn metadata_strict_eq(left: &MetadataValue, right: &MetadataValue) -> bool {
     match (left, right) {
@@ -326,18 +327,8 @@ fn matches_metadata_value(
         return true;
     }
     match (actual, expected) {
-        (MetadataValue::Integer(actual), MetadataValue::Real(expected)) => {
-            (*actual as f64 - *expected).abs() < 1e-6
-        }
-        (MetadataValue::Real(actual), MetadataValue::Integer(expected)) => {
-            (*actual - *expected as f64).abs() < 1e-6
-        }
         (MetadataValue::Real(actual), MetadataValue::Real(expected)) => {
-            (actual - expected).abs() < 1e-6
-        }
-        (MetadataValue::Rational(actual), MetadataValue::Rational(expected)) => {
-            (actual.numerator as i128) * (expected.denominator as i128)
-                == (expected.numerator as i128) * (actual.denominator as i128)
+            (actual - expected).abs() <= COERCED_FLOAT_EPS
         }
         (
             MetadataValue::List {
@@ -353,20 +344,17 @@ fn matches_metadata_value(
                 && metadata_lists_match(actual, expected, actual_kind, kind)
         }
         (MetadataValue::Struct(actual), MetadataValue::Struct(expected)) => {
-            expected.iter().all(|(key, expected_value)| {
-                actual.get(key).is_some_and(|actual_value| {
-                    matches_metadata_value(
-                        Some(actual_value),
-                        expected_value,
-                        struct_field_kind(kind, key),
-                    )
+            actual.len() == expected.len()
+                && expected.iter().all(|(key, expected_value)| {
+                    actual.get(key).is_some_and(|actual_value| {
+                        matches_metadata_value(
+                            Some(actual_value),
+                            expected_value,
+                            struct_field_kind(kind, key),
+                        )
+                    })
                 })
-            })
         }
-        (
-            MetadataValue::Unknown { raw: actual, .. },
-            MetadataValue::Unknown { raw: expected, .. },
-        ) => actual == expected,
         _ => false,
     }
 }
@@ -464,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn set_distinguishes_exact_coerced_mismatch_missing_and_unparsed() {
+    fn set_distinguishes_exact_mismatch_missing_and_unparsed() {
         let key = id("XMP::Main", "Title");
         assert_eq!(
             verify_set_value(
@@ -484,7 +472,7 @@ mod tests {
                 None
             )
             .0,
-            "Coerced"
+            "Mismatch"
         );
         assert_eq!(
             verify_set_value(
@@ -536,6 +524,26 @@ mod tests {
             .0,
             "Coerced"
         );
+        assert_eq!(
+            verify_set_value(
+                &key,
+                Some(&MetadataValue::Real(51.500001)),
+                Some(&MetadataValue::Real(51.5)),
+                None
+            )
+            .0,
+            "Coerced"
+        );
+        assert_eq!(
+            verify_set_value(
+                &key,
+                Some(&MetadataValue::Real(51.5000011)),
+                Some(&MetadataValue::Real(51.5)),
+                None
+            )
+            .0,
+            "Mismatch"
+        );
     }
 
     #[test]
@@ -584,6 +592,53 @@ mod tests {
             )
             .0,
             "Match"
+        );
+    }
+
+    #[test]
+    fn coercion_only_accepts_real_tolerance_with_exact_container_shapes() {
+        let key = id("XMP::iptcExt", "LocationCreated");
+        let location = |altitude| MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![MetadataValue::Struct(BTreeMap::from([
+                (
+                    "City".to_string(),
+                    MetadataValue::Text("Farnborough".to_string()),
+                ),
+                ("GPSAltitude".to_string(), MetadataValue::Real(altitude)),
+            ]))],
+        };
+        assert_eq!(
+            verify_set_value(
+                &key,
+                Some(&location(75.39599757)),
+                Some(&location(75.3959975742874)),
+                None,
+            )
+            .0,
+            "Coerced"
+        );
+
+        let expected = MetadataValue::Struct(BTreeMap::from([(
+            "Value".to_string(),
+            MetadataValue::Integer(1),
+        )]));
+        let changed_type = MetadataValue::Struct(BTreeMap::from([(
+            "Value".to_string(),
+            MetadataValue::Real(1.0),
+        )]));
+        assert_eq!(
+            verify_set_value(&key, Some(&expected), Some(&changed_type), None).0,
+            "Mismatch"
+        );
+
+        let with_extra_field = MetadataValue::Struct(BTreeMap::from([
+            ("Value".to_string(), MetadataValue::Integer(1)),
+            ("Extra".to_string(), MetadataValue::Integer(2)),
+        ]));
+        assert_eq!(
+            verify_set_value(&key, Some(&expected), Some(&with_extra_field), None).0,
+            "Mismatch"
         );
     }
 

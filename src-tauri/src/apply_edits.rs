@@ -75,6 +75,10 @@ struct VerifiedTarget {
     post_write: TargetApplyPostWriteState,
 }
 
+fn verification_clears_draft(kind: &str) -> bool {
+    matches!(kind, "Match" | "DeleteOk" | "Coerced")
+}
+
 #[derive(Debug, Clone)]
 pub struct MetadataSingleFileOutcome {
     pub fresh_file_metadata: Option<scanner::FileMetadata>,
@@ -1318,6 +1322,25 @@ pub(crate) fn finalize_executed_metadata_write(
         .collect::<Vec<_>>();
     let mut outcomes = Vec::with_capacity(verified_targets.len());
     let mut first_mismatch = None;
+    let mut coercion_messages = verified_targets
+        .iter()
+        .filter_map(|(plan, verified)| {
+            (plan.derived_reason.is_none() && verified.verification.kind == "Coerced")
+                .then(|| verified.verification.message.clone())
+                .flatten()
+        })
+        .collect::<Vec<_>>();
+    coercion_messages.sort();
+    coercion_messages.dedup();
+    let coercion_warning = match coercion_messages.as_slice() {
+        [] => None,
+        [message] => Some(message.clone()),
+        messages => Some(format!(
+            "ExifTool normalised {} metadata values during storage: {}",
+            messages.len(),
+            messages.join("; ")
+        )),
+    };
 
     for (plan, verified) in &verified_targets {
         let verification = &verified.verification;
@@ -1380,13 +1403,21 @@ pub(crate) fn finalize_executed_metadata_write(
             )
         })
         .collect();
+    let warning = match (diagnostics.warning, coercion_warning) {
+        (Some(write_warning), Some(coercion_warning)) => {
+            Some(format!("{write_warning}; {coercion_warning}"))
+        }
+        (Some(write_warning), None) => Some(write_warning),
+        (None, Some(coercion_warning)) => Some(coercion_warning),
+        (None, None) => None,
+    };
 
     // The batch coordinator appends this evidence to the independent
     // target-aware log after draft reconciliation and any persistence attempt.
     let result = MetadataSingleFileOutcome {
         fresh_file_metadata: Some(fresh),
         error: diagnostics.error.or(first_mismatch),
-        warning: diagnostics.warning,
+        warning,
         outcomes,
         targets_to_clear,
         audit_records,
@@ -1553,7 +1584,7 @@ fn verify_plan(
                     // Set remains MissingPostWrite.
                     let (kind, message) =
                         verify_semantic(schema_id, &plan.edit, None, Some(&plan.kind));
-                    let draft_reconciliation = if kind == "Match" {
+                    let draft_reconciliation = if verification_clears_draft(&kind) {
                         MetadataDraftReconciliation::Clear
                     } else {
                         MetadataDraftReconciliation::Keep
@@ -1585,7 +1616,7 @@ fn verify_plan(
                         Some(&occurrence.value),
                         Some(&plan.kind),
                     );
-                    let draft_reconciliation = if kind == "Match" {
+                    let draft_reconciliation = if verification_clears_draft(&kind) {
                         MetadataDraftReconciliation::Clear
                     } else {
                         match MetadataDraftTarget::from_existing_occurrence(occurrence) {
@@ -1725,7 +1756,7 @@ fn verify_existing_plan(
         Some(&occurrence.value),
         Some(&plan.kind),
     );
-    let draft_reconciliation = if matches!(kind.as_str(), "Match" | "DeleteOk") {
+    let draft_reconciliation = if verification_clears_draft(&kind) {
         MetadataDraftReconciliation::Clear
     } else if rebound {
         match MetadataDraftTarget::from_existing_occurrence(occurrence) {
@@ -3496,7 +3527,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_set_resolution_covers_match_coercion_mismatch_missing_changed_and_unparsed() {
+    fn existing_set_resolution_covers_match_mismatch_missing_changed_and_unparsed() {
         let info = schema(
             "1",
             "IFD0",
@@ -3544,7 +3575,7 @@ mod tests {
                     Some("IFD0"),
                     "Number",
                 )],
-                "Coerced",
+                "Mismatch",
                 MetadataDraftReconciliation::Keep,
             ),
             (
@@ -4389,7 +4420,7 @@ mod tests {
         let original_entry = entry.clone();
 
         for (observed, expected_kind) in [
-            (MetadataValue::Real(2.0), "Coerced"),
+            (MetadataValue::Real(2.0), "Mismatch"),
             (MetadataValue::Integer(3), "Mismatch"),
             (
                 MetadataValue::Unknown {
@@ -4452,6 +4483,52 @@ mod tests {
             assert_eq!(fresh, original_fresh);
             assert_eq!(entry, original_entry);
         }
+    }
+
+    #[test]
+    fn coerced_numeric_readback_clears_new_draft_and_reports_warning() {
+        let info = schema(
+            "GPSAltitude",
+            "XMP-iptcExt",
+            "LocationCreatedGPSAltitude",
+            true,
+            TagKind::Real,
+        );
+        let entry = new_entry(
+            &info,
+            edit(EditIntent::Set, Some(MetadataValue::Real(75.39599757))),
+        );
+        let fresh = occurrence(
+            occurrence_id("JPEG-APP1-XMP", "GPSAltitude", 0),
+            MetadataValue::Real(75.3959975742874),
+            Some(info.clone()),
+            Some(&info.group),
+            &info.name,
+        );
+        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![fresh]))]);
+
+        let outcome = apply_fake(
+            std::slice::from_ref(&entry),
+            &client,
+            std::slice::from_ref(&info),
+        );
+
+        assert!(outcome.error.is_none());
+        assert!(outcome.warning.as_deref().is_some_and(|warning| {
+            warning.contains("numeric readback is equivalent within 0.000001")
+        }));
+        assert_eq!(outcome.targets_to_clear, vec![entry.target.clone()]);
+        assert_eq!(outcome.outcomes[0].kind, "Coerced");
+        assert_eq!(
+            outcome.outcomes[0].draft_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
+        assert_eq!(
+            outcome.audit_records[0]
+                .verification
+                .proposed_reconciliation,
+            MetadataDraftReconciliation::Clear
+        );
     }
 
     #[test]

@@ -2118,7 +2118,7 @@ mod tests {
                     vec![MetadataTargetDraftEntry {
                         target,
                         edit: MetadataDraftEdit {
-                            value: Some(MetadataValue::Integer(5)),
+                            value: Some(MetadataValue::Real(5.0)),
                             intent: EditIntent::Set,
                         },
                     }],
