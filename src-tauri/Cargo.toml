@@ -47,6 +47,9 @@ regex = "1"
 async-trait = "0.1"
 tempfile = "3.0"
 trash = "5.2"
+rusqlite = { version = "0.38", features = ["bundled"] }
+sea-query = { version = "1.0", default-features = false, features = ["backend-sqlite", "derive"] }
+sea-query-rusqlite = "0.8"
 
 
 [dev-dependencies]

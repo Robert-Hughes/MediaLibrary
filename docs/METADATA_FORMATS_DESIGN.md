@@ -60,10 +60,20 @@ schema-wide removal remains a separate column or multi-file request boundary.
 
 ## Draft and audit persistence
 
-The sole active draft snapshot is `<app-data>/MediaLibraryTargetDraftEdits.jsonl`.
-Records use persisted `schema_version: 6` and canonical absolute `photo_path` identity; opened-folder-relative paths remain a frontend view only. There is no old-shape compatibility reader or migration. New Property logical slots contain both exact schema and
-exact destination, so same-schema destinations do not overwrite one another.
-Duplicate canonical photo paths, duplicate logical slots and malformed entries are rejected before atomic replacement. Root-scoped saves merge into the central snapshot and preserve records outside the opened root.
+The sole active draft store is
+`<app-data>/MediaLibraryTargetDraftEdits.sqlite3`. A two-column table maps each
+canonical absolute `photo_path` primary key to that photo's complete
+`entries_json` vector; opened-folder-relative paths remain a frontend view
+only. New Property logical slots contain both exact schema and exact
+destination, so same-schema destinations do not overwrite one another.
+Duplicate logical slots and malformed entries are rejected per row. Autosave
+and Apply mutate only affected rows in transactions, preserving every other
+folder and row without reading the whole store. Apply uses the original JSON as
+a compare-and-swap token so a concurrent edit cannot be overwritten.
+
+A version-6 `MediaLibraryTargetDraftEdits.jsonl` file is imported once and
+preserved as `MediaLibraryTargetDraftEdits.migrated.jsonl` after the migration
+transaction commits.
 
 The sole active apply audit is `<app-data>/MediaLibraryTargetApplyLog.jsonl`. Its identity marker is unchanged. Schema-version 3 rows use canonical absolute `photo_path` and retain complete targets, semantic values, the single ordered raw-write argument vector and
 status, verification results and reconciliation decisions. Existing rows are

@@ -35,11 +35,15 @@ import { useWritableSchemaDefinitions } from "./hooks/useWritableSchemaDefinitio
 import {
   metadataTargetDraftEntryEqualsExact,
   TargetDraftEditsStore,
-  type TargetDraftEditsByFile,
 } from "./targetDraftEdits";
 import { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 import { TargetApplyController } from "./targetApplyController";
-import { loadTargetDraftEdits, saveTargetDraftEdits } from "./targetDraftTauri";
+import {
+  loadTargetDraftEdits,
+  saveTargetDraftRows,
+  targetDraftChangesToMutations,
+  type MetadataDraftRowMutation,
+} from "./targetDraftTauri";
 import { CoalescingAsyncQueue } from "./coalescingAsyncQueue";
 import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
 import type { MetadataDraftTarget } from "./types";
@@ -239,8 +243,13 @@ export function useMediaLibrary(
   );
   const targetDraftSaveQueueRef = useRef<CoalescingAsyncQueue<{
     folder: string;
-    drafts: TargetDraftEditsByFile;
+    mutations: MetadataDraftRowMutation[];
+    revisions: Map<string, number>;
   }> | null>(null);
+  const targetDraftDirtyRowsRef = useRef(
+    new Map<string, { revision: number; mutation: MetadataDraftRowMutation }>(),
+  );
+  const targetDraftMutationRevisionRef = useRef(0);
   const targetApplyControllerRef = useRef<TargetApplyController | null>(null);
   const apiRef = useRef(api);
   apiRef.current = api;
@@ -299,11 +308,18 @@ export function useMediaLibrary(
 
   if (targetDraftSaveQueueRef.current === null) {
     targetDraftSaveQueueRef.current = new CoalescingAsyncQueue(
-      async ({ folder, drafts }) => {
+      async ({ folder, mutations, revisions }) => {
         const startedAt = frontendNow();
-        await saveTargetDraftEdits(apiRef.current, folder, drafts);
+        await saveTargetDraftRows(apiRef.current, folder, mutations);
+        for (const [path, revision] of revisions) {
+          if (
+            targetDraftDirtyRowsRef.current.get(path)?.revision === revision
+          ) {
+            targetDraftDirtyRowsRef.current.delete(path);
+          }
+        }
         logSlowFrontendOperation("draft-autosave", startedAt, {
-          files: Object.keys(drafts).length,
+          files: mutations.length,
         });
       },
       (error) => pushApplicationError("metadata-target-save", error),
@@ -459,6 +475,7 @@ export function useMediaLibrary(
       // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
       await listenersReadyRef.current;
       await targetDraftSaveQueueRef.current?.flush();
+      targetDraftDirtyRowsRef.current.clear();
 
       // Finish cancellation before
       // clearing stable stores so late controller events cannot cross folders.
@@ -1050,7 +1067,7 @@ export function useMediaLibrary(
   // the gate is suppressed, so they update UI without a duplicate save.
   useEffect(() => {
     const store = targetDraftEditsStoreRef.current;
-    return store.subscribe(() => {
+    return store.subscribe((changes) => {
       const next = store.getAllMetadata();
       targetVerifyOutcomesStoreRef.current.pruneAgainstDrafts(next);
       setAppState((prev) => {
@@ -1067,7 +1084,27 @@ export function useMediaLibrary(
       ) {
         return;
       }
-      targetDraftSaveQueueRef.current?.schedule({ folder, drafts: next });
+      const mutations = targetDraftChangesToMutations(changes);
+      for (const mutation of mutations) {
+        const revision = ++targetDraftMutationRevisionRef.current;
+        targetDraftDirtyRowsRef.current.set(mutation.relative_path, {
+          revision,
+          mutation,
+        });
+      }
+      targetDraftSaveQueueRef.current?.schedule({
+        folder,
+        mutations: Array.from(
+          targetDraftDirtyRowsRef.current.values(),
+          ({ mutation }) => mutation,
+        ),
+        revisions: new Map(
+          Array.from(
+            targetDraftDirtyRowsRef.current,
+            ([path, { revision }]) => [path, revision] as const,
+          ),
+        ),
+      });
     });
   }, [pushApplicationError]);
 

@@ -5,9 +5,11 @@ verification and generated-workflow tests. Record the tested commit and execute
 it against disposable copies only.
 
 The current application has one active metadata-edit pipeline:
-`MediaLibraryTargetDraftEdits.jsonl` schema version 5 and
-`MediaLibraryTargetApplyLog.jsonl`. Historical `MediaLibraryDraftEdits.jsonl`
-and `MediaLibraryApplyLog.jsonl` files are ignored and must remain untouched.
+`MediaLibraryTargetDraftEdits.sqlite3` and
+`MediaLibraryTargetApplyLog.jsonl`. A version-6
+`MediaLibraryTargetDraftEdits.jsonl` is accepted only as a one-time migration
+input. Historical `MediaLibraryDraftEdits.jsonl` and
+`MediaLibraryApplyLog.jsonl` files are ignored and must remain untouched.
 
 ## Validation record
 
@@ -358,12 +360,12 @@ readback comparisons.
 
 ## Persistence, apply and verification checks
 
-- [ ] **43. Fail target-draft loading safely.** Corrupt a disposable folder's
-      `MediaLibraryTargetDraftEdits.jsonl`, then open the folder. Expected: the load
-      error is surfaced, all property mutation and Apply actions are disabled, and
-      the file is not truncated, rewritten or autosaved. Switching to a valid
-      folder restores normal operation. Returning after repairing the file loads
-      normally.
+- [ ] **43. Fail target-draft loading safely.** In a disposable app-data copy,
+      replace one SQLite `entries_json` value with malformed JSON, then open its
+      folder. Expected: the load error is surfaced, all property mutation and
+      Apply actions are disabled, and no draft row is rewritten or removed.
+      Switching to a valid folder restores normal operation. Returning after
+      repairing the row loads normally.
 
 - [ ] **44. Exercise incremental apply and cancellation.** Stage edits across
       several files, including at least one file with multiple edits. Start Apply
