@@ -1,7 +1,8 @@
 import type { MetadataTargetDraftEntry } from "./types";
 import {
   targetDraftsFromUnknownWire,
-  targetDraftsToWire,
+  validateTargetDraftCollection,
+  type TargetDraftCollection,
   type TargetDraftEditsByFile,
 } from "./targetDraftEdits";
 
@@ -17,12 +18,34 @@ export async function loadTargetDraftEdits(
   return targetDraftsFromUnknownWire(raw);
 }
 
-export async function saveTargetDraftEdits(
+export interface MetadataDraftRowMutation {
+  relative_path: string;
+  entries: MetadataTargetDraftEntry[];
+}
+
+export function targetDraftChangesToMutations(
+  changes: readonly {
+    path: string;
+    edits: TargetDraftCollection | undefined;
+  }[],
+): MetadataDraftRowMutation[] {
+  return changes.map(({ path, edits }) => {
+    if (edits !== undefined) validateTargetDraftCollection(path, edits);
+    return {
+      relative_path: path,
+      entries: edits === undefined ? [] : structuredClone(Object.values(edits)),
+    };
+  });
+}
+
+export async function saveTargetDraftRows(
   api: TargetDraftTauriApi,
   folderPath: string,
-  drafts: TargetDraftEditsByFile,
+  mutations: MetadataDraftRowMutation[],
 ): Promise<void> {
-  const data: Record<string, MetadataTargetDraftEntry[]> =
-    targetDraftsToWire(drafts);
-  await api.invoke("save_metadata_draft_edits", { folderPath, data });
+  if (mutations.length === 0) return;
+  await api.invoke("save_metadata_draft_rows", {
+    folderPath,
+    mutations: structuredClone(mutations),
+  });
 }

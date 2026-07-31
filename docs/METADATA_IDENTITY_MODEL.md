@@ -227,7 +227,18 @@ entry is `MetadataTargetDraftEntry { target, edit }`.
 ## Persistence and lifecycle
 
 `TargetDraftEditsStore` owns frontend drafts and mutates them by exact target.
-The sole active draft snapshot is `<app-data>/MediaLibraryTargetDraftEdits.jsonl`. Each JSONL record retains complete target entries, uses persisted `schema_version: 6`, and identifies the photo by canonical absolute `photo_path`. Duplicate canonical photo paths, duplicate logical target slots, malformed entries, and unsupported versions are rejected before mutation. Writes atomically replace a merged central snapshot; there is no old-shape compatibility reader or migration.
+The sole active draft store is
+`<app-data>/MediaLibraryTargetDraftEdits.sqlite3`. Its two-column table maps a
+canonical absolute `photo_path` primary key to one `entries_json` vector.
+Duplicate logical target slots and malformed entries are rejected per row.
+Autosave upserts or deletes only changed rows in one transaction. Apply loads
+only each requested chunk, reconciles its rows independently, and commits all
+changed rows in that chunk atomically with compare-and-swap protection against
+concurrent edits.
+
+The former version-6 `MediaLibraryTargetDraftEdits.jsonl` store is a one-time
+migration input. A successful transaction archives it as
+`MediaLibraryTargetDraftEdits.migrated.jsonl`.
 
 Applying validates the target, writes through ExifTool, re-reads authoritative
 occurrences, verifies the semantic result, reconciles the exact target as

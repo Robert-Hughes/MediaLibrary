@@ -1636,7 +1636,7 @@ describe("useMediaLibrary", () => {
       state.targetDraftEditsStore.getMetadataFile("new.jpg"),
     ).toBeDefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toHaveLength(1);
   });
 
@@ -1652,7 +1652,7 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "draft" },
     };
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
         .length;
     const stateStore = () => {
       const state = result.current[0];
@@ -2015,7 +2015,7 @@ describe("useMediaLibrary", () => {
       await result.current[1].setNewPropertyDraft("move.jpg", original, edit);
     });
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
         .length;
     const beforeMoveSaves = saveCount();
 
@@ -2134,7 +2134,7 @@ describe("useMediaLibrary", () => {
       );
     });
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
         .length;
     const beforeMoveSaves = saveCount();
     const consoleError = vi
@@ -2300,7 +2300,7 @@ describe("useMediaLibrary", () => {
     ).toEqual([]);
     expect(
       mock.invocations
-        .filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+        .filter(({ cmd }) => cmd === "save_metadata_draft_rows")
         .map(({ args }) => args?.folderPath),
     ).toEqual([]);
   });
@@ -2353,7 +2353,7 @@ describe("useMediaLibrary", () => {
       ),
     ).toEqual([]);
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toEqual([]);
   });
 
@@ -2386,7 +2386,7 @@ describe("useMediaLibrary", () => {
 
     expect(result.current[0].kind).toBe("idle");
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toEqual([]);
     expect(mock.targetDraftEditsByFolder).toEqual({});
   });
@@ -2435,7 +2435,7 @@ describe("useMediaLibrary", () => {
       state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
     ).toBeUndefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toEqual([]);
   });
 
@@ -2483,7 +2483,7 @@ describe("useMediaLibrary", () => {
       },
     ]);
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toHaveLength(1);
   });
 
@@ -2498,7 +2498,7 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "pending" },
     };
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
         .length;
     const startDeferredRequest = (path: string, id: SchemaDefinitionId) => {
       const deferred = deferNextTagInfoLookup(mock);
@@ -2736,7 +2736,7 @@ describe("useMediaLibrary", () => {
     ).toBeDefined();
     expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toHaveLength(1);
     await settleAutosaves();
 
@@ -2770,7 +2770,7 @@ describe("useMediaLibrary", () => {
     );
     await settleAutosaves();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toHaveLength(1);
   });
 
@@ -3040,7 +3040,7 @@ describe("useMediaLibrary", () => {
     const loadFailedTargetDraftStore = state.targetDraftEditsStore;
     const loadFailedTargetVerificationStore = state.targetVerifyOutcomesStore;
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toHaveLength(0);
 
     act(() =>
@@ -3084,7 +3084,7 @@ describe("useMediaLibrary", () => {
     expect(state.targetDraftEdits["blocked.jpg"]).toBeDefined();
     expect(state.targetVerifyOutcomes["blocked.jpg"]).toBeDefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toHaveLength(0);
 
     await act(async () => {
@@ -3157,7 +3157,7 @@ describe("useMediaLibrary", () => {
     });
     expect(state.applicationErrors[0].error_type).toBe("metadata-target-load");
     expect(
-      mock.invocations.some(({ cmd }) => cmd === "save_metadata_draft_edits"),
+      mock.invocations.some(({ cmd }) => cmd === "save_metadata_draft_rows"),
     ).toBe(false);
 
     await act(async () => result.current[1].openRecent("/second"));
@@ -3180,13 +3180,13 @@ describe("useMediaLibrary", () => {
       );
     });
     expect(
-      mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_edits")
+      mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_rows")
         ?.args?.folderPath,
     ).toBe("/second");
     expect(
       mock.invocations.some(
         ({ cmd, args }) =>
-          cmd === "save_metadata_draft_edits" && args?.folderPath === "/files",
+          cmd === "save_metadata_draft_rows" && args?.folderPath === "/files",
       ),
     ).toBe(false);
   });
@@ -3224,7 +3224,7 @@ describe("useMediaLibrary", () => {
     });
     await settleAutosaves();
     const saveFolders = mock.invocations
-      .filter(({ cmd }) => cmd === "save_metadata_draft_edits")
+      .filter(({ cmd }) => cmd === "save_metadata_draft_rows")
       .map(({ args }) => args?.folderPath);
     expect(saveFolders).toEqual(["/first", "/second"]);
     const loaded = result.current[0];

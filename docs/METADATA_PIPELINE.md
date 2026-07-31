@@ -70,7 +70,16 @@ exact-target invariants.
 
 ## Draft state and persistence
 
-One `TargetDraftEditsStore` owns frontend drafts. Loading the central `<app-data>/MediaLibraryTargetDraftEdits.jsonl` snapshot is strict: a failure blocks draft mutation and apply and does not fall back. The backend projects canonical absolute photo records into the opened root-relative frontend view. Autosave serialises only complete target entries using persisted draft schema version 6 and merges that root view back into the central snapshot.
+One `TargetDraftEditsStore` owns frontend drafts. The active store is
+`<app-data>/MediaLibraryTargetDraftEdits.sqlite3`, with one row per canonical
+absolute photo path and a JSON entry vector for that row. Loading an opened
+folder is strict: a malformed row blocks draft mutation and apply and does not
+fall back. Autosave validates and writes only changed rows in one transaction;
+it never reads or serialises the complete draft collection.
+
+On first use, a version-6 `MediaLibraryTargetDraftEdits.jsonl` snapshot is
+imported transactionally and retained as
+`MediaLibraryTargetDraftEdits.migrated.jsonl`.
 
 The historical `MediaLibraryDraftEdits.jsonl` file is ignored, not migrated,
 and never touched.
@@ -84,7 +93,7 @@ cancellation races, autosave suspension and authoritative result parsing.
 
 For each requested file, the backend:
 
-1. loads and validates complete target drafts;
+1. loads and validates only the requested chunk's draft rows;
 2. validates exact writable occurrences or deliberate creations;
 3. renders every typed value into one deterministic escaped UTF-8 argument
    file;
@@ -92,7 +101,7 @@ For each requested file, the backend:
 5. re-reads authoritative occurrences;
 6. verifies each semantic edit against the complete intended target;
 7. reconciles exact targets as Clear, Keep, Replace or Blocked;
-8. persists the reconciled target map; and
+8. persists all changed rows in the chunk in one transaction; and
 9. appends a target-aware audit record.
 
 ### IPTC IIM character-set safety

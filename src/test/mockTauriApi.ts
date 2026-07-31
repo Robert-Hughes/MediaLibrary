@@ -442,11 +442,22 @@ export function createMockTauriApi(): MockTauriApi {
         const folder = args?.folderPath as string;
         return targetDraftsToWire(mock.targetDraftEditsByFolder[folder] || {});
       }
-      if (cmd === "save_metadata_draft_edits") {
+      if (cmd === "save_metadata_draft_rows") {
         const folder = args?.folderPath as string;
-        mock.targetDraftEditsByFolder[folder] = targetDraftsFromWire(
-          args?.data as Record<string, MetadataTargetDraftEntry[]>,
-        );
+        const current = mock.targetDraftEditsByFolder[folder] || {};
+        for (const mutation of args?.mutations as Array<{
+          relative_path: string;
+          entries: MetadataTargetDraftEntry[];
+        }>) {
+          if (mutation.entries.length === 0) {
+            delete current[mutation.relative_path];
+          } else {
+            current[mutation.relative_path] = targetDraftsFromWire({
+              [mutation.relative_path]: mutation.entries,
+            })[mutation.relative_path];
+          }
+        }
+        mock.targetDraftEditsByFolder[folder] = current;
         return;
       }
       if (cmd === "get_tag_info") {

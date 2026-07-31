@@ -1,8 +1,8 @@
-//! Shared metadata edit semantics and target-aware draft persistence.
+//! Shared metadata edit semantics and legacy target-aware draft decoding.
 //!
-//! Production persists only exact targets in
-//! `MediaLibraryTargetDraftEdits.jsonl`. Historical schema-keyed draft files
-//! are deliberately neither read nor modified.
+//! Production storage is implemented by [`crate::draft_repository`]. The
+//! JSONL reader remains solely for one-time migration; its writer and snapshot
+//! helpers remain test-only to verify compatibility with the legacy format.
 
 use crate::metadata_draft_target::{MetadataDraftSlot, MetadataDraftTarget};
 use crate::metadata_occurrence::{
@@ -13,7 +13,9 @@ use crate::tag_schema::SchemaDefinitionId;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::{self, File};
-use std::io::{BufRead, BufReader, Write};
+#[cfg(test)]
+use std::io::Write;
+use std::io::{BufRead, BufReader};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
@@ -79,8 +81,9 @@ struct VersionProbe {
     schema_version: Option<u32>,
 }
 
-const TARGET_DRAFT_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.jsonl";
-const TARGET_DRAFT_BACKUP_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.backup.jsonl";
+pub(crate) const TARGET_DRAFT_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.jsonl";
+pub(crate) const TARGET_DRAFT_BACKUP_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.backup.jsonl";
+#[cfg(test)]
 const HEADER_COMMENT: &str =
     "// This file stores unapplied target-aware metadata draft edits. Lines starting with // are ignored.";
 
@@ -97,23 +100,33 @@ pub struct DraftRepositoryState {
     operation: Mutex<()>,
 }
 
+impl DraftRepositoryState {
+    pub(crate) fn with_operation<T>(
+        &self,
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _guard = self.operation.try_lock().map_err(|_| {
+            "Concurrent central draft repository access detected; MediaLibrary persistence operation ordering is invalid"
+                .to_string()
+        })?;
+        operation()
+    }
+}
+
+#[cfg(test)]
 fn with_repository_guard<T>(
     state: &DraftRepositoryState,
     operation: impl FnOnce() -> Result<T, String>,
 ) -> Result<T, String> {
-    let _guard = state.operation.try_lock().map_err(|_| {
-        "Concurrent central draft repository access detected; MediaLibrary persistence operation ordering is invalid"
-            .to_string()
-    })?;
-    operation()
+    state.with_operation(operation)
 }
 
-fn canonical_root(folder_path: &str) -> Result<PathBuf, String> {
+pub(crate) fn canonical_root(folder_path: &str) -> Result<PathBuf, String> {
     fs::canonicalize(folder_path)
         .map_err(|error| format!("Could not canonicalise opened folder '{folder_path}': {error}"))
 }
 
-fn resolve_photo_path(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_photo_path(root: &Path, relative_path: &str) -> Result<PathBuf, String> {
     let relative = Path::new(relative_path);
     if relative.is_absolute() {
         return Err(format!(
@@ -157,7 +170,7 @@ pub(crate) fn resolve_canonical_photo_path(
     resolve_photo_path(&root, relative_path)
 }
 
-fn frontend_relative_path(root: &Path, photo_path: &Path) -> Option<String> {
+pub(crate) fn frontend_relative_path(root: &Path, photo_path: &Path) -> Option<String> {
     photo_path.strip_prefix(root).ok().map(|relative| {
         relative
             .components()
@@ -167,7 +180,9 @@ fn frontend_relative_path(root: &Path, photo_path: &Path) -> Option<String> {
     })
 }
 
-fn read_snapshot(path: &Path) -> Result<HashMap<PathBuf, Vec<MetadataTargetDraftEntry>>, String> {
+pub(crate) fn read_snapshot(
+    path: &Path,
+) -> Result<HashMap<PathBuf, Vec<MetadataTargetDraftEntry>>, String> {
     if !path.exists() {
         return Ok(HashMap::new());
     }
@@ -217,6 +232,7 @@ fn read_snapshot(path: &Path) -> Result<HashMap<PathBuf, Vec<MetadataTargetDraft
     Ok(drafts)
 }
 
+#[cfg(test)]
 fn write_snapshot(
     app_data_dir: &Path,
     drafts: &HashMap<PathBuf, Vec<MetadataTargetDraftEntry>>,
@@ -267,6 +283,7 @@ fn write_snapshot(
     Ok(())
 }
 
+#[cfg(test)]
 pub fn load_metadata_draft_edits(
     app_data_dir: &Path,
     folder_path: &str,
@@ -284,6 +301,7 @@ pub fn load_metadata_draft_edits(
     })
 }
 
+#[cfg(test)]
 pub fn save_metadata_draft_edits(
     app_data_dir: &Path,
     folder_path: &str,
@@ -307,7 +325,7 @@ pub fn save_metadata_draft_edits(
     })
 }
 
-fn validate_slots(
+pub(crate) fn validate_slots(
     relative_path: &str,
     entries: &[MetadataTargetDraftEntry],
     line_number: Option<usize>,

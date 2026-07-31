@@ -356,7 +356,7 @@ describe("AI-description flow", () => {
     const { user, aiBtn } = await startAiDescription("empty.jpg");
     await user.click(aiBtn);
     const targetDraftBefore = mockApiInstance.invocations.filter(
-      ({ cmd }) => cmd === "save_metadata_draft_edits",
+      ({ cmd }) => cmd === "save_metadata_draft_rows",
     ).length;
 
     await user.click(await screen.findByTestId("describe-confirm-btn"));
@@ -369,7 +369,7 @@ describe("AI-description flow", () => {
     );
     expect(
       mockApiInstance.invocations.filter(
-        ({ cmd }) => cmd === "save_metadata_draft_edits",
+        ({ cmd }) => cmd === "save_metadata_draft_rows",
       ).length - targetDraftBefore,
     ).toBe(0);
   });

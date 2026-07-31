@@ -2,8 +2,8 @@
 //!
 //! This module consumes [`MetadataTargetDraftEntry`] values, invokes the
 //! occurrence-aware single-file pipeline, applies structured draft
-//! reconciliation, and persists only through the target-aware-owned
-//! `MediaLibraryTargetDraftEdits.jsonl` file. It emits
+//! reconciliation, and persists only through the target-aware-owned SQLite
+//! repository. It emits
 //! versioned events consumed by the production frontend controller.
 //! After reconciliation and persistence, it appends target-aware audit evidence
 //! to the independent `MediaLibraryTargetApplyLog.jsonl` file.
@@ -28,10 +28,13 @@ use crate::apply_log::{
     TargetDraftPersistenceOutcome,
 };
 use crate::draft_edits::{
-    load_metadata_draft_edits, resolve_canonical_photo_path, save_metadata_draft_edits,
-    DraftRepositoryState, MetadataTargetDraftEntry, MetadataTargetDraftsByFile,
+    resolve_canonical_photo_path, DraftRepositoryState, MetadataTargetDraftEntry,
 };
-use crate::draft_reconciliation::reconcile_metadata_draft_file;
+use crate::draft_reconciliation::reconcile_metadata_draft_entries;
+use crate::draft_repository::{
+    load_draft_rows, persist_reconciled_rows, select_existing_relative_paths, LoadedDraftRow,
+    ReconciledDraftRow,
+};
 use crate::scanner;
 
 pub const METADATA_APPLY_STARTED_EVENT: &str = "apply_edits_started";
@@ -159,8 +162,17 @@ where
 }
 
 pub trait DraftPersistence {
-    fn load(&self, folder_path: &str) -> Result<MetadataTargetDraftsByFile, String>;
-    fn save(&self, folder_path: &str, drafts: &MetadataTargetDraftsByFile) -> Result<(), String>;
+    fn select_existing(
+        &self,
+        folder_path: &str,
+        relative_paths: &[String],
+    ) -> Result<Vec<String>, String>;
+    fn load_rows(
+        &self,
+        folder_path: &str,
+        relative_paths: &[String],
+    ) -> Result<Vec<LoadedDraftRow>, String>;
+    fn persist_rows(&self, folder_path: &str, rows: &[ReconciledDraftRow]) -> Result<(), String>;
 }
 
 pub trait SingleFileApply {
@@ -193,10 +205,9 @@ pub trait SingleFileApply {
 pub(crate) trait DraftReconciler {
     fn reconcile(
         &self,
-        current_drafts: &MetadataTargetDraftsByFile,
-        relative_path: &str,
+        entries: &[MetadataTargetDraftEntry],
         outcomes: &[MetadataTargetOutcome],
-    ) -> Result<MetadataTargetDraftsByFile, String>;
+    ) -> Result<Vec<MetadataTargetDraftEntry>, String>;
 }
 
 pub trait ApplyEvents {
@@ -219,16 +230,30 @@ struct RealDraftPersistence {
 }
 
 impl DraftPersistence for RealDraftPersistence {
-    fn load(&self, folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
+    fn select_existing(
+        &self,
+        folder_path: &str,
+        relative_paths: &[String],
+    ) -> Result<Vec<String>, String> {
         let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
         let state = self.app.state::<DraftRepositoryState>();
-        load_metadata_draft_edits(&app_data_dir, folder_path, &state)
+        select_existing_relative_paths(&app_data_dir, folder_path, relative_paths, &state)
     }
 
-    fn save(&self, folder_path: &str, drafts: &MetadataTargetDraftsByFile) -> Result<(), String> {
+    fn load_rows(
+        &self,
+        folder_path: &str,
+        relative_paths: &[String],
+    ) -> Result<Vec<LoadedDraftRow>, String> {
         let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
         let state = self.app.state::<DraftRepositoryState>();
-        save_metadata_draft_edits(&app_data_dir, folder_path, drafts, &state)
+        load_draft_rows(&app_data_dir, folder_path, relative_paths, &state)
+    }
+
+    fn persist_rows(&self, folder_path: &str, rows: &[ReconciledDraftRow]) -> Result<(), String> {
+        let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
+        let state = self.app.state::<DraftRepositoryState>();
+        persist_reconciled_rows(&app_data_dir, folder_path, rows, &state)
     }
 }
 
@@ -387,12 +412,10 @@ struct RealDraftReconciler;
 impl DraftReconciler for RealDraftReconciler {
     fn reconcile(
         &self,
-        current_drafts: &MetadataTargetDraftsByFile,
-        relative_path: &str,
+        entries: &[MetadataTargetDraftEntry],
         outcomes: &[MetadataTargetOutcome],
-    ) -> Result<MetadataTargetDraftsByFile, String> {
-        reconcile_metadata_draft_file(current_drafts, relative_path, outcomes)
-            .map_err(|error| error.to_string())
+    ) -> Result<Vec<MetadataTargetDraftEntry>, String> {
+        reconcile_metadata_draft_entries(entries, outcomes).map_err(|error| error.to_string())
     }
 }
 
@@ -522,23 +545,6 @@ where
     E: ApplyEvents,
 {
     let batch_started = Instant::now();
-    let phase_started = Instant::now();
-    let mut current_drafts = match persistence.load(folder_path) {
-        Ok(drafts) => drafts,
-        Err(error) => {
-            log::info!(
-                "[apply_perf] phase=draft_load duration_ms={} status=failed",
-                phase_started.elapsed().as_millis()
-            );
-            return Err(error);
-        }
-    };
-    log::info!(
-        "[apply_perf] phase=draft_load duration_ms={} status=ok files={}",
-        phase_started.elapsed().as_millis(),
-        current_drafts.len()
-    );
-
     let mut seen = HashSet::new();
     for relative_path in relative_paths {
         if !seen.insert(relative_path.as_str()) {
@@ -548,16 +554,15 @@ where
         }
     }
 
-    let selected: Vec<_> = relative_paths
-        .iter()
-        .filter(|relative_path| {
-            current_drafts
-                .get(relative_path.as_str())
-                .is_some_and(|entries| !entries.is_empty())
-        })
-        .cloned()
-        .collect();
+    let phase_started = Instant::now();
+    let selected = persistence.select_existing(folder_path, relative_paths)?;
     let total = selected.len();
+    log::info!(
+        "[apply_perf] phase=draft_select duration_ms={} requested={} selected={}",
+        phase_started.elapsed().as_millis(),
+        relative_paths.len(),
+        total
+    );
     log::info!(
         "[apply_perf] phase=batch_start requested={} selected={} batch_size={} write_concurrency={}",
         relative_paths.len(),
@@ -581,18 +586,37 @@ where
             break;
         }
 
-        let jobs = chunk
+        let phase_started = Instant::now();
+        let loaded_rows = persistence.load_rows(folder_path, chunk)?;
+        if loaded_rows.len() != chunk.len() {
+            let loaded_paths = loaded_rows
+                .iter()
+                .map(|row| row.relative_path.as_str())
+                .collect::<HashSet<_>>();
+            let missing = chunk
+                .iter()
+                .filter(|path| !loaded_paths.contains(path.as_str()))
+                .cloned()
+                .collect::<Vec<_>>();
+            return Err(format!(
+                "Draft rows changed before metadata apply began: {}",
+                missing.join(", ")
+            ));
+        }
+        log::info!(
+            "[apply_perf] phase=chunk_draft_load duration_ms={} files={}",
+            phase_started.elapsed().as_millis(),
+            loaded_rows.len()
+        );
+
+        let jobs = loaded_rows
             .iter()
-            .map(|relative_path| {
-                (
-                    relative_path.clone(),
-                    current_drafts
-                        .get(relative_path.as_str())
-                        .expect("selected target-aware draft remains present until its operation")
-                        .clone(),
-                )
-            })
+            .map(|row| (row.relative_path.clone(), row.entries.clone()))
             .collect::<Vec<_>>();
+        let mut rows_by_path = loaded_rows
+            .into_iter()
+            .map(|row| (row.relative_path.clone(), row))
+            .collect::<HashMap<_, _>>();
         let chunk_started = Instant::now();
         let chunk_outcomes =
             single_file_apply.apply_batch(folder_path, &jobs, write_concurrency, &cancel_flag);
@@ -606,64 +630,112 @@ where
             cancelled = cancel_flag.load(Ordering::Relaxed);
         }
 
+        struct PendingResult {
+            relative_path: String,
+            outcome: MetadataSingleFileOutcome,
+            reconciled: Option<ReconciledDraftRow>,
+            fatal_reason: Option<String>,
+            draft_persistence: TargetDraftPersistenceOutcome,
+        }
+
+        let phase_started = Instant::now();
+        let mut pending = Vec::with_capacity(chunk_outcomes.len());
         for (relative_path, outcome) in chunk_outcomes {
-            let coordinator_file_started = Instant::now();
-            let mut final_error = outcome.error.clone();
-            let mut persisted_draft_entries = None;
+            let row = rows_by_path
+                .remove(&relative_path)
+                .expect("apply batch returns only requested paths");
+            let mut reconciled = None;
             let mut fatal_reason = None;
             let mut draft_persistence = TargetDraftPersistenceOutcome::Unchanged;
-
-            let phase_started = Instant::now();
             if !outcome.outcomes.is_empty() {
-                match reconciler.reconcile(&current_drafts, &relative_path, &outcome.outcomes) {
-                    Ok(candidate) if candidate != current_drafts => {
-                        let persist_started = Instant::now();
-                        if let Err(error) = persistence.save(folder_path, &candidate) {
-                            log::info!(
-                            "[apply_perf] file={} phase=draft_persist duration_ms={} status=failed",
-                            relative_path,
-                            persist_started.elapsed().as_millis()
-                        );
-                            let reason = format!(
-                            "target-aware draft persistence failed for {relative_path}: {error}"
-                        );
-                            final_error = Some(combine_errors(final_error, reason.clone()));
-                            fatal_reason = Some(reason.clone());
-                            draft_persistence =
-                                TargetDraftPersistenceOutcome::PersistenceFailed { error: reason };
-                        } else {
-                            log::info!(
-                                "[apply_perf] file={} phase=draft_persist duration_ms={} status=ok",
-                                relative_path,
-                                persist_started.elapsed().as_millis()
-                            );
-                            current_drafts = candidate;
-                            draft_persistence = TargetDraftPersistenceOutcome::Persisted;
-                            persisted_draft_entries = Some(
-                                current_drafts
-                                    .get(relative_path.as_str())
-                                    .cloned()
-                                    .unwrap_or_default(),
-                            );
-                        }
+                match reconciler.reconcile(&row.entries, &outcome.outcomes) {
+                    Ok(entries) if entries != row.entries => {
+                        reconciled = Some(row.reconciled(entries));
                     }
                     Ok(_) => {}
                     Err(error) => {
                         let reason = format!(
                             "target-aware draft reconciliation failed for {relative_path}: {error}"
                         );
-                        final_error = Some(combine_errors(final_error, reason.clone()));
                         fatal_reason = Some(reason.clone());
                         draft_persistence =
                             TargetDraftPersistenceOutcome::ReconciliationFailed { error: reason };
                     }
                 }
             }
-            log::info!(
-                "[apply_perf] file={} phase=reconcile duration_ms={}",
+            pending.push(PendingResult {
                 relative_path,
-                phase_started.elapsed().as_millis()
-            );
+                outcome,
+                reconciled,
+                fatal_reason,
+                draft_persistence,
+            });
+        }
+        log::info!(
+            "[apply_perf] phase=chunk_reconcile duration_ms={} files={}",
+            phase_started.elapsed().as_millis(),
+            pending.len()
+        );
+
+        let rows_to_persist = pending
+            .iter()
+            .filter_map(|item| item.reconciled.clone())
+            .collect::<Vec<_>>();
+        if !rows_to_persist.is_empty() {
+            let persist_started = Instant::now();
+            match persistence.persist_rows(folder_path, &rows_to_persist) {
+                Ok(()) => {
+                    for item in &mut pending {
+                        if item.reconciled.is_some() {
+                            item.draft_persistence = TargetDraftPersistenceOutcome::Persisted;
+                        }
+                    }
+                    log::info!(
+                        "[apply_perf] phase=chunk_draft_persist duration_ms={} status=ok rows={}",
+                        persist_started.elapsed().as_millis(),
+                        rows_to_persist.len()
+                    );
+                }
+                Err(error) => {
+                    for item in &mut pending {
+                        if item.reconciled.is_some() {
+                            let reason = format!(
+                                "target-aware draft persistence failed for {}: {error}",
+                                item.relative_path
+                            );
+                            item.fatal_reason = Some(reason.clone());
+                            item.draft_persistence =
+                                TargetDraftPersistenceOutcome::PersistenceFailed { error: reason };
+                        }
+                    }
+                    log::info!(
+                        "[apply_perf] phase=chunk_draft_persist duration_ms={} status=failed rows={}",
+                        persist_started.elapsed().as_millis(),
+                        rows_to_persist.len()
+                    );
+                }
+            }
+        }
+
+        for item in pending {
+            let coordinator_file_started = Instant::now();
+            let PendingResult {
+                relative_path,
+                outcome,
+                reconciled,
+                fatal_reason,
+                draft_persistence,
+            } = item;
+            let mut final_error = outcome.error.clone();
+            if let Some(reason) = fatal_reason.as_ref() {
+                final_error = Some(combine_errors(final_error, reason.clone()));
+            }
+            let persisted_draft_entries =
+                if matches!(draft_persistence, TargetDraftPersistenceOutcome::Persisted) {
+                    reconciled.as_ref().map(|row| row.entries.clone())
+                } else {
+                    None
+                };
 
             let phase_started = Instant::now();
             if !outcome.audit_records.is_empty() {
@@ -752,7 +824,7 @@ mod tests {
         TargetApplyObservedOccurrence, TargetApplyPassStatus, TargetApplyPostWriteState,
         TargetApplyVerificationEvidence, TargetApplyWriteEvidence,
     };
-    use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+    use crate::draft_edits::{EditIntent, MetadataDraftEdit, MetadataTargetDraftsByFile};
     use crate::metadata_draft_target::MetadataDraftTarget;
     use crate::metadata_occurrence::{
         MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
@@ -764,14 +836,17 @@ mod tests {
 
     struct FakePersistence {
         load: Result<MetadataTargetDraftsByFile, String>,
+        current: Mutex<MetadataTargetDraftsByFile>,
         saves: Mutex<Vec<MetadataTargetDraftsByFile>>,
         save_error: Option<String>,
     }
 
     impl FakePersistence {
         fn new(load: Result<MetadataTargetDraftsByFile, String>) -> Self {
+            let current = load.clone().unwrap_or_default();
             Self {
                 load,
+                current: Mutex::new(current),
                 saves: Mutex::new(Vec::new()),
                 save_error: None,
             }
@@ -779,19 +854,60 @@ mod tests {
     }
 
     impl DraftPersistence for FakePersistence {
-        fn load(&self, _folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
-            self.load.clone()
-        }
-
-        fn save(
+        fn select_existing(
             &self,
             _folder_path: &str,
-            drafts: &MetadataTargetDraftsByFile,
+            relative_paths: &[String],
+        ) -> Result<Vec<String>, String> {
+            self.load.as_ref().map_err(Clone::clone)?;
+            let current = self.current.lock().unwrap();
+            Ok(relative_paths
+                .iter()
+                .filter(|path| {
+                    current
+                        .get(path.as_str())
+                        .is_some_and(|entries| !entries.is_empty())
+                })
+                .cloned()
+                .collect())
+        }
+
+        fn load_rows(
+            &self,
+            _folder_path: &str,
+            relative_paths: &[String],
+        ) -> Result<Vec<LoadedDraftRow>, String> {
+            self.load.as_ref().map_err(Clone::clone)?;
+            let current = self.current.lock().unwrap();
+            Ok(relative_paths
+                .iter()
+                .filter_map(|relative_path| {
+                    current.get(relative_path).map(|entries| LoadedDraftRow {
+                        relative_path: relative_path.clone(),
+                        entries: entries.clone(),
+                        original_json: serde_json::to_string(entries).unwrap(),
+                    })
+                })
+                .collect())
+        }
+
+        fn persist_rows(
+            &self,
+            _folder_path: &str,
+            rows: &[ReconciledDraftRow],
         ) -> Result<(), String> {
             if let Some(error) = &self.save_error {
                 return Err(error.clone());
             }
-            self.saves.lock().unwrap().push(drafts.clone());
+            let mut current = self.current.lock().unwrap();
+            for row in rows {
+                if row.entries.is_empty() {
+                    current.remove(&row.relative_path);
+                } else {
+                    current.insert(row.relative_path.clone(), row.entries.clone());
+                }
+            }
+            self.saves.lock().unwrap().push(current.clone());
             Ok(())
         }
     }
@@ -894,14 +1010,41 @@ mod tests {
     }
 
     impl DraftPersistence for TracePersistence {
-        fn load(&self, _folder_path: &str) -> Result<MetadataTargetDraftsByFile, String> {
-            Ok(self.drafts.clone())
-        }
-
-        fn save(
+        fn select_existing(
             &self,
             _folder_path: &str,
-            _drafts: &MetadataTargetDraftsByFile,
+            relative_paths: &[String],
+        ) -> Result<Vec<String>, String> {
+            Ok(relative_paths
+                .iter()
+                .filter(|path| self.drafts.contains_key(path.as_str()))
+                .cloned()
+                .collect())
+        }
+
+        fn load_rows(
+            &self,
+            _folder_path: &str,
+            relative_paths: &[String],
+        ) -> Result<Vec<LoadedDraftRow>, String> {
+            Ok(relative_paths
+                .iter()
+                .filter_map(|relative_path| {
+                    self.drafts
+                        .get(relative_path)
+                        .map(|entries| LoadedDraftRow {
+                            relative_path: relative_path.clone(),
+                            entries: entries.clone(),
+                            original_json: serde_json::to_string(entries).unwrap(),
+                        })
+                })
+                .collect())
+        }
+
+        fn persist_rows(
+            &self,
+            _folder_path: &str,
+            _rows: &[ReconciledDraftRow],
         ) -> Result<(), String> {
             self.trace.lock().unwrap().push("save");
             if self.save_error {
@@ -937,15 +1080,14 @@ mod tests {
     impl DraftReconciler for TraceReconciler {
         fn reconcile(
             &self,
-            current_drafts: &MetadataTargetDraftsByFile,
-            relative_path: &str,
+            entries: &[MetadataTargetDraftEntry],
             outcomes: &[MetadataTargetOutcome],
-        ) -> Result<MetadataTargetDraftsByFile, String> {
+        ) -> Result<Vec<MetadataTargetDraftEntry>, String> {
             self.trace.lock().unwrap().push("reconcile");
             if self.fail {
                 Err("reconcile failed".into())
             } else {
-                RealDraftReconciler.reconcile(current_drafts, relative_path, outcomes)
+                RealDraftReconciler.reconcile(entries, outcomes)
             }
         }
     }
@@ -1514,7 +1656,7 @@ mod tests {
         ]);
         let events = FakeEvents::default();
         let logger = FakeTargetLogger::default();
-        let result = run_apply_metadata_draft_edits_with(
+        let result = run_apply_metadata_draft_edits_with_limits(
             "folder",
             &[
                 "clear.jpg".into(),
@@ -1528,9 +1670,11 @@ mod tests {
             &logger,
             &events,
             Arc::new(AtomicBool::new(false)),
+            4,
+            1,
         )
         .unwrap();
-        assert_eq!(persistence.saves.lock().unwrap().len(), 2);
+        assert_eq!(persistence.saves.lock().unwrap().len(), 1);
         assert_eq!(result.files[0].persisted_draft_entries, Some(Vec::new()));
         assert_eq!(result.files[1].persisted_draft_entries, None);
         assert!(!result.files[1].applied);

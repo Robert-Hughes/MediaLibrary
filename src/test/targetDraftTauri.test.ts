@@ -12,7 +12,8 @@ import {
 } from "../targetDraftEdits";
 import {
   loadTargetDraftEdits,
-  saveTargetDraftEdits,
+  saveTargetDraftRows,
+  targetDraftChangesToMutations,
   type TargetDraftTauriApi,
 } from "../targetDraftTauri";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
@@ -21,6 +22,19 @@ const schema = (table = "Exif::Main", tagId = "282"): SchemaDefinitionId => ({
   table,
   tag_id: tagId,
 });
+
+const saveTargetDraftEdits = (
+  api: TargetDraftTauriApi,
+  folderPath: string,
+  source: TargetDraftEditsByFile,
+) =>
+  saveTargetDraftRows(
+    api,
+    folderPath,
+    targetDraftChangesToMutations(
+      Object.entries(source).map(([path, edits]) => ({ path, edits })),
+    ),
+  );
 
 const existing = (
   path = "JPEG-APP1-IFD0",
@@ -137,8 +151,8 @@ describe("loadTargetDraftEdits", () => {
   });
 });
 
-describe("saveTargetDraftEdits", () => {
-  it("uses the exact command, arguments, and deterministic wire order", async () => {
+describe("saveTargetDraftRows", () => {
+  it("uses the exact row-mutation command and arguments", async () => {
     const oldB = existing("IFD1", "IFD1");
     const oldA = existing("IFD0", "IFD0");
     const newB = created(schema("B", "tag"));
@@ -154,18 +168,27 @@ describe("saveTargetDraftEdits", () => {
     expect(invoke).toHaveBeenCalledOnce();
     const [command, args] = invoke.mock.calls[0] as [
       string,
-      { folderPath: string; data: Record<string, MetadataTargetDraftEntry[]> },
+      {
+        folderPath: string;
+        mutations: Array<{
+          relative_path: string;
+          entries: MetadataTargetDraftEntry[];
+        }>;
+      },
     ];
-    expect(command).toBe("save_metadata_draft_edits");
+    expect(command).toBe("save_metadata_draft_rows");
     expect(args.folderPath).toBe("C:/files");
-    expect(Object.keys(args.data)).toEqual(["a.jpg", "z.jpg"]);
-    expect(args.data["z.jpg"].map(({ target }) => target)).toEqual([
-      oldA,
-      oldB,
+    expect(args.mutations.map(({ relative_path }) => relative_path)).toEqual([
+      "z.jpg",
+      "a.jpg",
+    ]);
+    expect(args.mutations[0].entries.map(({ target }) => target)).toEqual([
       newB,
+      oldB,
+      oldA,
     ]);
     expect(
-      args.data["z.jpg"].every(
+      args.mutations[0].entries.every(
         (wireEntry) =>
           Object.keys(wireEntry).sort().join(",") === "edit,target" &&
           !("slot" in wireEntry) &&
@@ -175,7 +198,7 @@ describe("saveTargetDraftEdits", () => {
     expect(source).toEqual(before);
   });
 
-  it("invokes Tauri with __proto__ as an own enumerable data property", async () => {
+  it("passes __proto__ as an ordinary row path", async () => {
     const target = created();
     const invoke = vi.fn().mockResolvedValue(undefined);
     const source = drafts(
@@ -185,37 +208,32 @@ describe("saveTargetDraftEdits", () => {
     await saveTargetDraftEdits({ invoke }, "folder", source);
 
     const args = invoke.mock.calls[0][1] as {
-      data: Record<string, MetadataTargetDraftEntry[]>;
+      mutations: Array<{
+        relative_path: string;
+        entries: MetadataTargetDraftEntry[];
+      }>;
     };
-    expect(Object.getOwnPropertyDescriptor(args.data, "__proto__")).toEqual({
-      value: [entry(target, "reserved")],
-      writable: true,
-      enumerable: true,
-      configurable: true,
-    });
-    expect(Object.getPrototypeOf(args.data)).toBe(Object.prototype);
+    expect(args.mutations).toEqual([
+      { relative_path: "__proto__", entries: [entry(target, "reserved")] },
+    ]);
   });
 
-  it("rejects malformed keys before invoke", async () => {
-    const invoke = vi.fn().mockResolvedValue(undefined);
-    await expect(
-      saveTargetDraftEdits({ invoke }, "folder", {
-        "file.jpg": { wrong: entry(existing()) },
-      }),
-    ).rejects.toThrow(/supplied record key 'wrong'/);
-    expect(invoke).not.toHaveBeenCalled();
+  it("rejects malformed changed rows before invoke", () => {
+    expect(() =>
+      targetDraftChangesToMutations([
+        { path: "file.jpg", edits: { wrong: entry(existing()) } },
+      ]),
+    ).toThrow(/supplied record key 'wrong'/);
   });
 
-  it("rejects duplicate malformed collections before invoke", async () => {
-    const invoke = vi.fn().mockResolvedValue(undefined);
+  it("rejects duplicate malformed changed rows before invoke", () => {
     const first = entry(existing());
     const second = entry(structuredClone(first.target));
-    await expect(
-      saveTargetDraftEdits({ invoke }, "folder", {
-        "file.jpg": { first, second },
-      }),
-    ).rejects.toThrow(/duplicate target/i);
-    expect(invoke).not.toHaveBeenCalled();
+    expect(() =>
+      targetDraftChangesToMutations([
+        { path: "file.jpg", edits: { first, second } },
+      ]),
+    ).toThrow(/duplicate target/i);
   });
 
   it("propagates backend rejection unchanged", async () => {
@@ -234,8 +252,15 @@ describe("target draft frontend/Tauri contract round-trip", () => {
     let wireSnapshot: unknown = {};
     const api: TargetDraftTauriApi = {
       async invoke(command, args) {
-        if (command === "save_metadata_draft_edits") {
-          wireSnapshot = JSON.parse(JSON.stringify(args?.data));
+        if (command === "save_metadata_draft_rows") {
+          wireSnapshot = Object.fromEntries(
+            (
+              args?.mutations as Array<{
+                relative_path: string;
+                entries: MetadataTargetDraftEntry[];
+              }>
+            ).map(({ relative_path, entries }) => [relative_path, entries]),
+          );
           return undefined;
         }
         if (command === "load_metadata_draft_edits") {
@@ -284,8 +309,15 @@ describe("target draft frontend/Tauri contract round-trip", () => {
     let wireSnapshot: unknown = {};
     const api: TargetDraftTauriApi = {
       async invoke(command, args) {
-        if (command === "save_metadata_draft_edits") {
-          wireSnapshot = JSON.parse(JSON.stringify(args?.data));
+        if (command === "save_metadata_draft_rows") {
+          wireSnapshot = Object.fromEntries(
+            (
+              args?.mutations as Array<{
+                relative_path: string;
+                entries: MetadataTargetDraftEntry[];
+              }>
+            ).map(({ relative_path, entries }) => [relative_path, entries]),
+          );
           return undefined;
         }
         if (command === "load_metadata_draft_edits") {
