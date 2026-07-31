@@ -479,8 +479,9 @@ enum ExifToolStructStringContext {
 
 /// Escape a string using ExifTool's default structured-information syntax.
 ///
-/// This is distinct from shell quoting and from the `#[CSTR]` escaping used
-/// to transport a complete argument through an ExifTool `-@` argfile.
+/// This is distinct from shell quoting and from the C escaping applied later
+/// to assignment values transported through an ExifTool `-@` argfile with
+/// `-ec`.
 /// ExifTool structure strings use `|` as their escape character:
 /// https://exiftool.org/struct.html#Serialization
 fn escape_exiftool_struct_string(s: &str, context: ExifToolStructStringContext) -> String {
