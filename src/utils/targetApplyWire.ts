@@ -1,8 +1,8 @@
 import type {
-  MetadataApplyStartedPayload,
-  MetadataApplyProgressPayload,
-  MetadataApplyResult,
   MetadataApplyFileResult,
+  MetadataApplyResult,
+  MetadataApplyStreamMessage,
+  MetadataApplySummary,
   MetadataTargetDraftEntry,
   MetadataTargetOutcome,
 } from "../types";
@@ -22,6 +22,10 @@ function invalid(context: string, detail: string): never {
 
 function isNonNegativeSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && typeof value === "number" && value >= 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return isNonNegativeSafeInteger(value) && value > 0;
 }
 
 export function targetApplyFileResultFromUnknown(
@@ -132,8 +136,6 @@ export function targetApplyFileResultFromUnknown(
       }
       typedPersisted.push(entry);
     }
-    // Reuse the strict target-draft collection conversion for logical-slot
-    // duplicate detection, but retain the authoritative array unchanged.
     targetDraftsFromWire({ [relativePath]: typedPersisted });
   }
 
@@ -148,12 +150,32 @@ export function targetApplyFileResultFromUnknown(
   };
 }
 
-export function targetApplyResultFromUnknown(
+export function targetApplySummaryFromUnknown(
   raw: unknown,
-): MetadataApplyResult {
-  const context = "Invalid target-aware apply result";
+  context = "Invalid target-aware apply summary",
+): MetadataApplySummary {
   if (!isRecord(raw)) invalid(context, "expected an object");
-  if (!Array.isArray(raw.files)) invalid(context, "files must be an array");
+  const integerFields = [
+    "requested",
+    "selected",
+    "completed",
+    "applied",
+    "failed",
+    "warning_count",
+    "delivery_failure_count",
+  ] as const;
+  for (const field of integerFields) {
+    if (!isNonNegativeSafeInteger(raw[field])) {
+      invalid(context, `${field} must be a non-negative safe integer`);
+    }
+  }
+  const requested = raw.requested as number;
+  const selected = raw.selected as number;
+  const completed = raw.completed as number;
+  const applied = raw.applied as number;
+  const failed = raw.failed as number;
+  const warningCount = raw.warning_count as number;
+  const deliveryFailureCount = raw.delivery_failure_count as number;
   if (typeof raw.cancelled !== "boolean") {
     invalid(context, "cancelled must be a boolean");
   }
@@ -172,13 +194,47 @@ export function targetApplyResultFromUnknown(
       "aborted must be true exactly when abort_reason is non-null",
     );
   }
+  if (selected > requested) {
+    invalid(context, "selected cannot exceed requested");
+  }
+  if (completed > selected) {
+    invalid(context, "completed cannot exceed selected");
+  }
+  if (applied + failed !== completed) {
+    invalid(context, "applied plus failed must equal completed");
+  }
+  if (warningCount > completed) {
+    invalid(context, "warning_count cannot exceed completed");
+  }
+  if (deliveryFailureCount > completed) {
+    invalid(context, "delivery_failure_count cannot exceed completed");
+  }
 
+  return {
+    requested,
+    selected,
+    completed,
+    applied,
+    failed,
+    warning_count: warningCount,
+    cancelled: raw.cancelled,
+    aborted: raw.aborted,
+    abort_reason: raw.abort_reason,
+    delivery_failure_count: deliveryFailureCount,
+  };
+}
+
+function targetApplyFilesFromUnknown(
+  raw: unknown,
+  context: string,
+): MetadataApplyFileResult[] {
+  if (!Array.isArray(raw)) invalid(context, "expected an array");
   const files: MetadataApplyFileResult[] = [];
   const paths = new Set<string>();
-  for (const [index, file] of raw.files.entries()) {
+  for (const [index, file] of raw.entries()) {
     const parsed = targetApplyFileResultFromUnknown(
       file,
-      `${context} files[${index}]`,
+      `${context}[${index}]`,
     );
     if (paths.has(parsed.relative_path)) {
       invalid(
@@ -189,43 +245,105 @@ export function targetApplyResultFromUnknown(
     paths.add(parsed.relative_path);
     files.push(parsed);
   }
+  return files;
+}
 
+export function targetApplyResultFromUnknown(
+  raw: unknown,
+): MetadataApplyResult {
+  const context = "Invalid target-aware apply result";
+  if (!isRecord(raw)) invalid(context, "expected an object");
+  const summary = targetApplySummaryFromUnknown(
+    raw.summary,
+    `${context} summary`,
+  );
+  const undeliveredFiles = targetApplyFilesFromUnknown(
+    raw.undelivered_files,
+    `${context} undelivered_files`,
+  );
+  if (undeliveredFiles.length !== summary.delivery_failure_count) {
+    invalid(
+      context,
+      "undelivered_files length must equal summary.delivery_failure_count",
+    );
+  }
+  if (typeof raw.complete_delivery_failed !== "boolean") {
+    invalid(context, "complete_delivery_failed must be a boolean");
+  }
   return {
-    files,
-    cancelled: raw.cancelled,
-    aborted: raw.aborted,
-    abort_reason: raw.abort_reason,
+    summary,
+    undelivered_files: undeliveredFiles,
+    complete_delivery_failed: raw.complete_delivery_failed,
   };
 }
 
-export function targetApplyStartedFromUnknown(
+/**
+ * Returns null for a well-formed message owned by a different operation.
+ * Operation identity is checked before parsing any heavyweight file results.
+ */
+export function targetApplyStreamMessageFromUnknown(
   raw: unknown,
-): MetadataApplyStartedPayload {
-  const context = "Invalid apply_edits_started payload";
+  expectedOperationId: string,
+): MetadataApplyStreamMessage | null {
+  const context = "Invalid target-aware apply stream message";
   if (!isRecord(raw)) invalid(context, "expected an object");
-  if (!isNonNegativeSafeInteger(raw.total)) {
-    invalid(context, "total must be a non-negative safe integer");
+  if (typeof raw.operation_id !== "string") {
+    invalid(context, "operation_id must be a string");
   }
-  return { total: raw.total };
-}
+  if (raw.operation_id !== expectedOperationId) return null;
+  if (typeof raw.kind !== "string") invalid(context, "kind must be a string");
 
-export function targetApplyProgressFromUnknown(
-  raw: unknown,
-): MetadataApplyProgressPayload {
-  const context = "Invalid apply_metadata_edits_progress payload";
-  if (!isRecord(raw)) invalid(context, "expected an object");
-  if (!isNonNegativeSafeInteger(raw.total) || raw.total < 1) {
-    invalid(context, "total must be a positive safe integer");
+  if (raw.kind === "started") {
+    if (!isNonNegativeSafeInteger(raw.total)) {
+      invalid(context, "started total must be a non-negative safe integer");
+    }
+    return {
+      kind: "started",
+      operation_id: raw.operation_id,
+      total: raw.total,
+    };
   }
-  if (!isNonNegativeSafeInteger(raw.current) || raw.current < 1) {
-    invalid(context, "current must be a positive safe integer");
+
+  if (raw.kind === "progress_batch") {
+    if (!isPositiveSafeInteger(raw.sequence)) {
+      invalid(context, "progress sequence must be a positive safe integer");
+    }
+    if (!isPositiveSafeInteger(raw.current)) {
+      invalid(context, "progress current must be a positive safe integer");
+    }
+    if (!isPositiveSafeInteger(raw.total)) {
+      invalid(context, "progress total must be a positive safe integer");
+    }
+    if (raw.current > raw.total) {
+      invalid(context, "progress current cannot exceed total");
+    }
+    const results = targetApplyFilesFromUnknown(
+      raw.results,
+      `${context} results`,
+    );
+    if (results.length === 0) {
+      invalid(context, "progress results must not be empty");
+    }
+    if (results.length > raw.current) {
+      invalid(context, "progress results cannot exceed current");
+    }
+    return {
+      kind: "progress_batch",
+      operation_id: raw.operation_id,
+      sequence: raw.sequence,
+      current: raw.current,
+      total: raw.total,
+      results,
+    };
   }
-  if (raw.current > raw.total) {
-    invalid(context, "current cannot exceed total");
+
+  if (raw.kind === "complete") {
+    return {
+      kind: "complete",
+      operation_id: raw.operation_id,
+      summary: targetApplySummaryFromUnknown(raw.summary, `${context} summary`),
+    };
   }
-  return {
-    current: raw.current,
-    total: raw.total,
-    result: targetApplyFileResultFromUnknown(raw.result, `${context} result`),
-  };
+
+  return invalid(context, `unsupported kind '${raw.kind}'`);
 }

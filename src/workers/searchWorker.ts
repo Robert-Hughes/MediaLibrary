@@ -40,9 +40,20 @@ self.onmessage = (event: MessageEvent<SearchWorkerInbound>) => {
       index.setSchemaLabels(msg.schemaLabels);
       index.setOccurrences(msg.path, msg.occurrences);
       return;
+    case "UPSERT_OCCURRENCES_BATCH":
+      index.setSchemaLabels(msg.schemaLabels);
+      for (const path of msg.deletedPaths) index.deletePath(path);
+      for (const entry of msg.entries) {
+        index.setOccurrences(entry.path, entry.occurrences);
+      }
+      return;
     case "UPSERT_DRAFTS":
       index.setSchemaLabels(msg.schemaLabels);
       index.setDrafts(msg.path, msg.edits);
+      return;
+    case "UPSERT_DRAFTS_BATCH":
+      index.setSchemaLabels(msg.schemaLabels);
+      for (const entry of msg.entries) index.setDrafts(entry.path, entry.edits);
       return;
     case "DELETE_PATH":
       index.deletePath(msg.path);

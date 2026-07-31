@@ -1,7 +1,6 @@
 import {
   FileMetadataOccurrencesStore,
   type MetadataApplyFileResult,
-  type MetadataTargetOutcome,
   type MetadataOccurrences,
 } from "./types";
 import {
@@ -32,10 +31,6 @@ export interface TargetApplyFileApplication {
   relativePath: string;
   draftsChanged: boolean;
   occurrencesChanged: boolean;
-  targetOutcomes: MetadataTargetOutcome[];
-  targetVerifyOutcomes: TargetVerifyOutcome[];
-  error: string | null;
-  warning: string | null;
 }
 
 export interface TargetApplyResultApplication {
@@ -50,24 +45,17 @@ export interface PreparedTargetApplyFileResult {
   readonly persistedDraftEntries: MetadataApplyFileResult["persisted_draft_entries"];
   readonly persistedDraftCollection: TargetDraftCollection | undefined | null;
   readonly occurrences: MetadataOccurrences | null;
-  readonly targetOutcomes: MetadataTargetOutcome[];
   readonly targetVerifyOutcomes: TargetVerifyOutcome[];
-  readonly error: string | null;
-  readonly warning: string | null;
 }
 
 function prepareValidatedTargetApplyFileResult(
   parsed: MetadataApplyFileResult,
 ): PreparedTargetApplyFileResult {
-  const targetOutcomes = structuredClone(parsed.target_outcomes);
   const targetVerifyOutcomes = targetVerifyOutcomesFromBackend(
     parsed.relative_path,
-    targetOutcomes,
+    parsed.target_outcomes,
   );
-  const persistedDraftEntries =
-    parsed.persisted_draft_entries === null
-      ? null
-      : structuredClone(parsed.persisted_draft_entries);
+  const persistedDraftEntries = parsed.persisted_draft_entries;
   let persistedDraftCollection: TargetDraftCollection | undefined | null = null;
   if (persistedDraftEntries !== null) {
     persistedDraftCollection = targetDraftsFromWire(
@@ -82,11 +70,8 @@ function prepareValidatedTargetApplyFileResult(
     occurrences:
       parsed.fresh_file_metadata === null
         ? null
-        : structuredClone(parsed.fresh_file_metadata.occurrences),
-    targetOutcomes,
+        : parsed.fresh_file_metadata.occurrences,
     targetVerifyOutcomes,
-    error: parsed.error,
-    warning: parsed.warning,
   };
 }
 
@@ -167,10 +152,6 @@ export function applyPreparedTargetApplyFileResults(
     relativePath: file.relativePath,
     draftsChanged: draftChanged.has(file.relativePath),
     occurrencesChanged: occurrenceChanged.has(file.relativePath),
-    targetOutcomes: structuredClone(file.targetOutcomes),
-    targetVerifyOutcomes: structuredClone(file.targetVerifyOutcomes),
-    error: file.error,
-    warning: file.warning,
   }));
 }
 
@@ -186,16 +167,23 @@ export function applyTargetApplyFileResult(
   return applyPreparedTargetApplyFileResult(prepared, stores);
 }
 
+export function applyTargetApplyFileResults(
+  raw: readonly unknown[],
+  stores: TargetApplyResultStores,
+): TargetApplyFileApplication[] {
+  const prepared = raw.map((file) => prepareTargetApplyFileResult(file));
+  return applyPreparedTargetApplyFileResults(prepared, stores);
+}
+
 export function applyTargetApplyResult(
   raw: unknown,
   stores: TargetApplyResultStores,
 ): TargetApplyResultApplication {
   const parsed = targetApplyResultFromUnknown(raw);
-  const prepared = parsed.files.map(prepareValidatedTargetApplyFileResult);
   return {
-    files: applyPreparedTargetApplyFileResults(prepared, stores),
-    cancelled: parsed.cancelled,
-    aborted: parsed.aborted,
-    abortReason: parsed.abort_reason,
+    files: applyTargetApplyFileResults(parsed.undelivered_files, stores),
+    cancelled: parsed.summary.cancelled,
+    aborted: parsed.summary.aborted,
+    abortReason: parsed.summary.abort_reason,
   };
 }

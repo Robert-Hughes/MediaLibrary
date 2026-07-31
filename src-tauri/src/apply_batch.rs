@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{ipc::Channel, AppHandle, Manager};
 
 use crate::apply_edits::{
     apply_single_file_metadata, execute_prepared_metadata_write, executed_relative_path,
@@ -32,13 +32,10 @@ use crate::draft_edits::{
 };
 use crate::draft_reconciliation::reconcile_metadata_draft_entries;
 use crate::draft_repository::{
-    load_draft_rows, persist_reconciled_rows, select_existing_relative_paths, LoadedDraftRow,
-    ReconciledDraftRow,
+    load_draft_rows, persist_reconciled_rows, select_all_relative_paths,
+    select_existing_relative_paths, LoadedDraftRow, ReconciledDraftRow,
 };
 use crate::scanner;
-
-pub const METADATA_APPLY_STARTED_EVENT: &str = "apply_edits_started";
-pub const METADATA_APPLY_PROGRESS_EVENT: &str = "apply_metadata_edits_progress";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -57,26 +54,51 @@ pub struct MetadataApplyFileResult {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct MetadataApplyResult {
+    pub summary: MetadataApplySummary,
+    pub undelivered_files: Vec<MetadataApplyFileResult>,
+    pub complete_delivery_failed: bool,
+    #[cfg(test)]
+    #[serde(skip)]
+    #[ts(skip)]
     pub files: Vec<MetadataApplyFileResult>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataApplySummary {
+    pub requested: usize,
+    pub selected: usize,
+    pub completed: usize,
+    pub applied: usize,
+    pub failed: usize,
+    pub warning_count: usize,
     pub cancelled: bool,
     pub aborted: bool,
     pub abort_reason: Option<String>,
+    pub delivery_failure_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataApplyStartedPayload {
-    pub total: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct MetadataApplyProgressPayload {
-    pub current: usize,
-    pub total: usize,
-    pub result: MetadataApplyFileResult,
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MetadataApplyStreamMessage {
+    Started {
+        operation_id: String,
+        total: usize,
+    },
+    ProgressBatch {
+        operation_id: String,
+        sequence: usize,
+        current: usize,
+        total: usize,
+        results: Vec<MetadataApplyFileResult>,
+    },
+    Complete {
+        operation_id: String,
+        summary: MetadataApplySummary,
+    },
 }
 
 /// Cancellation state for the sole metadata apply command.
@@ -167,6 +189,9 @@ pub trait DraftPersistence {
         folder_path: &str,
         relative_paths: &[String],
     ) -> Result<Vec<String>, String>;
+    fn select_all(&self, _folder_path: &str) -> Result<Vec<String>, String> {
+        Err("Draft persistence does not support selecting all rows".into())
+    }
     fn load_rows(
         &self,
         folder_path: &str,
@@ -211,8 +236,7 @@ pub(crate) trait DraftReconciler {
 }
 
 pub trait ApplyEvents {
-    fn started(&self, payload: MetadataApplyStartedPayload) -> Result<(), String>;
-    fn progress(&self, payload: MetadataApplyProgressPayload) -> Result<(), String>;
+    fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String>;
 }
 
 pub(crate) trait TargetApplyLogger {
@@ -238,6 +262,12 @@ impl DraftPersistence for RealDraftPersistence {
         let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
         let state = self.app.state::<DraftRepositoryState>();
         select_existing_relative_paths(&app_data_dir, folder_path, relative_paths, &state)
+    }
+
+    fn select_all(&self, folder_path: &str) -> Result<Vec<String>, String> {
+        let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
+        let state = self.app.state::<DraftRepositoryState>();
+        select_all_relative_paths(&app_data_dir, folder_path, &state)
     }
 
     fn load_rows(
@@ -445,42 +475,46 @@ impl TargetApplyLogger for RealTargetApplyLogger {
 }
 
 struct TauriApplyEvents {
-    app: AppHandle,
+    channel: Channel<MetadataApplyStreamMessage>,
 }
 
 impl ApplyEvents for TauriApplyEvents {
-    fn started(&self, payload: MetadataApplyStartedPayload) -> Result<(), String> {
-        self.app
-            .emit(METADATA_APPLY_STARTED_EVENT, payload)
+    fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
+        self.channel
+            .send(message.clone())
             .map_err(|error| error.to_string())
     }
+}
 
-    fn progress(&self, payload: MetadataApplyProgressPayload) -> Result<(), String> {
-        self.app
-            .emit(METADATA_APPLY_PROGRESS_EVENT, payload)
-            .map_err(|error| error.to_string())
-    }
+#[derive(Debug, Clone, Copy)]
+pub struct MetadataApplyLimits {
+    pub batch_size: usize,
+    pub write_concurrency: usize,
 }
 
 pub fn run_apply_metadata_draft_edits_blocking(
     folder_path: String,
-    relative_paths: Vec<String>,
+    relative_paths: Option<Vec<String>>,
+    operation_id: String,
+    progress_channel: Channel<MetadataApplyStreamMessage>,
     app: AppHandle,
     cancel_flag: Arc<AtomicBool>,
-    batch_size: usize,
-    write_concurrency: usize,
+    limits: MetadataApplyLimits,
 ) -> Result<MetadataApplyResult, String> {
     run_apply_metadata_draft_edits_with_limits(
         &folder_path,
-        &relative_paths,
+        relative_paths.as_deref(),
         &RealDraftPersistence { app: app.clone() },
         &RealSingleFileApply,
         &RealDraftReconciler,
         &RealTargetApplyLogger { app: app.clone() },
-        &TauriApplyEvents { app },
+        &TauriApplyEvents {
+            channel: progress_channel,
+        },
+        &operation_id,
         cancel_flag,
-        batch_size,
-        write_concurrency,
+        limits.batch_size,
+        limits.write_concurrency,
     )
 }
 
@@ -512,12 +546,13 @@ where
 {
     run_apply_metadata_draft_edits_with_limits(
         folder_path,
-        relative_paths,
+        Some(relative_paths),
         persistence,
         single_file_apply,
         reconciler,
         target_logger,
         events,
+        "test-operation",
         cancel_flag,
         1,
         1,
@@ -527,12 +562,13 @@ where
 #[allow(clippy::too_many_arguments)]
 fn run_apply_metadata_draft_edits_with_limits<P, A, R, L, E>(
     folder_path: &str,
-    relative_paths: &[String],
+    relative_paths: Option<&[String]>,
     persistence: &P,
     single_file_apply: &A,
     reconciler: &R,
     target_logger: &L,
     events: &E,
+    operation_id: &str,
     cancel_flag: Arc<AtomicBool>,
     batch_size: usize,
     write_concurrency: usize,
@@ -545,37 +581,53 @@ where
     E: ApplyEvents,
 {
     let batch_started = Instant::now();
-    let mut seen = HashSet::new();
-    for relative_path in relative_paths {
-        if !seen.insert(relative_path.as_str()) {
-            return Err(format!(
-                "duplicate requested relative path: {relative_path}"
-            ));
+    if let Some(relative_paths) = relative_paths {
+        let mut seen = HashSet::new();
+        for relative_path in relative_paths {
+            if !seen.insert(relative_path.as_str()) {
+                return Err(format!(
+                    "duplicate requested relative path: {relative_path}"
+                ));
+            }
         }
     }
 
     let phase_started = Instant::now();
-    let selected = persistence.select_existing(folder_path, relative_paths)?;
+    let selected = match relative_paths {
+        Some(relative_paths) => persistence.select_existing(folder_path, relative_paths)?,
+        None => persistence.select_all(folder_path)?,
+    };
+    let requested = relative_paths.map_or(selected.len(), <[String]>::len);
     let total = selected.len();
     log::info!(
         "[apply_perf] phase=draft_select duration_ms={} requested={} selected={}",
         phase_started.elapsed().as_millis(),
-        relative_paths.len(),
+        requested,
         total
     );
     log::info!(
         "[apply_perf] phase=batch_start requested={} selected={} batch_size={} write_concurrency={}",
-        relative_paths.len(),
+        requested,
         total,
         batch_size,
         write_concurrency
     );
 
-    if let Err(error) = events.started(MetadataApplyStartedPayload { total }) {
+    if let Err(error) = events.send(&MetadataApplyStreamMessage::Started {
+        operation_id: operation_id.to_owned(),
+        total,
+    }) {
         log::warn!("[apply_batch] Failed to emit started event: {error}");
     }
 
+    #[cfg(test)]
     let mut files = Vec::with_capacity(total);
+    let mut undelivered_files = Vec::new();
+    let mut completed = 0usize;
+    let mut applied = 0usize;
+    let mut failed = 0usize;
+    let mut warning_count = 0usize;
+    let mut sequence = 0usize;
     let mut cancelled = false;
     let mut aborted = false;
     let mut abort_reason = None;
@@ -717,6 +769,7 @@ where
             }
         }
 
+        let mut chunk_results = Vec::with_capacity(pending.len());
         for item in pending {
             let coordinator_file_started = Instant::now();
             let PendingResult {
@@ -766,33 +819,48 @@ where
                 target_outcomes: outcome.outcomes,
                 persisted_draft_entries,
             };
-            let current = files.len() + 1;
-            if let Err(error) = events.progress(MetadataApplyProgressPayload {
-                current,
-                total,
-                result: result.clone(),
-            }) {
-                log::warn!(
-                    "[apply_batch] Failed to emit progress event for {}: {error}",
-                    result.relative_path
-                );
+            if result.applied {
+                applied += 1;
+            } else {
+                failed += 1;
             }
-            files.push(result);
+            if result.warning.is_some() {
+                warning_count += 1;
+            }
+            let current = completed + chunk_results.len() + 1;
             log::info!(
                 "[apply_perf] file={} phase=coordinator_total duration_ms={} current={} total={}",
-                files
-                    .last()
-                    .map(|file| file.relative_path.as_str())
-                    .unwrap_or(""),
+                result.relative_path,
                 coordinator_file_started.elapsed().as_millis(),
                 current,
                 total
             );
+            chunk_results.push(result);
 
             if let Some(reason) = fatal_reason {
                 aborted = true;
                 abort_reason.get_or_insert(reason);
             }
+        }
+
+        if !chunk_results.is_empty() {
+            sequence += 1;
+            completed += chunk_results.len();
+            let message = MetadataApplyStreamMessage::ProgressBatch {
+                operation_id: operation_id.to_owned(),
+                sequence,
+                current: completed,
+                total,
+                results: chunk_results.clone(),
+            };
+            if let Err(error) = events.send(&message) {
+                log::warn!(
+                    "[apply_batch] Failed to emit progress batch ending at {completed}: {error}"
+                );
+                undelivered_files.extend(chunk_results.iter().cloned());
+            }
+            #[cfg(test)]
+            files.extend(chunk_results);
         }
 
         if aborted || cancelled {
@@ -803,16 +871,35 @@ where
     log::info!(
         "[apply_perf] phase=batch_complete duration_ms={} completed={} total={} cancelled={} aborted={}",
         batch_started.elapsed().as_millis(),
-        files.len(),
+        completed,
         total,
         cancelled,
         aborted
     );
-    Ok(MetadataApplyResult {
-        files,
+    let summary = MetadataApplySummary {
+        requested,
+        selected: total,
+        completed,
+        applied,
+        failed,
+        warning_count,
         cancelled,
         aborted,
         abort_reason,
+        delivery_failure_count: undelivered_files.len(),
+    };
+    let complete_delivery_failed = events
+        .send(&MetadataApplyStreamMessage::Complete {
+            operation_id: operation_id.to_owned(),
+            summary: summary.clone(),
+        })
+        .is_err();
+    Ok(MetadataApplyResult {
+        summary,
+        undelivered_files,
+        complete_delivery_failed,
+        #[cfg(test)]
+        files,
     })
 }
 
@@ -1114,20 +1201,26 @@ mod tests {
     }
 
     impl ApplyEvents for TraceEvents {
-        fn started(&self, _payload: MetadataApplyStartedPayload) -> Result<(), String> {
-            Ok(())
-        }
-
-        fn progress(&self, _payload: MetadataApplyProgressPayload) -> Result<(), String> {
-            self.trace.lock().unwrap().push("progress");
+        fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
+            if matches!(message, MetadataApplyStreamMessage::ProgressBatch { .. }) {
+                self.trace.lock().unwrap().push("progress");
+            }
             Ok(())
         }
     }
 
     #[derive(Debug, Clone, PartialEq)]
     enum RecordedEvent {
-        Started(MetadataApplyStartedPayload),
-        Progress(Box<MetadataApplyProgressPayload>),
+        Started {
+            total: usize,
+        },
+        ProgressBatch {
+            sequence: usize,
+            current: usize,
+            total: usize,
+            results: Vec<MetadataApplyFileResult>,
+        },
+        Complete(MetadataApplySummary),
     }
 
     #[derive(Default)]
@@ -1137,23 +1230,28 @@ mod tests {
     }
 
     impl ApplyEvents for FakeEvents {
-        fn started(&self, payload: MetadataApplyStartedPayload) -> Result<(), String> {
-            self.events
-                .lock()
-                .unwrap()
-                .push(RecordedEvent::Started(payload));
-            if self.fail {
-                Err("event failed".into())
-            } else {
-                Ok(())
-            }
-        }
-
-        fn progress(&self, payload: MetadataApplyProgressPayload) -> Result<(), String> {
-            self.events
-                .lock()
-                .unwrap()
-                .push(RecordedEvent::Progress(Box::new(payload)));
+        fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
+            let recorded = match message {
+                MetadataApplyStreamMessage::Started { total, .. } => {
+                    RecordedEvent::Started { total: *total }
+                }
+                MetadataApplyStreamMessage::ProgressBatch {
+                    sequence,
+                    current,
+                    total,
+                    results,
+                    ..
+                } => RecordedEvent::ProgressBatch {
+                    sequence: *sequence,
+                    current: *current,
+                    total: *total,
+                    results: results.clone(),
+                },
+                MetadataApplyStreamMessage::Complete { summary, .. } => {
+                    RecordedEvent::Complete(summary.clone())
+                }
+            };
+            self.events.lock().unwrap().push(recorded);
             if self.fail {
                 Err("event failed".into())
             } else {
@@ -1500,9 +1598,10 @@ mod tests {
         assert!(result.files.is_empty());
         assert_eq!(
             events.events.lock().unwrap().as_slice(),
-            &[RecordedEvent::Started(MetadataApplyStartedPayload {
-                total: 0
-            })]
+            &[
+                RecordedEvent::Started { total: 0 },
+                RecordedEvent::Complete(result.summary.clone()),
+            ]
         );
 
         for reserved in [
@@ -1590,9 +1689,9 @@ mod tests {
         .unwrap();
         assert_eq!(result.files.len(), 1);
         assert_eq!(result.files[0].persisted_draft_entries, Some(Vec::new()));
-        assert!(result.cancelled);
-        assert!(!result.aborted);
-        assert_eq!(result.abort_reason, None);
+        assert!(result.summary.cancelled);
+        assert!(!result.summary.aborted);
+        assert_eq!(result.summary.abort_reason, None);
         let logs = logger.calls.lock().unwrap();
         assert_eq!(logs.len(), 1);
         assert_eq!(logs[0].relative_path, "first.jpg");
@@ -1658,17 +1757,18 @@ mod tests {
         let logger = FakeTargetLogger::default();
         let result = run_apply_metadata_draft_edits_with_limits(
             "folder",
-            &[
+            Some(&[
                 "clear.jpg".into(),
                 "keep.jpg".into(),
                 "blocked.jpg".into(),
                 "replace.jpg".into(),
-            ],
+            ]),
             &persistence,
             &apply,
             &RealDraftReconciler,
             &logger,
             &events,
+            "test-operation",
             Arc::new(AtomicBool::new(false)),
             4,
             1,
@@ -1722,7 +1822,7 @@ mod tests {
         )
         .unwrap();
         assert!(!result.files[0].applied);
-        assert!(!result.aborted);
+        assert!(!result.summary.aborted);
         assert!(persistence.saves.lock().unwrap().is_empty());
         assert!(logger.calls.lock().unwrap().is_empty());
     }
@@ -1767,8 +1867,8 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         )
         .unwrap();
-        assert!(result.aborted);
-        assert!(!result.cancelled);
+        assert!(result.summary.aborted);
+        assert!(!result.summary.cancelled);
         assert_eq!(result.files.len(), 1);
         assert!(result.files[0]
             .error
@@ -1780,7 +1880,7 @@ mod tests {
             .as_ref()
             .unwrap()
             .contains("reconciliation failed"));
-        assert_eq!(events.events.lock().unwrap().len(), 2);
+        assert_eq!(events.events.lock().unwrap().len(), 3);
         assert!(persistence.saves.lock().unwrap().is_empty());
         let reconciliation_logs = reconciliation_logger.calls.lock().unwrap();
         assert_eq!(reconciliation_logs.len(), 1);
@@ -1789,7 +1889,7 @@ mod tests {
         else {
             panic!("expected reconciliation failure")
         };
-        assert_eq!(Some(error), result.abort_reason.as_ref());
+        assert_eq!(Some(error), result.summary.abort_reason.as_ref());
         drop(reconciliation_logs);
 
         let mut failing = FakePersistence::new(Ok(drafts(&[
@@ -1815,7 +1915,7 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         )
         .unwrap();
-        assert!(result.aborted);
+        assert!(result.summary.aborted);
         let error = result.files[0].error.as_ref().unwrap();
         assert!(error.contains("write failed") && error.contains("disk uncertain"));
         assert_eq!(result.files[0].persisted_draft_entries, None);
@@ -1826,7 +1926,7 @@ mod tests {
         else {
             panic!("expected persistence failure")
         };
-        assert_eq!(Some(error), result.abort_reason.as_ref());
+        assert_eq!(Some(error), result.summary.abort_reason.as_ref());
     }
 
     #[test]
@@ -1973,7 +2073,7 @@ mod tests {
             .files
             .iter()
             .all(|file| file.warning.as_deref() == Some("warning")));
-        assert!(!result.aborted);
+        assert!(!result.summary.aborted);
         assert_eq!(
             apply.calls.lock().unwrap().as_slice(),
             &["first.jpg", "second.jpg"]
@@ -2025,21 +2125,21 @@ mod tests {
     #[test]
     fn apply_reconcile_save_log_and_progress_order_is_explicit_on_every_path() {
         let (successful, successful_trace) = run_traced_batch(false, false);
-        assert!(!successful.aborted);
+        assert!(!successful.summary.aborted);
         assert_eq!(
             successful_trace,
             ["apply", "reconcile", "save", "log", "progress"]
         );
 
         let (reconciliation_failed, reconciliation_trace) = run_traced_batch(true, false);
-        assert!(reconciliation_failed.aborted);
+        assert!(reconciliation_failed.summary.aborted);
         assert_eq!(
             reconciliation_trace,
             ["apply", "reconcile", "log", "progress"]
         );
 
         let (persistence_failed, persistence_trace) = run_traced_batch(false, true);
-        assert!(persistence_failed.aborted);
+        assert!(persistence_failed.summary.aborted);
         assert_eq!(
             persistence_trace,
             ["apply", "reconcile", "save", "log", "progress"]
@@ -2093,20 +2193,34 @@ mod tests {
         assert!(result.files[0].applied);
         assert_eq!(result.files[0].fresh_file_metadata, Some(metadata));
         let recorded = events.events.lock().unwrap();
-        let RecordedEvent::Progress(progress) = &recorded[1] else {
+        let RecordedEvent::ProgressBatch {
+            current,
+            total,
+            results,
+            ..
+        } = &recorded[1]
+        else {
             panic!()
         };
-        assert_eq!(progress.current, 1);
-        assert_eq!(progress.total, 1);
-        assert_eq!(progress.result, result.files[0]);
-        let json = serde_json::to_value(&result).unwrap();
-        assert!(json["files"][0].get("target_outcomes").is_some());
-        assert!(json.to_string().contains("occurrences"));
-        assert!(!json.to_string().contains("slot"));
-        assert!(!json.to_string().contains("audit_records"));
-        assert!(!json.to_string().contains("draft_persistence"));
-        assert!(!json.to_string().contains("post_write"));
-        assert!(!json.to_string().contains("identity_model"));
+        assert_eq!(*current, 1);
+        assert_eq!(*total, 1);
+        assert_eq!(results.as_slice(), result.files.as_slice());
+        let progress_json = serde_json::to_value(&results[0]).unwrap();
+        assert!(progress_json.get("target_outcomes").is_some());
+        assert!(progress_json.to_string().contains("occurrences"));
+        assert!(!progress_json.to_string().contains("slot"));
+        assert!(!progress_json.to_string().contains("audit_records"));
+        assert!(!progress_json.to_string().contains("draft_persistence"));
+        let terminal_json = serde_json::to_value(&result).unwrap();
+        assert!(terminal_json.get("files").is_none());
+        assert_eq!(
+            terminal_json["undelivered_files"],
+            serde_json::to_value(&result.files).unwrap()
+        );
+        assert_eq!(result.summary.delivery_failure_count, 1);
+        assert!(result.complete_delivery_failed);
+        assert!(!progress_json.to_string().contains("post_write"));
+        assert!(!progress_json.to_string().contains("identity_model"));
     }
 
     #[test]
@@ -2203,12 +2317,13 @@ mod tests {
 
         let result = run_apply_metadata_draft_edits_with_limits(
             "folder",
-            &paths,
+            Some(&paths),
             &FakePersistence::new(Ok(drafts(&draft_items))),
             &apply,
             &RealDraftReconciler,
             &FakeTargetLogger::default(),
             &FakeEvents::default(),
+            "test-operation",
             Arc::new(AtomicBool::new(false)),
             2,
             3,

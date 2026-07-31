@@ -1,152 +1,148 @@
-import type {
-  MetadataApplyStartedPayload,
-  MetadataApplyProgressPayload,
-  MetadataApplyResult,
-} from "./types";
+import type { MetadataApplyResult, MetadataApplyStreamMessage } from "./types";
 import {
-  targetApplyProgressFromUnknown,
   targetApplyResultFromUnknown,
-  targetApplyStartedFromUnknown,
+  targetApplyStreamMessageFromUnknown,
 } from "./utils/targetApplyWire";
+
+export interface TargetApplyChannel {
+  onmessage: (payload: unknown) => void;
+}
 
 export interface TargetApplyTauriApi {
   invoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
-  listen(
-    event: string,
-    handler: (payload: unknown) => void,
-  ): Promise<() => void>;
+  createChannel(handler: (payload: unknown) => void): TargetApplyChannel;
 }
 
-export async function applyTargetDraftEdits(
-  api: Pick<TargetApplyTauriApi, "invoke">,
-  folderPath: string,
-  relativePaths: string[],
-): Promise<MetadataApplyResult> {
-  const seen = new Set<string>();
-  for (const path of relativePaths) {
-    if (seen.has(path)) {
-      throw new Error(`Duplicate target-aware apply relative path '${path}'`);
-    }
-    seen.add(path);
-  }
-
-  const raw = await api.invoke("apply_metadata_draft_edits_cmd", {
-    folderPath,
-    relPaths: relativePaths.slice(),
-  });
-  return targetApplyResultFromUnknown(raw);
-}
-
-export async function cancelTargetApply(
-  api: Pick<TargetApplyTauriApi, "invoke">,
-): Promise<void> {
-  await api.invoke("cancel_apply_edits");
-}
-
-export interface TargetApplyEventHandlers {
-  onStarted?: (payload: MetadataApplyStartedPayload) => void;
-  onProgress?: (payload: MetadataApplyProgressPayload) => void;
-  onProtocolError?: (
-    error: Error,
-    eventName: string,
-    rawPayload: unknown,
-  ) => void;
-}
-
-function reportProtocolError(
-  handlers: TargetApplyEventHandlers,
-  error: Error,
-  eventName: string,
-  rawPayload: unknown,
-): void {
-  if (!handlers.onProtocolError) {
-    console.error(`[metadata] Invalid ${eventName} payload`, error, rawPayload);
-    return;
-  }
-  try {
-    handlers.onProtocolError(error, eventName, rawPayload);
-  } catch (reportingError) {
-    console.error(
-      `[metadata] Protocol-error handler failed for ${eventName}`,
-      reportingError,
-    );
-  }
+export interface TargetApplyStreamHandlers {
+  onMessage?: (message: MetadataApplyStreamMessage) => void;
+  onProtocolError?: (error: Error) => void;
+  onMessageError?: (error: Error, message: MetadataApplyStreamMessage) => void;
 }
 
 function asError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-/**
- * Versioned progress events provide optional immediate updates. The final
- * command result is authoritative for completed files and batch status because
- * backend event emission failures are deliberately non-fatal.
- *
- * Registration stays separate from invocation: these global events describe
- * the sole active target-aware apply operation and do not carry an operation ID.
- */
-export async function subscribeTargetApplyEvents(
-  api: Pick<TargetApplyTauriApi, "listen">,
-  handlers: TargetApplyEventHandlers,
-): Promise<() => void> {
-  const startedEvent = "apply_edits_started";
-  const progressEvent = "apply_metadata_edits_progress";
-
-  const unregisterStarted = await api.listen(startedEvent, (rawPayload) => {
-    let payload: MetadataApplyStartedPayload;
-    try {
-      payload = targetApplyStartedFromUnknown(rawPayload);
-    } catch (error) {
-      reportProtocolError(handlers, asError(error), startedEvent, rawPayload);
-      return;
-    }
-    handlers.onStarted?.(payload);
-  });
-
-  let unregisterProgress: () => void;
+function reportProtocolError(
+  handlers: TargetApplyStreamHandlers,
+  error: Error,
+  rawPayload: unknown,
+): void {
+  if (!handlers.onProtocolError) {
+    console.error(
+      "[metadata] Invalid target-aware apply stream payload",
+      error,
+      rawPayload,
+    );
+    return;
+  }
   try {
-    unregisterProgress = await api.listen(progressEvent, (rawPayload) => {
-      let payload: MetadataApplyProgressPayload;
-      try {
-        payload = targetApplyProgressFromUnknown(rawPayload);
-      } catch (error) {
-        reportProtocolError(
-          handlers,
-          asError(error),
-          progressEvent,
-          rawPayload,
-        );
-        return;
+    handlers.onProtocolError(error);
+  } catch (reportingError) {
+    console.error(
+      "[metadata] Target-aware apply protocol-error handler failed",
+      reportingError,
+    );
+  }
+}
+
+function isExpectedComplete(raw: unknown, operationId: string): boolean {
+  return (
+    typeof raw === "object" &&
+    raw !== null &&
+    (raw as Record<string, unknown>).kind === "complete" &&
+    (raw as Record<string, unknown>).operation_id === operationId
+  );
+}
+
+/**
+ * Invoke one target-aware Apply with a command-owned ordered channel.
+ * The normal terminal response is compact; only failed channel deliveries are
+ * returned as full per-file fallback payloads.
+ */
+export async function applyTargetDraftEdits(
+  api: TargetApplyTauriApi,
+  folderPath: string,
+  relativePaths: readonly string[] | undefined,
+  operationId: string,
+  handlers: TargetApplyStreamHandlers,
+): Promise<MetadataApplyResult> {
+  if (relativePaths !== undefined) {
+    const seen = new Set<string>();
+    for (const path of relativePaths) {
+      if (seen.has(path)) {
+        throw new Error(`Duplicate target-aware apply relative path '${path}'`);
       }
-      handlers.onProgress?.(payload);
-    });
-  } catch (registrationError) {
-    try {
-      unregisterStarted();
-    } catch (cleanupError) {
-      console.error(
-        `[metadata] Failed to unregister ${startedEvent} after listener setup failure`,
-        cleanupError,
-      );
+      seen.add(path);
     }
-    throw registrationError;
   }
 
-  let cleaned = false;
-  return () => {
-    if (cleaned) return;
-    cleaned = true;
-    let firstError: unknown;
+  let active = true;
+  let completeSeen = false;
+  let resolveComplete!: () => void;
+  const complete = new Promise<void>((resolve) => {
+    resolveComplete = resolve;
+  });
+
+  const channel = api.createChannel((rawPayload) => {
+    if (!active) return;
+    const completesOperation = isExpectedComplete(rawPayload, operationId);
     try {
-      unregisterStarted();
+      const message = targetApplyStreamMessageFromUnknown(
+        rawPayload,
+        operationId,
+      );
+      if (message === null) return;
+      try {
+        handlers.onMessage?.(message);
+      } catch (error) {
+        const typed = asError(error);
+        if (handlers.onMessageError) {
+          try {
+            handlers.onMessageError(typed, message);
+          } catch (reportingError) {
+            console.error(
+              "[metadata] Target-aware apply message-error handler failed",
+              reportingError,
+            );
+          }
+        } else {
+          console.error(
+            "[metadata] Target-aware apply channel handler failed",
+            typed,
+          );
+        }
+      }
     } catch (error) {
-      firstError = error;
+      reportProtocolError(handlers, asError(error), rawPayload);
+    } finally {
+      if (completesOperation && !completeSeen) {
+        completeSeen = true;
+        resolveComplete();
+      }
     }
-    try {
-      unregisterProgress();
-    } catch (error) {
-      firstError ??= error;
+  });
+
+  try {
+    const raw = await api.invoke("apply_metadata_draft_edits_cmd", {
+      folderPath,
+      relPaths: relativePaths === undefined ? null : Array.from(relativePaths),
+      operationId,
+      progressChannel: channel,
+    });
+    const result = targetApplyResultFromUnknown(raw);
+    if (!result.complete_delivery_failed && !completeSeen) {
+      await complete;
     }
-    if (firstError !== undefined) throw firstError;
-  };
+    return result;
+  } finally {
+    active = false;
+    channel.onmessage = () => undefined;
+  }
+}
+
+export async function cancelTargetApply(
+  api: Pick<TargetApplyTauriApi, "invoke">,
+): Promise<void> {
+  await api.invoke("cancel_apply_edits");
 }

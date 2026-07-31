@@ -59,8 +59,21 @@ class FakeWorker implements SearchWorkerLike {
           message.schemaLabels,
         );
         break;
+      case "UPSERT_OCCURRENCES_BATCH":
+        this.index.setSchemaLabels(message.schemaLabels);
+        message.deletedPaths.forEach((path) => this.index.deletePath(path));
+        message.entries.forEach(({ path, occurrences }) =>
+          this.index.setOccurrences(path, occurrences),
+        );
+        break;
       case "UPSERT_DRAFTS":
         this.index.setDrafts(message.path, message.edits, message.schemaLabels);
+        break;
+      case "UPSERT_DRAFTS_BATCH":
+        this.index.setSchemaLabels(message.schemaLabels);
+        message.entries.forEach(({ path, edits }) =>
+          this.index.setDrafts(path, edits),
+        );
         break;
       case "DELETE_PATH":
         this.index.deletePath(message.path);
@@ -305,11 +318,16 @@ describe("useSearchWorker target-draft projection", () => {
     resolveInfo([cityInfo]);
     await waitFor(() => {
       const updates = fake.inbound.filter(
-        (message) => message.type === "UPSERT_DRAFTS",
+        (message) => message.type === "UPSERT_DRAFTS_BATCH",
       );
       expect(updates).toHaveLength(1);
       expect(updates[0]).toMatchObject({
-        edits: [{ edit: { value: { value: "new" } } }],
+        entries: [
+          {
+            path: "a.jpg",
+            edits: [{ edit: { value: { value: "new" } } }],
+          },
+        ],
       });
     });
   });

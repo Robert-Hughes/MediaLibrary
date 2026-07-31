@@ -128,12 +128,10 @@ export function useRowSelection(cfg: RowSelectionConfig) {
     (index: number) => {
       const path = paths[index];
       if (!path) return;
-      setSelectedPaths((prev) => {
-        if (prev.has(path)) return prev;
-        anchorPathRef.current = path;
-        onSelect(path);
-        return new Set([path]);
-      });
+      if (selectedPathsRef.current.has(path)) return;
+      anchorPathRef.current = path;
+      setSelectedPaths(new Set([path]));
+      onSelect(path);
     },
     [onSelect, paths],
   );

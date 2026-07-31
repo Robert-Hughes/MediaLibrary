@@ -107,10 +107,20 @@ function stores(): TargetApplyResultStores {
 
 function batch(files: MetadataApplyFileResult[]): MetadataApplyResult {
   return {
-    files,
-    cancelled: false,
-    aborted: false,
-    abort_reason: null,
+    summary: {
+      requested: files.length,
+      selected: files.length,
+      completed: files.length,
+      applied: files.filter((file) => file.applied).length,
+      failed: files.filter((file) => !file.applied).length,
+      warning_count: files.filter((file) => file.warning !== null).length,
+      cancelled: false,
+      aborted: false,
+      abort_reason: null,
+      delivery_failure_count: files.length,
+    },
+    undelivered_files: files,
+    complete_delivery_failed: false,
   };
 }
 
@@ -193,14 +203,11 @@ describe("target apply occurrence refresh", () => {
     expect(Object.keys(state.verification.getFile(path) ?? {})).toHaveLength(1);
   });
 
-  it("prepares immutable occurrence-only applications", () => {
+  it("transfers sole ownership of parsed occurrences without cloning", () => {
     const raw = file({ fresh_file_metadata: fresh(5) });
+    const occurrences = raw.fresh_file_metadata!.occurrences;
     const prepared = prepareTargetApplyFileResult(raw);
-    raw.fresh_file_metadata!.occurrences[0].value = {
-      kind: "Text",
-      value: "mutated",
-    };
-    expect(prepared.occurrences).toEqual([occurrence(5)]);
+    expect(prepared.occurrences).toBe(occurrences);
     expect(prepared).not.toHaveProperty("compatibility");
   });
 
@@ -242,10 +249,20 @@ describe("target apply occurrence refresh", () => {
     expect(
       applyTargetApplyResult(
         {
-          files: [],
-          cancelled: true,
-          aborted: false,
-          abort_reason: null,
+          summary: {
+            requested: 0,
+            selected: 0,
+            completed: 0,
+            applied: 0,
+            failed: 0,
+            warning_count: 0,
+            cancelled: true,
+            aborted: false,
+            abort_reason: null,
+            delivery_failure_count: 0,
+          },
+          undelivered_files: [],
+          complete_delivery_failed: false,
         },
         state,
       ),

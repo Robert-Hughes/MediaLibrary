@@ -300,6 +300,45 @@ pub fn select_existing_relative_paths(
     })
 }
 
+pub fn select_all_relative_paths(
+    app_data_dir: &Path,
+    folder_path: &str,
+    state: &DraftRepositoryState,
+) -> Result<Vec<String>, String> {
+    state.with_operation(|| {
+        let root = canonical_root(folder_path)?;
+        let mut prefix = root.to_string_lossy().into_owned();
+        if !prefix.ends_with(std::path::MAIN_SEPARATOR) {
+            prefix.push(std::path::MAIN_SEPARATOR);
+        }
+        let upper_bound = format!("{prefix}\u{10ffff}");
+        let connection = open_repository(app_data_dir)?;
+        let statement = Query::select()
+            .column(Drafts::PhotoPath)
+            .from(Drafts::Table)
+            .and_where(Expr::col(Drafts::PhotoPath).gte(prefix))
+            .and_where(Expr::col(Drafts::PhotoPath).lt(upper_bound))
+            .to_owned();
+        let (sql, values) = statement.build_rusqlite(SqliteQueryBuilder);
+        let mut prepared = connection
+            .prepare(&sql)
+            .map_err(|error| sqlite_error("Could not prepare draft path query", error))?;
+        let rows = prepared
+            .query_map(values.as_params().as_slice(), |row| row.get::<_, String>(0))
+            .map_err(|error| sqlite_error("Could not query draft paths", error))?;
+        let mut relative_paths = Vec::new();
+        for row in rows {
+            let photo_path =
+                row.map_err(|error| sqlite_error("Could not read draft path", error))?;
+            if let Some(relative_path) = frontend_relative_path(&root, Path::new(&photo_path)) {
+                relative_paths.push(relative_path);
+            }
+        }
+        relative_paths.sort();
+        Ok(relative_paths)
+    })
+}
+
 pub fn load_draft_rows(
     app_data_dir: &Path,
     folder_path: &str,
@@ -570,6 +609,50 @@ mod tests {
             load_metadata_draft_edits(app_data.path(), second.path().to_str().unwrap(), &state)
                 .unwrap();
         assert_eq!(second_rows["other.jpg"], vec![entry("other")]);
+    }
+
+    #[test]
+    fn select_all_relative_paths_is_folder_scoped_and_sorted() {
+        let app_data = tempdir().unwrap();
+        let first = tempdir().unwrap();
+        let second = tempdir().unwrap();
+        create_library_file(first.path(), "z.jpg");
+        create_library_file(first.path(), "nested/a.jpg");
+        create_library_file(second.path(), "other.jpg");
+        let state = DraftRepositoryState::default();
+
+        apply_row_mutations(
+            app_data.path(),
+            first.path().to_str().unwrap(),
+            &[
+                MetadataDraftRowMutation {
+                    relative_path: "z.jpg".into(),
+                    entries: vec![entry("z")],
+                },
+                MetadataDraftRowMutation {
+                    relative_path: "nested/a.jpg".into(),
+                    entries: vec![entry("a")],
+                },
+            ],
+            &state,
+        )
+        .unwrap();
+        apply_row_mutations(
+            app_data.path(),
+            second.path().to_str().unwrap(),
+            &[MetadataDraftRowMutation {
+                relative_path: "other.jpg".into(),
+                entries: vec![entry("other")],
+            }],
+            &state,
+        )
+        .unwrap();
+
+        assert_eq!(
+            select_all_relative_paths(app_data.path(), first.path().to_str().unwrap(), &state,)
+                .unwrap(),
+            vec!["nested/a.jpg".to_string(), "z.jpg".to_string()],
+        );
     }
 
     #[test]

@@ -226,6 +226,23 @@ if (typeof Worker === "undefined") {
             >[1],
           );
           return;
+        case "UPSERT_OCCURRENCES_BATCH":
+          this.index.setSchemaLabels(
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setSchemaLabels"]
+            >[0],
+          );
+          for (const path of msg.deletedPaths as string[]) {
+            this.index.deletePath(path);
+          }
+          for (const entry of msg.entries as Array<{
+            path: string;
+            occurrences: Parameters<
+              InstanceType<typeof SearchIndex>["setOccurrences"]
+            >[1];
+          }>) {
+            this.index.setOccurrences(entry.path, entry.occurrences);
+          }
           return;
         case "UPSERT_DRAFTS":
           this.index.setSchemaLabels(
@@ -239,6 +256,19 @@ if (typeof Worker === "undefined") {
               InstanceType<typeof SearchIndex>["setDrafts"]
             >[1],
           );
+          return;
+        case "UPSERT_DRAFTS_BATCH":
+          this.index.setSchemaLabels(
+            msg.schemaLabels as Parameters<
+              InstanceType<typeof SearchIndex>["setSchemaLabels"]
+            >[0],
+          );
+          for (const entry of msg.entries as Array<{
+            path: string;
+            edits: Parameters<InstanceType<typeof SearchIndex>["setDrafts"]>[1];
+          }>) {
+            this.index.setDrafts(entry.path, entry.edits);
+          }
           return;
         case "DELETE_PATH":
           this.index.deletePath(msg.path as string);

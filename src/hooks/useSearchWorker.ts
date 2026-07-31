@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   FileMetadataOccurrencesState,
   FileMetadataOccurrencesStore,
@@ -187,12 +187,24 @@ export function useSearchWorker(
   const [pending, setPending] = useState(false);
 
   /** Submit the current query immediately, bumping the request id. */
-  const submitNow = (q: string) => {
+  const submitNow = useCallback((q: string) => {
     if (!workerRef.current) return;
     const id = ++reqIdRef.current;
+    if (q.trim().length === 0) {
+      setMatched(null);
+      setPending(false);
+      return;
+    }
     setPending(true);
     workerRef.current.postMessage({ type: "QUERY", id, query: q });
-  };
+  }, []);
+
+  /** Store/index changes need no React update while search is inactive. */
+  const refreshCurrentQuery = useCallback(() => {
+    const current = queryRef.current;
+    if (current.trim().length === 0) return;
+    submitNow(current);
+  }, [submitNow]);
 
   // ── Spawn worker once ───────────────────────────────────────────────
   useEffect(() => {
@@ -211,6 +223,7 @@ export function useSearchWorker(
         clearTimeout(debounceTimerRef.current);
         debounceTimerRef.current = null;
       }
+      w.onmessage = null;
       w.terminate();
       workerRef.current = null;
       workerGenerationRef.current += 1;
@@ -313,7 +326,7 @@ export function useSearchWorker(
             entries: draftEntries,
             schemaLabels: labelsFromResolved(initialDraftIds, resolved),
           });
-          submitNow(queryRef.current);
+          refreshCurrentQuery();
         })
         .catch(() => {
           scheduleInitialReplayRetry();
@@ -324,68 +337,88 @@ export function useSearchWorker(
     };
     replayInitialSnapshot();
 
-    const unsubOccurrences = fileMetadataOccurrencesStore.subscribeAll(
-      (path, occurrences) => {
-        const revision = (occurrenceRevisionsRef.current.get(path) ?? 0) + 1;
-        occurrenceRevisionsRef.current.set(path, revision);
-        if (occurrences === undefined) {
-          w.postMessage({ type: "DELETE_PATH", path });
-          submitNow(queryRef.current);
-          return;
-        }
-        const searchOccurrences = toSearchOccurrencesState(occurrences);
-        const ids = idsFromOccurrences(searchOccurrences);
+    const unsubOccurrences = fileMetadataOccurrencesStore.subscribeBatches(
+      (changes) => {
+        const startedAt = frontendNow();
+        const prepared = changes.map(({ path, value }) => {
+          const revision = (occurrenceRevisionsRef.current.get(path) ?? 0) + 1;
+          occurrenceRevisionsRef.current.set(path, revision);
+          const occurrences =
+            value === undefined ? undefined : toSearchOccurrencesState(value);
+          return {
+            path,
+            revision,
+            occurrences,
+            ids:
+              occurrences === undefined ? [] : idsFromOccurrences(occurrences),
+          };
+        });
+        const ids = prepared.flatMap((entry) => entry.ids);
         void resolveTagInfosExact(ids)
           .then((resolved) => {
-            if (
-              !isCurrentWorker() ||
-              occurrenceRevisionsRef.current.get(path) !== revision
-            )
-              return;
+            if (!isCurrentWorker()) return;
+            const current = prepared.filter(
+              ({ path, revision }) =>
+                occurrenceRevisionsRef.current.get(path) === revision,
+            );
+            if (current.length === 0) return;
             w.postMessage({
-              type: "UPSERT_OCCURRENCES",
-              path,
-              occurrences: searchOccurrences,
+              type: "UPSERT_OCCURRENCES_BATCH",
+              entries: current.flatMap(({ path, occurrences }) =>
+                occurrences === undefined ? [] : [{ path, occurrences }],
+              ),
+              deletedPaths: current.flatMap(({ path, occurrences }) =>
+                occurrences === undefined ? [path] : [],
+              ),
               schemaLabels: labelsFromResolved(ids, resolved),
             });
-            submitNow(queryRef.current);
+            refreshCurrentQuery();
           })
           .catch(() => {
             // A later update retries.
+          })
+          .finally(() => {
+            logSlowFrontendOperation("search-occurrence-refresh", startedAt, {
+              files: changes.length,
+            });
           });
       },
     );
     const unsubDrafts = targetDraftEditsStore.subscribe((changes) => {
       const startedAt = frontendNow();
-      const updates = changes.map(async (c) => {
+      const prepared = changes.map((c) => {
         const revision = (draftRevisionsRef.current.get(c.path) ?? 0) + 1;
         draftRevisionsRef.current.set(c.path, revision);
         const edits = toSearchDraftEntries(c.edits);
         const ids = edits?.map(({ id }) => id) ?? [];
-        await resolveTagInfosExact(ids)
-          .then((resolved) => {
-            if (
-              !isCurrentWorker() ||
-              draftRevisionsRef.current.get(c.path) !== revision
+        return { path: c.path, revision, edits, ids };
+      });
+      const ids = prepared.flatMap((entry) => entry.ids);
+      void resolveTagInfosExact(ids)
+        .then((resolved) => {
+          if (!isCurrentWorker()) return;
+          const entries = prepared
+            .filter(
+              ({ path, revision }) =>
+                draftRevisionsRef.current.get(path) === revision,
             )
-              return;
-            w.postMessage({
-              type: "UPSERT_DRAFTS",
-              path: c.path,
-              edits,
-              schemaLabels: labelsFromResolved(ids, resolved),
-            });
-            submitNow(queryRef.current);
-          })
-          .catch(() => {
-            // A later update retries.
+            .map(({ path, edits }) => ({ path, edits }));
+          if (entries.length === 0) return;
+          w.postMessage({
+            type: "UPSERT_DRAFTS_BATCH",
+            entries,
+            schemaLabels: labelsFromResolved(ids, resolved),
           });
-      });
-      void Promise.all(updates).then(() => {
-        logSlowFrontendOperation("search-draft-refresh", startedAt, {
-          files: changes.length,
+          refreshCurrentQuery();
+        })
+        .catch(() => {
+          // A later update retries.
+        })
+        .finally(() => {
+          logSlowFrontendOperation("search-draft-refresh", startedAt, {
+            files: changes.length,
+          });
         });
-      });
     });
     return () => {
       active = false;
@@ -396,7 +429,11 @@ export function useSearchWorker(
       unsubOccurrences();
       unsubDrafts();
     };
-  }, [fileMetadataOccurrencesStore, targetDraftEditsStore]);
+  }, [
+    fileMetadataOccurrencesStore,
+    refreshCurrentQuery,
+    targetDraftEditsStore,
+  ]);
 
   // ── File list sync + re-submit ─────────────────────────────────────
   useEffect(() => {
@@ -416,8 +453,8 @@ export function useSearchWorker(
     }
     // Re-submit current query so the user sees results refresh (and the
     // pending indicator) when files arrive mid-search.
-    submitNow(queryRef.current);
-  }, [files]);
+    refreshCurrentQuery();
+  }, [files, refreshCurrentQuery]);
 
   // ── Debounced query submit on user typing ───────────────────────────
   useEffect(() => {
@@ -436,7 +473,7 @@ export function useSearchWorker(
         debounceTimerRef.current = null;
       }
     };
-  }, [query, debounceMs]);
+  }, [query, debounceMs, submitNow]);
 
   return { matched, pending };
 }

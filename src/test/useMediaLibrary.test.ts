@@ -23,6 +23,7 @@ import {
   family7GroupFromSchemaId,
 } from "../utils/metadataWriteTarget";
 import { sortFiles } from "../utils/sorting";
+import { _setWritableSchemaDefinitionsCache } from "../hooks/useWritableSchemaDefinitions";
 
 async function expectConsoleErrorMessages(
   expected: readonly string[],
@@ -192,6 +193,7 @@ describe("useMediaLibrary", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.useFakeTimers();
+    _setWritableSchemaDefinitionsCache([]);
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -1522,7 +1524,7 @@ describe("useMediaLibrary", () => {
     });
     expect(state.metadataProgress.getRemaining()).toBe(0);
   });
-  it("invalidates target-aware final-only metadata and invalidates again for a genuinely different final result", async () => {
+  it("invalidates metadata once for each terminal fallback result", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1580,7 +1582,7 @@ describe("useMediaLibrary", () => {
     await act(async () => result.current[1].applyDraftEdits("changed.jpg"));
     state = result.current[0];
     if (state.kind !== "loaded") return;
-    expect(state.metadataVersion).toBe(3);
+    expect(state.metadataVersion).toBe(2);
   });
 
   it("does not bump metadataVersion for a draft-only target-aware result", async () => {
