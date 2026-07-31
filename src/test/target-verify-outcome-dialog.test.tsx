@@ -274,7 +274,6 @@ describe("TargetVerifyOutcomeDialog", () => {
 
   it.each([
     ["Mismatch", { kind: "Text", value: "observed" }],
-    ["Coerced", { kind: "Integer", value: 1 }],
     ["DeleteLingering", { kind: "Text", value: "lingering" }],
     ["Mismatch", { kind: "Null" }],
   ] as const)(

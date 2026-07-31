@@ -764,7 +764,7 @@ fn roundtrip_set_rating() {
 
     let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
         schema_id: rating_id.clone(),
-        edit: metadata_set(MetadataValue::Integer(5)),
+        edit: metadata_set(MetadataValue::Real(5.0)),
     }];
 
     let outcome = apply_target_file(folder, &rel, edits);
