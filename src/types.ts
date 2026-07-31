@@ -50,8 +50,8 @@ export type { EditIntent } from "./types/generated/EditIntent";
 export type { FileMetadata } from "./types/generated/FileMetadata";
 export type { MetadataApplyFileResult } from "./types/generated/MetadataApplyFileResult";
 export type { MetadataApplyResult } from "./types/generated/MetadataApplyResult";
-export type { MetadataApplyStartedPayload } from "./types/generated/MetadataApplyStartedPayload";
-export type { MetadataApplyProgressPayload } from "./types/generated/MetadataApplyProgressPayload";
+export type { MetadataApplySummary } from "./types/generated/MetadataApplySummary";
+export type { MetadataApplyStreamMessage } from "./types/generated/MetadataApplyStreamMessage";
 export type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 import type { BatchFailureKind } from "./types/generated/BatchFailureKind";
 export type BatchJobFailureKind = BatchFailureKind | "draft_stage_failed";
@@ -151,18 +151,27 @@ export type FileMetadataOccurrencesListener = (
   path: string,
   value: FileMetadataOccurrencesState | undefined,
 ) => void;
+export interface FileMetadataOccurrencesChange {
+  path: string;
+  value: FileMetadataOccurrencesState | undefined;
+}
+export type FileMetadataOccurrencesBatchListener = (
+  changes: readonly FileMetadataOccurrencesChange[],
+) => void;
 
 /** Observable authoritative occurrence collection keyed by file-relative path. */
 export class FileMetadataOccurrencesStore {
   private data = new Map<string, FileMetadataOccurrencesState>();
   private subscribers = new Map<string, Set<() => void>>();
   private globalSubscribers = new Set<FileMetadataOccurrencesListener>();
+  private batchSubscribers = new Set<FileMetadataOccurrencesBatchListener>();
   private failures = new Map<string, string>();
 
   add(path: string): void {
     if (this.data.has(path)) return;
     this.data.set(path, "loading");
     this.globalSubscribers.forEach((callback) => callback(path, "loading"));
+    this.notifyBatch([{ path, value: "loading" }]);
   }
 
   set(path: string, value: FileMetadataOccurrencesState): void {
@@ -172,6 +181,7 @@ export class FileMetadataOccurrencesStore {
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((callback) => callback());
     this.globalSubscribers.forEach((callback) => callback(path, value));
+    this.notifyBatch([{ path, value }]);
   }
 
   /** Install a bounded apply chunk while notifying each affected path once. */
@@ -205,6 +215,7 @@ export class FileMetadataOccurrencesStore {
       this.subscribers.get(path)?.forEach((callback) => callback());
       this.globalSubscribers.forEach((callback) => callback(path, value));
     }
+    this.notifyBatch(changed);
     return changed.map(({ path }) => path);
   }
 
@@ -217,6 +228,7 @@ export class FileMetadataOccurrencesStore {
     this.data.set(path, "failed");
     this.subscribers.get(path)?.forEach((callback) => callback());
     this.globalSubscribers.forEach((callback) => callback(path, "failed"));
+    this.notifyBatch([{ path, value: "failed" }]);
   }
 
   getFailure(path: string): string | undefined {
@@ -228,13 +240,16 @@ export class FileMetadataOccurrencesStore {
   }
 
   deletePaths(paths: readonly string[]): void {
+    const changes: FileMetadataOccurrencesChange[] = [];
     for (const path of new Set(paths)) {
       const existed = this.data.delete(path);
       this.failures.delete(path);
       if (!existed) continue;
       this.subscribers.get(path)?.forEach((callback) => callback());
       this.globalSubscribers.forEach((callback) => callback(path, undefined));
+      changes.push({ path, value: undefined });
     }
+    this.notifyBatch(changes);
   }
 
   /** Mark a file's occurrence collection unavailable without claiming it is empty. */
@@ -243,6 +258,7 @@ export class FileMetadataOccurrencesStore {
     this.data.set(path, "loading");
     this.subscribers.get(path)?.forEach((callback) => callback());
     this.globalSubscribers.forEach((callback) => callback(path, "loading"));
+    this.notifyBatch([{ path, value: "loading" }]);
   }
 
   get(path: string): FileMetadataOccurrencesState {
@@ -259,6 +275,7 @@ export class FileMetadataOccurrencesStore {
       this.subscribers.get(path)?.forEach((callback) => callback());
       this.globalSubscribers.forEach((callback) => callback(path, "loading"));
     }
+    this.notifyBatch(paths.map((path) => ({ path, value: "loading" })));
   }
 
   entries(): IterableIterator<[string, FileMetadataOccurrencesState]> {
@@ -282,6 +299,18 @@ export class FileMetadataOccurrencesStore {
     return () => {
       this.globalSubscribers.delete(callback);
     };
+  }
+
+  subscribeBatches(callback: FileMetadataOccurrencesBatchListener): () => void {
+    this.batchSubscribers.add(callback);
+    return () => {
+      this.batchSubscribers.delete(callback);
+    };
+  }
+
+  private notifyBatch(changes: readonly FileMetadataOccurrencesChange[]): void {
+    if (changes.length === 0) return;
+    this.batchSubscribers.forEach((callback) => callback(changes));
   }
 
   getSnapshot(path: string): () => FileMetadataOccurrencesState {

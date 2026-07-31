@@ -11,6 +11,7 @@ type SchemaDefinitionsInvoke = (
 
 let cached: State = "loading";
 let fetched = false;
+let generation = 0;
 const subscribers = new Set<() => void>();
 
 function notify() {
@@ -19,17 +20,21 @@ function notify() {
 
 async function fetchDefinitions(
   invokeCommand: SchemaDefinitionsInvoke,
+  requestedGeneration: number,
 ): Promise<void> {
+  let next: TagInfo[];
   try {
     const result = (await invokeCommand("list_writable_schema_definitions")) as
       TagInfo[] | null;
-    cached = (result ?? []).filter((info) =>
+    next = (result ?? []).filter((info) =>
       tagInfoSupportsMetadataWrite(info, undefined, "DeleteExisting"),
     );
   } catch (e) {
     console.error("[useWritableSchemaDefinitions] schema lookup failed:", e);
-    cached = [];
+    next = [];
   }
+  if (requestedGeneration !== generation) return;
+  cached = next;
   notify();
 }
 
@@ -42,7 +47,7 @@ export function useWritableSchemaDefinitions(
   useEffect(() => {
     if (!fetched) {
       fetched = true;
-      void fetchDefinitions(invokeCommand);
+      void fetchDefinitions(invokeCommand, generation);
     }
     const cb = () => setTick((n) => n + 1);
     subscribers.add(cb);
@@ -56,6 +61,7 @@ export function useWritableSchemaDefinitions(
 
 // Test-only cache controls. Inputs remain exact TagInfo records.
 export function _resetWritableSchemaDefinitionsCache(): void {
+  generation += 1;
   cached = "loading";
   fetched = false;
   subscribers.clear();

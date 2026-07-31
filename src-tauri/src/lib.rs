@@ -856,7 +856,9 @@ fn load_metadata_draft_edits(
 #[tauri::command]
 async fn apply_metadata_draft_edits_cmd(
     folder_path: String,
-    rel_paths: Vec<String>,
+    rel_paths: Option<Vec<String>>,
+    operation_id: String,
+    progress_channel: tauri::ipc::Channel<apply_batch::MetadataApplyStreamMessage>,
     app: AppHandle,
     apply_state: State<'_, apply_batch::ApplyEditsState>,
 ) -> Result<apply_batch::MetadataApplyResult, String> {
@@ -867,17 +869,21 @@ async fn apply_metadata_draft_edits_cmd(
         "[apply_edits] starting batch_size={} write_concurrency={} requested={}",
         batch_size,
         write_concurrency,
-        rel_paths.len()
+        rel_paths.as_ref().map_or(0, Vec::len)
     );
     apply_batch::run_apply_edits_command(&apply_state, move |cancel_flag| {
         tauri::async_runtime::spawn_blocking(move || {
             apply_batch::run_apply_metadata_draft_edits_blocking(
                 folder_path,
                 rel_paths,
+                operation_id,
+                progress_channel,
                 app,
                 cancel_flag,
-                batch_size,
-                write_concurrency,
+                apply_batch::MetadataApplyLimits {
+                    batch_size,
+                    write_concurrency,
+                },
             )
         })
     })

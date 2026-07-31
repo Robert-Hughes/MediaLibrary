@@ -104,12 +104,34 @@ const TARGET_DRAFT_NOT_LOADED_STATE: TargetDraftPersistenceState = {
   error: "Target-aware drafts have not finished loading for this folder.",
 };
 
+function emptyMetadataApplyResult(): MetadataApplyResult {
+  return {
+    summary: {
+      requested: 0,
+      selected: 0,
+      completed: 0,
+      applied: 0,
+      failed: 0,
+      warning_count: 0,
+      cancelled: false,
+      aborted: false,
+      abort_reason: null,
+      delivery_failure_count: 0,
+    },
+    undelivered_files: [],
+    complete_delivery_failed: false,
+  };
+}
+
 export interface TauriApi {
   invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
   listen: (
     event: string,
     handler: (payload: unknown) => void,
   ) => Promise<() => void>;
+  createChannel: (handler: (payload: unknown) => void) => {
+    onmessage: (payload: unknown) => void;
+  };
 }
 
 export interface MediaLibraryActions {
@@ -377,7 +399,7 @@ export function useMediaLibrary(
         {
           api: {
             invoke: (command, args) => apiRef.current.invoke(command, args),
-            listen: (event, handler) => apiRef.current.listen(event, handler),
+            createChannel: (handler) => apiRef.current.createChannel(handler),
           },
           stores: {
             drafts: targetDraftEditsStoreRef.current,
@@ -387,28 +409,18 @@ export function useMediaLibrary(
           autosaveGate: targetDraftAutosaveGateRef.current,
         },
         {
-          onProgress: (payload, application) => {
-            if (payload.result.fresh_file_metadata !== null) {
-              scanMetadataSupersededPathsRef.current.add(
-                payload.result.relative_path,
-              );
-            }
-            if (!application.occurrencesChanged) return;
-            setAppState((prev) =>
-              prev.kind === "loaded"
-                ? { ...prev, metadataVersion: prev.metadataVersion + 1 }
-                : prev,
-            );
-          },
-          onFinalApplied: (result, application) => {
-            for (const file of result.files) {
-              if (file.fresh_file_metadata !== null) {
-                scanMetadataSupersededPathsRef.current.add(file.relative_path);
+          onProgressBatch: (payload, applications) => {
+            for (const result of payload.results) {
+              if (
+                result.fresh_file_metadata !== null &&
+                !metadataCompletedPathsRef.current.has(result.relative_path)
+              ) {
+                scanMetadataSupersededPathsRef.current.add(
+                  result.relative_path,
+                );
               }
             }
-            if (!application.files.some((file) => file.occurrencesChanged)) {
-              return;
-            }
+            if (!applications.some((item) => item.occurrencesChanged)) return;
             setAppState((prev) =>
               prev.kind === "loaded"
                 ? { ...prev, metadataVersion: prev.metadataVersion + 1 }
@@ -639,6 +651,7 @@ export function useMediaLibrary(
         completedCount += 1;
         metadataCompletedPathsRef.current.add(res.relative_path);
         if (scanMetadataSupersededPathsRef.current.has(res.relative_path)) {
+          scanMetadataSupersededPathsRef.current.delete(res.relative_path);
           continue;
         }
         fileMetadataOccurrencesStoreRef.current.set(
@@ -2218,39 +2231,33 @@ export function useMediaLibrary(
       const run = async (): Promise<MetadataApplyResult> => {
         const current = stateRef.current;
         if (current.kind !== "loaded") {
-          return {
-            files: [],
-            cancelled: false,
-            aborted: false,
-            abort_reason: null,
-          };
+          return emptyMetadataApplyResult();
         }
         if (applyActiveRef.current) {
           throw new Error("A metadata apply operation is already running");
         }
 
-        const requestedPaths = [
-          ...new Set(
-            fileRelativePath === undefined
-              ? Object.keys(current.targetDraftEdits)
-              : Array.isArray(fileRelativePath)
-                ? fileRelativePath
-                : [fileRelativePath],
-          ),
-        ];
-        if (!requireTargetDraftPersistenceReady(requestedPaths)) {
+        const applyAll = fileRelativePath === undefined;
+        const requestedPaths = applyAll
+          ? undefined
+          : [
+              ...new Set(
+                Array.isArray(fileRelativePath)
+                  ? fileRelativePath
+                  : [fileRelativePath],
+              ),
+            ];
+        if (!requireTargetDraftPersistenceReady(requestedPaths ?? [])) {
           throw new Error(TARGET_DRAFT_LOAD_BLOCKED_MESSAGE);
         }
-        const targetPaths = requestedPaths.filter(
+        const targetPaths = requestedPaths?.filter(
           (path) => current.targetDraftEdits[path] !== undefined,
         );
-        if (targetPaths.length === 0) {
-          return {
-            files: [],
-            cancelled: false,
-            aborted: false,
-            abort_reason: null,
-          };
+        const targetCount = applyAll
+          ? Object.keys(current.targetDraftEdits).length
+          : (targetPaths?.length ?? 0);
+        if (targetCount === 0) {
+          return emptyMetadataApplyResult();
         }
 
         await targetDraftSaveQueueRef.current?.flush();
@@ -2264,7 +2271,7 @@ export function useMediaLibrary(
               ? {
                   ...prev,
                   applying: {
-                    total: targetPaths.length,
+                    total: targetCount,
                     current: 0,
                     currentFile: null,
                     failureCount: 0,
@@ -2276,7 +2283,7 @@ export function useMediaLibrary(
           const result = await controller.run(current.folder, targetPaths);
           return result.commandResult;
         } catch (error) {
-          pushApplicationError("metadata-apply", error, requestedPaths);
+          pushApplicationError("metadata-apply", error, requestedPaths ?? []);
           throw error;
         } finally {
           applyActiveRef.current = false;
@@ -2287,6 +2294,18 @@ export function useMediaLibrary(
       };
       const promise = run();
       activeApplyPromiseRef.current = promise;
+      void promise.then(
+        () => {
+          if (activeApplyPromiseRef.current === promise) {
+            activeApplyPromiseRef.current = null;
+          }
+        },
+        () => {
+          if (activeApplyPromiseRef.current === promise) {
+            activeApplyPromiseRef.current = null;
+          }
+        },
+      );
       return promise;
     },
     [pushApplicationError, requireTargetDraftPersistenceReady],

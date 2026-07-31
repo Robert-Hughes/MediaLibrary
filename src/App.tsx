@@ -6,7 +6,7 @@ import {
   useSyncExternalStore,
   useCallback,
 } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { Channel, invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   useMediaLibrary,
@@ -58,6 +58,7 @@ import "./App.css";
 const tauriApi: TauriApi = {
   invoke: (cmd, args) => invoke(cmd, args),
   listen: (event, handler) => listen(event, (e) => handler(e.payload)),
+  createChannel: (handler) => new Channel(handler),
 };
 
 async function loadMedia(path: string): Promise<string | null> {

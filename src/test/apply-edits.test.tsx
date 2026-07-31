@@ -19,6 +19,14 @@ import { makeFile } from "./factories";
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
 vi.mock("@tauri-apps/api/core", () => ({
+  Channel: class {
+    onmessage: (payload: unknown) => void;
+
+    constructor(handler: (payload: unknown) => void) {
+      this.onmessage = handler;
+      return mockApiInstance.api.createChannel(handler) as this;
+    }
+  },
   invoke: (cmd: string, args?: Record<string, unknown>) =>
     mockApiInstance.api.invoke(cmd, args),
   convertFileSrc: (path: string) => `data:image/jpeg;base64,FAKE_${path}`,
@@ -130,7 +138,7 @@ describe("target-aware Apply All", () => {
       mockApiInstance.invocations.find(
         ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       )?.args?.relPaths,
-    ).toEqual([file.relative_path]);
+    ).toBeNull();
   });
 
   it("leaves drafts available when confirmation is cancelled", async () => {

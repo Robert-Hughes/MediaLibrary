@@ -11,6 +11,7 @@ import type {
   MetadataTargetDraftEntry,
   SchemaMetadataEdit,
   MetadataApplyFileResult,
+  MetadataApplySummary,
   TagInfo,
 } from "../types";
 import {
@@ -399,6 +400,7 @@ export function createMockTauriApi(): MockTauriApi {
   };
 
   const api: TauriApi = {
+    createChannel: (handler) => ({ onmessage: handler }),
     invoke: async (cmd, args) => {
       mock.invocations.push({ cmd, args });
       if (cmd === "pick_folder") return nextFolder;
@@ -478,11 +480,24 @@ export function createMockTauriApi(): MockTauriApi {
         return mock.tagInfos;
       }
       if (cmd === "apply_metadata_draft_edits_cmd") {
-        const relPaths = (args?.relPaths as string[]) ?? [];
         const folder = args?.folderPath as string;
+        const explicitPaths = args?.relPaths as string[] | null;
+        const relPaths =
+          explicitPaths ??
+          Object.keys(mock.targetDraftEditsByFolder[folder] ?? {});
+        const operationId = args?.operationId as string;
+        const channel = args?.progressChannel as {
+          onmessage: (payload: unknown) => void;
+        };
         await Promise.resolve();
-        emit("apply_edits_started", { total: relPaths.length });
-        const files: MetadataApplyFileResult[] = [];
+        channel.onmessage({
+          kind: "started",
+          operation_id: operationId,
+          total: relPaths.length,
+        });
+        const completedFiles: MetadataApplyFileResult[] = [];
+        const undeliveredFiles: MetadataApplyFileResult[] = [];
+        let sequence = 0;
         for (const [index, relative_path] of relPaths.entries()) {
           if (mock.cancelTargetApplyCalled) break;
           const fallback: MetadataApplyFileResult = {
@@ -496,14 +511,22 @@ export function createMockTauriApi(): MockTauriApi {
           };
           const progressResult =
             mock.targetApplyProgressResultsByPath[relative_path] ?? fallback;
-          emit("apply_metadata_edits_progress", {
-            current: index + 1,
-            total: relPaths.length,
-            result: progressResult,
-          });
-          files.push(
-            mock.targetApplyFinalResultsByPath[relative_path] ?? progressResult,
-          );
+          const terminalFallback =
+            mock.targetApplyFinalResultsByPath[relative_path];
+          const effectiveResult = terminalFallback ?? progressResult;
+          completedFiles.push(effectiveResult);
+          if (terminalFallback) {
+            undeliveredFiles.push(terminalFallback);
+          } else {
+            channel.onmessage({
+              kind: "progress_batch",
+              operation_id: operationId,
+              sequence: ++sequence,
+              current: index + 1,
+              total: relPaths.length,
+              results: [progressResult],
+            });
+          }
           mock.applyProgressEvents.push({
             current: index + 1,
             total: relPaths.length,
@@ -516,7 +539,7 @@ export function createMockTauriApi(): MockTauriApi {
         const existing = mock.targetDraftEditsByFolder[folder] ?? {};
         mock.targetDraftEditsByFolder[folder] = Object.fromEntries(
           Object.entries(existing).filter(([path]) =>
-            files.every(
+            completedFiles.every(
               (result) =>
                 result.relative_path !== path ||
                 result.persisted_draft_entries === null ||
@@ -524,11 +547,29 @@ export function createMockTauriApi(): MockTauriApi {
             ),
           ),
         );
-        return {
-          files,
+        const summary: MetadataApplySummary = {
+          requested: relPaths.length,
+          selected: relPaths.length,
+          completed: completedFiles.length,
+          applied: completedFiles.filter((result) => result.applied).length,
+          failed: completedFiles.filter((result) => !result.applied).length,
+          warning_count: completedFiles.filter(
+            (result) => result.warning !== null,
+          ).length,
           cancelled: mock.cancelTargetApplyCalled,
           aborted: false,
           abort_reason: null,
+          delivery_failure_count: undeliveredFiles.length,
+        };
+        channel.onmessage({
+          kind: "complete",
+          operation_id: operationId,
+          summary,
+        });
+        return {
+          summary,
+          undelivered_files: undeliveredFiles,
+          complete_delivery_failed: false,
         };
       }
       if (cmd === "cancel_apply_edits") {

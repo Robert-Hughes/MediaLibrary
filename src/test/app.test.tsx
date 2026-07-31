@@ -350,6 +350,8 @@ describe("App Select Columns metadata counts", () => {
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
       if (cmd === "set_window_title") return Promise.resolve();
+      if (cmd === "list_writable_schema_definitions")
+        return Promise.resolve([]);
       throw new Error(`Unexpected invoke: ${cmd} ${JSON.stringify(args)}`);
     });
 
@@ -472,6 +474,8 @@ describe("App Select Columns metadata counts", () => {
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
       if (cmd === "set_window_title") return Promise.resolve();
+      if (cmd === "list_writable_schema_definitions")
+        return Promise.resolve([]);
       throw new Error(`Unexpected invoke: ${cmd} ${JSON.stringify(args)}`);
     });
 

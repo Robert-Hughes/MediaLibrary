@@ -2,28 +2,28 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   FileMetadataOccurrencesStore,
-  type MetadataApplyResult,
   type MetadataApplyFileResult,
+  type MetadataApplyResult,
+  type MetadataApplySummary,
   type MetadataTargetDraftEntry,
   type MetadataTargetOutcome,
 } from "../types";
 import {
-  TargetApplyControllerBusyError,
   TargetApplyController,
+  TargetApplyControllerBusyError,
   type TargetApplyControllerCallbacks,
 } from "../targetApplyController";
 import type { TargetApplyResultStores } from "../targetApplyResults";
-import type { TargetApplyTauriApi } from "../targetApplyTauri";
-import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
+import type {
+  TargetApplyChannel,
+  TargetApplyTauriApi,
+} from "../targetApplyTauri";
+import { TargetDraftAutosaveGate } from "../targetDraftAutosaveGate";
 import {
-  TargetDraftAutosaveAlreadySuspendedError,
-  TargetDraftAutosaveGate,
-} from "../targetDraftAutosaveGate";
-import { TargetDraftEditsStore } from "../targetDraftEdits";
-
-const STARTED_EVENT = "apply_edits_started";
-const PROGRESS_EVENT = "apply_metadata_edits_progress";
-const path = "file.jpg";
+  TargetDraftEditsStore,
+  targetDraftsFromWire,
+} from "../targetDraftEdits";
+import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -35,17 +35,19 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+const target = {
+  kind: "NewProperty" as const,
+  schema_id: { table: "Exif::Main", tag_id: "282" },
+  write_target: {
+    group1: "XMP-test",
+    group7: "ID-Test",
+    tag_name: "TestTag",
+  },
+};
+
 function draft(value = "draft"): MetadataTargetDraftEntry {
   return {
-    target: {
-      kind: "NewProperty",
-      schema_id: { table: "Exif::Main", tag_id: "282" },
-      write_target: {
-        group1: "XMP-test",
-        group7: "ID-Test",
-        tag_name: "TestTag",
-      },
-    },
+    target: structuredClone(target),
     edit: {
       intent: "Set",
       value: { kind: "Text", value },
@@ -53,146 +55,127 @@ function draft(value = "draft"): MetadataTargetDraftEntry {
   };
 }
 
+function outcome(): MetadataTargetOutcome {
+  return {
+    target: structuredClone(target),
+    draft_reconciliation: { kind: "Keep" },
+    display_name: "TestTag",
+    kind: "Mismatch",
+    sent: { kind: "Text", value: "draft" },
+    before: null,
+    observed: { kind: "Text", value: "observed" },
+    message: "verification required",
+  };
+}
+
 function fileResult(
+  relativePath: string,
   overrides: Partial<MetadataApplyFileResult> = {},
 ): MetadataApplyFileResult {
   return {
-    relative_path: path,
+    relative_path: relativePath,
     applied: true,
     error: null,
     warning: null,
     fresh_file_metadata: {
-      relative_path: path,
+      relative_path: relativePath,
       occurrences: [],
     },
     target_outcomes: [],
-    persisted_draft_entries: [draft()],
+    persisted_draft_entries: [],
     ...overrides,
   };
 }
 
-const replacementTarget = {
-  kind: "ExistingOccurrence" as const,
-  occurrence_id: {
-    document: null,
-    path: "JPEG-APP1-IFD0",
-    runtime_tag_id: "282",
-    tag_id_scope: { table: "TestFixture::Runtime", tag_id: "282", index: null },
-    copy: 0,
-  },
-  schema_id: { table: "Exif::Main", tag_id: "282" },
-  write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
-};
-
-function invalidPersistenceResult(
-  error = "persistence failure",
-  warning: string | null = "readback warning",
-): MetadataApplyFileResult {
-  const targetOutcome: MetadataTargetOutcome = {
-    target: {
-      kind: "NewProperty",
-      schema_id: { table: "Exif::Main", tag_id: "282" },
-      write_target: {
-        group1: "XMP-test",
-        group7: "ID-Test",
-        tag_name: "TestTag",
-      },
+function heavyFileResult(relativePath: string): MetadataApplyFileResult {
+  return fileResult(relativePath, {
+    fresh_file_metadata: {
+      relative_path: relativePath,
+      occurrences: [
+        {
+          id: {
+            document: null,
+            path: `JPEG-APP1-${relativePath}`,
+            runtime_tag_id: "282",
+            tag_id_scope: {
+              table: "TestFixture::Runtime",
+              tag_id: "282",
+              index: null,
+            },
+            copy: 0,
+          },
+          schema_id: { table: "Exif::Main", tag_id: "282" },
+          value: { kind: "Text", value: "x".repeat(2_048) },
+          tag_info: null,
+          observed_selector: null,
+          write_target: null,
+        },
+      ],
     },
-    draft_reconciliation: {
-      kind: "Replace",
-      target: replacementTarget,
-    },
-    display_name: "XResolution",
-    kind: "ReadbackFailed",
-    sent: { kind: "Text", value: "requested" },
-    before: null,
-    observed: null,
-    message: "readback failed",
-  };
-  return fileResult({
-    applied: false,
-    error,
-    warning,
-    fresh_file_metadata: null,
-    target_outcomes: [targetOutcome],
     persisted_draft_entries: null,
   });
 }
 
-function batchResult(
-  files: MetadataApplyFileResult[] = [fileResult()],
-  overrides: Partial<MetadataApplyResult> = {},
-): MetadataApplyResult {
+function summary(
+  completed: number,
+  overrides: Partial<MetadataApplySummary> = {},
+): MetadataApplySummary {
   return {
-    files,
+    requested: completed,
+    selected: completed,
+    completed,
+    applied: completed,
+    failed: 0,
+    warning_count: 0,
     cancelled: false,
     aborted: false,
     abort_reason: null,
+    delivery_failure_count: 0,
     ...overrides,
   };
 }
 
+function terminal(
+  value: MetadataApplySummary,
+  undeliveredFiles: MetadataApplyFileResult[] = [],
+  completeDeliveryFailed = false,
+): MetadataApplyResult {
+  return {
+    summary: value,
+    undelivered_files: undeliveredFiles,
+    complete_delivery_failed: completeDeliveryFailed,
+  };
+}
+
 class FakeApplyApi implements TargetApplyTauriApi {
-  readonly order: string[] = [];
-  readonly invokeCalls: Array<{
+  readonly channels: TargetApplyChannel[] = [];
+  readonly calls: Array<{
     command: string;
     args?: Record<string, unknown>;
   }> = [];
-  readonly captured = new Map<string, Array<(payload: unknown) => void>>();
-  readonly live = new Map<string, (payload: unknown) => void>();
-  readonly cleanupSuppression: boolean[] = [];
-  failListenEvent: string | null = null;
-  cleanupError: unknown;
-  mutateApplyPaths = false;
-  apply: () => Promise<unknown> = async () => batchResult();
-  cancel: () => Promise<unknown> = async () => undefined;
+  onApply: (args: Record<string, unknown>) => Promise<unknown> = async () =>
+    terminal(summary(0));
+  onCancel: () => Promise<unknown> = async () => undefined;
 
-  constructor(readonly gate: TargetDraftAutosaveGate) {}
-
-  async listen(
-    event: string,
-    handler: (payload: unknown) => void,
-  ): Promise<() => void> {
-    this.order.push(`listen:${event}:${this.gate.isSuppressed()}`);
-    if (this.failListenEvent === event)
-      throw new Error(`listen failed: ${event}`);
-    const handlers = this.captured.get(event) ?? [];
-    handlers.push(handler);
-    this.captured.set(event, handlers);
-    this.live.set(event, handler);
-    return () => {
-      this.order.push(`cleanup:${event}`);
-      this.cleanupSuppression.push(this.gate.isSuppressed());
-      if (this.live.get(event) === handler) this.live.delete(event);
-      if (this.cleanupError !== undefined) throw this.cleanupError;
-    };
+  createChannel(handler: (payload: unknown) => void): TargetApplyChannel {
+    const channel = { onmessage: handler };
+    this.channels.push(channel);
+    return channel;
   }
 
   async invoke(
     command: string,
     args?: Record<string, unknown>,
   ): Promise<unknown> {
-    this.order.push(`invoke:${command}`);
-    this.invokeCalls.push({ command, args });
-    if (command === "cancel_apply_edits") return this.cancel();
-    if (this.mutateApplyPaths) {
-      (args?.relPaths as string[]).push("backend-mutation.jpg");
-    }
-    return this.apply();
-  }
-
-  emit(event: string, payload: unknown, generation?: number): void {
-    const handler =
-      generation === undefined
-        ? this.live.get(event)
-        : this.captured.get(event)?.[generation];
-    handler?.(payload);
+    this.calls.push({ command, args });
+    if (command === "cancel_apply_edits") return this.onCancel();
+    return this.onApply(args ?? {});
   }
 }
 
-function makeStores(): TargetApplyResultStores {
+function makeStores(paths: readonly string[]): TargetApplyResultStores {
   const occurrences = new FileMetadataOccurrencesStore();
-  occurrences.add(path);
+  for (const path of paths) occurrences.add(path);
   return {
     drafts: new TargetDraftEditsStore(),
     occurrences,
@@ -200,632 +183,387 @@ function makeStores(): TargetApplyResultStores {
   };
 }
 
-function harness(callbacks: TargetApplyControllerCallbacks = {}) {
+function harness(
+  paths: readonly string[],
+  callbacks: TargetApplyControllerCallbacks = {},
+) {
+  const api = new FakeApplyApi();
   const gate = new TargetDraftAutosaveGate();
-  const api = new FakeApplyApi(gate);
-  const stores = makeStores();
+  const stores = makeStores(paths);
   const controller = new TargetApplyController(
     { api, stores, autosaveGate: gate },
     callbacks,
   );
-  return { api, callbacks, controller, gate, stores };
+  return { api, controller, gate, stores };
 }
 
-async function waitForApply(api: FakeApplyApi): Promise<void> {
-  await vi.waitFor(() => {
-    expect(
-      api.invokeCalls.some(
-        ({ command }) => command === "apply_metadata_draft_edits_cmd",
-      ),
-    ).toBe(true);
+function sendStarted(args: Record<string, unknown>, total: number): void {
+  (args.progressChannel as TargetApplyChannel).onmessage({
+    kind: "started",
+    operation_id: args.operationId,
+    total,
   });
 }
 
-describe("TargetDraftAutosaveGate", () => {
-  it("acquires once, rejects overlap, and supports idempotent release", () => {
-    const gate = new TargetDraftAutosaveGate();
-    const suspension = gate.trySuspend();
-    expect(gate.isSuppressed()).toBe(true);
-    expect(() => gate.trySuspend()).toThrow(
-      TargetDraftAutosaveAlreadySuspendedError,
-    );
-    suspension.release();
-    suspension.release();
-    expect(gate.isSuppressed()).toBe(false);
+function sendBatch(
+  args: Record<string, unknown>,
+  sequence: number,
+  current: number,
+  total: number,
+  results: MetadataApplyFileResult[],
+): void {
+  (args.progressChannel as TargetApplyChannel).onmessage({
+    kind: "progress_batch",
+    operation_id: args.operationId,
+    sequence,
+    current,
+    total,
+    results,
   });
+}
 
-  it("does not let an old release clear a newer suspension", () => {
-    const gate = new TargetDraftAutosaveGate();
-    const old = gate.trySuspend();
-    old.release();
-    const current = gate.trySuspend();
-    old.release();
-    expect(gate.isSuppressed()).toBe(true);
-    expect(current.token).not.toBe(old.token);
-    current.release();
-    expect(gate.isSuppressed()).toBe(false);
+function sendComplete(
+  args: Record<string, unknown>,
+  value: MetadataApplySummary,
+): void {
+  (args.progressChannel as TargetApplyChannel).onmessage({
+    kind: "complete",
+    operation_id: args.operationId,
+    summary: value,
   });
-});
+}
 
-describe("inactive TargetApplyController lifecycle", () => {
-  it("starts idle and isolates observable state snapshots and subscribers", async () => {
-    const { api, controller } = harness();
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    expect(controller.getState()).toEqual({ status: "idle" });
-    const listener = vi.fn((state) => {
-      if (state.status === "running") state.current = 99;
-    });
-    const unsubscribe = controller.subscribe(listener);
-    const run = controller.run("folder", []);
-    await waitForApply(api);
-    api.emit(STARTED_EVENT, { total: 2 });
-    api.emit(STARTED_EVENT, { total: 2 });
-    expect(controller.getState()).toMatchObject({
-      status: "running",
-      current: 0,
-      total: 2,
-    });
-    expect(listener).toHaveBeenCalledTimes(2);
-    unsubscribe();
-    command.resolve(batchResult([]));
-    await run;
-    expect(listener).toHaveBeenCalledTimes(2);
-    expect(controller.getState()).toEqual({ status: "idle" });
-  });
-
-  it("suppresses autosave, registers both listeners, then invokes without mutating paths", async () => {
-    const { api, controller, gate } = harness();
-    api.mutateApplyPaths = true;
-    const paths = ["z.jpg", "a.jpg"];
-    await controller.run("folder", paths);
-    expect(api.order.slice(0, 3)).toEqual([
-      `listen:${STARTED_EVENT}:true`,
-      `listen:${PROGRESS_EVENT}:true`,
-      "invoke:apply_metadata_draft_edits_cmd",
-    ]);
-    expect(paths).toEqual(["z.jpg", "a.jpg"]);
-    expect(gate.isSuppressed()).toBe(false);
-  });
-
-  it("applies progress to all stores, reports its summary, and makes an identical final result a no-op", async () => {
-    const onProgress = vi.fn();
-    const { api, controller, stores } = harness({ onProgress });
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    const draftListener = vi.fn();
-    const occurrenceListener = vi.fn();
-    stores.drafts.subscribe(draftListener);
-    stores.occurrences.subscribe(path, occurrenceListener);
-
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    const progressResult = fileResult();
-    api.emit(PROGRESS_EVENT, {
-      current: 1,
-      total: 1,
-      result: progressResult,
-    });
-    expect(controller.getState()).toMatchObject({
-      status: "running",
-      current: 1,
-      total: 1,
-      currentFile: path,
-    });
-    expect(onProgress).toHaveBeenCalledWith(
-      expect.objectContaining({ current: 1, total: 1 }),
-      expect.objectContaining({
-        relativePath: path,
-        draftsChanged: true,
-        occurrencesChanged: true,
+describe("TargetApplyController streamed ownership", () => {
+  it("applies each streamed file exactly once and does not replay terminal data", async () => {
+    const paths = ["a.jpg", "b.jpg"];
+    const { api, controller, stores } = harness(paths);
+    stores.drafts.resetMetadata(
+      targetDraftsFromWire({
+        "a.jpg": [draft("a")],
+        "b.jpg": [draft("b")],
       }),
     );
-    command.resolve(batchResult([progressResult]));
-    const result = await run;
-    expect(result.application.files[0]).toMatchObject({
-      draftsChanged: false,
-      occurrencesChanged: false,
+    const draftListener = vi.fn();
+    stores.drafts.subscribe(draftListener);
+    const done = summary(2);
+    api.onApply = async (args) => {
+      sendStarted(args, 2);
+      sendBatch(args, 1, 2, 2, [fileResult("a.jpg"), fileResult("b.jpg")]);
+      sendComplete(args, done);
+      return terminal(done);
+    };
+
+    const result = await controller.run("folder", paths);
+
+    expect(result.application).toEqual({
+      processed: 2,
+      draftsChanged: 2,
+      occurrencesChanged: 2,
     });
-    expect(
-      [draftListener, occurrenceListener].map(
-        (listener) => listener.mock.calls.length,
-      ),
-    ).toEqual([1, 1]);
-    expect(controller.getState()).toEqual({ status: "idle" });
+    expect(result.commandResult.undelivered_files).toEqual([]);
+    expect(draftListener).toHaveBeenCalledOnce();
+    expect(Object.keys(stores.drafts.getAllMetadata())).toEqual([]);
   });
 
-  it("lets a genuinely different authoritative final result replace progress", async () => {
-    const onFinalApplied = vi.fn();
-    const { api, controller, stores } = harness({ onFinalApplied });
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    api.emit(PROGRESS_EVENT, {
-      current: 1,
-      total: 1,
-      result: fileResult(),
-    });
-    const authoritative = fileResult({
-      persisted_draft_entries: [draft("authoritative")],
-      fresh_file_metadata: {
-        relative_path: path,
-        occurrences: [
-          {
-            id: {
-              document: null,
-              path: "JPEG-APP1-IFD0",
-              runtime_tag_id: "282",
-              tag_id_scope: {
-                table: "TestFixture::Runtime",
-                tag_id: "282",
-                index: null,
-              },
-              copy: 0,
-            },
-            schema_id: { table: "Exif::Main", tag_id: "282" },
-            value: { kind: "Text", value: "authoritative" },
-            tag_info: null,
-            observed_selector: null,
-            write_target: null,
-          },
-        ],
-      },
-    });
-    command.resolve(batchResult([authoritative]));
-    const result = await run;
-    expect(result.application.files[0]).toMatchObject({
-      draftsChanged: true,
-    });
+  it("keeps returned controller state compact across thousands of heavyweight results", async () => {
+    const count = 3_000;
+    const paths = Array.from(
+      { length: count },
+      (_, index) => `file-${index}.jpg`,
+    );
+    const { api, controller, stores } = harness(paths);
+    const done = summary(count);
+    api.onApply = async (args) => {
+      sendStarted(args, count);
+      for (
+        let offset = 0, sequence = 1;
+        offset < count;
+        offset += 100, sequence += 1
+      ) {
+        const results = paths.slice(offset, offset + 100).map(heavyFileResult);
+        sendBatch(args, sequence, offset + results.length, count, results);
+      }
+      sendComplete(args, done);
+      return terminal(done);
+    };
+
+    const result = await controller.run("folder", paths);
+
+    expect(result.application.processed).toBe(count);
+    expect(result.protocolErrors).toEqual([]);
+    expect(result.progressApplicationErrors).toEqual([]);
+    expect(JSON.stringify(result).length).toBeLessThan(1_000);
+    expect(stores.occurrences.get(paths[count - 1])).not.toBe("loading");
+  });
+
+  it("uses compact terminal fallback only for an undelivered file", async () => {
+    const paths = ["fallback.jpg"];
+    const { api, controller, stores } = harness(paths);
+    const fallback = fileResult("fallback.jpg");
+    const done = summary(1, { delivery_failure_count: 1 });
+    api.onApply = async (args) => {
+      sendStarted(args, 1);
+      sendComplete(args, done);
+      return terminal(done, [fallback]);
+    };
+
+    const result = await controller.run("folder", paths);
+
+    expect(result.application.processed).toBe(1);
+    expect(result.commandResult.undelivered_files).toEqual([]);
+    expect(stores.occurrences.get("fallback.jpg")).toEqual([]);
+  });
+
+  it("retains at most one failed chunk for a terminal retry", async () => {
+    const paths = ["first.jpg", "second.jpg"];
+    const { api, controller, stores } = harness(paths);
+    stores.drafts.resetMetadata(
+      targetDraftsFromWire({
+        "first.jpg": [draft("first")],
+        "second.jpg": [draft("second")],
+      }),
+    );
+    vi.spyOn(stores.drafts, "replaceMetadataFiles")
+      .mockImplementationOnce(() => {
+        throw new Error("first transient failure");
+      })
+      .mockImplementationOnce(() => {
+        throw new Error("second transient failure");
+      });
+    const done = summary(2);
+    api.onApply = async (args) => {
+      sendStarted(args, 2);
+      sendBatch(args, 1, 1, 2, [fileResult("first.jpg")]);
+      sendBatch(args, 2, 2, 2, [fileResult("second.jpg")]);
+      sendComplete(args, done);
+      return terminal(done);
+    };
+
+    const result = await controller.run("folder", paths);
+
+    expect(result.progressApplicationErrors).toHaveLength(2);
+    expect(stores.drafts.getMetadataFile("first.jpg")).toBeUndefined();
+    expect(stores.drafts.getMetadataFile("second.jpg")).toBeDefined();
+  });
+
+  it("retries one transient application failure after command completion", async () => {
+    const paths = ["retry.jpg"];
+    const { api, controller, stores } = harness(paths);
+    stores.drafts.resetMetadata(
+      targetDraftsFromWire({ "retry.jpg": [draft()] }),
+    );
+    const original = stores.drafts.replaceMetadataFiles.bind(stores.drafts);
+    vi.spyOn(stores.drafts, "replaceMetadataFiles")
+      .mockImplementationOnce(() => {
+        throw new Error("transient failure");
+      })
+      .mockImplementation(original);
+    const done = summary(1);
+    api.onApply = async (args) => {
+      sendStarted(args, 1);
+      sendBatch(args, 1, 1, 1, [fileResult("retry.jpg")]);
+      sendComplete(args, done);
+      return terminal(done);
+    };
+
+    const result = await controller.run("folder", paths);
+
+    expect(result.progressApplicationErrors).toHaveLength(1);
+    expect(stores.drafts.getMetadataFile("retry.jpg")).toBeUndefined();
+  });
+
+  it("preserves draft and verification semantics in streamed batches", async () => {
+    const paths = ["verify.jpg"];
+    const { api, controller, stores } = harness(paths);
+    const done = summary(1);
+    api.onApply = async (args) => {
+      sendStarted(args, 1);
+      sendBatch(args, 1, 1, 1, [
+        fileResult("verify.jpg", {
+          fresh_file_metadata: null,
+          target_outcomes: [outcome()],
+          persisted_draft_entries: [draft()],
+        }),
+      ]);
+      sendComplete(args, done);
+      return terminal(done);
+    };
+
+    await controller.run("folder", paths);
+
+    expect(stores.drafts.getMetadataFile("verify.jpg")).toBeDefined();
     expect(
-      Object.values(stores.drafts.getMetadataFile(path)!)[0].edit.value,
-    ).toEqual({ kind: "Text", value: "authoritative" });
-    expect(onFinalApplied).toHaveBeenCalledWith(
-      result.commandResult,
-      result.application,
+      Object.keys(stores.verification.getFile("verify.jpg") ?? {}),
+    ).toHaveLength(1);
+  });
+
+  it("reports compact cancelled completion without marking unprocessed files complete", async () => {
+    const paths = ["done.jpg", "unprocessed.jpg"];
+    const { api, controller } = harness(paths);
+    const command = deferred<MetadataApplyResult>();
+    let applyArgs: Record<string, unknown> | null = null;
+    api.onApply = async (args) => {
+      applyArgs = args;
+      sendStarted(args, 2);
+      sendBatch(args, 1, 1, 2, [fileResult("done.jpg")]);
+      return command.promise;
+    };
+    api.onCancel = async () => {
+      const done = summary(1, {
+        requested: 2,
+        selected: 2,
+        cancelled: true,
+      });
+      sendComplete(applyArgs!, done);
+      command.resolve(terminal(done));
+    };
+
+    const run = controller.run("folder", paths);
+    await vi.waitFor(() =>
+      expect(controller.getState()).toMatchObject({ current: 1, total: 2 }),
+    );
+    await controller.cancel();
+    const result = await run;
+
+    expect(result.commandResult.summary).toMatchObject({
+      completed: 1,
+      selected: 2,
+      cancelled: true,
+    });
+    expect(result.application.processed).toBe(1);
+  });
+
+  it("preserves compact aborted counts and file diagnostics", async () => {
+    const onFileError = vi.fn();
+    const paths = ["failed.jpg", "later.jpg"];
+    const { api, controller } = harness(paths, { onFileError });
+    const failed = fileResult("failed.jpg", {
+      applied: false,
+      error: "persistence failed",
+      fresh_file_metadata: null,
+      persisted_draft_entries: null,
+    });
+    const done = summary(1, {
+      requested: 2,
+      selected: 2,
+      applied: 0,
+      failed: 1,
+      aborted: true,
+      abort_reason: "persistence failed",
+    });
+    api.onApply = async (args) => {
+      sendStarted(args, 2);
+      sendBatch(args, 1, 1, 2, [failed]);
+      sendComplete(args, done);
+      return terminal(done);
+    };
+
+    const result = await controller.run("folder", paths);
+
+    expect(result.commandResult.summary).toMatchObject({
+      completed: 1,
+      failed: 1,
+      aborted: true,
+    });
+    expect(onFileError).toHaveBeenCalledWith(
+      "failed.jpg",
+      "persistence failed",
     );
   });
 
-  it("ignores progress queued during cleanup and cleans listeners before releasing suppression", async () => {
-    const onProgress = vi.fn();
-    const { api, controller, gate, stores } = harness({ onProgress });
-    const originalListen = api.listen.bind(api);
-    api.listen = async (event, handler) => {
-      const unregister = await originalListen(event, handler);
-      return () => {
-        if (event === STARTED_EVENT) {
-          api.emit(PROGRESS_EVENT, {
-            current: 1,
-            total: 1,
-            result: fileResult({ persisted_draft_entries: [draft("late")] }),
-          });
-        }
-        unregister();
-      };
+  it("releases old channel state and rejects stale events from a prior Apply", async () => {
+    const paths = ["file.jpg"];
+    const { api, controller, stores } = harness(paths);
+    const firstDone = summary(0);
+    api.onApply = async (args) => {
+      sendStarted(args, 0);
+      sendComplete(args, firstDone);
+      return terminal(firstDone);
     };
-    await controller.run("folder", [path]);
-    expect(onProgress).not.toHaveBeenCalled();
-    expect(
-      Object.values(stores.drafts.getMetadataFile(path)!)[0].edit.value,
-    ).toEqual({ kind: "Text", value: "draft" });
-    expect(api.cleanupSuppression).toEqual([true, true]);
-    expect(gate.isSuppressed()).toBe(false);
+    await controller.run("folder", []);
+    const oldChannel = api.channels[0];
+
+    const secondCommand = deferred<MetadataApplyResult>();
+    let secondArgs: Record<string, unknown> | null = null;
+    api.onApply = async (args) => {
+      secondArgs = args;
+      sendStarted(args, 0);
+      return secondCommand.promise;
+    };
+    const secondRun = controller.run("folder", []);
+    await vi.waitFor(() => expect(secondArgs).not.toBeNull());
+    oldChannel.onmessage({
+      kind: "progress_batch",
+      operation_id: "old",
+      sequence: 1,
+      current: 1,
+      total: 1,
+      results: [heavyFileResult("file.jpg")],
+    });
+    (secondArgs!.progressChannel as TargetApplyChannel).onmessage({
+      kind: "progress_batch",
+      operation_id: "old-operation",
+      sequence: "bad",
+      results: [{ malformed: true }],
+    });
+    const secondDone = summary(0);
+    sendComplete(secondArgs!, secondDone);
+    secondCommand.resolve(terminal(secondDone));
+    const result = await secondRun;
+
+    expect(result.protocolErrors).toEqual([]);
+    expect(stores.occurrences.get("file.jpg")).toBe("loading");
   });
 
-  it("rejects local overlap before any second-run side effect", async () => {
-    const { api, controller, gate, stores } = harness();
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    const first = controller.run("folder", [path]);
-    await waitForApply(api);
-    const counts = {
-      order: api.order.length,
-      invokes: api.invokeCalls.length,
-      drafts: stores.drafts.getAllMetadata(),
+  it("contains callback failures and still releases lifecycle ownership", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const paths = ["file.jpg"];
+    const { api, controller, gate } = harness(paths, {
+      onProgressBatch: () => {
+        throw new Error("listener failed");
+      },
+    });
+    const done = summary(1);
+    api.onApply = async (args) => {
+      sendStarted(args, 1);
+      sendBatch(args, 1, 1, 1, [fileResult("file.jpg")]);
+      sendComplete(args, done);
+      return terminal(done);
     };
-    await expect(controller.run("other", [])).rejects.toBeInstanceOf(
+
+    await expect(controller.run("folder", paths)).resolves.toBeDefined();
+    expect(gate.isSuppressed()).toBe(false);
+    expect(controller.getState()).toEqual({ status: "idle" });
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("onProgressBatch"),
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("rejects overlapping runs before a second command or suspension", async () => {
+    const { api, controller, gate } = harness([]);
+    const command = deferred<MetadataApplyResult>();
+    api.onApply = async (args) => {
+      sendStarted(args, 0);
+      return command.promise;
+    };
+    const first = controller.run("folder", []);
+    await vi.waitFor(() => expect(gate.isSuppressed()).toBe(true));
+
+    await expect(controller.run("folder", [])).rejects.toBeInstanceOf(
       TargetApplyControllerBusyError,
     );
-    expect(api.order).toHaveLength(counts.order);
-    expect(api.invokeCalls).toHaveLength(counts.invokes);
-    expect(stores.drafts.getAllMetadata()).toBe(counts.drafts);
-    expect(gate.isSuppressed()).toBe(true);
-    command.resolve(batchResult([]));
-    await first;
-  });
-});
-
-describe("inactive TargetApplyController errors", () => {
-  it("counts semantic file failures and deduplicates exact file diagnostics per run", async () => {
-    const onFileError = vi.fn();
-    const onFileWarning = vi.fn();
-    const { api, controller } = harness({ onFileError, onFileWarning });
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    const failed = fileResult({
-      applied: false,
-      error: "write failed",
-      warning: "partial metadata remained",
-    });
-    const payload = { current: 1, total: 1, result: failed };
-    api.emit(PROGRESS_EVENT, payload);
-    api.emit(PROGRESS_EVENT, payload);
-    expect(controller.getState()).toMatchObject({
-      fileFailureCount: 1,
-      protocolErrorCount: 0,
-      progressApplicationErrorCount: 0,
-    });
-    command.resolve(batchResult([failed]));
-    await run;
-    expect(onFileError).toHaveBeenCalledOnce();
-    expect(onFileError).toHaveBeenCalledWith(path, "write failed");
-    expect(onFileWarning).toHaveBeenCalledOnce();
-    expect(onFileWarning).toHaveBeenCalledWith(
-      path,
-      "partial metadata remained",
-    );
-  });
-
-  it("preserves progress diagnostics when verification application fails", async () => {
-    const onFileError = vi.fn();
-    const onFileWarning = vi.fn();
-    const onProgressApplicationError = vi.fn();
-    const { api, controller } = harness({
-      onFileError,
-      onFileWarning,
-      onProgressApplicationError,
-    });
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    const failed = invalidPersistenceResult();
-    const payload = { current: 1, total: 1, result: failed };
-    api.emit(PROGRESS_EVENT, payload);
-
-    expect(controller.getState()).toMatchObject({
-      fileFailureCount: 1,
-      progressApplicationErrorCount: 1,
-      protocolErrorCount: 0,
-    });
-    expect(onFileError).toHaveBeenCalledWith(path, "persistence failure");
-    expect(onFileWarning).toHaveBeenCalledWith(path, "readback warning");
-    expect(onProgressApplicationError).toHaveBeenCalledOnce();
-    const frontendError = onProgressApplicationError.mock.calls[0][0].error;
-    expect(frontendError.message).toMatch(/verification contract error/i);
-    expect(frontendError.message).not.toContain("persistence failure");
-
-    command.resolve(batchResult([failed]));
-    await expect(run).rejects.toThrow(/verification contract error/i);
-    expect(onFileError).toHaveBeenCalledOnce();
-    expect(onFileWarning).toHaveBeenCalledOnce();
-  });
-
-  it("presents final-only backend diagnostics before final validation fails", async () => {
-    const onFileError = vi.fn();
-    const onFileWarning = vi.fn();
-    const { api, controller } = harness({ onFileError, onFileWarning });
-    api.apply = async () =>
-      batchResult([
-        invalidPersistenceResult(
-          "backend write/readback persistence failure",
-          "backend final warning",
-        ),
-      ]);
-
-    await expect(controller.run("folder", [path])).rejects.toThrow(
-      /verification contract error/i,
-    );
-    expect(onFileError).toHaveBeenCalledWith(
-      path,
-      "backend write/readback persistence failure",
-    );
-    expect(onFileWarning).toHaveBeenCalledWith(path, "backend final warning");
-  });
-
-  it("does not invoke after atomic listener registration fails and releases all lifecycle state", async () => {
-    const { api, controller, gate } = harness();
-    api.failListenEvent = PROGRESS_EVENT;
-    await expect(controller.run("folder", [])).rejects.toThrow(
-      `listen failed: ${PROGRESS_EVENT}`,
-    );
-    expect(api.invokeCalls).toEqual([]);
-    expect(api.order).toContain(`cleanup:${STARTED_EVENT}`);
-    expect(gate.isSuppressed()).toBe(false);
-    expect(controller.getState()).toEqual({ status: "idle" });
-  });
-
-  it.each([new Error("backend busy"), { kind: "load/apply failure" }])(
-    "propagates command rejection unchanged and releases suppression %#",
-    async (backendError) => {
-      const { api, controller, gate } = harness();
-      api.apply = async () => {
-        throw backendError;
-      };
-      await expect(controller.run("folder", [])).rejects.toBe(backendError);
-      expect(gate.isSuppressed()).toBe(false);
-      expect(controller.getState()).toEqual({ status: "idle" });
-    },
-  );
-
-  it("records malformed progress only as a structured protocol error", async () => {
-    const onProtocolError = vi.fn();
-    const onProgress = vi.fn();
-    const { api, controller } = harness({ onProtocolError, onProgress });
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    const malformed = { current: 0, total: 1, result: fileResult() };
-    api.emit(PROGRESS_EVENT, malformed);
-    expect(controller.getState()).toMatchObject({
-      protocolErrorCount: 1,
-      progressApplicationErrorCount: 0,
-    });
-    command.resolve(batchResult([]));
-    const result = await run;
-    expect(result.protocolErrors).toEqual([
-      expect.objectContaining({
-        eventName: PROGRESS_EVENT,
-        error: expect.any(Error),
-        rawPayload: malformed,
-      }),
-    ]);
-    expect(result.progressApplicationErrors).toEqual([]);
-    expect(onProtocolError).toHaveBeenCalledWith(result.protocolErrors[0]);
-    expect(onProgress).not.toHaveBeenCalled();
-  });
-
-  it("contains progress-application failure and still applies the authoritative final result", async () => {
-    const onProgressApplicationError = vi.fn();
-    const { api, controller, stores } = harness({
-      onProgressApplicationError,
-    });
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    const applicationError = new Error("local apply failed");
-    vi.spyOn(stores.drafts, "replaceMetadataFiles").mockImplementationOnce(
-      () => {
-        throw applicationError;
-      },
-    );
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    const payload = { current: 1, total: 1, result: fileResult() };
-    expect(() => api.emit(PROGRESS_EVENT, payload)).not.toThrow();
-    expect(controller.getState()).toMatchObject({
-      progressApplicationErrorCount: 1,
-    });
-    command.resolve(batchResult([payload.result]));
-    const result = await run;
-    expect(result.progressApplicationErrors).toEqual([
-      {
-        eventName: PROGRESS_EVENT,
-        error: applicationError,
-        rawPayload: payload,
-      },
-    ]);
-    expect(result.application.files[0].draftsChanged).toBe(true);
-    expect(stores.drafts.getMetadataFile(path)).toBeDefined();
-    expect(onProgressApplicationError).toHaveBeenCalledWith(
-      result.progressApplicationErrors[0],
-    );
-  });
-
-  it("rejects malformed final results and releases suppression", async () => {
-    const { api, controller, gate } = harness();
-    api.apply = async () => ({ files: "malformed" });
-    await expect(controller.run("folder", [])).rejects.toThrow(
-      /files must be an array/,
-    );
-    expect(gate.isSuppressed()).toBe(false);
-    expect(controller.getState()).toEqual({ status: "idle" });
-  });
-
-  it("cleans up and releases suppression after final-application failure", async () => {
-    const { api, controller, gate, stores } = harness();
-    const finalError = new Error("final apply failed");
-    vi.spyOn(stores.drafts, "replaceMetadataFiles").mockImplementation(() => {
-      throw finalError;
-    });
-    await expect(controller.run("folder", [path])).rejects.toBe(finalError);
-    expect(api.cleanupSuppression).toEqual([true, true]);
-    expect(gate.isSuppressed()).toBe(false);
-    expect(controller.getState()).toEqual({ status: "idle" });
-  });
-
-  it("releases suppression and ownership when cleanup alone fails", async () => {
-    const { api, controller, gate } = harness();
-    const cleanupError = new Error("cleanup failed");
-    api.cleanupError = cleanupError;
-    await expect(controller.run("folder", [])).rejects.toBe(cleanupError);
-    expect(api.cleanupSuppression).toEqual([true, true]);
-    expect(gate.isSuppressed()).toBe(false);
-    expect(controller.getState()).toEqual({ status: "idle" });
-    api.cleanupError = undefined;
-    await expect(controller.run("folder", [])).resolves.toBeDefined();
-  });
-
-  it("does not mask a primary error with cleanup failure", async () => {
-    const { api, controller, gate } = harness();
-    const primary = new Error("primary");
-    api.apply = async () => {
-      throw primary;
-    };
-    api.cleanupError = new Error("cleanup");
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    await expect(controller.run("folder", [])).rejects.toBe(primary);
-    expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("after an earlier failure"),
-      api.cleanupError,
-    );
-    expect(gate.isSuppressed()).toBe(false);
-    consoleError.mockRestore();
-  });
-
-  it("contains every optional callback failure without corrupting lifecycle", async () => {
-    const callbackError = new Error("callback failed");
-    const callbacks: TargetApplyControllerCallbacks = {
-      onStarted: () => {
-        throw callbackError;
-      },
-      onProgress: () => {
-        throw callbackError;
-      },
-      onProtocolError: () => {
-        throw callbackError;
-      },
-      onProgressApplicationError: () => {
-        throw callbackError;
-      },
-      onFinalApplied: () => {
-        throw callbackError;
-      },
-    };
-    const { api, controller, stores } = harness(callbacks);
-    const command = deferred<unknown>();
-    api.apply = () => command.promise;
-    vi.spyOn(stores.drafts, "replaceMetadataFiles").mockImplementationOnce(
-      () => {
-        throw new Error("supplemental failure");
-      },
-    );
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    expect(() => api.emit(STARTED_EVENT, { total: 1 })).not.toThrow();
-    expect(() => api.emit(PROGRESS_EVENT, { bad: true })).not.toThrow();
-    expect(() =>
-      api.emit(PROGRESS_EVENT, {
-        current: 1,
-        total: 2,
-        result: fileResult(),
-      }),
-    ).not.toThrow();
-    expect(() =>
-      api.emit(PROGRESS_EVENT, {
-        current: 2,
-        total: 2,
-        result: fileResult(),
-      }),
-    ).not.toThrow();
-    command.resolve(batchResult([fileResult()]));
-    await expect(run).resolves.toBeDefined();
-    expect(consoleError.mock.calls.length).toBeGreaterThanOrEqual(5);
-    expect(controller.getState()).toEqual({ status: "idle" });
-    consoleError.mockRestore();
-  });
-});
-
-describe("inactive TargetApplyController cancellation", () => {
-  it("does nothing while idle", async () => {
-    const { api, controller } = harness();
-    await controller.cancel();
-    expect(api.invokeCalls).toEqual([]);
-  });
-
-  it("signals the exact adapter once, shares repeats, and retains suppression until apply settles", async () => {
-    const { api, controller, gate } = harness();
-    const command = deferred<unknown>();
-    const cancellation = deferred<unknown>();
-    api.apply = () => command.promise;
-    api.cancel = () => cancellation.promise;
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    const firstCancel = controller.cancel();
-    const secondCancel = controller.cancel();
-    expect(secondCancel).toBe(firstCancel);
-    expect(controller.getState()).toMatchObject({
-      status: "running",
-      cancelling: true,
-    });
     expect(
-      api.invokeCalls.filter(({ command }) => command === "cancel_apply_edits"),
-    ).toHaveLength(1);
-    expect(gate.isSuppressed()).toBe(true);
-    cancellation.resolve(undefined);
-    await firstCancel;
-    expect(gate.isSuppressed()).toBe(true);
-    expect(controller.cancel()).toBe(firstCancel);
-    command.resolve(batchResult([], { cancelled: true }));
-    await run;
-    expect(controller.getState()).toEqual({ status: "idle" });
-    expect(gate.isSuppressed()).toBe(false);
-  });
-
-  it("propagates cancellation failure while leaving the apply run active", async () => {
-    const { api, controller, gate } = harness();
-    const command = deferred<unknown>();
-    const cancellationError = new Error("cancel failed");
-    api.apply = () => command.promise;
-    api.cancel = async () => {
-      throw cancellationError;
-    };
-    const run = controller.run("folder", [path]);
-    await waitForApply(api);
-    await expect(controller.cancel()).rejects.toBe(cancellationError);
-    expect(controller.getState()).toMatchObject({
-      status: "running",
-      cancelling: false,
-    });
-    expect(gate.isSuppressed()).toBe(true);
-    command.resolve(batchResult([]));
-    await run;
-  });
-});
-
-describe("inactive TargetApplyController generations", () => {
-  it("ignores completed and older-generation events, including malformed payloads", async () => {
-    const onProgress = vi.fn();
-    const onProtocolError = vi.fn();
-    const { api, controller, stores } = harness({
-      onProgress,
-      onProtocolError,
-    });
-    await controller.run("folder", []);
-    onProgress.mockClear();
-    onProtocolError.mockClear();
-    const draftListener = vi.fn();
-    stores.drafts.subscribe(draftListener);
-
-    api.emit(PROGRESS_EVENT, { current: 1, total: 1, result: fileResult() }, 0);
-    expect(draftListener).not.toHaveBeenCalled();
-    expect(onProgress).not.toHaveBeenCalled();
-
-    const nextCommand = deferred<unknown>();
-    api.apply = () => nextCommand.promise;
-    const nextRun = controller.run("folder", []);
-    await waitForApply(api);
-    api.emit(PROGRESS_EVENT, { current: 1, total: 1, result: fileResult() }, 0);
-    api.emit(PROGRESS_EVENT, { malformed: true }, 0);
-    expect(draftListener).not.toHaveBeenCalled();
-    expect(onProgress).not.toHaveBeenCalled();
-    expect(onProtocolError).not.toHaveBeenCalled();
-    expect(controller.getState()).toMatchObject({ protocolErrorCount: 0 });
-    nextCommand.resolve(batchResult([]));
-    await nextRun;
-  });
-
-  it("never sends local generation tokens through Tauri", async () => {
-    const { api, controller } = harness();
-    await controller.run("folder", ["b.jpg", "a.jpg"]);
-    const applyCall = api.invokeCalls.find(
-      ({ command }) => command === "apply_metadata_draft_edits_cmd",
-    );
-    expect(applyCall).toEqual({
-      command: "apply_metadata_draft_edits_cmd",
-      args: { folderPath: "folder", relPaths: ["b.jpg", "a.jpg"] },
-    });
-    expect(
-      Object.values(applyCall!.args!).some(
-        (value) => typeof value === "symbol",
+      api.calls.filter(
+        ({ command }) => command === "apply_metadata_draft_edits_cmd",
       ),
-    ).toBe(false);
+    ).toHaveLength(1);
+    const done = summary(0);
+    sendComplete(api.calls[0].args!, done);
+    command.resolve(terminal(done));
+    await first;
   });
 });

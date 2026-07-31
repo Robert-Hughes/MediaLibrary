@@ -33,6 +33,7 @@ import type {
   SchemaMetadataEdit,
 } from "../types";
 import { useNormaliseMetadata } from "../hooks/useNormaliseMetadata";
+import { _setWritableSchemaDefinitionsCache } from "../hooks/useWritableSchemaDefinitions";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -318,6 +319,21 @@ describe("Metadata-normalisation flow", () => {
   });
 
   it("confirm sends groupInputs + enabledGroups to backend and lands drafts", async () => {
+    mockApiInstance.tagInfos = [
+      {
+        id: {
+          table: "XMP::Lightroom",
+          tag_id: "hierarchicalSubject",
+        },
+        group0: "XMP",
+        group: "XMP-lr",
+        name: "HierarchicalSubject",
+        writable: true,
+        kind: { kind: "Bag", data: { kind: "Text" } },
+        description: null,
+      },
+    ];
+    _setWritableSchemaDefinitionsCache(mockApiInstance.tagInfos);
     mockApiInstance.normaliseSchedule = [
       {
         relativePath: "test.jpg",

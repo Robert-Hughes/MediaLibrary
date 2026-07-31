@@ -1,25 +1,30 @@
 import type {
-  MetadataApplyStartedPayload,
-  MetadataApplyProgressPayload,
-  MetadataApplyResult,
   MetadataApplyFileResult,
+  MetadataApplyResult,
+  MetadataApplyStreamMessage,
+  MetadataApplySummary,
 } from "./types";
 import {
-  applyTargetApplyFileResult,
-  applyTargetApplyResult,
+  applyTargetApplyFileResults,
   type TargetApplyFileApplication,
-  type TargetApplyResultApplication,
   type TargetApplyResultStores,
 } from "./targetApplyResults";
 import {
   applyTargetDraftEdits,
   cancelTargetApply,
-  subscribeTargetApplyEvents,
   type TargetApplyTauriApi,
 } from "./targetApplyTauri";
 import type { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 
-const PROGRESS_EVENT = "apply_metadata_edits_progress";
+const STREAM_EVENT = "metadata_apply_stream";
+const MAX_RETAINED_CONTROLLER_ERRORS = 20;
+const FALLBACK_BATCH_SIZE = 100;
+let nextOperationId = 0;
+
+type ProgressBatchMessage = Extract<
+  MetadataApplyStreamMessage,
+  { kind: "progress_batch" }
+>;
 
 export interface TargetApplyControllerDependencies {
   api: TargetApplyTauriApi;
@@ -29,19 +34,26 @@ export interface TargetApplyControllerDependencies {
 
 export interface TargetApplyControllerProtocolError {
   eventName: string;
+  operationId: string;
   error: Error;
-  rawPayload: unknown;
 }
 
 export interface TargetApplyControllerApplicationError {
   eventName: string;
+  operationId: string;
   error: Error;
-  rawPayload: unknown;
+  relativePaths: string[];
+}
+
+export interface TargetApplyControllerApplication {
+  processed: number;
+  draftsChanged: number;
+  occurrencesChanged: number;
 }
 
 export interface TargetApplyControllerRunResult {
   commandResult: MetadataApplyResult;
-  application: TargetApplyResultApplication;
+  application: TargetApplyControllerApplication;
   protocolErrors: TargetApplyControllerProtocolError[];
   progressApplicationErrors: TargetApplyControllerApplicationError[];
 }
@@ -60,10 +72,10 @@ export type TargetApplyControllerState =
     };
 
 export interface TargetApplyControllerCallbacks {
-  onStarted?: (payload: MetadataApplyStartedPayload) => void;
-  onProgress?: (
-    payload: MetadataApplyProgressPayload,
-    application: TargetApplyFileApplication,
+  onStarted?: (total: number) => void;
+  onProgressBatch?: (
+    payload: ProgressBatchMessage,
+    applications: readonly TargetApplyFileApplication[],
   ) => void;
   onProtocolError?: (error: TargetApplyControllerProtocolError) => void;
   onProgressApplicationError?: (
@@ -73,7 +85,7 @@ export interface TargetApplyControllerCallbacks {
   onFileWarning?: (relativePath: string, warning: string) => void;
   onFinalApplied?: (
     result: MetadataApplyResult,
-    application: TargetApplyResultApplication,
+    application: TargetApplyControllerApplication,
   ) => void;
 }
 
@@ -112,11 +124,30 @@ function cloneState(
   return { ...state };
 }
 
-/**
- * Sole production coordinator for the complete frontend target-aware apply
- * protocol. Versioned backend events carry no operation ID, so callers must
- * share one controller instance.
- */
+function summariesEqual(
+  left: MetadataApplySummary,
+  right: MetadataApplySummary,
+): boolean {
+  return (
+    left.requested === right.requested &&
+    left.selected === right.selected &&
+    left.completed === right.completed &&
+    left.applied === right.applied &&
+    left.failed === right.failed &&
+    left.warning_count === right.warning_count &&
+    left.cancelled === right.cancelled &&
+    left.aborted === right.aborted &&
+    left.abort_reason === right.abort_reason &&
+    left.delivery_failure_count === right.delivery_failure_count
+  );
+}
+
+function pushBounded<T>(values: T[], value: T): void {
+  if (values.length === MAX_RETAINED_CONTROLLER_ERRORS) values.shift();
+  values.push(value);
+}
+
+/** Sole frontend owner of the command-scoped target-aware Apply stream. */
 export class TargetApplyController {
   private state: TargetApplyControllerState = { status: "idle" };
   private readonly listeners = new Set<
@@ -146,30 +177,116 @@ export class TargetApplyController {
 
   async run(
     folderPath: string,
-    relativePaths: string[],
+    relativePaths?: readonly string[],
   ): Promise<TargetApplyControllerRunResult> {
     if (this.activeRunToken !== null) {
       throw new TargetApplyControllerBusyError();
     }
 
     const runToken = Symbol("target-apply-controller-run");
+    const operationId = `target-apply-${++nextOperationId}`;
     this.activeRunToken = runToken;
     const protocolErrors: TargetApplyControllerProtocolError[] = [];
     const progressApplicationErrors: TargetApplyControllerApplicationError[] =
       [];
-    const progressFailedFiles = new Set<string>();
-    const presentedFileErrors = new Set<string>();
-    const presentedFileWarnings = new Set<string>();
-    let acceptEvents = true;
-    let acceptProgress = true;
+    let acceptMessages = true;
     let suspension: ReturnType<TargetDraftAutosaveGate["trySuspend"]> | null =
       null;
-    let cleanup: (() => void) | null = null;
-    let primaryError: unknown;
-    let cleanupError: unknown;
-    let hasPrimaryError = false;
-    let hasCleanupError = false;
-    let completed: TargetApplyControllerRunResult | undefined;
+    let lastSequence = 0;
+    let streamCurrent = 0;
+    let streamTotal: number | null = null;
+    let streamSummary: MetadataApplySummary | null = null;
+    let fileFailureCount = 0;
+    let retry: {
+      message: ProgressBatchMessage;
+      results: MetadataApplyFileResult[];
+    } | null = null;
+    const application: TargetApplyControllerApplication = {
+      processed: 0,
+      draftsChanged: 0,
+      occurrencesChanged: 0,
+    };
+
+    const recordProtocolError = (error: unknown) => {
+      const record: TargetApplyControllerProtocolError = {
+        eventName: STREAM_EVENT,
+        operationId,
+        error: asError(error),
+      };
+      pushBounded(protocolErrors, record);
+      this.updateRunningState({ protocolErrorCount: protocolErrors.length });
+      this.callSafely("onProtocolError", () =>
+        this.callbacks.onProtocolError?.(record),
+      );
+    };
+
+    const recordApplicationError = (
+      error: unknown,
+      results: readonly MetadataApplyFileResult[],
+    ) => {
+      const record: TargetApplyControllerApplicationError = {
+        eventName: STREAM_EVENT,
+        operationId,
+        error: asError(error),
+        relativePaths: results.map((result) => result.relative_path),
+      };
+      pushBounded(progressApplicationErrors, record);
+      this.updateRunningState({
+        progressApplicationErrorCount: progressApplicationErrors.length,
+      });
+      this.callSafely("onProgressApplicationError", () =>
+        this.callbacks.onProgressApplicationError?.(record),
+      );
+    };
+
+    const presentDiagnostics = (
+      results: readonly MetadataApplyFileResult[],
+    ) => {
+      for (const result of results) {
+        if (result.error !== null) {
+          this.callSafely("onFileError", () =>
+            this.callbacks.onFileError?.(result.relative_path, result.error!),
+          );
+        }
+        if (result.warning !== null) {
+          this.callSafely("onFileWarning", () =>
+            this.callbacks.onFileWarning?.(
+              result.relative_path,
+              result.warning!,
+            ),
+          );
+        }
+      }
+    };
+
+    const applyBatch = (
+      message: ProgressBatchMessage,
+      results: MetadataApplyFileResult[],
+      allowRetry: boolean,
+    ): boolean => {
+      presentDiagnostics(results);
+      let applications: TargetApplyFileApplication[];
+      try {
+        applications = applyTargetApplyFileResults(
+          results,
+          this.dependencies.stores,
+        );
+      } catch (error) {
+        recordApplicationError(error, results);
+        if (allowRetry && retry === null) retry = { message, results };
+        return false;
+      }
+      application.draftsChanged += applications.filter(
+        (item) => item.draftsChanged,
+      ).length;
+      application.occurrencesChanged += applications.filter(
+        (item) => item.occurrencesChanged,
+      ).length;
+      this.callSafely("onProgressBatch", () =>
+        this.callbacks.onProgressBatch?.(message, applications),
+      );
+      return true;
+    };
 
     try {
       suspension = this.dependencies.autosaveGate.trySuspend();
@@ -184,140 +301,161 @@ export class TargetApplyController {
         fileFailureCount: 0,
       });
 
-      cleanup = await subscribeTargetApplyEvents(this.dependencies.api, {
-        onStarted: (payload) => {
-          if (!this.isAccepting(runToken, acceptEvents)) return;
-          this.updateRunningState({
-            total: payload.total,
-            current: 0,
-            currentFile: null,
-          });
-          this.callSafely("onStarted", () =>
-            this.callbacks.onStarted?.(payload),
-          );
-        },
-        onProgress: (payload) => {
-          if (!this.isAccepting(runToken, acceptEvents) || !acceptProgress) {
-            return;
-          }
-          if (payload.result.error !== null) {
-            progressFailedFiles.add(payload.result.relative_path);
-          }
-          this.updateRunningState({
-            current: payload.current,
-            total: payload.total,
-            currentFile: payload.result.relative_path,
-            fileFailureCount: progressFailedFiles.size,
-          });
-          this.presentFileDiagnostics(
-            payload.result,
-            presentedFileErrors,
-            presentedFileWarnings,
-          );
-
-          let application: TargetApplyFileApplication;
-          try {
-            application = applyTargetApplyFileResult(
-              payload.result,
-              this.dependencies.stores,
-            );
-          } catch (error) {
-            const record: TargetApplyControllerApplicationError = {
-              eventName: PROGRESS_EVENT,
-              error: asError(error),
-              rawPayload: payload,
-            };
-            progressApplicationErrors.push(record);
-            this.updateRunningState({
-              progressApplicationErrorCount: progressApplicationErrors.length,
-            });
-            this.callSafely("onProgressApplicationError", () =>
-              this.callbacks.onProgressApplicationError?.(record),
-            );
-            return;
-          }
-
-          this.callSafely("onProgress", () =>
-            this.callbacks.onProgress?.(payload, application),
-          );
-        },
-        onProtocolError: (error, eventName, rawPayload) => {
-          if (!this.isAccepting(runToken, acceptEvents)) return;
-          const record: TargetApplyControllerProtocolError = {
-            eventName,
-            error,
-            rawPayload,
-          };
-          protocolErrors.push(record);
-          this.updateRunningState({
-            protocolErrorCount: protocolErrors.length,
-          });
-          this.callSafely("onProtocolError", () =>
-            this.callbacks.onProtocolError?.(record),
-          );
-        },
-      });
-
       const commandResult = await applyTargetDraftEdits(
         this.dependencies.api,
         folderPath,
         relativePaths,
+        operationId,
+        {
+          onMessage: (message) => {
+            if (!this.isAccepting(runToken, acceptMessages)) return;
+            if (message.kind === "started") {
+              if (streamTotal !== null) {
+                recordProtocolError(
+                  new Error("Duplicate Apply started message"),
+                );
+                return;
+              }
+              streamTotal = message.total;
+              this.updateRunningState({
+                total: message.total,
+                current: 0,
+                currentFile: null,
+              });
+              this.callSafely("onStarted", () =>
+                this.callbacks.onStarted?.(message.total),
+              );
+              return;
+            }
+
+            if (message.kind === "complete") {
+              streamSummary = message.summary;
+              return;
+            }
+
+            if (streamTotal === null) {
+              recordProtocolError(
+                new Error("Apply progress arrived before the started message"),
+              );
+              return;
+            }
+            if (message.total !== streamTotal) {
+              recordProtocolError(new Error("Apply progress total changed"));
+              return;
+            }
+            if (message.sequence !== lastSequence + 1) {
+              recordProtocolError(
+                new Error("Apply progress sequence is not contiguous"),
+              );
+              return;
+            }
+            if (message.current !== streamCurrent + message.results.length) {
+              recordProtocolError(
+                new Error("Apply progress current is not contiguous"),
+              );
+              return;
+            }
+
+            lastSequence = message.sequence;
+            streamCurrent = message.current;
+            fileFailureCount += message.results.filter(
+              (result) => result.error !== null,
+            ).length;
+            applyBatch(message, message.results, true);
+            this.updateRunningState({
+              current: message.current,
+              total: message.total,
+              currentFile:
+                message.results[message.results.length - 1]?.relative_path ??
+                null,
+              fileFailureCount,
+            });
+          },
+          onProtocolError: recordProtocolError,
+          onMessageError: (error) => recordApplicationError(error, []),
+        },
       );
-      acceptProgress = false;
-      acceptEvents = false;
-      for (const file of commandResult.files) {
-        if (file.error !== null) progressFailedFiles.add(file.relative_path);
-        this.presentFileDiagnostics(
-          file,
-          presentedFileErrors,
-          presentedFileWarnings,
+
+      acceptMessages = false;
+      if (
+        streamSummary !== null &&
+        !summariesEqual(streamSummary, commandResult.summary)
+      ) {
+        recordProtocolError(
+          new Error("Stream completion summary differs from command result"),
         );
       }
-      this.updateRunningState({ fileFailureCount: progressFailedFiles.size });
-      const application = applyTargetApplyResult(
-        commandResult,
-        this.dependencies.stores,
-      );
+      if (
+        streamCurrent + commandResult.summary.delivery_failure_count !==
+        commandResult.summary.completed
+      ) {
+        recordProtocolError(
+          new Error(
+            "Stream and undelivered counts do not cover completed files",
+          ),
+        );
+      }
+
+      for (
+        let offset = 0;
+        offset < commandResult.undelivered_files.length;
+        offset += FALLBACK_BATCH_SIZE
+      ) {
+        const results = commandResult.undelivered_files.slice(
+          offset,
+          offset + FALLBACK_BATCH_SIZE,
+        );
+        fileFailureCount += results.filter(
+          (result) => result.error !== null,
+        ).length;
+        const fallbackMessage: ProgressBatchMessage = {
+          kind: "progress_batch",
+          operation_id: operationId,
+          sequence: ++lastSequence,
+          current: Math.min(
+            commandResult.summary.completed,
+            streamCurrent + offset + results.length,
+          ),
+          total: commandResult.summary.selected,
+          results,
+        };
+        applyBatch(fallbackMessage, results, true);
+      }
+      commandResult.undelivered_files.length = 0;
+
+      const pendingRetry = retry as {
+        message: ProgressBatchMessage;
+        results: MetadataApplyFileResult[];
+      } | null;
+      if (pendingRetry !== null) {
+        const pending = pendingRetry;
+        retry = null;
+        applyBatch(pending.message, pending.results, false);
+      }
+
+      application.processed = commandResult.summary.completed;
+      this.updateRunningState({
+        current: commandResult.summary.completed,
+        total: commandResult.summary.selected,
+        fileFailureCount: commandResult.summary.failed,
+      });
       this.callSafely("onFinalApplied", () =>
         this.callbacks.onFinalApplied?.(commandResult, application),
       );
-      completed = {
+      return {
         commandResult,
         application,
         protocolErrors,
         progressApplicationErrors,
       };
-    } catch (error) {
-      primaryError = error;
-      hasPrimaryError = true;
-      acceptProgress = false;
-      acceptEvents = false;
     } finally {
-      if (cleanup !== null) {
-        try {
-          cleanup();
-        } catch (error) {
-          cleanupError = error;
-          hasCleanupError = true;
-        }
-      }
+      acceptMessages = false;
+      retry = null;
       suspension?.release();
       if (this.activeRunToken === runToken) this.activeRunToken = null;
       this.cancellationRequest = null;
       this.setState({ status: "idle" });
     }
-
-    if (hasPrimaryError) {
-      if (hasCleanupError) {
-        console.error(
-          "[metadata] Failed to clean up target-aware apply listeners after an earlier failure",
-          cleanupError,
-        );
-      }
-      throw primaryError;
-    }
-    if (hasCleanupError) throw cleanupError;
-    return completed!;
   }
 
   cancel(): Promise<void> {
@@ -341,8 +479,8 @@ export class TargetApplyController {
     return request;
   }
 
-  private isAccepting(runToken: symbol, acceptEvents: boolean): boolean {
-    return acceptEvents && this.activeRunToken === runToken;
+  private isAccepting(runToken: symbol, acceptMessages: boolean): boolean {
+    return acceptMessages && this.activeRunToken === runToken;
   }
 
   private updateRunningState(
@@ -377,35 +515,6 @@ export class TargetApplyController {
         `[metadata] Target-aware apply callback ${name} failed`,
         error,
       );
-    }
-  }
-
-  private presentFileDiagnostics(
-    result: Pick<
-      MetadataApplyFileResult,
-      "relative_path" | "error" | "warning"
-    >,
-    presentedErrors: Set<string>,
-    presentedWarnings: Set<string>,
-  ): void {
-    const relativePath = result.relative_path;
-    if (result.error !== null) {
-      const key = `${relativePath}\u0000${result.error}`;
-      if (!presentedErrors.has(key)) {
-        presentedErrors.add(key);
-        this.callSafely("onFileError", () =>
-          this.callbacks.onFileError?.(relativePath, result.error!),
-        );
-      }
-    }
-    if (result.warning !== null) {
-      const key = `${relativePath}\u0000${result.warning}`;
-      if (!presentedWarnings.has(key)) {
-        presentedWarnings.add(key);
-        this.callSafely("onFileWarning", () =>
-          this.callbacks.onFileWarning?.(relativePath, result.warning!),
-        );
-      }
     }
   }
 }

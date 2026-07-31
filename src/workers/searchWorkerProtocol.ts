@@ -59,9 +59,26 @@ export type SearchWorkerInbound =
       schemaLabels: SearchSchemaLabel[];
     }
   | {
+      type: "UPSERT_OCCURRENCES_BATCH";
+      entries: Array<{
+        path: string;
+        occurrences: SearchOccurrencesState;
+      }>;
+      deletedPaths: string[];
+      schemaLabels: SearchSchemaLabel[];
+    }
+  | {
       type: "UPSERT_DRAFTS";
       path: string;
       edits: SearchDraftEntry[] | undefined;
+      schemaLabels: SearchSchemaLabel[];
+    }
+  | {
+      type: "UPSERT_DRAFTS_BATCH";
+      entries: Array<{
+        path: string;
+        edits: SearchDraftEntry[] | undefined;
+      }>;
       schemaLabels: SearchSchemaLabel[];
     }
   | { type: "DELETE_PATH"; path: string }

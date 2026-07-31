@@ -1,199 +1,130 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
-import type {
-  FileMetadata,
-  MetadataApplyFileResult,
-  MetadataOccurrence,
-  SchemaDefinitionId,
-  TagInfo,
-} from "../types";
-import { normalizeMetadataOccurrencesFromTauri } from "../utils/scanEvents";
+import { describe, expect, it } from "vitest";
+import type { MetadataApplyFileResult } from "../types";
 import {
-  isFileMetadata,
-  isMetadataOccurrence,
-  isTagInfo,
-} from "../utils/metadataWireGuards";
-import {
-  targetApplyFileResultFromUnknown,
-  targetApplyProgressFromUnknown,
   targetApplyResultFromUnknown,
-  targetApplyStartedFromUnknown,
+  targetApplyStreamMessageFromUnknown,
+  targetApplySummaryFromUnknown,
 } from "../utils/targetApplyWire";
 
-const schema = (index?: number): SchemaDefinitionId => ({
-  table: "Exif::Main",
-  tag_id: "282",
-  ...(index === undefined ? {} : { index }),
-});
+function fileResult(relativePath = "file.jpg"): MetadataApplyFileResult {
+  return {
+    relative_path: relativePath,
+    applied: true,
+    error: null,
+    warning: null,
+    fresh_file_metadata: {
+      relative_path: relativePath,
+      occurrences: [],
+    },
+    target_outcomes: [],
+    persisted_draft_entries: [],
+  };
+}
 
-const tagInfo = (): TagInfo => ({
-  id: schema(),
-  group: "IFD0",
-  name: "XResolution",
-  writable: true,
-  kind: { kind: "Rational" },
-  description: "Horizontal resolution",
-  storage_count: "1",
-});
+function summary(overrides: Record<string, unknown> = {}) {
+  return {
+    requested: 1,
+    selected: 1,
+    completed: 1,
+    applied: 1,
+    failed: 0,
+    warning_count: 0,
+    cancelled: false,
+    aborted: false,
+    abort_reason: null,
+    delivery_failure_count: 0,
+    ...overrides,
+  };
+}
 
-const occurrence = (
-  path = "JPEG-APP1-IFD0",
-  value = 300,
-): MetadataOccurrence => ({
-  id: {
-    document: null,
-    path,
-    runtime_tag_id: "282",
-    tag_id_scope: { table: "Exif::Main", tag_id: "282", index: null },
-    copy: 0,
-  },
-  schema_id: schema(),
-  value: { kind: "Rational", value: { numerator: value, denominator: 1 } },
-  tag_info: tagInfo(),
-  observed_selector: {
-    group1: "IFD0",
-    group7: "ID-Test",
-    tag_name: "XResolution",
-  },
-  write_target: { group1: "IFD0", group7: "ID-Test", tag_name: "XResolution" },
-});
-
-const fileMetadata = (
-  occurrences: MetadataOccurrence[] = [occurrence()],
-  relativePath = "file.jpg",
-): FileMetadata => ({
-  relative_path: relativePath,
-  occurrences,
-});
-
-const fileResult = (relativePath = "file.jpg"): MetadataApplyFileResult => ({
-  relative_path: relativePath,
-  applied: true,
-  error: null,
-  warning: null,
-  fresh_file_metadata: fileMetadata([occurrence()], relativePath),
-  target_outcomes: [],
-  persisted_draft_entries: null,
-});
-
-describe("occurrence-only scanner wire guards", () => {
-  it("accepts valid TagInfo and occurrence values", () => {
-    expect(isTagInfo(tagInfo())).toBe(true);
-    expect(isMetadataOccurrence(occurrence())).toBe(true);
-    expect(
-      isMetadataOccurrence({
-        ...occurrence(),
-        id: { ...occurrence().id, copy: -1 },
-      }),
-    ).toBe(false);
-  });
-
-  it("requires exactly relative_path and occurrences", () => {
-    expect(isFileMetadata(fileMetadata())).toBe(true);
-    expect(isFileMetadata({ ...fileMetadata(), metadata: [] })).toBe(false);
-    expect(isFileMetadata({ relative_path: "file.jpg" })).toBe(false);
-    expect(isFileMetadata({ relative_path: "", occurrences: [] })).toBe(false);
-  });
-
-  it("allows same-schema occurrences but rejects duplicate occurrence IDs", () => {
-    const ifd0 = occurrence("JPEG-APP1-IFD0", 300);
-    const ifd1 = occurrence("JPEG-APP1-IFD1", 72);
-    expect(isFileMetadata(fileMetadata([ifd0, ifd1]))).toBe(true);
-    expect(isFileMetadata(fileMetadata([ifd0, structuredClone(ifd0)]))).toBe(
-      false,
-    );
-  });
-
-  it("normalises occurrence batches by dropping malformed and duplicate IDs", () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const later = { ...occurrence(), id: { ...occurrence().id, copy: 1 } };
-    const normalized = normalizeMetadataOccurrencesFromTauri([
-      later,
-      occurrence(),
-      structuredClone(occurrence()),
-      { bad: true },
-    ]);
-    expect(normalized.map((item) => item.id.copy)).toEqual([0, 1]);
-    expect(warn).toHaveBeenCalledWith(
-      "[metadata] Dropped 2 invalid occurrence value(s)",
-    );
-  });
-});
-
-describe("target-aware apply wire", () => {
-  it("accepts occurrence-only fresh metadata", () => {
-    expect(targetApplyFileResultFromUnknown(fileResult())).toEqual(
-      fileResult(),
-    );
-  });
-
-  it("rejects the removed metadata field inside fresh_file_metadata", () => {
-    const raw = structuredClone(fileResult()) as unknown as {
-      fresh_file_metadata: Record<string, unknown>;
-    };
-    raw.fresh_file_metadata.metadata = [];
-    expect(() => targetApplyFileResultFromUnknown(raw)).toThrow(
-      /fresh_file_metadata must be null or complete valid FileMetadata/,
-    );
-  });
-
-  it("rejects fresh path mismatch and duplicate occurrence IDs", () => {
+describe("target-aware apply compact wire", () => {
+  it("parses compact summaries and enforces count invariants", () => {
+    expect(targetApplySummaryFromUnknown(summary())).toEqual(summary());
     expect(() =>
-      targetApplyFileResultFromUnknown({
-        ...fileResult(),
-        fresh_file_metadata: fileMetadata([occurrence()], "other.jpg"),
-      }),
-    ).toThrow(/does not match result path/);
+      targetApplySummaryFromUnknown(summary({ applied: 0 })),
+    ).toThrow(/applied plus failed/i);
     expect(() =>
-      targetApplyFileResultFromUnknown({
-        ...fileResult(),
-        fresh_file_metadata: fileMetadata([
-          occurrence(),
-          structuredClone(occurrence()),
-        ]),
-      }),
-    ).toThrow(/duplicate occurrence ID/);
+      targetApplySummaryFromUnknown(
+        summary({ cancelled: true, aborted: true }),
+      ),
+    ).toThrow(/cannot both/i);
   });
 
-  it("preserves result, progress and started outer contracts", () => {
+  it("parses compact terminal results without a complete file collection", () => {
     expect(
       targetApplyResultFromUnknown({
-        files: [fileResult()],
-        cancelled: false,
-        aborted: false,
-        abort_reason: null,
+        summary: summary(),
+        undelivered_files: [],
+        complete_delivery_failed: false,
       }),
     ).toEqual({
-      files: [fileResult()],
-      cancelled: false,
-      aborted: false,
-      abort_reason: null,
+      summary: summary(),
+      undelivered_files: [],
+      complete_delivery_failed: false,
     });
-    expect(
-      targetApplyProgressFromUnknown({
-        current: 1,
-        total: 1,
-        result: fileResult(),
-      }),
-    ).toEqual({ current: 1, total: 1, result: fileResult() });
-    expect(targetApplyStartedFromUnknown({ total: 2 })).toEqual({ total: 2 });
-  });
-
-  it("rejects invalid outer result and progress invariants", () => {
     expect(() =>
       targetApplyResultFromUnknown({
-        files: [fileResult(), fileResult()],
-        cancelled: false,
-        aborted: false,
-        abort_reason: null,
+        summary: summary({ delivery_failure_count: 1 }),
+        undelivered_files: [],
+        complete_delivery_failed: false,
       }),
-    ).toThrow(/duplicate file relative_path/);
+    ).toThrow(/length must equal/i);
+  });
+
+  it("parses one bounded progress batch", () => {
+    const result = fileResult();
+    expect(
+      targetApplyStreamMessageFromUnknown(
+        {
+          kind: "progress_batch",
+          operation_id: "current",
+          sequence: 1,
+          current: 1,
+          total: 1,
+          results: [result],
+        },
+        "current",
+      ),
+    ).toEqual({
+      kind: "progress_batch",
+      operation_id: "current",
+      sequence: 1,
+      current: 1,
+      total: 1,
+      results: [result],
+    });
+  });
+
+  it("rejects stale operations before inspecting heavyweight results", () => {
+    expect(
+      targetApplyStreamMessageFromUnknown(
+        {
+          kind: "progress_batch",
+          operation_id: "old",
+          sequence: "malformed",
+          current: 0,
+          total: 0,
+          results: [{ deeply: "invalid" }],
+        },
+        "current",
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects malformed current-operation progress atomically", () => {
     expect(() =>
-      targetApplyProgressFromUnknown({
-        current: 2,
-        total: 1,
-        result: fileResult(),
-      }),
-    ).toThrow(/current cannot exceed total/);
+      targetApplyStreamMessageFromUnknown(
+        {
+          kind: "progress_batch",
+          operation_id: "current",
+          sequence: 1,
+          current: 1,
+          total: 1,
+          results: [{ ...fileResult(), fresh_file_metadata: { bad: true } }],
+        },
+        "current",
+      ),
+    ).toThrow(/fresh_file_metadata/i);
   });
 });
