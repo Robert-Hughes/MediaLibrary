@@ -6,7 +6,7 @@ import {
   pruneTargetVerifyOutcomesAgainstDrafts,
   removeTargetVerifyOutcome,
   removeTargetVerifyOutcomesForFile,
-  replaceTargetVerifyOutcomesForFile,
+  replaceTargetVerifyOutcomesForFiles,
   type TargetVerifyOutcome,
   type TargetVerifyOutcomesByFile,
 } from "./targetVerifyOutcomes";
@@ -31,9 +31,24 @@ export class TargetVerifyOutcomesStore {
   }
 
   replaceFile(path: string, outcomes: readonly TargetVerifyOutcome[]): boolean {
-    return this.install(
-      replaceTargetVerifyOutcomesForFile(this.snapshot, path, outcomes),
+    return this.replaceFiles([{ path, outcomes }]).length > 0;
+  }
+
+  replaceFiles(
+    replacements: readonly {
+      path: string;
+      outcomes: readonly TargetVerifyOutcome[];
+    }[],
+  ): string[] {
+    const { next, changedPaths } = replaceTargetVerifyOutcomesForFiles(
+      this.snapshot,
+      replacements.map(({ path, outcomes }) => ({
+        relativePath: path,
+        outcomes,
+      })),
     );
+    this.install(next);
+    return changedPaths;
   }
 
   deleteOutcome(path: string, target: MetadataDraftTarget): boolean {

@@ -174,6 +174,40 @@ export class FileMetadataOccurrencesStore {
     this.globalSubscribers.forEach((callback) => callback(path, value));
   }
 
+  /** Install a bounded apply chunk while notifying each affected path once. */
+  setMany(
+    entries: readonly {
+      path: string;
+      value: FileMetadataOccurrencesState;
+    }[],
+  ): string[] {
+    const seen = new Set<string>();
+    const changed: Array<{
+      path: string;
+      value: FileMetadataOccurrencesState;
+    }> = [];
+    for (const entry of entries) {
+      if (seen.has(entry.path)) {
+        throw new Error(
+          `Duplicate metadata occurrence replacement path '${entry.path}'`,
+        );
+      }
+      seen.add(entry.path);
+      if (!this.data.has(entry.path)) continue;
+      if (Object.is(this.data.get(entry.path), entry.value)) continue;
+      changed.push(entry);
+    }
+    for (const { path, value } of changed) {
+      if (value !== "failed") this.failures.delete(path);
+      this.data.set(path, value);
+    }
+    for (const { path, value } of changed) {
+      this.subscribers.get(path)?.forEach((callback) => callback());
+      this.globalSubscribers.forEach((callback) => callback(path, value));
+    }
+    return changed.map(({ path }) => path);
+  }
+
   setFailed(path: string, error: string): void {
     if (!this.data.has(path)) return;
     const changed =

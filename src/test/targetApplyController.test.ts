@@ -586,7 +586,7 @@ describe("inactive TargetApplyController errors", () => {
     const command = deferred<unknown>();
     api.apply = () => command.promise;
     const applicationError = new Error("local apply failed");
-    vi.spyOn(stores.drafts, "replaceMetadataFile").mockImplementationOnce(
+    vi.spyOn(stores.drafts, "replaceMetadataFiles").mockImplementationOnce(
       () => {
         throw applicationError;
       },
@@ -627,7 +627,7 @@ describe("inactive TargetApplyController errors", () => {
   it("cleans up and releases suppression after final-application failure", async () => {
     const { api, controller, gate, stores } = harness();
     const finalError = new Error("final apply failed");
-    vi.spyOn(stores.drafts, "replaceMetadataFile").mockImplementation(() => {
+    vi.spyOn(stores.drafts, "replaceMetadataFiles").mockImplementation(() => {
       throw finalError;
     });
     await expect(controller.run("folder", [path])).rejects.toBe(finalError);
@@ -689,7 +689,7 @@ describe("inactive TargetApplyController errors", () => {
     const { api, controller, stores } = harness(callbacks);
     const command = deferred<unknown>();
     api.apply = () => command.promise;
-    vi.spyOn(stores.drafts, "replaceMetadataFile").mockImplementationOnce(
+    vi.spyOn(stores.drafts, "replaceMetadataFiles").mockImplementationOnce(
       () => {
         throw new Error("supplemental failure");
       },
