@@ -98,8 +98,20 @@ export class ThumbnailStore {
   }
 
   set(path: string, value: ThumbnailState) {
+    if (!this.data.has(path)) return;
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
+  }
+
+  has(path: string): boolean {
+    return this.data.has(path);
+  }
+
+  deletePaths(paths: readonly string[]): void {
+    for (const path of new Set(paths)) {
+      if (!this.data.delete(path)) continue;
+      this.subscribers.get(path)?.forEach((callback) => callback());
+    }
   }
 
   get(path: string): ThumbnailState {
@@ -137,7 +149,7 @@ export type FileMetadataOccurrencesState =
   "loading" | "failed" | MetadataOccurrences;
 export type FileMetadataOccurrencesListener = (
   path: string,
-  value: FileMetadataOccurrencesState,
+  value: FileMetadataOccurrencesState | undefined,
 ) => void;
 
 /** Observable authoritative occurrence collection keyed by file-relative path. */
@@ -154,6 +166,7 @@ export class FileMetadataOccurrencesStore {
   }
 
   set(path: string, value: FileMetadataOccurrencesState): void {
+    if (!this.data.has(path)) return;
     if (Object.is(this.data.get(path), value)) return;
     if (value !== "failed") this.failures.delete(path);
     this.data.set(path, value);
@@ -162,6 +175,7 @@ export class FileMetadataOccurrencesStore {
   }
 
   setFailed(path: string, error: string): void {
+    if (!this.data.has(path)) return;
     const changed =
       this.data.get(path) !== "failed" || this.failures.get(path) !== error;
     if (!changed) return;
@@ -173,6 +187,20 @@ export class FileMetadataOccurrencesStore {
 
   getFailure(path: string): string | undefined {
     return this.failures.get(path);
+  }
+
+  has(path: string): boolean {
+    return this.data.has(path);
+  }
+
+  deletePaths(paths: readonly string[]): void {
+    for (const path of new Set(paths)) {
+      const existed = this.data.delete(path);
+      this.failures.delete(path);
+      if (!existed) continue;
+      this.subscribers.get(path)?.forEach((callback) => callback());
+      this.globalSubscribers.forEach((callback) => callback(path, undefined));
+    }
   }
 
   /** Mark a file's occurrence collection unavailable without claiming it is empty. */
@@ -251,6 +279,12 @@ export class MetadataProgressStore {
 
   incrementReceived(count: number = 1) {
     this.receivedCount += count;
+    this.notifySubscribers();
+  }
+
+  removeFile(wasReceived: boolean): void {
+    if (this.totalFiles > 0) this.totalFiles -= 1;
+    if (wasReceived && this.receivedCount > 0) this.receivedCount -= 1;
     this.notifySubscribers();
   }
 
@@ -736,6 +770,16 @@ export interface FileMetadataReadyPayload {
 export interface ThumbnailReadyPayload {
   scan_id: number;
   results: { relative_path: string; thumbnail: string | null }[];
+}
+
+export interface RecycleFileResult {
+  relative_path: string;
+  recycled: boolean;
+  error: string | null;
+}
+
+export interface RecycleFilesResult {
+  results: RecycleFileResult[];
 }
 
 export interface ScanErrorPayload {

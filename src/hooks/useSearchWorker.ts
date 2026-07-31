@@ -328,6 +328,11 @@ export function useSearchWorker(
       (path, occurrences) => {
         const revision = (occurrenceRevisionsRef.current.get(path) ?? 0) + 1;
         occurrenceRevisionsRef.current.set(path, revision);
+        if (occurrences === undefined) {
+          w.postMessage({ type: "DELETE_PATH", path });
+          submitNow(queryRef.current);
+          return;
+        }
         const searchOccurrences = toSearchOccurrencesState(occurrences);
         const ids = idsFromOccurrences(searchOccurrences);
         void resolveTagInfosExact(ids)

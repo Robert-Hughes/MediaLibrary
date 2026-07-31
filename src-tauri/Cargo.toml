@@ -46,6 +46,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "serd
 regex = "1"
 async-trait = "0.1"
 tempfile = "3.0"
+trash = "5.2"
 
 
 [dev-dependencies]
@@ -65,4 +66,3 @@ strip = "debuginfo"
 
 [profile.dev]
 debug = 1
-

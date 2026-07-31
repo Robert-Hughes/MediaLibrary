@@ -15,6 +15,7 @@ describe("FileMetadataOccurrencesStore", () => {
 
   it("sets and looks up exact paths, with empty arrays representing completion", () => {
     const store = new FileMetadataOccurrencesStore();
+    store.add("folder/a.jpg");
     store.set("folder/a.jpg", []);
     expect(store.get("folder/a.jpg")).toEqual([]);
     expect(store.get("a.jpg")).toBe("loading");
@@ -27,6 +28,8 @@ describe("FileMetadataOccurrencesStore", () => {
     const b = vi.fn();
     const unsubscribe = store.subscribe("a.jpg", a);
     store.subscribe("b.jpg", b);
+    store.add("a.jpg");
+    store.add("b.jpg");
     store.set("a.jpg", []);
     expect(a).toHaveBeenCalledTimes(1);
     expect(b).not.toHaveBeenCalled();
@@ -38,6 +41,7 @@ describe("FileMetadataOccurrencesStore", () => {
   it("invalidates a loaded path without asserting an empty occurrence collection", () => {
     const store = new FileMetadataOccurrencesStore();
     const listener = vi.fn();
+    store.add("a.jpg");
     store.set("a.jpg", []);
     store.subscribe("a.jpg", listener);
     store.invalidate("a.jpg");
@@ -49,6 +53,7 @@ describe("FileMetadataOccurrencesStore", () => {
 
   it("a replacement scan can use a fresh independent store", () => {
     const oldStore = new FileMetadataOccurrencesStore();
+    oldStore.add("old.jpg");
     oldStore.set("old.jpg", []);
     const replacement = new FileMetadataOccurrencesStore();
     expect(replacement).not.toBe(oldStore);

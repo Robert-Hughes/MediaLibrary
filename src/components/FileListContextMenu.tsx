@@ -14,6 +14,7 @@ import {
   confirmApplyEdits,
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
+import { confirmRecycleFiles } from "../utils/recyclePrompts";
 
 interface Props {
   x: number;
@@ -33,6 +34,7 @@ interface Props {
   onNormalise?: (relativePaths: string[]) => void;
   onApplyEdits?: (relativePaths: string[]) => void;
   onDiscardAllEdits?: (relativePaths: string[]) => void;
+  onRecycleFiles?: (relativePaths: string[]) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -54,6 +56,7 @@ export function FileListContextMenu({
   onNormalise,
   onApplyEdits,
   onDiscardAllEdits,
+  onRecycleFiles,
   onClose,
 }: Props) {
   const indices = Array.from(selectedIndices).sort((a, b) => a - b);
@@ -243,6 +246,27 @@ export function FileListContextMenu({
                     preposition: "across",
                   });
                   if (confirmed) onDiscardAllEdits(editablePaths);
+                },
+              },
+            ]
+          : []),
+        ...(onRecycleFiles && selectedPaths.length > 0
+          ? [
+              {
+                label:
+                  count > 1
+                    ? `Move to Recycle Bin… (${count} ${noun})`
+                    : "Move to Recycle Bin…",
+                onClick: async () => {
+                  const confirmed = await confirmRecycleFiles({
+                    fileCount: count,
+                    singleFilename: selectedFiles[0]?.filename,
+                    draftFileCount: editablePaths.length,
+                    editCount: totalEdits,
+                  });
+                  if (!confirmed) return;
+                  onClose();
+                  await onRecycleFiles(selectedPaths);
                 },
               },
             ]

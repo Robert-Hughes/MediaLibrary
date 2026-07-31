@@ -59,6 +59,7 @@ export interface MockTauriApi {
   // Models the sole target-aware draft persistence file.
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
   emitFileFound: (file: FileInfo, scanId?: number) => void;
+  foundPaths: Set<string>;
   emitScanComplete: (scanId?: number) => void;
   emitFileMetadataReady: (
     relativePath: string,
@@ -81,6 +82,8 @@ export interface MockTauriApi {
   invalidateMetadataOccurrences: (relativePath: string) => void;
   lastPrioritizedPaths: string[];
   lastWindowTitle: string | null;
+  lastRecycleArgs: { folder: string; relativePaths: string[] } | null;
+  recycleFailuresByPath: Record<string, string>;
   /** All invoke calls recorded in order. */
   invocations: Array<{ cmd: string; args?: Record<string, unknown> }>;
   /** The scan_id returned by the most recent start_scan call. */
@@ -233,11 +236,16 @@ export function createMockTauriApi(): MockTauriApi {
     pickFolderResolves: (path) => {
       nextFolder = path;
     },
-    emitFileFound: (file, scanId) =>
+    foundPaths: new Set(),
+    emitFileFound: (file, scanId) => {
+      if (scanId === undefined || scanId === mock.currentScanId) {
+        mock.foundPaths.add(file.relative_path);
+      }
       emit("file_found", {
         scan_id: scanId ?? mock.currentScanId,
         files: [file],
-      } satisfies FileFoundPayload),
+      } satisfies FileFoundPayload);
+    },
     emitScanComplete: (scanId) =>
       emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
     emitFileMetadataReady: (relative_path, metadata, scanId, occurrences) =>
@@ -304,6 +312,8 @@ export function createMockTauriApi(): MockTauriApi {
     targetDraftEditsByFolder: {},
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
+    lastRecycleArgs: null,
+    recycleFailuresByPath: {},
     invocations: [],
     currentScanId: 1,
     applyEditsProgressGate: null,
@@ -396,6 +406,7 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "start_scan") {
         // The frontend now generates the scanId and passes it in args
         mock.currentScanId = (args?.scanId as number) ?? mock.currentScanId + 1;
+        mock.foundPaths.clear();
         return;
       }
       if (cmd === "stop_scan") {
@@ -403,6 +414,21 @@ export function createMockTauriApi(): MockTauriApi {
       }
       if (cmd === "show_in_explorer") {
         return;
+      }
+      if (cmd === "recycle_media_files") {
+        const folder = args?.folder as string;
+        const relativePaths = (args?.relativePaths as string[]) ?? [];
+        mock.lastRecycleArgs = { folder, relativePaths };
+        return {
+          results: relativePaths.map((relative_path) => {
+            const error = mock.recycleFailuresByPath[relative_path] ?? null;
+            return {
+              relative_path,
+              recycled: error === null,
+              error,
+            };
+          }),
+        };
       }
       if (cmd === "prioritize_queues") {
         mock.lastPrioritizedPaths = (args?.visiblePaths as string[]) ?? [];

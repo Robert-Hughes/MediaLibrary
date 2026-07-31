@@ -68,6 +68,7 @@ interface Props {
   /** Shown in the grid body when `files` is empty but the folder is not (search had no hits). */
   emptySearchMessage?: string | null;
   onDiscardAllEdits?: (fileRelativePaths: string[]) => void;
+  onRecycleFiles?: (fileRelativePaths: string[]) => void | Promise<void>;
   onApplyEdits?: (fileRelativePaths: string[]) => void;
   /** Trigger AI-description flow for the given relative paths. */
   onGenerateAiDescription?: (fileRelativePaths: string[]) => void;
@@ -347,6 +348,7 @@ function FileListImpl(
     searchQuery = "",
     emptySearchMessage = null,
     onDiscardAllEdits,
+    onRecycleFiles,
     onApplyEdits,
     onGenerateAiDescription,
     onGeocode,
@@ -706,6 +708,7 @@ function FileListImpl(
           onNormalise={onNormalise}
           onApplyEdits={onApplyEdits}
           onDiscardAllEdits={onDiscardAllEdits}
+          onRecycleFiles={onRecycleFiles}
           onClose={() => setContextMenu(null)}
         />
       )}

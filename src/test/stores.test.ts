@@ -1,6 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { FileMetadataOccurrencesStore, ThumbnailStore } from "../types";
+import {
+  FileMetadataOccurrencesStore,
+  MetadataProgressStore,
+  ThumbnailStore,
+} from "../types";
 import { occurrenceFromSchemaValue } from "./occurrenceFixtures";
 
 const occurrence = occurrenceFromSchemaValue(
@@ -23,6 +27,23 @@ describe("ThumbnailStore subscriber lifecycle", () => {
       store as unknown as { subscribers: Map<string, Set<unknown>> }
     ).subscribers;
     expect(internal.has("a.jpg")).toBe(false);
+  });
+
+  it("deletes selected paths and notifies their subscribers", () => {
+    const store = new ThumbnailStore();
+    store.add("a.jpg");
+    store.add("b.jpg");
+    store.set("a.jpg", "a-data");
+    store.set("b.jpg", "b-data");
+    const callback = vi.fn();
+    store.subscribe("a.jpg", callback);
+
+    store.deletePaths(["a.jpg", "missing.jpg"]);
+    store.set("a.jpg", "late-data");
+
+    expect(store.get("a.jpg")).toBe("loading");
+    expect(store.get("b.jpg")).toBe("b-data");
+    expect(callback).toHaveBeenCalledOnce();
   });
 });
 
@@ -75,5 +96,44 @@ describe("FileMetadataOccurrencesStore subscriptions", () => {
     unsubscribe();
     store.add("a.jpg");
     expect(callback).not.toHaveBeenCalled();
+  });
+
+  it("deletes values and failures while notifying path and global subscribers", () => {
+    const store = new FileMetadataOccurrencesStore();
+    store.add("a.jpg");
+    store.add("b.jpg");
+    store.setFailed("a.jpg", "broken");
+    store.set("b.jpg", [occurrence]);
+    const pathCallback = vi.fn();
+    const globalCallback = vi.fn();
+    store.subscribe("a.jpg", pathCallback);
+    store.subscribeAll(globalCallback);
+
+    store.deletePaths(["a.jpg"]);
+    store.set("a.jpg", [occurrence]);
+    store.setFailed("a.jpg", "late failure");
+
+    expect(store.get("a.jpg")).toBe("loading");
+    expect(store.getFailure("a.jpg")).toBeUndefined();
+    expect([...store.entries()].map(([path]) => path)).toEqual(["b.jpg"]);
+    expect(store.get("b.jpg")).toEqual([occurrence]);
+    expect(pathCallback).toHaveBeenCalledOnce();
+    expect(globalCallback).toHaveBeenCalledWith("a.jpg", undefined);
+  });
+});
+
+describe("MetadataProgressStore deletion accounting", () => {
+  it("removes pending and completed files without changing remaining work incorrectly", () => {
+    const store = new MetadataProgressStore();
+    store.setTotal(3);
+    store.incrementReceived(2);
+
+    store.removeFile(false);
+    expect(store.getTotal()).toBe(2);
+    expect(store.getRemaining()).toBe(0);
+
+    store.removeFile(true);
+    expect(store.getTotal()).toBe(1);
+    expect(store.getRemaining()).toBe(0);
   });
 });

@@ -119,6 +119,7 @@ export function occurrenceStore(
 ): FileMetadataOccurrencesStore {
   const store = new FileMetadataOccurrencesStore();
   for (const [path, value] of Object.entries(byPath)) {
+    store.add(path);
     store.set(
       path,
       Array.isArray(value)
