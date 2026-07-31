@@ -40,6 +40,11 @@ export interface ExactTargetMutationBatchItem {
   deletes: readonly MetadataDraftTarget[];
 }
 
+export interface TargetDraftFileReplacement {
+  path: string;
+  persistedEntries: readonly MetadataTargetDraftEntry[];
+}
+
 export type TargetDraftEditsListener = (
   changes: TargetDraftEditsChange[],
 ) => void;
@@ -249,31 +254,66 @@ export class TargetDraftEditsStore {
     path: string,
     persistedEntries: readonly MetadataTargetDraftEntry[],
   ): boolean {
-    for (const [index, entry] of persistedEntries.entries()) {
-      if (!isMetadataTargetDraftEntry(entry)) {
+    return this.replaceMetadataFiles([{ path, persistedEntries }]).length > 0;
+  }
+
+  /**
+   * Replace several authoritative file rows with one outer snapshot rebuild
+   * and one notification. This is the apply-path primitive: processing a
+   * chunk must not repeatedly copy the complete remaining draft map.
+   */
+  replaceMetadataFiles(
+    replacements: readonly TargetDraftFileReplacement[],
+  ): string[] {
+    if (replacements.length === 0) return [];
+
+    const seenPaths = new Set<string>();
+    const candidates = new Map<string, TargetDraftCollection | undefined>();
+    for (const { path, persistedEntries } of replacements) {
+      if (seenPaths.has(path)) {
         throw new Error(
-          `Invalid target-aware draft entry for '${path}' at array index ${index}`,
+          `Duplicate target-aware draft replacement path '${path}'`,
         );
       }
+      seenPaths.add(path);
+      for (const [index, entry] of persistedEntries.entries()) {
+        if (!isMetadataTargetDraftEntry(entry)) {
+          throw new Error(
+            `Invalid target-aware draft entry for '${path}' at array index ${index}`,
+          );
+        }
+      }
+      const candidateSnapshot = targetDraftsFromWire(
+        recordFromEntries([[path, Array.from(persistedEntries)]]),
+      );
+      candidates.set(
+        path,
+        hasOwnStringKey(candidateSnapshot, path)
+          ? candidateSnapshot[path]
+          : undefined,
+      );
     }
 
-    const candidateSnapshot = targetDraftsFromWire(
-      recordFromEntries([[path, Array.from(persistedEntries)]]),
-    );
-    const candidate = hasOwnStringKey(candidateSnapshot, path)
-      ? candidateSnapshot[path]
-      : undefined;
-    const current = this.getMetadataFile(path);
-    if (targetDraftCollectionEqualsExact(current, candidate)) return false;
+    const changes: TargetDraftEditsChange[] = [];
+    for (const [path, candidate] of candidates) {
+      if (
+        !targetDraftCollectionEqualsExact(this.getMetadataFile(path), candidate)
+      ) {
+        changes.push({ path, edits: candidate });
+      }
+    }
+    if (changes.length === 0) return [];
 
-    const retained = Object.entries(this.snapshot).filter(
-      ([existingPath]) => existingPath !== path,
+    const changedPaths = new Set(changes.map(({ path }) => path));
+    const nextEntries = Object.entries(this.snapshot).filter(
+      ([path]) => !changedPaths.has(path),
     );
-    this.snapshot = candidate
-      ? recordFromEntries([...retained, [path, candidate] as const])
-      : recordFromEntries(retained);
-    this.notify([{ path, edits: candidate }]);
-    return true;
+    for (const { path, edits } of changes) {
+      if (edits !== undefined) nextEntries.push([path, edits]);
+    }
+    this.snapshot = recordFromEntries(nextEntries);
+    this.notify(changes);
+    return changes.map(({ path }) => path);
   }
 
   private removeSlot(path: string, slot: string): void {

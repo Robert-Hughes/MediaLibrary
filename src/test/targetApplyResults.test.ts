@@ -16,6 +16,7 @@ import {
   type TargetApplyResultStores,
 } from "../targetApplyResults";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
+import { targetDraftsFromWire } from "../targetDraftEdits";
 import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
 
 const path = "file.jpg";
@@ -254,5 +255,42 @@ describe("target apply occurrence refresh", () => {
       aborted: false,
       abortReason: null,
     });
+  });
+
+  it("applies thousands of persisted draft rows with one store notification", () => {
+    const state = stores();
+    const count = 2_000;
+    const paths = Array.from(
+      { length: count },
+      (_, index) => `file-${index}.jpg`,
+    );
+    state.drafts.resetMetadata(
+      targetDraftsFromWire(
+        Object.fromEntries(
+          paths.map((relativePath) => [relativePath, [draft()]]),
+        ),
+      ),
+    );
+    const listener = vi.fn();
+    state.drafts.subscribe(listener);
+
+    const application = applyTargetApplyResult(
+      batch(
+        paths.map((relativePath) =>
+          file({
+            relative_path: relativePath,
+            fresh_file_metadata: null,
+            target_outcomes: [],
+            persisted_draft_entries: [],
+          }),
+        ),
+      ),
+      state,
+    );
+
+    expect(application.files).toHaveLength(count);
+    expect(Object.keys(state.drafts.getAllMetadata())).toHaveLength(0);
+    expect(listener).toHaveBeenCalledOnce();
+    expect(listener.mock.calls[0][0]).toHaveLength(count);
   });
 });

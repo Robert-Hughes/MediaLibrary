@@ -1,6 +1,7 @@
 import type {
   MetadataDraftReconciliation,
   MetadataDraftTarget,
+  MetadataTargetDraftEntry,
   MetadataTargetOutcome,
   MetadataValue,
 } from "./types";
@@ -106,6 +107,18 @@ export function validateTargetVerifyOutcomesAgainstDrafts(
   const fileDrafts = hasOwnStringKey(targetDrafts, relativePath)
     ? targetDrafts[relativePath]
     : undefined;
+  validateTargetVerifyOutcomesAgainstDraftCollection(
+    relativePath,
+    outcomes,
+    fileDrafts,
+  );
+}
+
+export function validateTargetVerifyOutcomesAgainstDraftCollection(
+  relativePath: string,
+  outcomes: readonly TargetVerifyOutcome[],
+  fileDrafts: Record<string, MetadataTargetDraftEntry> | undefined,
+): void {
   const seen = new Set<string>();
 
   for (const outcome of outcomes) {
@@ -197,6 +210,55 @@ export function replaceTargetVerifyOutcomesForFile(
   return candidate
     ? freezeRecord([...retained, [relativePath, candidate] as const])
     : freezeRecord(retained);
+}
+
+export function replaceTargetVerifyOutcomesForFiles(
+  current: TargetVerifyOutcomesByFile,
+  replacements: readonly {
+    relativePath: string;
+    outcomes: readonly TargetVerifyOutcome[];
+  }[],
+): { next: TargetVerifyOutcomesByFile; changedPaths: string[] } {
+  if (replacements.length === 0) return { next: current, changedPaths: [] };
+
+  const seen = new Set<string>();
+  const candidates = new Map<
+    string,
+    Record<string, TargetVerifyOutcome> | undefined
+  >();
+  for (const { relativePath, outcomes } of replacements) {
+    if (seen.has(relativePath)) {
+      throw new Error(
+        `Duplicate target verification replacement path '${relativePath}'`,
+      );
+    }
+    seen.add(relativePath);
+    candidates.set(
+      relativePath,
+      fileCollectionFromOutcomes(relativePath, outcomes),
+    );
+  }
+
+  const changedPaths: string[] = [];
+  for (const [relativePath, candidate] of candidates) {
+    const existing = hasOwnStringKey(current, relativePath)
+      ? current[relativePath]
+      : undefined;
+    if (!fileCollectionsEqualExact(existing, candidate)) {
+      changedPaths.push(relativePath);
+    }
+  }
+  if (changedPaths.length === 0) return { next: current, changedPaths };
+
+  const changed = new Set(changedPaths);
+  const retained = Object.entries(current).filter(
+    ([path]) => !changed.has(path),
+  );
+  for (const path of changedPaths) {
+    const candidate = candidates.get(path);
+    if (candidate !== undefined) retained.push([path, candidate]);
+  }
+  return { next: freezeRecord(retained), changedPaths };
 }
 
 export function removeTargetVerifyOutcome(
