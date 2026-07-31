@@ -1260,6 +1260,42 @@ fn apply_xmp_mlib_ai_ocr_text_preserves_newlines() {
     }
 }
 
+#[test]
+fn apply_xmp_mlib_ai_ocr_text_preserves_argfile_sensitive_text_and_filename() {
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, original) = copy_to_temp(&src);
+    let dst = dir.path().join("VAT @ $ test.jpg");
+    std::fs::rename(&original, &dst).unwrap();
+    let folder = dir.path().to_str().unwrap();
+    let rel = rel_of(dir.path(), &dst);
+
+    let ocr_text = "  All Prices include VAT @ 20%.\r\nCost $5\tliteral \\n and \\  ".to_string();
+    let edits = vec![medialibrary_tauri_lib::draft_edits::SchemaMetadataEdit {
+        schema_id: medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text(),
+        edit: metadata_set(MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![MetadataValue::Text(ocr_text.clone())],
+        }),
+    }];
+
+    let result = apply_target_batch(folder, &rel, edits);
+    assert!(result.failed.is_empty(), "{:?}", result.failed);
+
+    let metadata = read_one(dir.path(), &dst);
+    match schema_value(
+        &metadata,
+        &medialibrary_tauri_lib::known_ids::mlib_ai_ocr_text(),
+    ) {
+        Some(MetadataValue::Text(value)) => assert_eq!(value, ocr_text),
+        Some(MetadataValue::List { items, .. }) => {
+            assert_eq!(items, vec![MetadataValue::Text(ocr_text)]);
+        }
+        other => panic!("expected exact AIOcrText round trip, got {other:?}"),
+    }
+}
+
 fn write_u16_le(bytes: &mut [u8], offset: usize, value: u16) {
     bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
 }

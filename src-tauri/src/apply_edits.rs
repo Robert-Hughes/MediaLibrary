@@ -2404,8 +2404,8 @@ mod tests {
         assert_ne!(derived.edit.value, unapplied_location_draft.edit.value);
         let rendered = planned.argfile;
         assert!(rendered.contains("CodedCharacterSet=UTF8"));
-        assert!(rendered.contains("Sub-location=Chūō authoritative"));
-        assert!(!rendered.contains("staged but not applied"));
+        assert!(rendered.contains("Sub-location=Chūō\\x20authoritative"));
+        assert!(!rendered.contains("staged\\x20but\\x20not\\x20applied"));
     }
 
     #[test]
@@ -5285,7 +5285,8 @@ mod tests {
         let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![post]))]);
         apply_fake(&[good], &client, &[info]);
         let rendered = &client.writes.borrow()[0];
-        assert!(rendered.contains("#[CSTR]-1XMP-test:7ID-1:Name=café\\nsecond"));
+        assert!(rendered.contains("-1XMP-test:7ID-1:Name=café\\nsecond"));
+        assert!(!rendered.contains("#[CSTR]"));
     }
 
     #[test]
