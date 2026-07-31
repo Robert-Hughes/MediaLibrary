@@ -17,9 +17,13 @@ describe("FullMapView", () => {
   it("maps effective GPS files and reports selected files without GPS", async () => {
     const files = makeFiles(["located.jpg", "missing.jpg"]);
     const thumbnails = new ThumbnailStore();
+    thumbnails.add("located.jpg");
+    thumbnails.add("missing.jpg");
     thumbnails.set("located.jpg", "THUMB");
     thumbnails.set("missing.jpg", "failed");
     const occurrences = new FileMetadataOccurrencesStore();
+    occurrences.add("located.jpg");
+    occurrences.add("missing.jpg");
     occurrences.set(
       "located.jpg",
       mockOccurrences({

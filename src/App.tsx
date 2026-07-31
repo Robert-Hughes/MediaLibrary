@@ -148,6 +148,20 @@ function LoadedView({
     setBulkEditPaths(null);
   }, [state.folder]);
 
+  useEffect(() => {
+    const active = new Set(state.files.map((file) => file.relative_path));
+    setFullMapPaths((paths) => {
+      if (paths === null) return null;
+      const retained = paths.filter((path) => active.has(path));
+      return retained.length > 0 ? retained : null;
+    });
+    setBulkEditPaths((paths) => {
+      if (paths === null) return null;
+      const retained = paths.filter((path) => active.has(path));
+      return retained.length > 0 ? retained : null;
+    });
+  }, [state.files]);
+
   // Ctrl/Cmd+F focuses the relevant search box.  When the gallery's
   // details pane is visible its in-pane search is the right target;
   // otherwise the main list-view search box.  Both inputs use stable
@@ -381,6 +395,9 @@ function LoadedView({
         searchQuery={parsedListSearchQuery.freeText}
         emptySearchMessage={emptySearchMessage}
         onDiscardAllEdits={(paths) => actions.discardAllDraftEdits(paths)}
+        onRecycleFiles={async (paths) => {
+          await actions.recycleFiles(paths);
+        }}
         onApplyEdits={(paths) => actions.applyDraftEdits(paths)}
         onGenerateAiDescription={(relPaths) => {
           if (!arePathsImageOnly(state.files, relPaths)) return;

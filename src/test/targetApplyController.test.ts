@@ -191,9 +191,11 @@ class FakeApplyApi implements TargetApplyTauriApi {
 }
 
 function makeStores(): TargetApplyResultStores {
+  const occurrences = new FileMetadataOccurrencesStore();
+  occurrences.add(path);
   return {
     drafts: new TargetDraftEditsStore(),
-    occurrences: new FileMetadataOccurrencesStore(),
+    occurrences,
     verification: new TargetVerifyOutcomesStore(),
   };
 }

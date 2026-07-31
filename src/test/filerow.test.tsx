@@ -31,6 +31,8 @@ function renderTargetDraftRow(
 ) {
   const thumbnails = new ThumbnailStore();
   const metadata = new FileMetadataOccurrencesStore();
+  thumbnails.add("1.jpg");
+  metadata.add("1.jpg");
   thumbnails.set("1.jpg", "base64string");
   if (occurrences === "loading") metadata.add("1.jpg");
   else metadata.set("1.jpg", occurrences);
@@ -71,6 +73,8 @@ describe("FileRow", () => {
   it("shows a metadata error icon instead of a loading spinner after failure", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
     thumbnails.set("1.jpg", "base64string");
     metadata.add("1.jpg");
     metadata.setFailed("1.jpg", "File is empty");
@@ -110,6 +114,8 @@ describe("FileRow", () => {
   it("renders FileList with files without crashing", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
 
     // add some metadata
     thumbnails.set("1.jpg", "base64string");
@@ -155,6 +161,8 @@ describe("FileRow", () => {
   it("fits thumbnail images without cropping", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
     thumbnails.set("1.jpg", "base64string");
     metadata.set("1.jpg", []);
 
@@ -194,6 +202,8 @@ describe("FileRow", () => {
     // via var(--grid-columns) — a constant string that never changes per render.
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
     const files = [
       {
         relative_path: "1.jpg",
@@ -239,6 +249,8 @@ describe("FileRow", () => {
   it("displays em dash — for missing metadata and not mojibake â€”", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
 
     // We add metadata as empty object, so "IFD0:Model" will be missing/undefined.
     thumbnails.set("1.jpg", "base64string");
@@ -293,6 +305,8 @@ describe("FileRow", () => {
 
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
     thumbnails.set("1.jpg", "base64string");
     metadata.set(
       "1.jpg",
@@ -340,6 +354,8 @@ describe("FileRow", () => {
 
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
+    thumbnails.add("1.jpg");
+    metadata.add("1.jpg");
     thumbnails.set("1.jpg", "base64string");
     metadata.set(
       "1.jpg",

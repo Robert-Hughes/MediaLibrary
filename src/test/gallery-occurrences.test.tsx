@@ -107,6 +107,7 @@ describe("Gallery occurrence-store subscription", () => {
 
   it("reacts when one schema gains a second authoritative occurrence", async () => {
     const occurrences = new FileMetadataOccurrencesStore();
+    occurrences.add("a.jpg");
     occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 301, "IFD0")]);
 
     render(

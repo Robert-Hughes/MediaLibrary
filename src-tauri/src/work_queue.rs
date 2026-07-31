@@ -158,6 +158,22 @@ impl WorkQueue {
         }
     }
 
+    /// Remove pending work for paths that no longer exist in the library.
+    ///
+    /// Items already popped by a worker cannot be recalled, so event consumers
+    /// must still ignore results for paths that are no longer active.
+    pub fn remove_paths(&self, paths: &[String]) {
+        if paths.is_empty() {
+            return;
+        }
+        let remove: std::collections::HashSet<&str> = paths.iter().map(String::as_str).collect();
+        let (lock, _) = &*self.inner;
+        lock.lock()
+            .unwrap()
+            .queue
+            .retain(|path| !remove.contains(path.as_str()));
+    }
+
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.inner.0.lock().unwrap().queue.len()
@@ -183,6 +199,13 @@ mod tests {
         let q = WorkQueue::new(items.iter().map(|s| s.to_string()).collect());
         q.finish();
         q
+    }
+
+    #[test]
+    fn remove_paths_drops_only_matching_pending_items() {
+        let q = queue(&["a.jpg", "b.jpg", "c.jpg"]);
+        q.remove_paths(&["b.jpg".into(), "missing.jpg".into()]);
+        assert_eq!(q.snapshot(), vec!["a.jpg", "c.jpg"]);
     }
 
     // ── pop ───────────────────────────────────────────────────────────────────

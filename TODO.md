@@ -31,7 +31,6 @@ Features
   - This is the main architectural difference, but not necessarily a required gap unless results are worse.
 - Feature to fill in missing GPS location based on description/tags (which could itself have been AI-generated from the visual content). Could also be used to fix batches of photos all clustered to the exact same GPS location (e.g. by a coarse previous manual edit). e.g. 2010 london photos, or where incorrect GPS was recorded
 - Feature for facial/person recognition?
-- Support deletion of photos (make sure all the various in-memory stores are updated)
 - Reload/refresh folder button? (Equivalent to close + open)
 - Audio/video support
   - A better gallery experience would handle <audio>/<video> error events and show a clear message such as:

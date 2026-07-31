@@ -492,6 +492,36 @@ describe("FileList context menu (multi-select)", () => {
     expect(onApplyEdits).toHaveBeenCalledWith(["1.jpg", "3.jpg"]);
   });
 
+  it("confirms recycle for the full selection and reports pending draft counts", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(ask).mockClear();
+    const onRecycleFiles = vi.fn().mockResolvedValue(undefined);
+    const targetDraftEdits = mockTargetDraftsByFile({
+      "0.jpg": [newPropertyTargetDraft("IFD0:Make", textDraft("Canon"))],
+      "2.jpg": [newPropertyTargetDraft("IFD0:Model", textDraft("R5"))],
+    });
+    setup({ targetDraftEdits, onRecycleFiles });
+    fireEvent.click(rows()[0]);
+    fireEvent.click(rows()[1], { ctrlKey: true });
+    fireEvent.click(rows()[2], { ctrlKey: true });
+    fireEvent.contextMenu(rows()[2]);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Move to Recycle Bin… (3 files)",
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(ask).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "2 files have 2 pending metadata edits. Pending edits for successfully recycled files will be discarded.",
+      ),
+      { title: "Move to Recycle Bin", kind: "warning" },
+    );
+    expect(onRecycleFiles).toHaveBeenCalledWith(["0.jpg", "1.jpg", "2.jpg"]);
+  });
+
   it("counts multiple same-schema exact targets independently in badges and prompts", async () => {
     const { ask } = await import("@tauri-apps/plugin-dialog");
     vi.mocked(ask).mockClear();

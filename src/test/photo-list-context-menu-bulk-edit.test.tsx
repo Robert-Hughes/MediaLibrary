@@ -29,6 +29,8 @@ describe("FileListContextMenu bulk metadata entry", () => {
   });
   it("disables metadata-dependent actions when any selected file failed metadata loading", () => {
     const metadata = new FileMetadataOccurrencesStore();
+    metadata.add("one.jpg");
+    metadata.add("two.jpg");
     metadata.set("one.jpg", []);
     metadata.setFailed("two.jpg", "ExifTool could not read the file");
 

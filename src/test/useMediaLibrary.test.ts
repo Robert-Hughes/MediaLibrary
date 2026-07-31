@@ -2,7 +2,12 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi, type MockTauriApi } from "./mockTauriApi";
-import { makeFile, testId } from "./factories";
+import {
+  makeFile,
+  mockTargetDraftsByFile,
+  newPropertyTargetDraft,
+  testId,
+} from "./factories";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataApplyFileResult,
@@ -115,6 +120,14 @@ async function publishOccurrences(
   relativePath: string,
   occurrences: MetadataOccurrence[] = [],
 ): Promise<void> {
+  if (!mock.foundPaths.has(relativePath)) {
+    act(() => {
+      mock.emitFileFound(makeFile({ relative_path: relativePath }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+  }
   act(() => {
     mock.emitFileMetadataReady(relativePath, {}, undefined, occurrences);
   });
@@ -276,6 +289,96 @@ describe("useMediaLibrary", () => {
     if (state.kind === "loaded") {
       expect(state.metadataProgress.getRemaining()).toBe(1);
     }
+  });
+
+  it("recycles successful files, retains failures, discards drafts, and ignores late work", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    mock.targetDraftEditsByFolder["/files"] = mockTargetDraftsByFile({
+      "a.jpg": [newPropertyTargetDraft("Title", "draft a")],
+      "b.mov": [newPropertyTargetDraft("Title", "draft b")],
+    });
+    mock.recycleFailuresByPath["b.mov"] = "The file is locked";
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+    act(() => {
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      mock.emitFileFound(
+        makeFile({
+          relative_path: "b.mov",
+          filename: "b.mov",
+          media_kind: "video",
+        }),
+      );
+      mock.emitFileFound(makeFile({ relative_path: "c.png" }));
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    act(() => {
+      mock.emitFileMetadataReady("b.mov", {});
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    act(() => {
+      result.current[1].selectFile("a.jpg");
+    });
+
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      await act(async () => {
+        await result.current[1].recycleFiles(["a.jpg", "b.mov"]);
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    const state = result.current[0];
+    expect(mock.lastRecycleArgs).toEqual({
+      folder: "/files",
+      relativePaths: ["a.jpg", "b.mov"],
+    });
+    expect(state.kind).toBe("loaded");
+    if (state.kind !== "loaded") return;
+    expect(state.files.map((file) => file.relative_path)).toEqual([
+      "b.mov",
+      "c.png",
+    ]);
+    expect(state.targetDraftEdits["a.jpg"]).toBeUndefined();
+    expect(state.targetDraftEdits["b.mov"]).toBeDefined();
+    expect(state.selectedPath).toBeNull();
+    expect(mock.targetDraftEditsByFolder["/files"]["a.jpg"]).toBeUndefined();
+    expect(mock.targetDraftEditsByFolder["/files"]["b.mov"]).toBeDefined();
+    expect(state.metadataProgress.getTotal()).toBe(2);
+    expect(state.metadataProgress.getRemaining()).toBe(1);
+    expect(
+      state.applicationErrors[state.applicationErrors.length - 1],
+    ).toMatchObject({
+      error_type: "recycle-files",
+      affected_files: ["b.mov"],
+    });
+
+    act(() => {
+      mock.emitFileMetadataReady("a.jpg", {});
+      mock.emitThumbnailReady("a.jpg", "late-thumbnail");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(
+      Array.from(state.fileMetadataOccurrences.entries()).some(
+        ([path]) => path === "a.jpg",
+      ),
+    ).toBe(false);
+    const thumbnailData = (
+      state.thumbnails as unknown as { data: Map<string, unknown> }
+    ).data;
+    expect(thumbnailData.has("a.jpg")).toBe(false);
   });
 
   it("stores canonical metadata from file_metadata_ready", async () => {

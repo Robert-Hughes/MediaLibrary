@@ -25,6 +25,7 @@ pub mod openai_describe;
 pub mod openai_http;
 pub mod openai_normalise;
 mod openai_request;
+mod recycle;
 pub mod scanner;
 pub mod settings;
 pub mod tag_schema;
@@ -691,6 +692,30 @@ fn prioritize_queues(
 }
 
 #[tauri::command]
+fn recycle_media_files(
+    folder: String,
+    relative_paths: Vec<String>,
+    active_queues: State<'_, ActiveQueues>,
+) -> Result<recycle::RecycleFilesResult, String> {
+    let result = recycle::recycle_files_with(&folder, relative_paths, |path| {
+        trash::delete(path).map_err(|error| error.to_string())
+    })?;
+    let recycled_paths: Vec<String> = result
+        .results
+        .iter()
+        .filter(|item| item.recycled)
+        .map(|item| item.relative_path.clone())
+        .collect();
+    if let Some(queue) = active_queues.thumbnails() {
+        queue.remove_paths(&recycled_paths);
+    }
+    if let Some(queue) = active_queues.file_metadata() {
+        queue.remove_paths(&recycled_paths);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
 fn show_in_explorer(folder: String, relative_path: String) -> Result<(), String> {
     let mut path = std::path::PathBuf::from(folder);
     for component in relative_path.split(['/', '\\']) {
@@ -1325,6 +1350,7 @@ pub fn run() {
             start_scan,
             stop_scan,
             prioritize_queues,
+            recycle_media_files,
             show_in_explorer,
             set_window_title,
             save_metadata_draft_edits,

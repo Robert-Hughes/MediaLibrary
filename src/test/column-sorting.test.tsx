@@ -285,6 +285,7 @@ describe("sortFiles", () => {
   it("sorts identical same-schema occurrences and leaves conflicts last", () => {
     const id = testId("IFD0:Model");
     const store = new FileMetadataOccurrencesStore();
+    for (const path of ["a.jpg", "b.jpg", "c.jpg"]) store.add(path);
     const identical = occurrenceFromSchemaValue(id, {
       kind: "Text",
       value: "Nikon",
@@ -342,6 +343,8 @@ describe("sortFiles", () => {
     const absent = testId("IFD0:Model");
     const zero = { ...absent, index: 0 };
     const store = new FileMetadataOccurrencesStore();
+    store.add("absent.jpg");
+    store.add("zero.jpg");
     store.set("absent.jpg", [
       occurrenceFromSchemaValue(absent, { kind: "Text", value: "A" }),
     ]);

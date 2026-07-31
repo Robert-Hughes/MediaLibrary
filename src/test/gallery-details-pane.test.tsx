@@ -276,6 +276,7 @@ describe("Gallery details pane content", () => {
   it("shows grouped image metadata when available", async () => {
     const onClose = vi.fn();
     const occurrences = new FileMetadataOccurrencesStore();
+    occurrences.add("2024/a.jpg");
     occurrences.set("2024/a.jpg", [
       {
         id: {

@@ -22,6 +22,7 @@ import type {
   TargetDraftPersistenceState,
   MetadataTargetDraftEntry,
   TagInfo,
+  RecycleFilesResult,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -114,6 +115,7 @@ export interface MediaLibraryActions {
   prioritizeQueues: (visiblePaths: string[]) => void;
   selectFile: (relativePath: string | null) => void;
   showInExplorer: (index: number) => Promise<void>;
+  recycleFiles: (relativePaths: string[]) => Promise<RecycleFilesResult>;
   openGallery: (relativePath: string) => void;
   closeGallery: () => void;
   setVisibleColumns: (columns: VisibleColumn[]) => void;
@@ -331,6 +333,9 @@ export function useMediaLibrary(
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
   const metadataBufferRef = useRef<FileMetadata[]>([]);
+  // Exact scan-progress membership. Occurrence state can become authoritative
+  // through an apply result before the scan's own progress slot completes.
+  const metadataCompletedPathsRef = useRef<Set<string>>(new Set());
   // Once apply returns an authoritative post-write read for a file, any
   // outstanding metadata result from the current folder scan is older by
   // construction and must not replace it.
@@ -472,6 +477,7 @@ export function useMediaLibrary(
       // Clear all buffers + timers from any previous scan.
       fileBufferRef.current = [];
       metadataBufferRef.current = [];
+      metadataCompletedPathsRef.current.clear();
       scanMetadataSupersededPathsRef.current.clear();
       thumbnailBufferRef.current = [];
       isFirstFlushRef.current = true;
@@ -608,7 +614,13 @@ export function useMediaLibrary(
       console.debug(`[metadata] flushing ${batch.length} results`);
 
       let acceptedCount = 0;
+      let completedCount = 0;
       for (const res of batch) {
+        if (!fileMetadataOccurrencesStoreRef.current.has(res.relative_path)) {
+          continue;
+        }
+        completedCount += 1;
+        metadataCompletedPathsRef.current.add(res.relative_path);
         if (scanMetadataSupersededPathsRef.current.has(res.relative_path)) {
           continue;
         }
@@ -621,7 +633,7 @@ export function useMediaLibrary(
 
       // Superseded scan results still complete their scan-progress slot even
       // though their older values are deliberately not installed.
-      metadataProgressStoreRef.current.incrementReceived(batch.length);
+      metadataProgressStoreRef.current.incrementReceived(completedCount);
 
       // Increment metadataVersion so that any active sort on image metadata fields
       // causes the sortedFiles useMemo to recompute.
@@ -794,7 +806,23 @@ export function useMediaLibrary(
 
       const unlistenWorkerError = await api.listen("worker_error", (raw) => {
         if (cancelled) return;
-        const payload = raw as ApplicationErrorPayload;
+        const original = raw as ApplicationErrorPayload;
+        const affectedFiles =
+          original.error_type === "metadata" &&
+          original.scan_id === activeScanIdRef.current
+            ? original.affected_files.filter((path) =>
+                fileMetadataOccurrencesStoreRef.current.has(path),
+              )
+            : original.affected_files;
+        if (
+          original.error_type === "metadata" &&
+          original.scan_id === activeScanIdRef.current &&
+          original.affected_files.length > 0 &&
+          affectedFiles.length === 0
+        ) {
+          return;
+        }
+        const payload = { ...original, affected_files: affectedFiles };
         console.error(
           `Worker error (${payload.error_type}):`,
           payload.error_message,
@@ -815,6 +843,7 @@ export function useMediaLibrary(
               path,
               payload.error_message,
             );
+            metadataCompletedPathsRef.current.add(path);
           }
           if (newlyFailed > 0) {
             metadataProgressStoreRef.current.incrementReceived(newlyFailed);
@@ -896,6 +925,7 @@ export function useMediaLibrary(
     // Drop any buffered events that haven't been flushed yet.
     fileBufferRef.current = [];
     metadataBufferRef.current = [];
+    metadataCompletedPathsRef.current.clear();
     thumbnailBufferRef.current = [];
     targetDraftEditsStoreRef.current.resetMetadata({});
     targetVerifyOutcomesStoreRef.current.clear();
@@ -922,6 +952,98 @@ export function useMediaLibrary(
 
   const stateRef = useRef(appState);
   stateRef.current = appState;
+
+  const recycleFiles = useCallback(
+    async (relativePaths: string[]): Promise<RecycleFilesResult> => {
+      const current = stateRef.current;
+      if (current.kind !== "loaded") return { results: [] };
+      const activePaths = new Set(
+        current.files.map((file) => file.relative_path),
+      );
+      const requested = [...new Set(relativePaths)].filter((path) =>
+        activePaths.has(path),
+      );
+      if (requested.length === 0) return { results: [] };
+
+      let result: RecycleFilesResult;
+      try {
+        result = (await api.invoke("recycle_media_files", {
+          folder: current.folder,
+          relativePaths: requested,
+        })) as RecycleFilesResult;
+      } catch (error) {
+        pushApplicationError("recycle-files", error, requested);
+        return {
+          results: requested.map((relative_path) => ({
+            relative_path,
+            recycled: false,
+            error: error instanceof Error ? error.message : String(error),
+          })),
+        };
+      }
+
+      const successful = result.results
+        .filter((item) => item.recycled)
+        .map((item) => item.relative_path);
+      const successfulSet = new Set(successful);
+      if (successful.length > 0) {
+        metadataBufferRef.current = metadataBufferRef.current.filter(
+          (item) => !successfulSet.has(item.relative_path),
+        );
+        thumbnailBufferRef.current = thumbnailBufferRef.current.filter(
+          (item) => !successfulSet.has(item.relative_path),
+        );
+
+        for (const path of successful) {
+          metadataProgressStoreRef.current.removeFile(
+            metadataCompletedPathsRef.current.has(path),
+          );
+          metadataCompletedPathsRef.current.delete(path);
+          scanMetadataSupersededPathsRef.current.delete(path);
+        }
+        thumbnailStoreRef.current.deletePaths(successful);
+        fileMetadataOccurrencesStoreRef.current.deletePaths(successful);
+        targetDraftEditsStoreRef.current.deletePaths(successful);
+
+        setAppState((prev) => {
+          if (prev.kind !== "loaded" || prev.folder !== current.folder) {
+            return prev;
+          }
+          return {
+            ...prev,
+            files: prev.files.filter(
+              (file) => !successfulSet.has(file.relative_path),
+            ),
+            selectedPath:
+              prev.selectedPath !== null && successfulSet.has(prev.selectedPath)
+                ? null
+                : prev.selectedPath,
+            galleryPath:
+              prev.galleryPath !== null && successfulSet.has(prev.galleryPath)
+                ? null
+                : prev.galleryPath,
+          };
+        });
+        await targetDraftSaveQueueRef.current?.flush();
+      }
+
+      const failures = result.results.filter((item) => !item.recycled);
+      if (failures.length > 0) {
+        pushApplicationError(
+          "recycle-files",
+          `${failures.length} ${failures.length === 1 ? "file" : "files"} could not be moved to the Recycle Bin:\n${failures
+            .map(
+              (item) =>
+                `${item.relative_path}: ${item.error ?? "Unknown error"}`,
+            )
+            .join("\n")}`,
+          failures.map((item) => item.relative_path),
+        );
+      }
+      return result;
+    },
+    [api, pushApplicationError],
+  );
 
   // One production subscription owns both the React snapshot and target-aware
   // autosave. Controller-applied backend snapshots notify this same path while
@@ -2151,6 +2273,7 @@ export function useMediaLibrary(
       prioritizeQueues,
       selectFile,
       showInExplorer,
+      recycleFiles,
       openGallery,
       closeGallery,
       setVisibleColumns,
@@ -2188,6 +2311,7 @@ export function useMediaLibrary(
       prioritizeQueues,
       selectFile,
       showInExplorer,
+      recycleFiles,
       openGallery,
       closeGallery,
       setVisibleColumns,
