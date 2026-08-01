@@ -85,9 +85,10 @@ impl ComparableTimestamp {
             return TimestampComparison::Conflict;
         }
 
-        match (self.effective_offset(), other.effective_offset()) {
-            (Some(a), Some(b)) if a != b => TimestampComparison::Conflict,
-            _ => TimestampComparison::Equivalent,
+        if offsets_match(self.effective_offset(), other.effective_offset(), true) {
+            TimestampComparison::Equivalent
+        } else {
+            TimestampComparison::Conflict
         }
     }
 }
@@ -104,22 +105,29 @@ fn canonicalize_iptc_time_for_write(mut time: TimeValue) -> TimeValue {
     time
 }
 
+fn offsets_match(
+    left: Option<&UtcOffsetValue>,
+    right: Option<&UtcOffsetValue>,
+    missing_matches_known: bool,
+) -> bool {
+    match (left, right) {
+        (Some(left), Some(right))
+            if left.hours == 0 && left.minutes == 0 && right.hours == 0 && right.minutes == 0 =>
+        {
+            true
+        }
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => missing_matches_known,
+    }
+}
+
 fn iptc_times_match(left: &TimeValue, right: &TimeValue) -> bool {
     left.hour == right.hour
         && left.minute == right.minute
         && left.second == right.second
         && left.subsecond == right.subsecond
-        && match (&left.offset, &right.offset) {
-            (Some(left), Some(right))
-                if left.hours == 0
-                    && left.minutes == 0
-                    && right.hours == 0
-                    && right.minutes == 0 =>
-            {
-                true
-            }
-            (left, right) => left == right,
-        }
+        && offsets_match(left.offset.as_ref(), right.offset.as_ref(), false)
 }
 
 fn set_edit(value: MetadataValue) -> MetadataDraftEdit {
@@ -923,6 +931,22 @@ mod tests {
             photoshop_date_created: Some(dt(2021, 2, 25, 12, 19, 11, Some(negative_zero()))),
             iptc_date_created: Some(date(2021, 2, 25)),
             iptc_time_created: Some(time(12, 19, 11, Some(negative_zero()))),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
+
+        assert!(out.output.is_none(), "unexpected edits: {:?}", out.output);
+        assert_eq!(out.n_date_conflict, 0);
+    }
+
+    #[test]
+    fn opposite_signed_zero_offsets_are_equivalent_everywhere() {
+        let input = DatesInput {
+            date_time_original: Some(dt(2021, 2, 25, 12, 19, 11, None)),
+            offset_time_original: Some(MetadataValue::TimeOffset(negative_zero())),
+            photoshop_date_created: Some(dt(2021, 2, 25, 12, 19, 11, Some(negative_zero()))),
+            iptc_date_created: Some(date(2021, 2, 25)),
+            iptc_time_created: Some(time(12, 19, 11, Some(off(0)))),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
