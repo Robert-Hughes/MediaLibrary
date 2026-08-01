@@ -1210,6 +1210,57 @@ export function createMockTauriApi(): MockTauriApi {
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
       }
+      if (cmd === "stage_media_library_session_normalise_drafts") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const edits = args?.edits as SchemaMetadataEdit[];
+        const enabledGroups =
+          args?.enabledGroups as import("../types").NormaliseGroup[];
+        const metadata = sessionSnapshot.metadata.find(
+          (entry) => entry.relative_path === relativePath,
+        );
+        if (!metadata || metadata.state.status !== "ready") {
+          throw new Error(
+            "Authoritative metadata occurrences are still loading",
+          );
+        }
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        const plan = planGeneratedTargetDraftBatch({
+          producer: { kind: "normalise", enabledGroups },
+          fileName: relativePath,
+          edits,
+          occurrences: metadata.state.occurrences,
+          targetDrafts: store.getMetadataFile(relativePath),
+          writableSchemaDefinitions: mock.tagInfos,
+        });
+        if (plan.upserts.length === 0 && plan.deletes.length === 0) {
+          return { ...sessionSnapshot };
+        }
+        for (const target of plan.deletes)
+          store.deleteTarget(relativePath, target);
+        for (const entry of plan.upserts) {
+          store.setMetadataTarget(relativePath, entry.target, entry.edit);
+        }
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
       if (cmd === "mutate_media_library_session_draft_rows") {
         const sessionId = args?.sessionId as number;
         if (sessionId !== mock.currentScanId) throw new Error("stale session");
