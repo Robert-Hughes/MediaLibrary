@@ -213,6 +213,8 @@ describe("useMediaLibrary", () => {
       revision: 7,
       lifecycle: "loaded",
       folder: "/recovered",
+      files: [makeFile({ relative_path: "recovered.jpg" })],
+      discovery_running: true,
     });
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
@@ -221,8 +223,10 @@ describe("useMediaLibrary", () => {
     });
 
     expect(result.current[0]).toMatchObject({
-      kind: "loading",
+      kind: "loaded",
       folder: "/recovered",
+      files: [expect.objectContaining({ relative_path: "recovered.jpg" })],
+      scanning: true,
     });
   });
 

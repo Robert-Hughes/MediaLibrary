@@ -6,7 +6,6 @@ import {
 } from "./types";
 import type {
   AppState,
-  FileFoundPayload,
   FileMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
@@ -25,6 +24,7 @@ import type {
   TagInfo,
   RecycleFilesResult,
   MediaLibrarySessionSnapshot,
+  MediaLibrarySessionFilesAdded,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -290,10 +290,59 @@ export function useMediaLibrary(
     null,
   );
 
+  const loadedStateFromProjection = useCallback(
+    (
+      folder: string,
+      files: FileInfo[],
+      scanning: boolean,
+      presentation?: {
+        visibleColumns: VisibleColumn[];
+        columnWidths: Record<string, number>;
+        sortConfig: SortConfig;
+      },
+    ): Extract<AppState, { kind: "loaded" }> => {
+      for (const file of files) {
+        thumbnailStoreRef.current.add(file.relative_path);
+        fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
+      }
+      metadataProgressStoreRef.current.setTotal(files.length);
+      const columns = presentation ?? loadColumnConfig();
+      return {
+        kind: "loaded",
+        folder,
+        files,
+        thumbnails: thumbnailStoreRef.current,
+        fileMetadataOccurrences: fileMetadataOccurrencesStoreRef.current,
+        metadataProgress: metadataProgressStoreRef.current,
+        scanning,
+        galleryPath: null,
+        selectedPath: null,
+        visibleColumns: columns.visibleColumns,
+        columnWidths: columns.columnWidths,
+        sortConfig: columns.sortConfig,
+        metadataVersion: 0,
+        applicationErrors: targetLoadErrorRef.current
+          ? [targetLoadErrorRef.current]
+          : [],
+        targetDraftEdits: targetDraftEditsStoreRef.current.getAllMetadata(),
+        targetDraftEditsStore: targetDraftEditsStoreRef.current,
+        targetDraftPersistence: targetDraftPersistenceRef.current,
+        targetApplying: targetApplyControllerRef.current?.getState() ?? {
+          status: "idle",
+        },
+        applying: null,
+        targetVerifyOutcomes: targetVerifyOutcomesStoreRef.current.getAll(),
+        targetVerifyOutcomesStore: targetVerifyOutcomesStoreRef.current,
+      };
+    },
+    [],
+  );
+
   const applySessionSnapshot = useCallback(
     (snapshot: MediaLibrarySessionSnapshot) => {
       if (snapshot.lifecycle === "idle" && snapshot.revision === 0) return;
       if (snapshot.revision <= sessionRevisionRef.current) return;
+      const previousRevision = sessionRevisionRef.current;
       sessionRevisionRef.current = snapshot.revision;
 
       if (snapshot.lifecycle === "idle") {
@@ -309,21 +358,59 @@ export function useMediaLibrary(
       const isRecovery = activeScanIdRef.current === -1;
       activeScanIdRef.current = snapshot.session_id;
       activeFolderRef.current = snapshot.folder;
-      if (
-        isRecovery &&
-        (snapshot.lifecycle === "opening" || snapshot.lifecycle === "loaded")
-      ) {
-        const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
-        setAppState({
-          kind: "loading",
-          folder: snapshot.folder,
-          visibleColumns,
-          columnWidths,
-          sortConfig,
+      if (snapshot.lifecycle === "opening") {
+        if (isRecovery) {
+          const { visibleColumns, sortConfig, columnWidths } =
+            loadColumnConfig();
+          setAppState({
+            kind: "loading",
+            folder: snapshot.folder,
+            visibleColumns,
+            columnWidths,
+            sortConfig,
+          });
+        }
+        return;
+      }
+      if (snapshot.lifecycle === "loaded") {
+        setAppState((previous) => {
+          const canApplyStatusOnly =
+            previous.kind === "loaded" &&
+            !isRecovery &&
+            snapshot.revision === previousRevision + 1;
+          if (canApplyStatusOnly) {
+            return previous.scanning === snapshot.discovery_running
+              ? previous
+              : { ...previous, scanning: snapshot.discovery_running };
+          }
+
+          const presentation =
+            previous.kind === "loading" || previous.kind === "loaded"
+              ? {
+                  visibleColumns: previous.visibleColumns,
+                  columnWidths: previous.columnWidths,
+                  sortConfig: previous.sortConfig,
+                }
+              : undefined;
+          const next = loadedStateFromProjection(
+            snapshot.folder!,
+            snapshot.files,
+            snapshot.discovery_running,
+            presentation,
+          );
+          if (previous.kind === "loaded") {
+            next.galleryPath = previous.galleryPath;
+            next.selectedPath = previous.selectedPath;
+            next.metadataVersion = previous.metadataVersion;
+            next.applicationErrors = previous.applicationErrors;
+            next.applying = previous.applying;
+            next.applyCompletion = previous.applyCompletion;
+          }
+          return next;
         });
       }
     },
-    [],
+    [loadedStateFromProjection],
   );
 
   const pushApplicationIssue = useCallback(
@@ -642,37 +729,11 @@ export function useMediaLibrary(
 
         if (prev.kind === "loading") {
           if (batch.length === 0) return prev;
-
-          // Update metadata progress store with new total
-          metadataProgressStoreRef.current.setTotal(batch.length);
-
-          return {
-            kind: "loaded",
-            folder: prev.folder,
-            files: batch,
-            thumbnails: thumbnailStoreRef.current,
-            fileMetadataOccurrences: fileMetadataOccurrencesStoreRef.current,
-            metadataProgress: metadataProgressStoreRef.current,
-            scanning: true,
-            galleryPath: null,
-            selectedPath: null,
+          return loadedStateFromProjection(prev.folder, batch, true, {
             visibleColumns: prev.visibleColumns,
             columnWidths: prev.columnWidths,
             sortConfig: prev.sortConfig,
-            metadataVersion: 0,
-            applicationErrors: targetLoadErrorRef.current
-              ? [targetLoadErrorRef.current]
-              : [],
-            targetDraftEdits: targetDraftEditsStoreRef.current.getAllMetadata(),
-            targetDraftEditsStore: targetDraftEditsStoreRef.current,
-            targetDraftPersistence: targetDraftPersistenceRef.current,
-            targetApplying: targetApplyControllerRef.current?.getState() ?? {
-              status: "idle",
-            },
-            applying: null,
-            targetVerifyOutcomes: targetVerifyOutcomesStoreRef.current.getAll(),
-            targetVerifyOutcomesStore: targetVerifyOutcomesStoreRef.current,
-          };
+          });
         }
 
         if (prev.kind === "loaded") {
@@ -771,26 +832,32 @@ export function useMediaLibrary(
         (raw) => applySessionSnapshot(raw as MediaLibrarySessionSnapshot),
       );
 
-      const unlistenFound = await api.listen("file_found", (raw) => {
-        if (cancelled) return;
-        const { scan_id, files } = raw as FileFoundPayload;
-        if (scan_id !== activeScanIdRef.current) return;
-        console.debug(`[file_found] received ${files.length} files`);
+      const unlistenFound = await api.listen(
+        "media_library_session_files_added",
+        (raw) => {
+          if (cancelled) return;
+          const { session_id, revision, files } =
+            raw as MediaLibrarySessionFilesAdded;
+          if (session_id !== activeScanIdRef.current) return;
+          if (revision <= sessionRevisionRef.current) return;
+          sessionRevisionRef.current = revision;
+          console.debug(`[session-files] received ${files.length} files`);
 
-        for (const file of files) {
-          thumbnailStoreRef.current.add(file.relative_path);
-          fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
-          fileBufferRef.current.push(file);
-        }
+          for (const file of files) {
+            thumbnailStoreRef.current.add(file.relative_path);
+            fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
+            fileBufferRef.current.push(file);
+          }
 
-        scheduleBatchedFlush(
-          fileBufferRef.current.length,
-          batchTimerRef,
-          isFirstFlushRef,
-          flushBatch,
-          100,
-        );
-      });
+          scheduleBatchedFlush(
+            fileBufferRef.current.length,
+            batchTimerRef,
+            isFirstFlushRef,
+            flushBatch,
+            100,
+          );
+        },
+      );
 
       const unlistenComplete = await api.listen("scan_complete", (raw) => {
         if (cancelled) return;
@@ -813,42 +880,6 @@ export function useMediaLibrary(
         flushBatch();
         flushMetadataBatch();
         flushThumbnailBatch();
-
-        setAppState((prev) => {
-          if (prev.kind === "loaded") return { ...prev, scanning: false };
-          if (prev.kind === "loading") {
-            return {
-              kind: "loaded",
-              folder: prev.folder,
-              files: [],
-              thumbnails: thumbnailStoreRef.current,
-              fileMetadataOccurrences: fileMetadataOccurrencesStoreRef.current,
-              metadataProgress: metadataProgressStoreRef.current,
-              scanning: false,
-              galleryPath: null,
-              selectedPath: null,
-              visibleColumns: prev.visibleColumns,
-              columnWidths: prev.columnWidths,
-              sortConfig: prev.sortConfig,
-              metadataVersion: 0,
-              applicationErrors: targetLoadErrorRef.current
-                ? [targetLoadErrorRef.current]
-                : [],
-              targetDraftEdits:
-                targetDraftEditsStoreRef.current.getAllMetadata(),
-              targetDraftEditsStore: targetDraftEditsStoreRef.current,
-              targetDraftPersistence: targetDraftPersistenceRef.current,
-              targetApplying: targetApplyControllerRef.current?.getState() ?? {
-                status: "idle",
-              },
-              applying: null,
-              targetVerifyOutcomes:
-                targetVerifyOutcomesStoreRef.current.getAll(),
-              targetVerifyOutcomesStore: targetVerifyOutcomesStoreRef.current,
-            };
-          }
-          return prev;
-        });
       });
 
       const unlistenMetadata = await api.listen(
@@ -965,6 +996,32 @@ export function useMediaLibrary(
       const initialSession = (await api.invoke(
         "get_media_library_session_snapshot",
       )) as MediaLibrarySessionSnapshot;
+      if (
+        !cancelled &&
+        initialSession.folder &&
+        initialSession.lifecycle !== "idle"
+      ) {
+        try {
+          const loaded = await loadTargetDraftEdits(api, initialSession.folder);
+          targetDraftEditsStoreRef.current.resetMetadata(loaded);
+          targetDraftPersistenceRef.current = { status: "ready" };
+        } catch (error) {
+          const errorMessage =
+            error instanceof Error ? error.message : String(error);
+          targetDraftEditsStoreRef.current.resetMetadata({});
+          targetDraftPersistenceRef.current = {
+            status: "load-failed",
+            error: errorMessage,
+          };
+          targetLoadErrorRef.current = {
+            scan_id: initialSession.session_id ?? -1,
+            severity: "error",
+            error_type: "metadata-target-load",
+            error_message: errorMessage,
+            affected_files: [],
+          };
+        }
+      }
       if (!cancelled) applySessionSnapshot(initialSession);
 
       console.debug("[setup] all listeners registered");
@@ -976,7 +1033,7 @@ export function useMediaLibrary(
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [api, applySessionSnapshot]);
+  }, [api, applySessionSnapshot, loadedStateFromProjection]);
 
   const openFolder = useCallback(async () => {
     const folder = (await api.invoke("pick_folder")) as string | null;

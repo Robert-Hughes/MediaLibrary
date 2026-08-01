@@ -73,7 +73,7 @@ fn media_kind_from_extension(extension: &str) -> Option<MediaKind> {
 
 /// A single file entry from the directory walk.
 /// Contains only path, media category and OS metadata — detailed metadata arrives separately.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct FileInfo {

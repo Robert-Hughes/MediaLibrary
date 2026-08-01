@@ -76,6 +76,7 @@ export type { PerGroupStats as NormalisePerGroupStats } from "./types/generated/
 export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
 export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrarySessionLifecycle";
 export type { MediaLibrarySessionSnapshot } from "./types/generated/MediaLibrarySessionSnapshot";
+export type { MediaLibrarySessionFilesAdded } from "./types/generated/MediaLibrarySessionFilesAdded";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
@@ -835,11 +836,6 @@ export interface GeocodeProgressState {
 }
 
 // ── Event payloads from Rust ──────────────────────────────────────────────────
-
-export interface FileFoundPayload {
-  scan_id: number;
-  files: FileInfo[];
-}
 
 export interface FileMetadataReadyPayload {
   scan_id: number;

@@ -1,8 +1,10 @@
+use crate::scanner::FileInfo;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 pub const SESSION_CHANGED_EVENT: &str = "media_library_session_changed";
+pub const SESSION_FILES_ADDED_EVENT: &str = "media_library_session_files_added";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -25,6 +27,19 @@ pub struct MediaLibrarySessionSnapshot {
     pub revision: u64,
     pub lifecycle: MediaLibrarySessionLifecycle,
     pub folder: Option<String>,
+    pub files: Vec<FileInfo>,
+    pub discovery_running: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionFilesAdded {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub files: Vec<FileInfo>,
 }
 
 pub struct MediaLibrarySessionState {
@@ -41,6 +56,8 @@ impl MediaLibrarySessionState {
                 revision: 0,
                 lifecycle: MediaLibrarySessionLifecycle::Idle,
                 folder: None,
+                files: Vec::new(),
+                discovery_running: false,
             }),
         }
     }
@@ -56,6 +73,8 @@ impl MediaLibrarySessionState {
         snapshot.revision += 1;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Opening;
         snapshot.folder = Some(folder);
+        snapshot.files.clear();
+        snapshot.discovery_running = false;
         snapshot.clone()
     }
 
@@ -73,6 +92,42 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Loaded;
+        snapshot.discovery_running = true;
+        Ok(snapshot.clone())
+    }
+
+    pub fn add_files(
+        &self,
+        session_id: u64,
+        files: Vec<FileInfo>,
+    ) -> Result<MediaLibrarySessionFilesAdded, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+            || !snapshot.discovery_running
+        {
+            return Err("The media-library session changed during file discovery".into());
+        }
+        snapshot.revision += 1;
+        snapshot.files.extend(files.iter().cloned());
+        Ok(MediaLibrarySessionFilesAdded {
+            session_id,
+            revision: snapshot.revision,
+            files,
+        })
+    }
+
+    pub fn finish_discovery(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed before discovery completed".into());
+        }
+        if snapshot.discovery_running {
+            snapshot.revision += 1;
+            snapshot.discovery_running = false;
+        }
         Ok(snapshot.clone())
     }
 
@@ -95,6 +150,8 @@ impl MediaLibrarySessionState {
         snapshot.session_id = None;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Idle;
         snapshot.folder = None;
+        snapshot.files.clear();
+        snapshot.discovery_running = false;
         snapshot.clone()
     }
 }
@@ -109,6 +166,16 @@ impl Default for MediaLibrarySessionState {
 mod tests {
     use super::*;
 
+    fn test_file(relative_path: &str) -> FileInfo {
+        FileInfo {
+            relative_path: relative_path.into(),
+            filename: relative_path.into(),
+            media_kind: crate::scanner::MediaKind::Image,
+            date_modified: None,
+            date_created: None,
+        }
+    }
+
     #[test]
     fn lifecycle_is_reconstructible_from_snapshot() {
         let state = MediaLibrarySessionState::new();
@@ -121,18 +188,29 @@ mod tests {
         assert_eq!(opening.session_id, Some(1));
         assert_eq!(opening.revision, 1);
         assert_eq!(opening.lifecycle, MediaLibrarySessionLifecycle::Opening);
+        assert!(opening.files.is_empty());
+        assert!(!opening.discovery_running);
 
         let loaded = state.mark_loaded(1, "C:/photos").unwrap();
         assert_eq!(loaded.revision, 2);
         assert_eq!(loaded.lifecycle, MediaLibrarySessionLifecycle::Loaded);
+        assert!(loaded.discovery_running);
         assert_eq!(state.snapshot(), loaded);
 
+        let added = state.add_files(1, vec![test_file("a.jpg")]).unwrap();
+        assert_eq!(added.revision, 3);
+        assert_eq!(state.snapshot().files, vec![test_file("a.jpg")]);
+
+        let completed = state.finish_discovery(1).unwrap();
+        assert_eq!(completed.revision, 4);
+        assert!(!completed.discovery_running);
+
         let closing = state.begin_close();
-        assert_eq!(closing.revision, 3);
+        assert_eq!(closing.revision, 5);
         assert_eq!(closing.lifecycle, MediaLibrarySessionLifecycle::Closing);
 
         let idle = state.finish_close();
-        assert_eq!(idle.revision, 4);
+        assert_eq!(idle.revision, 6);
         assert_eq!(idle.lifecycle, MediaLibrarySessionLifecycle::Idle);
         assert_eq!(idle.session_id, None);
         assert_eq!(idle.folder, None);
@@ -150,5 +228,22 @@ mod tests {
         assert!(state
             .mark_loaded(second.session_id.unwrap(), "C:/second")
             .is_ok());
+    }
+    #[test]
+    fn stale_file_batches_are_rejected_without_mutating_the_snapshot() {
+        let state = MediaLibrarySessionState::new();
+        let first = state.begin_open("C:/first".into());
+        state
+            .mark_loaded(first.session_id.unwrap(), "C:/first")
+            .unwrap();
+        let second = state.begin_open("C:/second".into());
+        state
+            .mark_loaded(second.session_id.unwrap(), "C:/second")
+            .unwrap();
+
+        assert!(state
+            .add_files(first.session_id.unwrap(), vec![test_file("stale.jpg")])
+            .is_err());
+        assert!(state.snapshot().files.is_empty());
     }
 }

@@ -1,7 +1,6 @@
 import type { TauriApi } from "../useMediaLibrary";
 import type {
   FileInfo,
-  FileFoundPayload,
   FileMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
@@ -239,6 +238,8 @@ export function createMockTauriApi(): MockTauriApi {
     revision: 0,
     lifecycle: "idle",
     folder: null,
+    files: [],
+    discovery_running: false,
   };
   let recoverySnapshot = { ...sessionSnapshot };
 
@@ -257,16 +258,36 @@ export function createMockTauriApi(): MockTauriApi {
     },
     foundPaths: new Set(),
     emitFileFound: (file, scanId) => {
-      if (scanId === undefined || scanId === mock.currentScanId) {
+      const sessionId = scanId ?? mock.currentScanId;
+      if (sessionId === mock.currentScanId) {
         mock.foundPaths.add(file.relative_path);
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          files: [...sessionSnapshot.files, file],
+        };
       }
-      emit("file_found", {
-        scan_id: scanId ?? mock.currentScanId,
+      emit("media_library_session_files_added", {
+        session_id: sessionId,
+        revision:
+          sessionId === mock.currentScanId
+            ? sessionSnapshot.revision
+            : sessionSnapshot.revision + 1,
         files: [file],
-      } satisfies FileFoundPayload);
+      });
     },
-    emitScanComplete: (scanId) =>
-      emit("scan_complete", { scan_id: scanId ?? mock.currentScanId }),
+    emitScanComplete: (scanId) => {
+      const sessionId = scanId ?? mock.currentScanId;
+      if (sessionId === mock.currentScanId) {
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          discovery_running: false,
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+      }
+      emit("scan_complete", { scan_id: sessionId });
+    },
     emitFileMetadataReady: (relative_path, metadata, scanId, occurrences) =>
       emit("file_metadata_ready", {
         scan_id: scanId ?? mock.currentScanId,
@@ -432,6 +453,8 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           lifecycle: "opening",
           folder: args?.folderPath as string,
+          files: [],
+          discovery_running: false,
         };
         return { ...sessionSnapshot };
       }
@@ -442,6 +465,7 @@ export function createMockTauriApi(): MockTauriApi {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           lifecycle: "loaded",
+          discovery_running: true,
         };
         return;
       }
@@ -456,6 +480,8 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           lifecycle: "idle",
           folder: null,
+          files: [],
+          discovery_running: false,
         };
         return { ...sessionSnapshot };
       }
