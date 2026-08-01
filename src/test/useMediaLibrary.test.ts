@@ -3099,6 +3099,38 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("routes bulk Delete through the Rust selected-field command", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    const id = testId("XMP-dc:Subject");
+    await publishOccurrences(mock, "a.jpg", [occurrenceFor(id, 0)]);
+    await publishOccurrences(mock, "b.jpg", [occurrenceFor(id, 1)]);
+
+    let staged = false;
+    await act(async () => {
+      staged = await result.current[1].stageBulkMetadataDraftBatch(
+        ["a.jpg", "b.jpg", "a.jpg"],
+        { operation: "Delete", schemaId: id },
+      );
+    });
+    expect(staged).toBe(true);
+    const invocation = mock.invocations.find(
+      ({ cmd }) =>
+        cmd === "remove_media_library_session_metadata_field_from_files",
+    );
+    expect(invocation?.args?.relativePaths).toEqual(["a.jpg", "b.jpg"]);
+    expect(invocation?.args?.schemaId).toEqual(id);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
+    ).toHaveLength(0);
+  });
+
   it("removes multiple exact schemas from one file through the Rust group command", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
