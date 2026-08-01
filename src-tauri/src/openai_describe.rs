@@ -152,10 +152,16 @@ pub struct ModelPricing {
 pub fn pricing_for(model: &str) -> Option<ModelPricing> {
     Some(match model {
         "gpt-5.6-luna" => ModelPricing {
-            input_per_1m: 1.00,
-            cached_input_per_1m: 0.10,
-            cache_write_input_per_1m: 1.25,
-            output_per_1m: 6.00,
+            input_per_1m: 0.20,
+            cached_input_per_1m: 0.02,
+            cache_write_input_per_1m: 0.25,
+            output_per_1m: 1.20,
+        },
+        "gpt-5.6-terra" => ModelPricing {
+            input_per_1m: 2.00,
+            cached_input_per_1m: 0.20,
+            cache_write_input_per_1m: 2.50,
+            output_per_1m: 12.00,
         },
         "gpt-5.6-sol" => ModelPricing {
             input_per_1m: 5.00,
@@ -401,7 +407,10 @@ fn description_schema() -> serde_json::Value {
 }
 
 /// Build the `/responses` request body for a single image.
-fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
+/// Build the exact production Responses API body for one preprocessed image.
+/// Exposed for the experiment harness so cache and model evaluations do not
+/// drift from production request semantics.
+pub fn build_describe_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
     let b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
     let data_url = format!("data:image/jpeg;base64,{}", b64);
     let mut request = serde_json::json!({
@@ -430,6 +439,19 @@ fn build_request_body(model: &str, image_bytes: &[u8]) -> serde_json::Value {
     // short schema. Low preserves reasoning while reserving enough budget
     // for the user-visible description fields.
     apply_responses_model_parameters(&mut request, model, Some(DESCRIBE_REASONING_EFFORT));
+    apply_responses_model_parameters(&mut request, model, Some(DESCRIBE_REASONING_EFFORT));
+
+    if model.starts_with("gpt-5.6") {
+        // GPT-5.6 implicit caching anchors at the changing image message, so
+        // unique-photo workloads pay cache-write rates without useful reuse.
+        // Explicit mode disables that implicit breakpoint. We deliberately add
+        // no explicit breakpoint: the reusable instructions/schema prefix is
+        // below the 1,024-token cache minimum, so a breakpoint would not help.
+        request["prompt_cache_options"] = serde_json::json!({
+            "mode": "explicit",
+            "ttl": "30m"
+        });
+    }
 
     request
 }
@@ -442,7 +464,7 @@ pub async fn count_input_tokens(
     model: &str,
     image_bytes: &[u8],
 ) -> Result<u32, String> {
-    let mut body = build_request_body(model, image_bytes);
+    let mut body = build_describe_request_body(model, image_bytes);
     if let Some(obj) = body.as_object_mut() {
         for k in [
             "temperature",
@@ -575,7 +597,7 @@ pub async fn describe_one(
     model: &str,
     image_bytes: &[u8],
 ) -> Result<(AiOutput, UsageStats), DescribeError> {
-    let body = build_request_body(model, image_bytes);
+    let body = build_describe_request_body(model, image_bytes);
     let (status, text) = client
         .http
         .post_responses(&body)
@@ -810,6 +832,21 @@ mod tests {
     }
 
     #[test]
+    fn gpt_5_6_reduced_pricing_matches_current_rate_card() {
+        let luna = pricing_for("gpt-5.6-luna").unwrap();
+        assert_eq!(luna.input_per_1m, 0.20);
+        assert_eq!(luna.cached_input_per_1m, 0.02);
+        assert_eq!(luna.cache_write_input_per_1m, 0.25);
+        assert_eq!(luna.output_per_1m, 1.20);
+
+        let terra = pricing_for("gpt-5.6-terra").unwrap();
+        assert_eq!(terra.input_per_1m, 2.00);
+        assert_eq!(terra.cached_input_per_1m, 0.20);
+        assert_eq!(terra.cache_write_input_per_1m, 2.50);
+        assert_eq!(terra.output_per_1m, 12.00);
+    }
+
+    #[test]
     fn pricing_has_entry_for_every_recommended_model() {
         // The settings module promises load_settings will never return an
         // unpriced model. Enforce that promise from the pricing side too:
@@ -905,7 +942,7 @@ mod tests {
             reasoning_tokens: 1024,
             ..Default::default()
         };
-        let expected = (1186.0 / 1e6) * 6.0;
+        let expected = (1186.0 / 1e6) * 1.2;
         assert!((u.cost(&p) - expected).abs() < 1e-12);
         assert_eq!(u.non_reasoning_output_tokens(), 162);
     }
@@ -919,13 +956,16 @@ mod tests {
             cache_write_input_tokens: 200,
             ..Default::default()
         };
-        let expected = (500.0 / 1e6) * 1.0 + (300.0 / 1e6) * 0.1 + (200.0 / 1e6) * 1.25;
+        let expected = (500.0 / 1e6) * 0.20 + (300.0 / 1e6) * 0.02 + (200.0 / 1e6) * 0.25;
         assert!((u.cost(&p) - expected).abs() < 1e-12);
     }
 
     #[test]
     fn gpt_5_describe_requests_low_reasoning_effort() {
-        let body = build_request_body("gpt-5.6-luna", &tiny_png_bytes());
+        let body = build_describe_request_body("gpt-5.6-luna", &tiny_png_bytes());
+        assert_eq!(body["prompt_cache_options"]["mode"], "explicit");
+        assert_eq!(body["prompt_cache_options"]["ttl"], "30m");
+        assert!(body.to_string().find("prompt_cache_breakpoint").is_none());
         assert_eq!(body["reasoning"]["effort"], "low");
         assert!(body.get("temperature").is_none());
         assert!(body.get("top_p").is_none());
@@ -933,7 +973,8 @@ mod tests {
 
     #[test]
     fn non_reasoning_describe_model_omits_reasoning_config() {
-        let body = build_request_body("gpt-4o", &tiny_png_bytes());
+        let body = build_describe_request_body("gpt-4o", &tiny_png_bytes());
+        assert!(body.get("prompt_cache_options").is_none());
         assert!(body.get("reasoning").is_none());
         assert_eq!(body["temperature"], 0);
         assert_eq!(body["top_p"], 1);

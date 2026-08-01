@@ -251,7 +251,11 @@ fn build_request_body(
         },
         "max_output_tokens": max_output_tokens,
     });
-    apply_responses_model_parameters(&mut request, model, None);
+    // Luna performed best in the controlled title/description corpus with
+    // reasoning disabled. This also keeps the small title token budget entirely
+    // available for the structured response instead of hidden reasoning tokens.
+    let reasoning_effort = model.starts_with("gpt-5.6").then_some("none");
+    apply_responses_model_parameters(&mut request, model, reasoning_effort);
     request
 }
 
@@ -546,6 +550,20 @@ mod tests {
             "description"
         );
         assert_eq!(body["max_output_tokens"], 400);
+        assert!(body.get("reasoning").is_none());
+    }
+
+    #[test]
+    fn luna_metadata_requests_disable_reasoning() {
+        let body = build_request_body(
+            "gpt-5.6-luna",
+            DESCRIPTION_SYSTEM_PROMPT,
+            serde_json::json!({}),
+            description_schema(),
+            "description_merge",
+            DESCRIPTION_OUTPUT_TOKENS,
+        );
+        assert_eq!(body["reasoning"]["effort"], "none");
     }
 
     #[test]
@@ -634,12 +652,12 @@ mod tests {
         let write_tokens = 8.0 * f64::from(LOCATION_CACHE_PREFIX_TOKENS);
         let cached_tokens = 2.0 * f64::from(LOCATION_CACHE_PREFIX_TOKENS);
         let uncached_tokens = input_tokens as f64 - write_tokens - cached_tokens;
-        let expected_predicted = (uncached_tokens / 1e6) * 1.00
-            + (cached_tokens / 1e6) * 0.10
-            + (write_tokens / 1e6) * 1.25
-            + (calls as f64 * f64::from(EXPECTED_LOCATION_OUTPUT_TOKENS) / 1e6) * 6.00;
-        let expected_upper = (input_tokens as f64 / 1e6) * 1.00
-            + (calls as f64 * f64::from(ESTIMATED_UPPER_LOCATION_OUTPUT_TOKENS) / 1e6) * 6.00;
+        let expected_predicted = (uncached_tokens / 1e6) * 0.20
+            + (cached_tokens / 1e6) * 0.02
+            + (write_tokens / 1e6) * 0.25
+            + (calls as f64 * f64::from(EXPECTED_LOCATION_OUTPUT_TOKENS) / 1e6) * 1.20;
+        let expected_upper = (input_tokens as f64 / 1e6) * 0.20
+            + (calls as f64 * f64::from(ESTIMATED_UPPER_LOCATION_OUTPUT_TOKENS) / 1e6) * 1.20;
         assert!((predicted - expected_predicted).abs() < 1e-9);
         assert!((upper - expected_upper).abs() < 1e-9);
     }
