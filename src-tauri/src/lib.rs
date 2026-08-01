@@ -1149,6 +1149,74 @@ fn discard_media_library_session_draft(
     emit_session_snapshot(&app, &committed)?;
     Ok(committed)
 }
+fn discard_exact_session_draft_targets(
+    entries: &[draft_edits::MetadataTargetDraftEntry],
+    targets: &[metadata_draft_target::MetadataDraftTarget],
+) -> Option<Vec<draft_edits::MetadataTargetDraftEntry>> {
+    if targets.is_empty() {
+        return None;
+    }
+    let slots = targets
+        .iter()
+        .map(metadata_draft_target::MetadataDraftTarget::slot)
+        .collect::<std::collections::HashSet<_>>();
+    let remaining = entries
+        .iter()
+        .filter(|entry| !slots.contains(&entry.target.slot()))
+        .cloned()
+        .collect::<Vec<_>>();
+    (remaining.len() != entries.len()).then_some(remaining)
+}
+
+#[tauri::command]
+fn discard_media_library_session_drafts(
+    session_id: u64,
+    relative_path: String,
+    targets: Vec<metadata_draft_target::MetadataDraftTarget>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the drafts were discarded".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let current_entries = snapshot
+        .drafts
+        .get(&relative_path)
+        .cloned()
+        .unwrap_or_default();
+    let Some(entries) = discard_exact_session_draft_targets(&current_entries, &targets) else {
+        return Ok(snapshot);
+    };
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        entries.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
 
 #[tauri::command]
 fn mutate_media_library_session_draft_rows(
@@ -1346,7 +1414,6 @@ mod tests {
             )),
         }
     }
-
     fn command_target_new() -> draft_edits::MetadataTargetDraftEntry {
         draft_edits::MetadataTargetDraftEntry {
             target: metadata_draft_target::MetadataDraftTarget::NewProperty {
@@ -1359,6 +1426,37 @@ mod tests {
             },
             edit: command_target_edit(metadata_value::MetadataValue::Null),
         }
+    }
+
+    #[test]
+    fn multi_target_discard_removes_only_requested_exact_slots() {
+        let ifd0 = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let ifd1 = command_target_existing("JPEG-APP1-IFD1", "IFD1");
+        let created = command_target_new();
+        let entries = vec![ifd0.clone(), ifd1.clone(), created.clone()];
+
+        let remaining = discard_exact_session_draft_targets(
+            &entries,
+            &[ifd0.target.clone(), created.target.clone()],
+        )
+        .expect("requested slots should be removed");
+
+        assert_eq!(remaining, vec![ifd1]);
+    }
+
+    #[test]
+    fn multi_target_discard_is_a_noop_for_empty_or_missing_targets() {
+        let existing = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let missing = command_target_existing("JPEG-APP1-IFD1", "IFD1");
+
+        assert!(
+            discard_exact_session_draft_targets(std::slice::from_ref(&existing), &[]).is_none()
+        );
+        assert!(discard_exact_session_draft_targets(
+            std::slice::from_ref(&existing),
+            &[missing.target],
+        )
+        .is_none());
     }
 
     #[test]
@@ -1749,6 +1847,7 @@ pub fn run() {
             set_window_title,
             set_media_library_session_draft,
             discard_media_library_session_draft,
+            discard_media_library_session_drafts,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,
