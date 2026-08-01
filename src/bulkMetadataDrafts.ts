@@ -82,6 +82,7 @@ export interface BulkMetadataDraftPreview {
 }
 
 export interface BulkMetadataDraftPlan {
+  /** Present only in the legacy pure planner; Rust preview responses omit it. */
   mutations: ExactTargetMutationBatchItem[];
   preview: BulkMetadataDraftPreview;
 }

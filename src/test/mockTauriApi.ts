@@ -19,8 +19,12 @@ import {
   targetDraftsToWire,
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
-import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import {
+  planBulkMetadataDraftBatch,
+  type BulkMetadataDraftRequest,
+} from "../bulkMetadataDrafts";
 import { planGeneratedTargetDraftBatch } from "../generatedTargetDrafts";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
 type EventHandler = (payload: unknown) => void;
@@ -1250,6 +1254,53 @@ export function createMockTauriApi(): MockTauriApi {
         for (const entry of plan.upserts) {
           store.setMetadataTarget(relativePath, entry.target, entry.edit);
         }
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (
+        cmd === "preview_media_library_session_bulk_drafts" ||
+        cmd === "stage_media_library_session_bulk_drafts"
+      ) {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePaths = args?.relativePaths as string[];
+        const request = args?.request as BulkMetadataDraftRequest;
+        const drafts = targetDraftsFromWire(
+          sessionSnapshot.drafts as Record<string, MetadataTargetDraftEntry[]>,
+        );
+        const plan = planBulkMetadataDraftBatch({
+          files: relativePaths.map((relativePath) => {
+            const metadata = sessionSnapshot.metadata.find(
+              (entry) => entry.relative_path === relativePath,
+            );
+            if (!metadata || metadata.state.status !== "ready") {
+              throw new Error(
+                `Authoritative metadata occurrences are still loading for '${relativePath}'. Nothing was staged.`,
+              );
+            }
+            return {
+              relativePath,
+              occurrences: metadata.state.occurrences,
+              targetDrafts: drafts[relativePath],
+            };
+          }),
+          request,
+        });
+        if (cmd === "preview_media_library_session_bulk_drafts") {
+          return { preview: plan.preview };
+        }
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(drafts);
+        const changed = store.applyExactMutationBatch(plan.mutations ?? []);
+        if (!changed) return { ...sessionSnapshot };
         mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
           store.getAllMetadata();
         sessionSnapshot = {

@@ -3099,7 +3099,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("routes bulk Delete through the Rust selected-field command", async () => {
+  it("routes bulk Delete through the Rust bulk staging command", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -3119,11 +3119,13 @@ describe("useMediaLibrary", () => {
     });
     expect(staged).toBe(true);
     const invocation = mock.invocations.find(
-      ({ cmd }) =>
-        cmd === "remove_media_library_session_metadata_field_from_files",
+      ({ cmd }) => cmd === "stage_media_library_session_bulk_drafts",
     );
     expect(invocation?.args?.relativePaths).toEqual(["a.jpg", "b.jpg"]);
-    expect(invocation?.args?.schemaId).toEqual(id);
+    expect(invocation?.args?.request).toEqual({
+      operation: "Delete",
+      schemaId: id,
+    });
     expect(
       mock.invocations.filter(
         ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
