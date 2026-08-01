@@ -10,7 +10,7 @@ export default tseslint.config(
     ignores: [
       "dist/",
       "node_modules/",
-      "src-tauri/target/",
+      "**/target/**",
       "src-tauri/icons/",
       "src/types/generated/",
       ".claude/",
