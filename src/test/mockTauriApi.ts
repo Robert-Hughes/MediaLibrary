@@ -19,6 +19,7 @@ import {
   targetDraftsToWire,
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { testId } from "./testIds";
 type EventHandler = (payload: unknown) => void;
 
@@ -873,6 +874,68 @@ export function createMockTauriApi(): MockTauriApi {
               intent: "Delete",
               value: null,
             });
+          }
+        }
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "remove_media_library_session_metadata_field_from_files") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const schemaId = args?.schemaId;
+        const relativePaths = args?.relativePaths as string[];
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        for (const relativePath of relativePaths) {
+          const metadata = sessionSnapshot.metadata.find(
+            (entry) => entry.relative_path === relativePath,
+          );
+          if (!metadata || metadata.state.status !== "ready") {
+            throw new Error(
+              `Authoritative metadata is unavailable for '${relativePath}'`,
+            );
+          }
+          for (const occurrence of metadata.state.occurrences) {
+            if (
+              JSON.stringify(occurrence.schema_id) !== JSON.stringify(schemaId)
+            ) {
+              continue;
+            }
+            const targetability =
+              existingOccurrenceTargetFromOccurrence(occurrence);
+            if (targetability.kind !== "targetable") {
+              throw new Error(targetability.reason);
+            }
+            store.setMetadataTarget(relativePath, targetability.target, {
+              intent: "Delete",
+              value: null,
+            });
+          }
+          for (const entry of Object.values(
+            store.getMetadataFile(relativePath) ?? {},
+          )) {
+            if (
+              entry.target.kind === "NewProperty" &&
+              JSON.stringify(entry.target.schema_id) ===
+                JSON.stringify(schemaId)
+            ) {
+              store.deleteTarget(relativePath, entry.target);
+            }
           }
         }
         mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
