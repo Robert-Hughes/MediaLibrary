@@ -1329,6 +1329,120 @@ fn replace_media_library_session_new_property_draft(
     Ok(committed)
 }
 
+fn plan_exact_session_target_removals(
+    entries: &[draft_edits::MetadataTargetDraftEntry],
+    targets: &[metadata_draft_target::MetadataDraftTarget],
+) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
+    if targets.is_empty() {
+        return Err("At least one exact metadata target is required".into());
+    }
+    let mut requested_slots = std::collections::HashSet::new();
+    for target in targets {
+        if !requested_slots.insert(target.slot()) {
+            return Err(
+                "The removal request contains the same logical target slot more than once".into(),
+            );
+        }
+    }
+
+    let delete_edit = draft_edits::MetadataDraftEdit {
+        value: None,
+        intent: draft_edits::EditIntent::Delete,
+    };
+    let mut planned = entries.to_vec();
+    for target in targets {
+        let slot = target.slot();
+        let owner_index = planned.iter().position(|entry| entry.target.slot() == slot);
+        match target {
+            metadata_draft_target::MetadataDraftTarget::NewProperty { .. } => {
+                let index = owner_index.ok_or_else(|| {
+                    "The selected New Property target no longer has an exact stored draft"
+                        .to_string()
+                })?;
+                if planned[index].target != *target {
+                    return Err(
+                        "A stale complete target owns the selected New Property slot".into(),
+                    );
+                }
+                planned.remove(index);
+            }
+            metadata_draft_target::MetadataDraftTarget::ExistingOccurrence { .. } => {
+                if let Some(index) = owner_index {
+                    if planned[index].target != *target {
+                        return Err(
+                            "A stale complete target owns the selected occurrence slot".into()
+                        );
+                    }
+                    if planned[index].edit == delete_edit {
+                        continue;
+                    }
+                    planned[index].edit = delete_edit.clone();
+                } else {
+                    planned.push(draft_edits::MetadataTargetDraftEntry {
+                        target: target.clone(),
+                        edit: delete_edit.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    Ok((planned != entries).then_some(planned))
+}
+
+#[tauri::command]
+fn remove_media_library_session_metadata_targets(
+    session_id: u64,
+    relative_path: String,
+    targets: Vec<metadata_draft_target::MetadataDraftTarget>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before metadata was removed".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    for target in &targets {
+        validate_exact_session_draft_target(&snapshot, &relative_path, target)?;
+    }
+    let current_entries = snapshot
+        .drafts
+        .get(&relative_path)
+        .cloned()
+        .unwrap_or_default();
+    let Some(entries) = plan_exact_session_target_removals(&current_entries, &targets)? else {
+        return Ok(snapshot);
+    };
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        entries.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
 #[tauri::command]
 fn mutate_media_library_session_draft_rows(
     session_id: u64,
@@ -1624,6 +1738,48 @@ mod tests {
         )
         .unwrap_err();
         assert!(schema_error.contains("exact schema"));
+    }
+
+    #[test]
+    fn exact_target_removal_stages_existing_delete_and_cancels_new_property() {
+        let existing = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let created = command_target_new();
+        let planned = plan_exact_session_target_removals(
+            std::slice::from_ref(&created),
+            &[existing.target.clone(), created.target.clone()],
+        )
+        .unwrap()
+        .expect("the exact targets should change the draft row");
+
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].target, existing.target);
+        assert_eq!(planned[0].edit.intent, draft_edits::EditIntent::Delete);
+        assert_eq!(planned[0].edit.value, None);
+    }
+
+    #[test]
+    fn exact_target_removal_rejects_duplicate_and_stale_slots_atomically() {
+        let existing = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let duplicate_error = plan_exact_session_target_removals(
+            &[],
+            &[existing.target.clone(), existing.target.clone()],
+        )
+        .unwrap_err();
+        assert!(duplicate_error.contains("same logical target slot"));
+
+        let mut stale_owner = existing.clone();
+        let metadata_draft_target::MetadataDraftTarget::ExistingOccurrence { write_target, .. } =
+            &mut stale_owner.target
+        else {
+            panic!("expected ExistingOccurrence target");
+        };
+        write_target.group1 = "IFD1".to_owned();
+        let stale_error = plan_exact_session_target_removals(
+            std::slice::from_ref(&stale_owner),
+            std::slice::from_ref(&existing.target),
+        )
+        .unwrap_err();
+        assert!(stale_error.contains("stale complete target"));
     }
 
     #[test]
@@ -2016,6 +2172,7 @@ pub fn run() {
             discard_media_library_session_draft,
             discard_media_library_session_drafts,
             replace_media_library_session_new_property_draft,
+            remove_media_library_session_metadata_targets,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,

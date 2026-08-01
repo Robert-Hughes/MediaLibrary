@@ -3039,6 +3039,16 @@ describe("useMediaLibrary", () => {
         edit: { intent: "Delete", value: null },
       },
     ]);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "remove_media_library_session_metadata_targets",
+      ),
+    ).toHaveLength(1);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
+    ).toHaveLength(0);
   });
 
   it("blocks target mutation and apply after strict target-load failure", async () => {
