@@ -1614,6 +1614,18 @@ export function useMediaLibrary(
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       try {
+        if (request.operation === "Delete") {
+          const snapshot = (await api.invoke(
+            "remove_media_library_session_metadata_field_from_files",
+            {
+              sessionId: activeScanIdRef.current,
+              schemaId: request.schemaId,
+              relativePaths: paths,
+            },
+          )) as MediaLibrarySessionSnapshot;
+          applySessionSnapshot(snapshot);
+          return true;
+        }
         const plan = buildBulkMetadataDraftPlan(paths, request);
         const persisted = await persistExactDraftMutations(
           plan.mutations,
@@ -1626,6 +1638,8 @@ export function useMediaLibrary(
       }
     },
     [
+      api,
+      applySessionSnapshot,
       buildBulkMetadataDraftPlan,
       persistExactDraftMutations,
       pushApplicationError,
