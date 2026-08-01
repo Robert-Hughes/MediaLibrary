@@ -3051,6 +3051,54 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(0);
   });
 
+  it("removes one exact schema from selected files through the Rust batch command", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    const id = testId("XMP-dc:Subject");
+    await publishOccurrences(mock, "a.jpg", [occurrenceFor(id, 0)]);
+    await publishOccurrences(mock, "b.jpg", [occurrenceFor(id, 1)]);
+
+    let removed = false;
+    await act(async () => {
+      removed = await result.current[1].removeMetadataFieldFromFiles(id, [
+        "a.jpg",
+        "b.jpg",
+        "a.jpg",
+      ]);
+    });
+    expect(removed).toBe(true);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) =>
+          cmd === "remove_media_library_session_metadata_field_from_files",
+      ),
+    ).toHaveLength(1);
+    const invocation = mock.invocations.find(
+      ({ cmd }) =>
+        cmd === "remove_media_library_session_metadata_field_from_files",
+    );
+    expect(invocation?.args?.relativePaths).toEqual(["a.jpg", "b.jpg"]);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
+    ).toHaveLength(0);
+
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    for (const path of ["a.jpg", "b.jpg"]) {
+      const entries = Object.values(
+        state.targetDraftEditsStore.getMetadataFile(path) ?? {},
+      );
+      expect(entries).toHaveLength(1);
+      expect(entries[0].edit).toEqual({ intent: "Delete", value: null });
+    }
+  });
+
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");

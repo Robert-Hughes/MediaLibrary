@@ -1443,6 +1443,149 @@ fn remove_media_library_session_metadata_targets(
     Ok(committed)
 }
 
+fn plan_session_schema_removal(
+    occurrences: &metadata_occurrence::MetadataOccurrences,
+    entries: &[draft_edits::MetadataTargetDraftEntry],
+    schema_id: &tag_schema::SchemaDefinitionId,
+) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
+    let mut targets = Vec::new();
+    let mut authoritative_slots = std::collections::HashSet::new();
+    for occurrence in occurrences
+        .iter()
+        .filter(|occurrence| &occurrence.schema_id == schema_id)
+    {
+        let target =
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
+                .map_err(|error| {
+                    format!("The selected occurrence cannot be removed safely: {error}")
+                })?;
+        if !authoritative_slots.insert(target.slot()) {
+            return Err(
+                "Several authoritative occurrences resolve to the same exact target slot".into(),
+            );
+        }
+        targets.push(target);
+    }
+    for entry in entries
+        .iter()
+        .filter(|entry| entry.target.schema_id() == schema_id)
+    {
+        match &entry.target {
+            metadata_draft_target::MetadataDraftTarget::NewProperty { .. } => {
+                targets.push(entry.target.clone());
+            }
+            metadata_draft_target::MetadataDraftTarget::ExistingOccurrence { .. }
+                if !authoritative_slots.contains(&entry.target.slot()) =>
+            {
+                return Err(
+                    "An ExistingOccurrence draft owns the selected schema, but its exact authoritative occurrence is missing"
+                        .into(),
+                );
+            }
+            _ => {}
+        }
+    }
+    if targets.is_empty() {
+        return Ok(None);
+    }
+    plan_exact_session_target_removals(entries, &targets)
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+fn remove_media_library_session_metadata_field_from_files(
+    session_id: u64,
+    schema_id: tag_schema::SchemaDefinitionId,
+    relative_paths: Vec<String>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before metadata was removed".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    if relative_paths.is_empty() {
+        return Err("At least one selected file is required".into());
+    }
+    let mut seen = std::collections::HashSet::new();
+    if let Some(duplicate) = relative_paths
+        .iter()
+        .find(|path| !seen.insert(path.as_str()))
+    {
+        return Err(format!(
+            "The selected file list contains '{duplicate}' more than once"
+        ));
+    }
+
+    let mut mutations = Vec::new();
+    let mut committed_rows = Vec::new();
+    for relative_path in &relative_paths {
+        let metadata = snapshot
+            .metadata
+            .iter()
+            .find(|entry| entry.relative_path == *relative_path)
+            .ok_or_else(|| {
+                format!("Authoritative metadata is unavailable for '{relative_path}'")
+            })?;
+        let occurrences = match &metadata.state {
+            session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
+            session::MediaLibrarySessionMetadataState::Loading => {
+                return Err(format!(
+                    "Authoritative metadata occurrences are still loading for '{relative_path}'"
+                ));
+            }
+            session::MediaLibrarySessionMetadataState::Failed { error } => {
+                return Err(format!(
+                    "Metadata could not be loaded for '{relative_path}': {error}"
+                ));
+            }
+        };
+        let current_entries = snapshot
+            .drafts
+            .get(relative_path)
+            .cloned()
+            .unwrap_or_default();
+        let Some(entries) = plan_session_schema_removal(occurrences, &current_entries, &schema_id)
+            .map_err(|error| format!("Cannot remove metadata from '{relative_path}': {error}"))?
+        else {
+            continue;
+        };
+        mutations.push(draft_repository::MetadataDraftRowMutation {
+            relative_path: relative_path.clone(),
+            entries: entries.clone(),
+        });
+        committed_rows.push((relative_path.clone(), entries));
+    }
+    if mutations.is_empty() {
+        return Ok(snapshot);
+    }
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    let app_data_dir = commands::shared::app_data_dir(&app)?;
+    if let Err(error) =
+        draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
+    {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_rows(session_id, committed_rows)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
 #[tauri::command]
 fn mutate_media_library_session_draft_rows(
     session_id: u64,
@@ -1653,6 +1796,38 @@ mod tests {
         }
     }
 
+    fn command_target_occurrence(
+        path: &str,
+        group1: &str,
+    ) -> metadata_occurrence::MetadataOccurrence {
+        let entry = command_target_existing(path, group1);
+        let metadata_draft_target::MetadataDraftTarget::ExistingOccurrence {
+            occurrence_id,
+            schema_id,
+            write_target,
+        } = entry.target
+        else {
+            panic!("expected ExistingOccurrence target");
+        };
+        metadata_occurrence::MetadataOccurrence {
+            id: occurrence_id,
+            schema_id: schema_id.clone(),
+            value: metadata_value::MetadataValue::Text("300".to_owned()),
+            tag_info: Some(tag_schema::TagInfo {
+                id: schema_id,
+                group0: Some("EXIF".to_owned()),
+                group: group1.to_owned(),
+                name: "XResolution".to_owned(),
+                writable: true,
+                kind: tag_schema::TagKind::Text,
+                description: None,
+                storage_count: None,
+            }),
+            observed_selector: None,
+            write_target: Some(write_target),
+        }
+    }
+
     #[test]
     fn multi_target_discard_removes_only_requested_exact_slots() {
         let ifd0 = command_target_existing("JPEG-APP1-IFD0", "IFD0");
@@ -1668,7 +1843,6 @@ mod tests {
 
         assert_eq!(remaining, vec![ifd1]);
     }
-
     #[test]
     fn multi_target_discard_is_a_noop_for_empty_or_missing_targets() {
         let existing = command_target_existing("JPEG-APP1-IFD0", "IFD0");
@@ -1780,6 +1954,48 @@ mod tests {
         )
         .unwrap_err();
         assert!(stale_error.contains("stale complete target"));
+    }
+
+    #[test]
+    fn schema_removal_deletes_all_authoritative_occurrences_and_cancels_creation() {
+        let occurrences = metadata_occurrence::MetadataOccurrences(vec![
+            command_target_occurrence("JPEG-APP1-IFD0", "IFD0"),
+            command_target_occurrence("JPEG-APP1-IFD1", "IFD1"),
+        ]);
+        let created = command_target_new();
+        let planned = plan_session_schema_removal(
+            &occurrences,
+            std::slice::from_ref(&created),
+            &command_target_schema(),
+        )
+        .unwrap()
+        .expect("existing occurrences and a staged creation should change the row");
+
+        assert_eq!(planned.len(), 2);
+        assert!(planned.iter().all(|entry| {
+            entry.target.is_existing_occurrence()
+                && entry.edit.intent == draft_edits::EditIntent::Delete
+                && entry.edit.value.is_none()
+        }));
+    }
+
+    #[test]
+    fn schema_removal_is_noop_when_absent_and_rejects_stale_existing_owner() {
+        let empty = metadata_occurrence::MetadataOccurrences(Vec::new());
+        assert!(
+            plan_session_schema_removal(&empty, &[], &command_target_schema())
+                .unwrap()
+                .is_none()
+        );
+
+        let stale = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let error = plan_session_schema_removal(
+            &empty,
+            std::slice::from_ref(&stale),
+            &command_target_schema(),
+        )
+        .unwrap_err();
+        assert!(error.contains("exact authoritative occurrence is missing"));
     }
 
     #[test]
@@ -2173,6 +2389,7 @@ pub fn run() {
             discard_media_library_session_drafts,
             replace_media_library_session_new_property_draft,
             remove_media_library_session_metadata_targets,
+            remove_media_library_session_metadata_field_from_files,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,

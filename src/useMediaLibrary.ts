@@ -1799,33 +1799,25 @@ export function useMediaLibrary(
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       try {
-        const mutations = paths.map((path) => {
-          try {
-            return removalMutation(path, [schemaId]);
-          } catch (error) {
-            const reason =
-              error instanceof Error ? error.message : String(error);
-            const contextualError = new Error(
-              `Cannot remove metadata from '${path}': ${reason}`,
-            );
-            (contextualError as Error & { cause: unknown }).cause = error;
-            throw contextualError;
-          }
-        });
-        const persisted = await persistExactDraftMutations(
-          mutations,
-          "metadata-target-remove-files",
-        );
-        return persisted.success;
+        const snapshot = (await api.invoke(
+          "remove_media_library_session_metadata_field_from_files",
+          {
+            sessionId: activeScanIdRef.current,
+            schemaId,
+            relativePaths: paths,
+          },
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
+        return true;
       } catch (error) {
         pushApplicationError("metadata-target-remove-files", error, paths);
         return false;
       }
     },
     [
-      persistExactDraftMutations,
+      api,
+      applySessionSnapshot,
       pushApplicationError,
-      removalMutation,
       requireTargetDraftPersistenceReady,
     ],
   );
