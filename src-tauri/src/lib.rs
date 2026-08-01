@@ -1587,6 +1587,86 @@ fn remove_media_library_session_metadata_field_from_files(
 }
 
 #[tauri::command]
+fn remove_media_library_session_metadata_fields(
+    session_id: u64,
+    relative_path: String,
+    schema_ids: Vec<tag_schema::SchemaDefinitionId>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before metadata was removed".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    if schema_ids.is_empty() {
+        return Err("At least one exact metadata schema is required".into());
+    }
+    for (index, schema_id) in schema_ids.iter().enumerate() {
+        if schema_ids[..index].contains(schema_id) {
+            return Err("The removal request contains the same exact schema more than once".into());
+        }
+    }
+    let metadata = snapshot
+        .metadata
+        .iter()
+        .find(|entry| entry.relative_path == relative_path)
+        .ok_or_else(|| format!("Authoritative metadata is unavailable for '{relative_path}'"))?;
+    let occurrences = match &metadata.state {
+        session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
+        session::MediaLibrarySessionMetadataState::Loading => {
+            return Err("Authoritative metadata occurrences are still loading".into());
+        }
+        session::MediaLibrarySessionMetadataState::Failed { error } => {
+            return Err(format!("Metadata could not be loaded: {error}"));
+        }
+    };
+    let original_entries = snapshot
+        .drafts
+        .get(&relative_path)
+        .cloned()
+        .unwrap_or_default();
+    let mut entries = original_entries.clone();
+    for schema_id in &schema_ids {
+        if let Some(next) = plan_session_schema_removal(occurrences, &entries, schema_id)
+            .map_err(|error| format!("Cannot remove metadata from '{relative_path}': {error}"))?
+        {
+            entries = next;
+        }
+    }
+    if entries == original_entries {
+        return Ok(snapshot);
+    }
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        entries.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
+#[tauri::command]
 fn mutate_media_library_session_draft_rows(
     session_id: u64,
     mutations: Vec<draft_repository::MetadataDraftRowMutation>,
@@ -2390,6 +2470,7 @@ pub fn run() {
             replace_media_library_session_new_property_draft,
             remove_media_library_session_metadata_targets,
             remove_media_library_session_metadata_field_from_files,
+            remove_media_library_session_metadata_fields,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,

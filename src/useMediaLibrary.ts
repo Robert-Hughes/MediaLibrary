@@ -46,10 +46,7 @@ import { TargetApplyController } from "./targetApplyController";
 import type { MetadataDraftRowMutation } from "./targetDraftTauri";
 import type { MetadataDraftTarget } from "./types";
 import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
-import {
-  schemaDefinitionIdEquals,
-  schemaDefinitionIdToken,
-} from "./utils/schemaDefinitionId";
+import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
 import { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 import {
   currentValueForMetadataDraftTarget,
@@ -63,7 +60,6 @@ import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSa
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { validateGpsTargetDraftEntries } from "./gpsTargetDrafts";
-import { planMetadataRemovalTargets } from "./metadataRemovalTargets";
 import {
   planGeneratedTargetDraftBatch,
   type GeneratedDraftStageResult,
@@ -1703,36 +1699,6 @@ export function useMediaLibrary(
     ],
   );
 
-  const removalMutation = useCallback(
-    (relativePath: string, schemaIds: readonly SchemaDefinitionId[]) => {
-      const uniqueIds = Array.from(
-        new Map(
-          schemaIds.map((id) => [
-            schemaDefinitionIdToken(id),
-            structuredClone(id),
-          ]),
-        ).values(),
-      );
-      const plan = planMetadataRemovalTargets({
-        schemaIds: uniqueIds,
-        occurrences: fileMetadataOccurrencesStoreRef.current.get(relativePath),
-        targetDrafts:
-          targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
-      });
-      const upserts: MetadataTargetDraftEntry[] = plan.upserts.map(
-        ({ target, edit }) => ({
-          target: structuredClone(target),
-          edit: structuredClone(edit),
-        }),
-      );
-      return {
-        path: relativePath,
-        upserts,
-        deletes: plan.deletes.map((target) => structuredClone(target)),
-      };
-    },
-    [],
-  );
   const removeMetadataTargets = useCallback(
     async (
       relativePath: string,
@@ -1772,25 +1738,28 @@ export function useMediaLibrary(
     ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const mutation = removalMutation(relativePath, schemaIds);
-        const persisted = await persistExactDraftMutations(
-          [mutation],
-          "metadata-target-remove",
-        );
-        return persisted.success;
+        const snapshot = (await api.invoke(
+          "remove_media_library_session_metadata_fields",
+          {
+            sessionId: activeScanIdRef.current,
+            relativePath,
+            schemaIds,
+          },
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
+        return true;
       } catch (error) {
         pushApplicationError("metadata-target-remove", error, [relativePath]);
         return false;
       }
     },
     [
-      persistExactDraftMutations,
+      api,
+      applySessionSnapshot,
       pushApplicationError,
-      removalMutation,
       requireTargetDraftPersistenceReady,
     ],
   );
-
   const removeMetadataFieldFromFiles = useCallback(
     async (
       schemaId: SchemaDefinitionId,

@@ -3099,6 +3099,60 @@ describe("useMediaLibrary", () => {
     }
   });
 
+  it("removes multiple exact schemas from one file through the Rust group command", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    const firstId = testId("XMP-dc:Subject");
+    const secondId = testId("XMP-dc:Title");
+    const unrelatedId = testId("XMP-dc:Description");
+    await publishOccurrences(mock, "group.jpg", [
+      occurrenceFor(firstId, 0),
+      occurrenceFor(secondId, 0),
+      occurrenceFor(unrelatedId, 0),
+    ]);
+
+    let removed = false;
+    await act(async () => {
+      removed = await result.current[1].removeMetadataFields("group.jpg", [
+        firstId,
+        secondId,
+      ]);
+    });
+    expect(removed).toBe(true);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "remove_media_library_session_metadata_fields",
+      ),
+    ).toHaveLength(1);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
+    ).toHaveLength(0);
+
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    const entries = Object.values(
+      state.targetDraftEditsStore.getMetadataFile("group.jpg") ?? {},
+    );
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.target.schema_id)).toEqual(
+      expect.arrayContaining([firstId, secondId]),
+    );
+    expect(entries.every((entry) => entry.edit.intent === "Delete")).toBe(true);
+    expect(
+      entries.some(
+        (entry) =>
+          JSON.stringify(entry.target.schema_id) ===
+          JSON.stringify(unrelatedId),
+      ),
+    ).toBe(false);
+  });
+
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");
