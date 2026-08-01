@@ -78,6 +78,9 @@ export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrar
 export type { MediaLibrarySessionSnapshot } from "./types/generated/MediaLibrarySessionSnapshot";
 export type { MediaLibrarySessionFilesAdded } from "./types/generated/MediaLibrarySessionFilesAdded";
 export type { MediaLibrarySessionIssue } from "./types/generated/MediaLibrarySessionIssue";
+export type { MediaLibrarySessionFileMetadata } from "./types/generated/MediaLibrarySessionFileMetadata";
+export type { MediaLibrarySessionMetadataChanged } from "./types/generated/MediaLibrarySessionMetadataChanged";
+export type { MediaLibrarySessionMetadataState } from "./types/generated/MediaLibrarySessionMetadataState";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 

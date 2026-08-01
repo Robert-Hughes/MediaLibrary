@@ -1,7 +1,6 @@
 import type { TauriApi } from "../useMediaLibrary";
 import type {
   FileInfo,
-  FileMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
   MetadataOccurrences,
@@ -67,6 +66,14 @@ export interface MockTauriApi {
     metadata: Record<string, MetadataValue>,
     scanId?: number,
     occurrences?: MetadataOccurrences,
+  ) => void;
+  emitFileMetadataBatch: (
+    items: Array<{
+      relativePath: string;
+      metadata: Record<string, MetadataValue>;
+      occurrences?: MetadataOccurrences;
+    }>,
+    scanId?: number,
   ) => void;
   emitThumbnailReady: (
     relativePath: string,
@@ -240,8 +247,10 @@ export function createMockTauriApi(): MockTauriApi {
     files: [],
     discovery_running: false,
     issues: [],
+    metadata: [],
   };
   let recoverySnapshot = { ...sessionSnapshot };
+  let initialSnapshotServed = false;
 
   const mock: MockTauriApi = {
     api: null as unknown as TauriApi,
@@ -265,6 +274,10 @@ export function createMockTauriApi(): MockTauriApi {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           files: [...sessionSnapshot.files, file],
+          metadata: [
+            ...sessionSnapshot.metadata,
+            { relative_path: file.relative_path, state: { status: "loading" } },
+          ],
         };
       }
       emit("media_library_session_files_added", {
@@ -283,41 +296,79 @@ export function createMockTauriApi(): MockTauriApi {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           discovery_running: false,
-          issues: [],
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
       }
       emit("scan_complete", { scan_id: sessionId });
     },
-    emitFileMetadataReady: (relative_path, metadata, scanId, occurrences) =>
-      emit("file_metadata_ready", {
-        scan_id: scanId ?? mock.currentScanId,
-        results: [
-          {
-            relative_path,
-            occurrences:
-              occurrences ??
-              Object.entries(metadata).map(([name, value], index) => ({
-                id: {
-                  document: null,
-                  path: `TestFixture-${index}`,
-                  runtime_tag_id: testId(name).tag_id,
-                  tag_id_scope: {
-                    table: "TestFixture::Runtime",
-                    tag_id: testId(name).tag_id,
-                    index: null,
-                  },
-                  copy: 0,
+    emitFileMetadataReady: (relativePath, metadata, scanId, occurrences) => {
+      mock.emitFileMetadataBatch(
+        [{ relativePath, metadata, occurrences }],
+        scanId,
+      );
+    },
+    emitFileMetadataBatch: (items, scanId) => {
+      const sessionId = scanId ?? mock.currentScanId;
+      const entries = items
+        .filter(
+          (item) =>
+            sessionId !== mock.currentScanId ||
+            sessionSnapshot.metadata.some(
+              (existing) => existing.relative_path === item.relativePath,
+            ),
+        )
+        .map((item) => {
+          const readyOccurrences =
+            item.occurrences ??
+            Object.entries(item.metadata).map(([name, value], index) => ({
+              id: {
+                document: null,
+                path: `TestFixture-${index}`,
+                runtime_tag_id: testId(name).tag_id,
+                tag_id_scope: {
+                  table: "TestFixture::Runtime",
+                  tag_id: testId(name).tag_id,
+                  index: null,
                 },
-                schema_id: testId(name),
-                value,
-                tag_info: null,
-                observed_selector: null,
-                write_target: null,
-              })),
-          },
+                copy: 0,
+              },
+              schema_id: testId(name),
+              value,
+              tag_info: null,
+              observed_selector: null,
+              write_target: null,
+            }));
+          return {
+            relative_path: item.relativePath,
+            state: { status: "ready" as const, occurrences: readyOccurrences },
+          };
+        });
+      if (entries.length === 0) return;
+      if (sessionId !== mock.currentScanId) {
+        emit("media_library_session_metadata_changed", {
+          session_id: sessionId,
+          revision: sessionSnapshot.revision + 1,
+          entries,
+        });
+        return;
+      }
+      const changedPaths = new Set(entries.map((entry) => entry.relative_path));
+      sessionSnapshot = {
+        ...sessionSnapshot,
+        revision: sessionSnapshot.revision + 1,
+        metadata: [
+          ...sessionSnapshot.metadata.filter(
+            (item) => !changedPaths.has(item.relative_path),
+          ),
+          ...entries,
         ],
-      } satisfies FileMetadataReadyPayload),
+      };
+      emit("media_library_session_metadata_changed", {
+        session_id: sessionId,
+        revision: sessionSnapshot.revision,
+        entries,
+      });
+    },
     emitThumbnailReady: (relative_path, thumbnail, scanId) =>
       emit("thumbnail_ready", {
         scan_id: scanId ?? mock.currentScanId,
@@ -462,7 +513,11 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "pick_folder") return nextFolder;
       if (cmd === "get_cli_folder") return null;
       if (cmd === "get_media_library_session_snapshot") {
-        return { ...recoverySnapshot };
+        if (!initialSnapshotServed) {
+          initialSnapshotServed = true;
+          return { ...recoverySnapshot };
+        }
+        return { ...sessionSnapshot };
       }
       if (cmd === "open_media_library_session") {
         sessionSnapshot = {
@@ -473,7 +528,9 @@ export function createMockTauriApi(): MockTauriApi {
           files: [],
           discovery_running: false,
           issues: [],
+          metadata: [],
         };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
       }
       if (cmd === "start_scan") {
@@ -485,7 +542,9 @@ export function createMockTauriApi(): MockTauriApi {
           lifecycle: "loaded",
           discovery_running: true,
           issues: [],
+          metadata: [],
         };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return;
       }
       if (cmd === "dismiss_media_library_session_issue") {
@@ -514,6 +573,7 @@ export function createMockTauriApi(): MockTauriApi {
           files: [],
           discovery_running: false,
           issues: [],
+          metadata: [],
         };
         return { ...sessionSnapshot };
       }
@@ -527,16 +587,32 @@ export function createMockTauriApi(): MockTauriApi {
         const folder = args?.folder as string;
         const relativePaths = (args?.relativePaths as string[]) ?? [];
         mock.lastRecycleArgs = { folder, relativePaths };
-        return {
-          results: relativePaths.map((relative_path) => {
-            const error = mock.recycleFailuresByPath[relative_path] ?? null;
-            return {
-              relative_path,
-              recycled: error === null,
-              error,
-            };
-          }),
-        };
+        const results = relativePaths.map((relative_path) => {
+          const error = mock.recycleFailuresByPath[relative_path] ?? null;
+          return {
+            relative_path,
+            recycled: error === null,
+            error,
+          };
+        });
+        const recycled = new Set(
+          results
+            .filter((item) => item.recycled)
+            .map((item) => item.relative_path),
+        );
+        if (recycled.size > 0) {
+          sessionSnapshot = {
+            ...sessionSnapshot,
+            revision: sessionSnapshot.revision + 1,
+            files: sessionSnapshot.files.filter(
+              (file) => !recycled.has(file.relative_path),
+            ),
+            metadata: sessionSnapshot.metadata.filter(
+              (entry) => !recycled.has(entry.relative_path),
+            ),
+          };
+        }
+        return { results };
       }
       if (cmd === "prioritize_queues") {
         mock.lastPrioritizedPaths = (args?.visiblePaths as string[]) ?? [];

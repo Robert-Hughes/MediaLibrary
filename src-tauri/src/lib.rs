@@ -192,13 +192,6 @@ struct ScanErrorPayload {
     message: String,
 }
 
-/// Emitted when a batch of Image metadata (EXIF etc) has been read.
-#[derive(Clone, Serialize)]
-struct FileMetadataReadyPayload {
-    scan_id: u64,
-    results: Vec<scanner::FileMetadata>,
-}
-
 #[derive(Clone, Serialize)]
 struct ThumbnailReadyPayload {
     scan_id: u64,
@@ -242,6 +235,23 @@ fn emit_session_snapshot(
 ) -> Result<(), String> {
     app.emit(session::SESSION_CHANGED_EVENT, snapshot.clone())
         .map_err(|error| error.to_string())
+}
+
+fn commit_session_metadata(app: &AppHandle, session_id: u64, results: Vec<scanner::FileMetadata>) {
+    match app
+        .state::<session::MediaLibrarySessionState>()
+        .commit_metadata_results(session_id, results)
+    {
+        Ok(delta) => {
+            if delta.entries.is_empty() {
+                return;
+            }
+            if let Err(error) = app.emit("media_library_session_metadata_changed", delta) {
+                log::error!("[session-metadata] failed to emit delta: {error}");
+            }
+        }
+        Err(error) => log::debug!("[session-metadata] discarded stale results: {error}"),
+    }
 }
 
 fn record_session_issue(
@@ -449,12 +459,10 @@ fn start_scan(
                                         "[metadata] Emitting batch of {} results (timeout flush)",
                                         batch_results.len()
                                     );
-                                    let _ = app.emit(
-                                        "file_metadata_ready",
-                                        FileMetadataReadyPayload {
-                                            scan_id,
-                                            results: std::mem::take(&mut batch_results),
-                                        },
+                                    commit_session_metadata(
+                                        &app,
+                                        scan_id,
+                                        std::mem::take(&mut batch_results),
                                     );
                                     last_emit = std::time::Instant::now();
                                 }
@@ -506,12 +514,10 @@ fn start_scan(
                                 "[metadata] Emitting batch of {} results",
                                 batch_results.len()
                             );
-                            let _ = app.emit(
-                                "file_metadata_ready",
-                                FileMetadataReadyPayload {
-                                    scan_id,
-                                    results: std::mem::take(&mut batch_results),
-                                },
+                            commit_session_metadata(
+                                &app,
+                                scan_id,
+                                std::mem::take(&mut batch_results),
                             );
                             last_emit = std::time::Instant::now();
                         }
@@ -523,13 +529,7 @@ fn start_scan(
                             "[metadata] Emitting final batch of {} results",
                             batch_results.len()
                         );
-                        let _ = app.emit(
-                            "file_metadata_ready",
-                            FileMetadataReadyPayload {
-                                scan_id,
-                                results: batch_results,
-                            },
-                        );
+                        commit_session_metadata(&app, scan_id, batch_results);
                     }
                 })
             })
@@ -775,7 +775,9 @@ fn prioritize_queues(
 fn recycle_media_files(
     folder: String,
     relative_paths: Vec<String>,
+    app: AppHandle,
     active_queues: State<'_, ActiveQueues>,
+    session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<recycle::RecycleFilesResult, String> {
     let result = recycle::recycle_files_with(&folder, relative_paths, |path| {
         trash::delete(path).map_err(|error| error.to_string())
@@ -791,6 +793,16 @@ fn recycle_media_files(
     }
     if let Some(queue) = active_queues.file_metadata() {
         queue.remove_paths(&recycled_paths);
+    }
+    if !recycled_paths.is_empty() {
+        let snapshot = session_state.remove_files(
+            session_state
+                .snapshot()
+                .session_id
+                .ok_or_else(|| "No active media-library session".to_string())?,
+            &recycled_paths,
+        )?;
+        emit_session_snapshot(&app, &snapshot)?;
     }
     Ok(result)
 }
@@ -1227,26 +1239,29 @@ mod tests {
             ]),
         };
 
-        let json = serde_json::to_value(FileMetadataReadyPayload {
-            scan_id: 7,
-            results: vec![result],
+        let json = serde_json::to_value(session::MediaLibrarySessionMetadataChanged {
+            session_id: 7,
+            revision: 3,
+            entries: vec![session::MediaLibrarySessionFileMetadata {
+                relative_path: result.relative_path,
+                state: session::MediaLibrarySessionMetadataState::Ready {
+                    occurrences: result.occurrences,
+                },
+            }],
         })
         .unwrap();
-        let result = json["results"][0].as_object().unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(
-            result
-                .keys()
-                .map(String::as_str)
-                .collect::<std::collections::BTreeSet<_>>(),
-            std::collections::BTreeSet::from(["occurrences", "relative_path"])
-        );
-        assert_eq!(result["occurrences"].as_array().unwrap().len(), 2);
-        assert_eq!(result["occurrences"][1]["id"]["copy"], 2);
-        assert_eq!(result["occurrences"][0]["tag_info"]["id"]["tag_id"], "282");
-        assert_eq!(result["occurrences"][0]["value"]["kind"], "Integer");
-        assert_eq!(result["occurrences"][0]["write_target"]["group1"], "IFD0");
-        assert!(!result.contains_key("metadata"));
+        let entry = json["entries"][0].as_object().unwrap();
+        assert_eq!(entry.len(), 2);
+        assert_eq!(entry["relative_path"], "file.jpg");
+        let state = entry["state"].as_object().unwrap();
+        assert_eq!(state["status"], "ready");
+        assert_eq!(state["occurrences"].as_array().unwrap().len(), 2);
+        assert_eq!(state["occurrences"].as_array().unwrap().len(), 2);
+        assert_eq!(state["occurrences"][1]["id"]["copy"], 2);
+        assert_eq!(state["occurrences"][0]["tag_info"]["id"]["tag_id"], "282");
+        assert_eq!(state["occurrences"][0]["value"]["kind"], "Integer");
+        assert_eq!(state["occurrences"][0]["write_target"]["group1"], "IFD0");
+        assert!(!state.contains_key("metadata"));
     }
 
     #[test]

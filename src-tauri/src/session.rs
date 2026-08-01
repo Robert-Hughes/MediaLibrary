@@ -1,4 +1,5 @@
-use crate::scanner::FileInfo;
+use crate::metadata_occurrence::MetadataOccurrences;
+use crate::scanner::{FileInfo, FileMetadata};
 use serde::Serialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -17,7 +18,7 @@ pub enum MediaLibrarySessionLifecycle {
     Closing,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct MediaLibrarySessionSnapshot {
@@ -30,6 +31,36 @@ pub struct MediaLibrarySessionSnapshot {
     pub files: Vec<FileInfo>,
     pub discovery_running: bool,
     pub issues: Vec<MediaLibrarySessionIssue>,
+    pub metadata: Vec<MediaLibrarySessionFileMetadata>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum MediaLibrarySessionMetadataState {
+    Loading,
+    Ready { occurrences: MetadataOccurrences },
+    Failed { error: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionFileMetadata {
+    pub relative_path: String,
+    pub state: MediaLibrarySessionMetadataState,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionMetadataChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub entries: Vec<MediaLibrarySessionFileMetadata>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -74,6 +105,7 @@ impl MediaLibrarySessionState {
                 files: Vec::new(),
                 discovery_running: false,
                 issues: Vec::new(),
+                metadata: Vec::new(),
             }),
         }
     }
@@ -92,6 +124,7 @@ impl MediaLibrarySessionState {
         snapshot.files.clear();
         snapshot.discovery_running = false;
         snapshot.issues.clear();
+        snapshot.metadata.clear();
         snapshot.clone()
     }
 
@@ -126,12 +159,83 @@ impl MediaLibrarySessionState {
             return Err("The media-library session changed during file discovery".into());
         }
         snapshot.revision += 1;
+        snapshot
+            .metadata
+            .extend(files.iter().map(|file| MediaLibrarySessionFileMetadata {
+                relative_path: file.relative_path.clone(),
+                state: MediaLibrarySessionMetadataState::Loading,
+            }));
         snapshot.files.extend(files.iter().cloned());
         Ok(MediaLibrarySessionFilesAdded {
             session_id,
             revision: snapshot.revision,
             files,
         })
+    }
+
+    pub fn commit_metadata_results(
+        &self,
+        session_id: u64,
+        results: Vec<FileMetadata>,
+    ) -> Result<MediaLibrarySessionMetadataChanged, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed during metadata scanning".into());
+        }
+        let mut entries = Vec::with_capacity(results.len());
+        for result in results {
+            let entry = snapshot
+                .metadata
+                .iter_mut()
+                .find(|entry| entry.relative_path == result.relative_path)
+                .ok_or_else(|| {
+                    format!(
+                        "Metadata arrived for an undiscovered file: {}",
+                        result.relative_path
+                    )
+                })?;
+            entry.state = MediaLibrarySessionMetadataState::Ready {
+                occurrences: result.occurrences,
+            };
+            entries.push(entry.clone());
+        }
+        if !entries.is_empty() {
+            snapshot.revision += 1;
+        }
+        Ok(MediaLibrarySessionMetadataChanged {
+            session_id,
+            revision: snapshot.revision,
+            entries,
+        })
+    }
+
+    pub fn remove_files(
+        &self,
+        session_id: u64,
+        relative_paths: &[String],
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed before files were removed".into());
+        }
+        let paths: std::collections::BTreeSet<&str> =
+            relative_paths.iter().map(String::as_str).collect();
+        let file_count = snapshot.files.len();
+        let metadata_count = snapshot.metadata.len();
+        snapshot
+            .files
+            .retain(|file| !paths.contains(file.relative_path.as_str()));
+        snapshot
+            .metadata
+            .retain(|entry| !paths.contains(entry.relative_path.as_str()));
+        if snapshot.files.len() != file_count || snapshot.metadata.len() != metadata_count {
+            snapshot.revision += 1;
+        }
+        Ok(snapshot.clone())
     }
 
     pub fn finish_discovery(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
@@ -167,6 +271,19 @@ impl MediaLibrarySessionState {
         }
         let issue_id = self.next_issue_id.fetch_add(1, Ordering::Relaxed);
         snapshot.revision += 1;
+        if error_type == "metadata" {
+            for relative_path in &affected_files {
+                if let Some(entry) = snapshot
+                    .metadata
+                    .iter_mut()
+                    .find(|entry| entry.relative_path == *relative_path)
+                {
+                    entry.state = MediaLibrarySessionMetadataState::Failed {
+                        error: error_message.clone(),
+                    };
+                }
+            }
+        }
         snapshot.issues.push(MediaLibrarySessionIssue {
             issue_id,
             severity,
@@ -214,6 +331,7 @@ impl MediaLibrarySessionState {
         snapshot.files.clear();
         snapshot.discovery_running = false;
         snapshot.issues.clear();
+        snapshot.metadata.clear();
         snapshot.clone()
     }
 }
@@ -262,17 +380,37 @@ mod tests {
         let added = state.add_files(1, vec![test_file("a.jpg")]).unwrap();
         assert_eq!(added.revision, 3);
         assert_eq!(state.snapshot().files, vec![test_file("a.jpg")]);
+        assert_eq!(state.snapshot().metadata.len(), 1);
+        assert!(matches!(
+            state.snapshot().metadata[0].state,
+            MediaLibrarySessionMetadataState::Loading
+        ));
+
+        let metadata_delta = state
+            .commit_metadata_results(
+                1,
+                vec![FileMetadata {
+                    relative_path: "a.jpg".into(),
+                    occurrences: MetadataOccurrences::default(),
+                }],
+            )
+            .unwrap();
+        assert_eq!(metadata_delta.entries.len(), 1);
+        assert!(matches!(
+            state.snapshot().metadata[0].state,
+            MediaLibrarySessionMetadataState::Ready { .. }
+        ));
 
         let completed = state.finish_discovery(1).unwrap();
-        assert_eq!(completed.revision, 4);
+        assert_eq!(completed.revision, 5);
         assert!(!completed.discovery_running);
 
         let closing = state.begin_close();
-        assert_eq!(closing.revision, 5);
+        assert_eq!(closing.revision, 6);
         assert_eq!(closing.lifecycle, MediaLibrarySessionLifecycle::Closing);
 
         let idle = state.finish_close();
-        assert_eq!(idle.revision, 6);
+        assert_eq!(idle.revision, 7);
         assert_eq!(idle.lifecycle, MediaLibrarySessionLifecycle::Idle);
         assert_eq!(idle.session_id, None);
         assert_eq!(idle.folder, None);
@@ -309,22 +447,55 @@ mod tests {
         assert!(state.snapshot().files.is_empty());
     }
     #[test]
+    fn removed_files_reject_late_metadata_results() {
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        state
+            .mark_loaded(opened.session_id.unwrap(), "C:/photos")
+            .unwrap();
+        state
+            .add_files(opened.session_id.unwrap(), vec![test_file("gone.jpg")])
+            .unwrap();
+        let removed = state
+            .remove_files(opened.session_id.unwrap(), &["gone.jpg".into()])
+            .unwrap();
+        assert!(removed.files.is_empty());
+        assert!(removed.metadata.is_empty());
+        assert!(state
+            .commit_metadata_results(
+                opened.session_id.unwrap(),
+                vec![FileMetadata {
+                    relative_path: "gone.jpg".into(),
+                    occurrences: MetadataOccurrences::default(),
+                }],
+            )
+            .is_err());
+    }
+
+    #[test]
     fn issues_are_session_owned_and_dismissed_by_stable_id() {
         let state = MediaLibrarySessionState::new();
         let opened = state.begin_open("C:/photos".into());
         state
             .mark_loaded(opened.session_id.unwrap(), "C:/photos")
             .unwrap();
+        state
+            .add_files(opened.session_id.unwrap(), vec![test_file("private.jpg")])
+            .unwrap();
         let with_issue = state
             .add_issue(
                 opened.session_id.unwrap(),
                 "error".into(),
-                "scanner".into(),
+                "metadata".into(),
                 "permission denied".into(),
                 vec!["private.jpg".into()],
             )
             .unwrap();
         assert_eq!(with_issue.issues.len(), 1);
+        assert!(matches!(
+            with_issue.metadata[0].state,
+            MediaLibrarySessionMetadataState::Failed { .. }
+        ));
         let issue_id = with_issue.issues[0].issue_id;
         assert_eq!(state.snapshot().issues[0].issue_id, issue_id);
 

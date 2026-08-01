@@ -142,24 +142,28 @@ describe("Performance: Large folder handling", () => {
       notificationCount++;
     });
 
-    // Emit metadata for all files
-    for (let i = 0; i < 100; i++) {
+    // Rust emits metadata in backend-sized batches. Project two batches of 50
+    // rather than recreating the retired frontend event queue.
+    for (let start = 0; start < 100; start += 50) {
       act(() => {
-        mock.emitFileMetadataReady(`file-${i}.jpg`, {
-          "IFD0:Model": { kind: "Text", value: "Camera" },
-        });
+        mock.emitFileMetadataBatch(
+          Array.from({ length: 50 }, (_, offset) => ({
+            relativePath: `file-${start + offset}.jpg`,
+            metadata: {
+              "IFD0:Model": { kind: "Text", value: "Camera" },
+            },
+          })),
+        );
       });
     }
-
-    // Advance timers to trigger batch flushes
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     unsubscribe();
 
-    // Should have batched updates, not 100 individual updates
-    // With batch size of 50 and 200ms timeout, we expect ~2-3 notifications
+    // Each backend batch produces one progress notification, not 100 per-file notifications
     expect(notificationCount).toBeLessThan(10);
     expect(notificationCount).toBeGreaterThan(0);
 

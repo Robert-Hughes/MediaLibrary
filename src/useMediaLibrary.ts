@@ -6,7 +6,6 @@ import {
 } from "./types";
 import type {
   AppState,
-  FileMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
   ApplicationErrorPayload,
@@ -25,6 +24,8 @@ import type {
   RecycleFilesResult,
   MediaLibrarySessionSnapshot,
   MediaLibrarySessionFilesAdded,
+  MediaLibrarySessionFileMetadata,
+  MediaLibrarySessionMetadataChanged,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -339,6 +340,56 @@ export function useMediaLibrary(
     [],
   );
 
+  const projectSessionMetadata = useCallback(
+    (
+      entries: readonly MediaLibrarySessionFileMetadata[],
+      reset: boolean,
+    ): number => {
+      if (reset) {
+        fileMetadataOccurrencesStoreRef.current.clear();
+        metadataCompletedPathsRef.current.clear();
+        metadataProgressStoreRef.current.reset();
+      }
+
+      let newlyCompleted = 0;
+      let acceptedReady = 0;
+      for (const entry of entries) {
+        fileMetadataOccurrencesStoreRef.current.add(entry.relative_path);
+        if (entry.state.status === "loading") continue;
+
+        const wasCompleted = metadataCompletedPathsRef.current.has(
+          entry.relative_path,
+        );
+        if (entry.state.status === "ready") {
+          if (
+            !reset &&
+            scanMetadataSupersededPathsRef.current.has(entry.relative_path)
+          ) {
+            scanMetadataSupersededPathsRef.current.delete(entry.relative_path);
+          } else {
+            fileMetadataOccurrencesStoreRef.current.set(
+              entry.relative_path,
+              normalizeMetadataOccurrencesFromTauri(entry.state.occurrences),
+            );
+            acceptedReady += 1;
+          }
+        } else {
+          fileMetadataOccurrencesStoreRef.current.setFailed(
+            entry.relative_path,
+            entry.state.error,
+          );
+        }
+        metadataCompletedPathsRef.current.add(entry.relative_path);
+        if (!wasCompleted) newlyCompleted += 1;
+      }
+      if (newlyCompleted > 0) {
+        metadataProgressStoreRef.current.incrementReceived(newlyCompleted);
+      }
+      return acceptedReady;
+    },
+    [],
+  );
+
   const applySessionSnapshot = useCallback(
     (snapshot: MediaLibrarySessionSnapshot) => {
       if (snapshot.lifecycle === "idle" && snapshot.revision === 0) return;
@@ -378,8 +429,15 @@ export function useMediaLibrary(
         return;
       }
       if (snapshot.lifecycle === "loaded") {
-        for (const file of snapshot.files) {
-          fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
+        const rebuildMetadataProjection =
+          isRecovery || snapshot.revision > previousRevision + 1;
+        if (rebuildMetadataProjection) {
+          projectSessionMetadata(snapshot.metadata, true);
+          metadataProgressStoreRef.current.setTotal(snapshot.files.length);
+        } else {
+          for (const file of snapshot.files) {
+            fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
+          }
         }
         for (const issue of snapshot.issues) {
           if (seenSessionIssueIdsRef.current.has(issue.issue_id)) continue;
@@ -487,7 +545,7 @@ export function useMediaLibrary(
         });
       }
     },
-    [loadedStateFromProjection],
+    [loadedStateFromProjection, projectSessionMetadata],
   );
 
   const pushApplicationIssue = useCallback(
@@ -961,21 +1019,36 @@ export function useMediaLibrary(
       });
 
       const unlistenMetadata = await api.listen(
-        "file_metadata_ready",
-        (raw) => {
+        "media_library_session_metadata_changed",
+        async (raw) => {
           if (cancelled) return;
-          const { scan_id, results } = raw as FileMetadataReadyPayload;
-          if (scan_id !== activeScanIdRef.current) return;
-          console.debug(`[metadata] received ${results.length} results`);
-
-          metadataBufferRef.current.push(...results);
-          scheduleBatchedFlush(
-            metadataBufferRef.current.length,
-            metadataBatchTimerRef,
-            isFirstMetadataFlushRef,
-            flushMetadataBatch,
-            200,
-          );
+          const delta = raw as MediaLibrarySessionMetadataChanged;
+          if (delta.session_id !== activeScanIdRef.current) return;
+          if (delta.revision <= sessionRevisionRef.current) return;
+          if (delta.revision !== sessionRevisionRef.current + 1) {
+            const snapshot = (await api.invoke(
+              "get_media_library_session_snapshot",
+            )) as MediaLibrarySessionSnapshot;
+            if (!cancelled) applySessionSnapshot(snapshot);
+            return;
+          }
+          sessionRevisionRef.current = delta.revision;
+          const acceptedReady = projectSessionMetadata(delta.entries, false);
+          if (acceptedReady > 0) {
+            setAppState((previous) => {
+              if (
+                previous.kind !== "loaded" ||
+                !previous.sortConfig.primary ||
+                previous.sortConfig.primary.kind !== "image"
+              ) {
+                return previous;
+              }
+              return {
+                ...previous,
+                metadataVersion: previous.metadataVersion + 1,
+              };
+            });
+          }
         },
       );
 
@@ -1053,7 +1126,12 @@ export function useMediaLibrary(
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [api, applySessionSnapshot, loadedStateFromProjection]);
+  }, [
+    api,
+    applySessionSnapshot,
+    loadedStateFromProjection,
+    projectSessionMetadata,
+  ]);
 
   const openFolder = useCallback(async () => {
     const folder = (await api.invoke("pick_folder")) as string | null;
