@@ -86,10 +86,22 @@ and never touched.
 
 ## Apply controller and backend
 
-The frontend invokes `apply_metadata_draft_edits_cmd`, listens for
-`apply_edits_started` and `apply_metadata_edits_progress`, and cancels through
-`cancel_apply_edits`. `TargetApplyController` owns listener lifetime, progress,
-cancellation races, autosave suspension and authoritative result parsing.
+The frontend invokes `apply_metadata_draft_edits_cmd` with a command-owned
+Tauri channel and cancels through `cancel_apply_edits`. The channel carries one
+started message, bounded progress batches and one compact completion summary.
+It replaces the historical global Apply events, so messages are scoped to one
+command and cannot be consumed by a later Apply. `TargetApplyController` owns
+progress sequencing, cancellation races, autosave suspension, bounded retry
+state and authoritative result application.
+
+The command's ordinary terminal response contains only compact counters. A
+full per-file result appears there only when sending that file's progress batch
+through the channel failed, allowing the frontend to recover that exceptional
+result without duplicating every successful payload. Normal Apply memory is
+therefore bounded by one backend/frontend chunk plus the authoritative stores,
+not by the total number of completed files. See
+[Apply memory and ownership](APPLY_MEMORY_MODEL.md) for the detailed contract,
+failure behaviour and measurements.
 
 For each requested file, the backend:
 
