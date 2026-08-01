@@ -236,18 +236,18 @@ only each requested chunk, reconciles its rows independently, and commits all
 changed rows in that chunk atomically with compare-and-swap protection against
 concurrent edits.
 
-The former version-6 `MediaLibraryTargetDraftEdits.jsonl` store is a one-time
-migration input. A successful transaction archives it as
-`MediaLibraryTargetDraftEdits.migrated.jsonl`.
+Historical JSONL draft files are ignored and never touched. SQLite is the only
+active draft store and there is no runtime import or fallback path.
 
 Applying validates the target, writes through ExifTool, re-reads authoritative
 occurrences, verifies the semantic result, reconciles the exact target as
 Clear, Keep, Replace or Blocked, persists the result, and appends to
 the central `<app-data>/MediaLibraryTargetApplyLog.jsonl`. Schema-version 3 rows use canonical absolute `photo_path`; existing apply-log rows are append-only and are not rewritten.
 
-The historical `MediaLibraryDraftEdits.jsonl` and
-`MediaLibraryApplyLog.jsonl` files are ignored and left byte-for-byte
-untouched. They are not parsed, migrated, rewritten, truncated or deleted.
+The historical `MediaLibraryTargetDraftEdits.jsonl`,
+`MediaLibraryDraftEdits.jsonl` and `MediaLibraryApplyLog.jsonl` files are
+ignored and left byte-for-byte untouched. They are not parsed, migrated,
+rewritten, truncated or deleted.
 
 ## Read-only projections and search
 

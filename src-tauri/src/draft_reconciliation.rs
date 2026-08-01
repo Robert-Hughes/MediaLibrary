@@ -295,8 +295,9 @@ pub fn reconcile_metadata_draft_file(
 mod tests {
     use super::*;
     use crate::apply_edits::{MetadataDraftReconciliation, MetadataTargetOutcome};
-    use crate::draft_edits::{
-        load_metadata_draft_edits, save_metadata_draft_edits, EditIntent, MetadataDraftEdit,
+    use crate::draft_edits::{EditIntent, MetadataDraftEdit};
+    use crate::draft_repository::{
+        apply_row_mutations, load_metadata_draft_edits, MetadataDraftRowMutation,
     };
     use crate::metadata_occurrence::{MetadataOccurrenceId, MetadataWriteTarget};
     use crate::metadata_value::MetadataValue;
@@ -939,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn reconciled_map_round_trips_with_exact_targets_edits_and_ordering() {
+    fn reconciled_map_round_trips_through_sqlite_with_exact_targets_and_edits() {
         let cleared = entry(
             existing_target("z-cleared", "IFD0", schema("100")),
             "cleared",
@@ -975,10 +976,16 @@ mod tests {
         let first_dir = tempdir().unwrap();
         fs::create_dir(first_dir.path().join("album")).unwrap();
         fs::write(first_dir.path().join("album/file.jpg"), b"photo").unwrap();
-        save_metadata_draft_edits(
+        apply_row_mutations(
             first_dir.path(),
             first_dir.path().to_str().unwrap(),
-            &reconciled,
+            &reconciled
+                .iter()
+                .map(|(relative_path, entries)| MetadataDraftRowMutation {
+                    relative_path: relative_path.clone(),
+                    entries: entries.clone(),
+                })
+                .collect::<Vec<_>>(),
             &crate::draft_edits::DraftRepositoryState::default(),
         )
         .unwrap();
@@ -1001,46 +1008,19 @@ mod tests {
             edit: created.edit,
         }));
 
-        let first_text =
-            fs::read_to_string(first_dir.path().join("MediaLibraryTargetDraftEdits.jsonl"))
-                .unwrap();
-        assert_eq!(
-            load_metadata_draft_edits(
-                first_dir.path(),
-                first_dir.path().to_str().unwrap(),
-                &crate::draft_edits::DraftRepositoryState::default()
-            )
-            .unwrap(),
-            reconciled
-        );
-        let data_line = first_text
-            .lines()
-            .find(|line| !line.starts_with("//"))
-            .unwrap();
-        let json: serde_json::Value = serde_json::from_str(data_line).unwrap();
-        assert!(
-            json["photo_path"]
-                .as_str()
-                .unwrap()
-                .ends_with("album\\file.jpg")
-                || json["photo_path"]
-                    .as_str()
-                    .unwrap()
-                    .ends_with("album/file.jpg")
-        );
-        assert!(json["edits"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|item| item["target"].get("relative_path").is_none()));
-
         let second_dir = tempdir().unwrap();
         fs::create_dir(second_dir.path().join("album")).unwrap();
         fs::write(second_dir.path().join("album/file.jpg"), b"photo").unwrap();
-        save_metadata_draft_edits(
+        apply_row_mutations(
             second_dir.path(),
             second_dir.path().to_str().unwrap(),
-            &loaded,
+            &loaded
+                .iter()
+                .map(|(relative_path, entries)| MetadataDraftRowMutation {
+                    relative_path: relative_path.clone(),
+                    entries: entries.clone(),
+                })
+                .collect::<Vec<_>>(),
             &crate::draft_edits::DraftRepositoryState::default(),
         )
         .unwrap();
