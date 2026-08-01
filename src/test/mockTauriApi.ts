@@ -20,6 +20,7 @@ import {
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import { planGeneratedTargetDraftBatch } from "../generatedTargetDrafts";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
 type EventHandler = (payload: unknown) => void;
@@ -1148,6 +1149,55 @@ export function createMockTauriApi(): MockTauriApi {
         if (!changed) return { ...sessionSnapshot };
         for (const { target, edit } of planned) {
           store.setMetadataTarget(relativePath, target, edit);
+        }
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "stage_media_library_session_geocode_drafts") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const edits = args?.edits as SchemaMetadataEdit[];
+        const metadata = sessionSnapshot.metadata.find(
+          (entry) => entry.relative_path === relativePath,
+        );
+        if (!metadata || metadata.state.status !== "ready") {
+          throw new Error(
+            "Authoritative metadata occurrences are still loading",
+          );
+        }
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        const plan = planGeneratedTargetDraftBatch({
+          producer: { kind: "geocode" },
+          fileName: relativePath,
+          edits,
+          occurrences: metadata.state.occurrences,
+          targetDrafts: store.getMetadataFile(relativePath),
+          writableSchemaDefinitions: mock.tagInfos,
+        });
+        if (plan.upserts.length === 0 && plan.deletes.length === 0) {
+          return { ...sessionSnapshot };
+        }
+        for (const target of plan.deletes)
+          store.deleteTarget(relativePath, target);
+        for (const entry of plan.upserts) {
+          store.setMetadataTarget(relativePath, entry.target, entry.edit);
         }
         mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
           store.getAllMetadata();

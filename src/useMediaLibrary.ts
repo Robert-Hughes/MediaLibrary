@@ -1512,14 +1512,16 @@ export function useMediaLibrary(
       const plannerItems: typeof activeItems = [];
       for (const active of activeItems) {
         const { relativePath, producer, edits } = active.item;
-        if (producer.kind !== "describe") {
+        if (producer.kind === "normalise") {
           plannerItems.push(active);
           continue;
         }
         try {
           const previousRevision = sessionRevisionRef.current;
           const snapshot = (await api.invoke(
-            "stage_media_library_session_describe_drafts",
+            producer.kind === "describe"
+              ? "stage_media_library_session_describe_drafts"
+              : "stage_media_library_session_geocode_drafts",
             {
               sessionId: activeScanIdRef.current,
               relativePath,
