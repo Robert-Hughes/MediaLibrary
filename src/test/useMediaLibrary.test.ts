@@ -216,6 +216,7 @@ describe("useMediaLibrary", () => {
       files: [makeFile({ relative_path: "recovered.jpg" })],
       discovery_running: true,
       issues: [],
+      metadata: [],
     });
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
@@ -516,15 +517,14 @@ describe("useMediaLibrary", () => {
       relativePath: "nature/sunset.jpg",
     });
   });
-
-  it("scan_error during loading resets state to idle", async () => {
+  it("scan_error during an active scan resets state to idle", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
-    expect(result.current[0].kind).toBe("loading");
+    expect(result.current[0]).toMatchObject({ kind: "loaded", scanning: true });
 
     await expectConsoleErrorMessages(["Scan error: not a directory"], () => {
       act(() => {
@@ -762,10 +762,8 @@ describe("useMediaLibrary", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
     });
-
-    // Stale file should not have been added; state should still be loading
-    expect(result.current[0].kind).toBe("loading");
-
+    // Stale file should not have been added; the active Rust session remains loaded.
+    expect(result.current[0]).toMatchObject({ kind: "loaded", files: [] });
     // A current-scan file should be accepted
     act(() => {
       mock.emitFileFound(
@@ -877,14 +875,14 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
-  it("scan_complete with zero files transitions from loading to loaded", async () => {
+  it("scan_complete with zero files marks discovery complete", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/empty");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => {
       await result.current[1].openFolder();
     });
-    expect(result.current[0].kind).toBe("loading");
+    expect(result.current[0]).toMatchObject({ kind: "loaded", scanning: true });
 
     act(() => {
       mock.emitScanComplete();
@@ -898,7 +896,6 @@ describe("useMediaLibrary", () => {
       expect(state.folder).toBe("/empty");
     }
   });
-
   it("scan_complete after files arrive sets scanning to false", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
@@ -1632,9 +1629,13 @@ describe("useMediaLibrary", () => {
         },
       );
     });
+    const beforeApply = result.current[0];
+    const versionBeforeApply =
+      beforeApply.kind === "loaded" ? beforeApply.metadataVersion : 0;
     await act(async () => result.current[1].applyDraftEdits("draft-only.jpg"));
     const state = result.current[0];
-    if (state.kind === "loaded") expect(state.metadataVersion).toBe(0);
+    if (state.kind === "loaded")
+      expect(state.metadataVersion).toBe(versionBeforeApply);
   });
 
   it("treats a valid empty target-aware load as writable", async () => {

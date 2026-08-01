@@ -24,8 +24,8 @@ type SessionSnapshot = {
     error_message: string;
     affected_files: string[];
   }>;
+  metadata: Array<{ relative_path: string; state: unknown }>;
 };
-
 let nextSessionId = 1;
 let sessionSnapshot: SessionSnapshot = {
   session_id: null,
@@ -35,6 +35,7 @@ let sessionSnapshot: SessionSnapshot = {
   files: [],
   discovery_running: false,
   issues: [],
+  metadata: [],
 };
 
 function resetSessionMock(): void {
@@ -47,7 +48,69 @@ function resetSessionMock(): void {
     files: [],
     discovery_running: false,
     issues: [],
+    metadata: [],
   };
+}
+
+function emitSessionFiles(
+  emit: (event: string, payload: unknown) => void,
+  sessionId: number,
+  files: ReturnType<typeof makeFile>[],
+): void {
+  if (sessionId !== sessionSnapshot.session_id) return;
+  sessionSnapshot = {
+    ...sessionSnapshot,
+    revision: sessionSnapshot.revision + 1,
+    files: [...sessionSnapshot.files, ...files],
+    metadata: [
+      ...sessionSnapshot.metadata,
+      ...files.map((file) => ({
+        relative_path: file.relative_path,
+        state: { status: "loading" as const },
+      })),
+    ],
+  };
+  emit("media_library_session_files_added", {
+    session_id: sessionId,
+    revision: sessionSnapshot.revision,
+    files,
+  });
+}
+
+function emitSessionMetadata(
+  emit: (event: string, payload: unknown) => void,
+  payload: {
+    scan_id: number;
+    results: Array<{
+      relative_path: string;
+      occurrences: unknown[];
+      metadata?: unknown;
+    }>;
+  },
+): void {
+  if (payload.scan_id !== sessionSnapshot.session_id) return;
+  const entries = payload.results.map((result) => ({
+    relative_path: result.relative_path,
+    state: { status: "ready" as const, occurrences: result.occurrences },
+  }));
+  sessionSnapshot = {
+    ...sessionSnapshot,
+    revision: sessionSnapshot.revision + 1,
+    metadata: [
+      ...sessionSnapshot.metadata.filter(
+        (existing) =>
+          !entries.some(
+            (entry) => entry.relative_path === existing.relative_path,
+          ),
+      ),
+      ...entries,
+    ],
+  };
+  emit("media_library_session_metadata_changed", {
+    session_id: payload.scan_id,
+    revision: sessionSnapshot.revision,
+    entries,
+  });
 }
 
 function handleSessionCommand(
@@ -66,6 +129,7 @@ function handleSessionCommand(
       files: [],
       discovery_running: false,
       issues: [],
+      metadata: [],
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -78,6 +142,7 @@ function handleSessionCommand(
       files: [],
       discovery_running: false,
       issues: [],
+      metadata: [],
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -468,14 +533,10 @@ describe("App Select Columns metadata counts", () => {
     });
 
     act(() => {
-      emit("media_library_session_files_added", {
-        session_id: scanId,
-        revision: sessionSnapshot.revision + 2,
-        files: [
-          makeFile({ relative_path: "a.jpg" }),
-          makeFile({ relative_path: "b.jpg" }),
-        ],
-      });
+      emitSessionFiles(emit, scanId, [
+        makeFile({ relative_path: "a.jpg" }),
+        makeFile({ relative_path: "b.jpg" }),
+      ]);
     });
 
     await waitFor(() => {
@@ -486,7 +547,7 @@ describe("App Select Columns metadata counts", () => {
     });
 
     act(() => {
-      emit("file_metadata_ready", {
+      emitSessionMetadata(emit, {
         scan_id: scanId,
         results: [
           {
@@ -596,14 +657,10 @@ describe("App Select Columns metadata counts", () => {
 
     // 1. Load/open a folder with two files.
     act(() => {
-      emit("media_library_session_files_added", {
-        session_id: scanId,
-        revision: sessionSnapshot.revision + 2,
-        files: [
-          makeFile({ relative_path: "a.jpg" }),
-          makeFile({ relative_path: "b.jpg" }),
-        ],
-      });
+      emitSessionFiles(emit, scanId, [
+        makeFile({ relative_path: "a.jpg" }),
+        makeFile({ relative_path: "b.jpg" }),
+      ]);
     });
 
     await waitFor(
@@ -629,7 +686,7 @@ describe("App Select Columns metadata counts", () => {
 
     // 4. Emit an `file_metadata_ready` event for one file containing `XMP-dc:Title`.
     act(() => {
-      emit("file_metadata_ready", {
+      emitSessionMetadata(emit, {
         scan_id: scanId,
         results: [
           {
@@ -653,7 +710,7 @@ describe("App Select Columns metadata counts", () => {
 
     // 7. Emit another `file_metadata_ready` event or batch for the second file also containing `XMP-dc:Title`.
     act(() => {
-      emit("file_metadata_ready", {
+      emitSessionMetadata(emit, {
         scan_id: scanId,
         results: [
           {
@@ -736,14 +793,10 @@ describe("App occurrence wiring regression", () => {
       scanId = (call?.[1] as { scanId: number }).scanId;
     });
     act(() => {
-      emit("media_library_session_files_added", {
-        session_id: scanId,
-        revision: sessionSnapshot.revision + 2,
-        files: [
-          makeFile({ relative_path: "unique.jpg" }),
-          makeFile({ relative_path: "duplicate.jpg" }),
-        ],
-      });
+      emitSessionFiles(emit, scanId, [
+        makeFile({ relative_path: "unique.jpg" }),
+        makeFile({ relative_path: "duplicate.jpg" }),
+      ]);
     });
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 150));
@@ -844,7 +897,7 @@ describe("App occurrence wiring regression", () => {
       },
     ];
     act(() => {
-      emit("file_metadata_ready", {
+      emitSessionMetadata(emit, {
         scan_id: scanId,
         results: [
           {
