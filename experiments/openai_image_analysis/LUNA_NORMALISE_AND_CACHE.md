@@ -8,10 +8,10 @@ A 12-photo cross-year corpus compared Luna at omitted/default, low, and none rea
 
 Current API prices used by the harness and production estimator are:
 
-| Model | Input / 1M | Cached read / 1M | Cache write / 1M | Output / 1M |
-|---|---:|---:|---:|---:|
-| GPT-5.6 Luna | $0.20 | $0.02 | $0.25 | $1.20 |
-| GPT-5.6 Terra | $2.00 | $0.20 | $2.50 | $12.00 |
+| Model         | Input / 1M | Cached read / 1M | Cache write / 1M | Output / 1M |
+| ------------- | ---------: | ---------------: | ---------------: | ----------: |
+| GPT-5.6 Luna  |      $0.20 |            $0.02 |            $0.25 |       $1.20 |
+| GPT-5.6 Terra |      $2.00 |            $0.20 |            $2.50 |      $12.00 |
 
 ## Image-description cache finding
 
