@@ -2357,19 +2357,31 @@ export function useMediaLibrary(
       targets: MetadataDraftTarget[],
     ): Promise<boolean> => {
       if (targets.length === 0) return true;
-      const persisted = await persistExactDraftMutations(
-        [
+      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
+      try {
+        const snapshot = (await api.invoke(
+          "discard_media_library_session_drafts",
           {
-            path: fileRelativePath,
-            upserts: [],
-            deletes: targets,
+            sessionId: activeScanIdRef.current,
+            relativePath: fileRelativePath,
+            targets,
           },
-        ],
-        "metadata-target-discard-targets",
-      );
-      return persisted.success;
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-target-discard-targets", error, [
+          fileRelativePath,
+        ]);
+        return false;
+      }
     },
-    [persistExactDraftMutations],
+    [
+      api,
+      applySessionSnapshot,
+      pushApplicationError,
+      requireTargetDraftPersistenceReady,
+    ],
   );
   const discardAllDraftEdits = useCallback(
     (fileRelativePath?: string | string[]) => {
