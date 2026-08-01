@@ -63,11 +63,9 @@ import type {
   GeneratedDraftStageResult,
   GeneratedMetadataProducer,
 } from "./generatedTargetDrafts";
-import {
-  BulkMetadataDraftPlanError,
-  planBulkMetadataDraftBatch,
-  type BulkMetadataDraftPlan,
-  type BulkMetadataDraftRequest,
+import type {
+  BulkMetadataDraftPlan,
+  BulkMetadataDraftRequest,
 } from "./bulkMetadataDrafts";
 
 function logApplicationIssue(
@@ -154,9 +152,10 @@ export interface MediaLibraryActions {
   previewBulkMetadataDraftBatch: (
     relativePaths: string[],
     request: BulkMetadataDraftRequest,
-  ) =>
+  ) => Promise<
     | { kind: "ready"; plan: BulkMetadataDraftPlan }
-    | { kind: "blocked"; reason: string; relativePath?: string };
+    | { kind: "blocked"; reason: string; relativePath?: string }
+  >;
   stageBulkMetadataDraftBatch: (
     relativePaths: string[],
     request: BulkMetadataDraftRequest,
@@ -1552,30 +1551,15 @@ export function useMediaLibrary(
       )[0] ?? { kind: "success", changed: false },
     [applyGeneratedMetadataDraftBatches],
   );
-  const buildBulkMetadataDraftPlan = useCallback(
-    (relativePaths: string[], request: BulkMetadataDraftRequest) => {
-      const paths = [...new Set(relativePaths)];
-      return planBulkMetadataDraftBatch({
-        files: paths.map((relativePath) => ({
-          relativePath,
-          occurrences:
-            fileMetadataOccurrencesStoreRef.current.get(relativePath),
-          targetDrafts:
-            targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
-        })),
-        request,
-      });
-    },
-    [],
-  );
-
   const previewBulkMetadataDraftBatch = useCallback(
-    (
+    async (
       relativePaths: string[],
       request: BulkMetadataDraftRequest,
-    ):
+    ): Promise<
       | { kind: "ready"; plan: BulkMetadataDraftPlan }
-      | { kind: "blocked"; reason: string; relativePath?: string } => {
+      | { kind: "blocked"; reason: string; relativePath?: string }
+    > => {
+      const paths = [...new Set(relativePaths)];
       const persistence = targetDraftPersistenceRef.current;
       if (persistence.status !== "ready") {
         return {
@@ -1584,26 +1568,28 @@ export function useMediaLibrary(
             persistence.status === "load-failed"
               ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE}${"error" in persistence ? ` Load error: ${persistence.error}` : ""}`
               : TARGET_DRAFT_LOAD_BLOCKED_MESSAGE,
-          relativePath: relativePaths[0],
+          relativePath: paths[0],
         };
       }
       try {
-        return {
-          kind: "ready",
-          plan: buildBulkMetadataDraftPlan(relativePaths, request),
-        };
+        const plan = (await api.invoke(
+          "preview_media_library_session_bulk_drafts",
+          {
+            sessionId: activeScanIdRef.current,
+            relativePaths: paths,
+            request,
+          },
+        )) as BulkMetadataDraftPlan;
+        return { kind: "ready", plan };
       } catch (error) {
         return {
           kind: "blocked",
           reason: error instanceof Error ? error.message : String(error),
-          relativePath:
-            error instanceof BulkMetadataDraftPlanError
-              ? error.relativePath
-              : relativePaths[0],
+          relativePath: paths[0],
         };
       }
     },
-    [buildBulkMetadataDraftPlan],
+    [api],
   );
 
   const stageBulkMetadataDraftBatch = useCallback(
@@ -1614,24 +1600,16 @@ export function useMediaLibrary(
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       try {
-        if (request.operation === "Delete") {
-          const snapshot = (await api.invoke(
-            "remove_media_library_session_metadata_field_from_files",
-            {
-              sessionId: activeScanIdRef.current,
-              schemaId: request.schemaId,
-              relativePaths: paths,
-            },
-          )) as MediaLibrarySessionSnapshot;
-          applySessionSnapshot(snapshot);
-          return true;
-        }
-        const plan = buildBulkMetadataDraftPlan(paths, request);
-        const persisted = await persistExactDraftMutations(
-          plan.mutations,
-          "metadata-target-bulk-stage",
-        );
-        return persisted.success;
+        const snapshot = (await api.invoke(
+          "stage_media_library_session_bulk_drafts",
+          {
+            sessionId: activeScanIdRef.current,
+            relativePaths: paths,
+            request,
+          },
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
+        return true;
       } catch (error) {
         pushApplicationError("metadata-target-bulk-stage", error, paths);
         return false;
@@ -1640,8 +1618,6 @@ export function useMediaLibrary(
     [
       api,
       applySessionSnapshot,
-      buildBulkMetadataDraftPlan,
-      persistExactDraftMutations,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
     ],

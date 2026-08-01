@@ -36,10 +36,11 @@ interface Props {
   targetDraftEdits: TargetDraftEditsByFile;
   onPreview: (
     request: BulkMetadataDraftRequest,
-  ) =>
+  ) => Promise<
     | { kind: "ready"; plan: BulkMetadataDraftPlan }
-    | { kind: "blocked"; reason: string; relativePath?: string };
-  onStage: (request: BulkMetadataDraftRequest) => boolean | Promise<boolean>;
+    | { kind: "blocked"; reason: string; relativePath?: string }
+  >;
+  onStage: (request: BulkMetadataDraftRequest) => Promise<boolean>;
   onClose: () => void;
 }
 
@@ -295,8 +296,8 @@ export function BulkMetadataEditorDialog({
       : null;
   const mergeAvailable = capabilities?.mergeMode != null;
 
-  const review = (nextRequest: BulkMetadataDraftRequest) => {
-    const result = onPreview(nextRequest);
+  const review = async (nextRequest: BulkMetadataDraftRequest) => {
+    const result = await onPreview(nextRequest);
     if (result.kind === "blocked") {
       setError(
         result.relativePath
@@ -311,7 +312,6 @@ export function BulkMetadataEditorDialog({
     setPlan(result.plan);
     setPhase("preview");
   };
-
   if (phase === "editor" && selected) {
     const contextHint = (
       <p className="dialog-hint" data-testid="bulk-editor-context-hint">
@@ -344,13 +344,13 @@ export function BulkMetadataEditorDialog({
             setError("GPS Location must be saved through its grouped editor.");
             setPhase("choose");
           }}
-          onSaveMetadataBatch={(edits) =>
-            review({
+          onSaveMetadataBatch={(edits) => {
+            void review({
               operation: "SetGps",
               group: structuredClone(selected.group),
               edits: structuredClone(edits),
-            })
-          }
+            });
+          }}
           onCancel={() => setPhase("choose")}
         />
       );
@@ -366,7 +366,7 @@ export function BulkMetadataEditorDialog({
             setPhase("choose");
             return;
           }
-          review({
+          void review({
             operation: "Set",
             tagInfo: structuredClone(selected.info),
             edit: structuredClone(edit),
@@ -606,7 +606,7 @@ export function BulkMetadataEditorDialog({
                 onClick={() => {
                   if (!selected) return;
                   if (operation === "Delete") {
-                    review(
+                    void review(
                       selected.kind === "gps"
                         ? {
                             operation: "DeleteGps",

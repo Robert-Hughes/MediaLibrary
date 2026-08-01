@@ -5,6 +5,7 @@ pub mod apply_log;
 mod apply_perf_experiment;
 pub mod batch_audit_log;
 pub mod batch_job;
+mod bulk_metadata;
 pub mod commands;
 pub mod country_code;
 pub mod describe_log;
@@ -2418,6 +2419,84 @@ fn stage_media_library_session_normalise_drafts(
 }
 
 #[tauri::command]
+fn preview_media_library_session_bulk_drafts(
+    session_id: u64,
+    relative_paths: Vec<String>,
+    request: bulk_metadata::BulkMetadataDraftRequest,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<bulk_metadata::BulkMetadataDraftPreviewPlan, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the bulk edit was previewed".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let plan = bulk_metadata::plan_bulk_metadata_drafts(&snapshot, &relative_paths, &request)?;
+    Ok(bulk_metadata::BulkMetadataDraftPreviewPlan {
+        preview: plan.preview,
+    })
+}
+
+#[tauri::command]
+fn stage_media_library_session_bulk_drafts(
+    session_id: u64,
+    relative_paths: Vec<String>,
+    request: bulk_metadata::BulkMetadataDraftRequest,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the bulk edit was staged".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let plan = bulk_metadata::plan_bulk_metadata_drafts(&snapshot, &relative_paths, &request)?;
+    if plan.rows.is_empty() {
+        return Ok(snapshot);
+    }
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    let mutations = plan
+        .rows
+        .iter()
+        .map(
+            |(relative_path, entries)| draft_repository::MetadataDraftRowMutation {
+                relative_path: relative_path.clone(),
+                entries: entries.clone(),
+            },
+        )
+        .collect::<Vec<_>>();
+    let app_data_dir = commands::shared::app_data_dir(&app)?;
+    if let Err(error) =
+        draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
+    {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_rows(session_id, plan.rows)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
+#[tauri::command]
 fn mutate_media_library_session_draft_rows(
     session_id: u64,
     mutations: Vec<draft_repository::MetadataDraftRowMutation>,
@@ -3340,6 +3419,8 @@ pub fn run() {
             stage_media_library_session_describe_drafts,
             stage_media_library_session_geocode_drafts,
             stage_media_library_session_normalise_drafts,
+            preview_media_library_session_bulk_drafts,
+            stage_media_library_session_bulk_drafts,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,

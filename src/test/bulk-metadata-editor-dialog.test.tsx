@@ -78,7 +78,7 @@ describe("BulkMetadataEditorDialog", () => {
         fileMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
         targetDraftEdits={{}}
         onPreview={vi.fn()}
-        onStage={() => true}
+        onStage={async () => true}
         onClose={() => {}}
       />,
     );
@@ -131,7 +131,7 @@ describe("BulkMetadataEditorDialog", () => {
         })}
         targetDraftEdits={{}}
         onPreview={onPreview}
-        onStage={() => true}
+        onStage={async () => true}
         onClose={() => {}}
       />,
     );
@@ -170,7 +170,7 @@ describe("BulkMetadataEditorDialog", () => {
           "animation.gif": [existing],
         })}
         targetDraftEdits={{}}
-        onPreview={vi.fn(() => ({
+        onPreview={vi.fn(async () => ({
           kind: "ready" as const,
           plan: {
             mutations: [],
@@ -186,7 +186,7 @@ describe("BulkMetadataEditorDialog", () => {
             },
           },
         }))}
-        onStage={() => true}
+        onStage={async () => true}
         onClose={() => {}}
       />,
     );
@@ -213,12 +213,12 @@ describe("BulkMetadataEditorDialog", () => {
         files={makeFiles(["one.jpg"])}
         fileMetadataOccurrences={occurrenceStore({ "one.jpg": [existing] })}
         targetDraftEdits={{}}
-        onPreview={() => ({
+        onPreview={async () => ({
           kind: "blocked",
           reason: "The occurrence is not safely targetable.",
           relativePath: "one.jpg",
         })}
-        onStage={() => true}
+        onStage={async () => true}
         onClose={() => {}}
       />,
     );
@@ -239,7 +239,7 @@ describe("BulkMetadataEditorDialog", () => {
     _setWritableSchemaDefinitionsCache([info]);
     _setTagInfoCacheEntry(id, info);
     let previewedRequest: BulkMetadataDraftRequest | undefined;
-    const onPreview = vi.fn((request: BulkMetadataDraftRequest) => {
+    const onPreview = vi.fn(async (request: BulkMetadataDraftRequest) => {
       previewedRequest = request;
       return {
         kind: "ready" as const,
@@ -258,7 +258,7 @@ describe("BulkMetadataEditorDialog", () => {
         },
       };
     });
-    const onStage = vi.fn((_request: BulkMetadataDraftRequest) => true);
+    const onStage = vi.fn(async (_request: BulkMetadataDraftRequest) => true);
     const onClose = vi.fn();
     const existing = occurrenceFromSchemaValue(
       id,
@@ -313,7 +313,7 @@ describe("BulkMetadataEditorDialog", () => {
     for (const gpsInfo of gpsInfos) {
       _setTagInfoCacheEntry(gpsInfo.id, gpsInfo);
     }
-    const onPreview = vi.fn((_request: BulkMetadataDraftRequest) => ({
+    const onPreview = vi.fn(async (_request: BulkMetadataDraftRequest) => ({
       kind: "ready" as const,
       plan: {
         mutations: [],
@@ -336,7 +336,7 @@ describe("BulkMetadataEditorDialog", () => {
         fileMetadataOccurrences={occurrenceStore({ "gps.jpg": [] })}
         targetDraftEdits={{}}
         onPreview={onPreview}
-        onStage={() => true}
+        onStage={async () => true}
         onClose={() => {}}
       />,
     );
@@ -381,7 +381,7 @@ describe("BulkMetadataEditorDialog", () => {
         })}
         targetDraftEdits={{}}
         onPreview={vi.fn()}
-        onStage={() => true}
+        onStage={async () => true}
         onClose={() => {}}
       />,
     );
