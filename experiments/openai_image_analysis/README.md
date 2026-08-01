@@ -80,3 +80,7 @@ exhausted before the structured answer is emitted.
 - `image` - Image processing (optional, for future use)
 - `tracing` - Logging
 - `dotenv` - Environment variable loading
+
+## Luna normalisation and cache experiments
+
+See [LUNA_NORMALISE_AND_CACHE.md](LUNA_NORMALISE_AND_CACHE.md) for the measured normalisation recommendation, current Luna/Terra pricing, and the rationale for explicit cache mode without an explicit breakpoint.

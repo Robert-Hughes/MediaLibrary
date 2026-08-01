@@ -2,10 +2,14 @@ use base64::Engine;
 use clap::{Parser, ValueEnum};
 use image::ImageReader;
 use reqwest::Client;
+use medialibrary_tauri_lib::openai_describe::build_describe_request_body;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{BufRead, Cursor};
+
+mod normalise_experiment;
+use normalise_experiment::ReasoningSetting;
 
 /// Max dimension (long side) to resize an image to before uploading.
 ///
@@ -116,9 +120,56 @@ struct Args {
     #[arg(long, value_name = "JSONL")]
     location_output: Option<String>,
 
+    /// Evaluate production Description/Title normalisation prompts against
+    /// the current metadata in these images. Repeat for multiple cases.
+    #[arg(long = "normalise-case", value_name = "IMAGE")]
+    normalise_cases: Vec<String>,
+
+    /// Reasoning settings to evaluate for GPT-5.6 normalisation. Repeat to
+    /// select a subset. With none supplied, omitted/default-medium, none and
+    /// low are all tested.
+    #[arg(long = "normalise-reasoning", value_enum)]
+    normalise_reasoning: Vec<ReasoningSetting>,
+
+    /// Optional vision judge model for blind A/B comparison against the
+    /// existing normalised metadata.
+    #[arg(long, value_name = "MODEL")]
+    normalise_judge_model: Option<String>,
+
+    /// Write normalisation experiment records as JSONL.
+    #[arg(long, value_name = "JSONL")]
+    normalise_output: Option<String>,
+
+    /// GPT-5.6 prompt-cache policy for image-description experiments.
+    #[arg(long, value_enum, default_value_t = PromptCacheMode::Implicit)]
+    prompt_cache_mode: PromptCacheMode,
+
+    /// Stable routing key shared by image-description requests in this run.
+    #[arg(long)]
+    prompt_cache_key: Option<String>,
+
     /// Skip the confirmation prompt.
     #[arg(long)]
     yes: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum PromptCacheMode {
+    /// Production's current GPT-5.6 behaviour: implicit breakpoint on the
+    /// latest message, which includes each changing image.
+    Implicit,
+    /// Disable the implicit breakpoint and provide no explicit breakpoint.
+    /// This avoids cache-write charges when no prefix is long enough to reuse.
+    ExplicitNoBreakpoints,
+}
+
+impl PromptCacheMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Implicit => "implicit",
+            Self::ExplicitNoBreakpoints => "explicit_no_breakpoints",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -165,16 +216,16 @@ fn get_model_pricing() -> HashMap<String, ModelPricing> {
     });
 
     pricing.insert("gpt-5.6-terra".to_string(), ModelPricing {
-        input_per_1m: 2.50,
-        cached_input_per_1m: 0.25,
-        output_per_1m: 15.00,
+        input_per_1m: 2.00,
+        cached_input_per_1m: 0.20,
+        output_per_1m: 12.00,
         supports_batch: true,
     });
 
     pricing.insert("gpt-5.6-luna".to_string(), ModelPricing {
-        input_per_1m: 1.00,
-        cached_input_per_1m: 0.10,
-        output_per_1m: 6.00,
+        input_per_1m: 0.20,
+        cached_input_per_1m: 0.02,
+        output_per_1m: 1.20,
         supports_batch: true,
     });
 
@@ -457,9 +508,30 @@ fn init_logging() {
         .init();
 }
 
-/// Load API key from environment
+/// Load the API key from the experiment environment, falling back to the
+/// MediaLibrary settings file used by the production app on Windows. The key
+/// is never printed or copied into experiment output.
 fn get_api_key() -> String {
-    env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set")
+    if let Ok(key) = env::var("OPENAI_API_KEY") {
+        if !key.trim().is_empty() {
+            return key;
+        }
+    }
+    if let Ok(appdata) = env::var("APPDATA") {
+        let settings_path = std::path::Path::new(&appdata)
+            .join("com.xman2.medialibrary")
+            .join("settings.json");
+        if let Ok(bytes) = std::fs::read(&settings_path) {
+            if let Ok(settings) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                if let Some(key) = settings["openai_api_key"].as_str() {
+                    if !key.trim().is_empty() {
+                        return key.to_owned();
+                    }
+                }
+            }
+        }
+    }
+    panic!("OPENAI_API_KEY is unset and MediaLibrary settings contain no API key")
 }
 
 /// Load, downscale, and re-encode an image as JPEG bytes.
@@ -532,173 +604,31 @@ pub fn image_content_item(path: &str) -> Result<serde_json::Value, Box<dyn std::
     }))
 }
 
-/// System-level instructions sent in the Responses API `instructions` field.
-///
-/// Rationale:
-/// - Putting the system prompt in `instructions` (separate from the user
-///   message) makes it a stable prefix across calls, which helps prompt
-///   caching kick in when we process many images with the same setup.
-/// - Imperative phrasing + explicit prohibitions ("no preamble") suppresses
-///   the model's default tendency to start with filler like "The image shows".
-/// - Constraining length keeps output cost bounded and predictable.
-const SYSTEM_INSTRUCTIONS: &str = "\
-You describe images for a personal media library. Your output is consumed \
-by both software (for indexing and search) and a human (for browsing), so \
-it should be informative and engaging — not robotically factual. \
-\
-For `description`: 2-4 sentences in present tense. Lead with the most \
-salient content. **Name landmarks, famous buildings, sculptures, locations, \
-and recognizable activities by their proper names when you are confident** \
-— e.g. 'London Eye' not 'ferris wheel', 'Tower of London' not 'castle', \
-'St Pancras Renaissance Hotel' not 'red-brick building', 'punting' not \
-'paddling a boat', 'The Meeting Place statue' not 'bronze sculpture of two \
-people'. Fall back to generic terms only when you are not confident. Do \
-not start with filler ('The image shows', 'This is a photo of', 'I can see') \
-— begin directly with the description. Keep `description` factual: what is \
-actually present in the image. Speculation about intent, meaning, or \
-emotion goes in `interpretation`, not here. \
-\
-For `tags`: lowercase, hyphenated, single-concept search terms a photographer \
-would use to organise the image — subject ('portrait', 'landscape', \
-'still-life'), setting ('beach', 'urban', 'indoor'), notable content \
-('sunset', 'crowd', 'wedding'), style ('black-and-white', 'long-exposure', \
-'macro'), and **specific places, landmarks, or named activities when known** \
-('london-eye', 'st-pancras', 'thames', 'punting'). Aim for 5-15 tags. \
-\
-For `ocr_text`: each distinct text region transcribed verbatim, as its own \
-entry. Empty array if no text. \
-\
-For `interpretation`: ONE short sentence (or empty string) of explicitly \
-labelled speculation about the photographer's intent, the mood, or the \
-emotional tone of the image. Examples: 'Mood is quiet and contemplative.', \
-'Likely a candid romantic moment between the couple.', 'Appears to \
-celebrate the grandeur of the building.', 'Conveys a sense of scale and \
-isolation.' Use hedging language ('appears', 'likely', 'seems', 'mood is') \
-to make clear this is interpretive, not factual. Leave empty if nothing \
-meaningful can be said (e.g. for documents, screenshots, blurry images). \
-\
-If the image is blank, blurry, or unidentifiable, say so plainly in the \
-description.";
-
-/// JSON schema for structured output.
-///
-/// Rationale: a downstream media library consumer wants machine-parseable
-/// fields, not free-form prose. Using `text.format.json_schema` with
-/// `strict: true` guarantees the model returns valid JSON matching this shape
-/// — no regex post-processing, no malformed-JSON retries.
-fn description_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "properties": {
-            "description": {
-                "type": "string",
-                "description": "Literal description of the image contents, 2-4 sentences."
-            },
-            "objects": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Distinct nouns visible in the image (people, animals, objects, landmarks)."
-            },
-            // `tags` (renamed from `scene_type`) is an array of short
-            // search-friendly terms, matching how photographers tag photos in
-            // media-library software (subject, setting, content, style).
-            "tags": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Photographer-style tags: lowercase, hyphenated, single-concept (e.g. 'sunset', 'portrait', 'black-and-white'). 5-15 entries."
-            },
-            // `ocr_text` is an array — distinct text regions (sign, label,
-            // caption) stay distinct rather than being concatenated, so
-            // downstream code can index or display them separately.
-            "ocr_text": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "Each visible text region transcribed verbatim, as a separate entry. Empty array if no text."
-            },
-            // `interpretation` is a separate field for explicitly-labelled
-            // speculation about mood, intent, or emotional tone — kept out
-            // of `description` so downstream consumers can choose whether to
-            // surface or hide it. Empty string when there's nothing useful
-            // to say (documents, screenshots, abstract content).
-            "interpretation": {
-                "type": "string",
-                "description": "One short hedging sentence about mood, intent, or emotional tone (or empty string)."
-            }
-        },
-        "required": ["description", "objects", "tags", "ocr_text", "interpretation"],
-        "additionalProperties": false
-    })
-}
-
-/// Build request for Responses API with images only.
-///
-/// The user message contains only image content items — no text. The full task
-/// description lives in SYSTEM_INSTRUCTIONS, and the schema enforces the
-/// output shape, so a per-call user prompt adds nothing. Dropping it saves a
-/// few tokens per request and keeps the per-call payload trivially constant.
+/// Build the exact production image-description request, then apply only the
+/// cache-policy variant being investigated. Image-description production is
+/// one request per image, so multi-image calls are deliberately rejected here.
 fn build_response_request(
     model: &str,
     image_paths: &[&str],
+    prompt_cache_mode: PromptCacheMode,
+    prompt_cache_key: Option<&str>,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    let mut content: Vec<serde_json::Value> = Vec::new();
-
-    for path in image_paths {
-        content.push(image_content_item(path)?);
+    let [image_path] = image_paths else {
+        return Err("image-description experiments require exactly one image per request".into());
+    };
+    let jpeg_bytes = load_and_downscale_image(image_path)?;
+    let mut request = build_describe_request_body(model, &jpeg_bytes);
+    if model.starts_with("gpt-5.6")
+        && matches!(prompt_cache_mode, PromptCacheMode::ExplicitNoBreakpoints)
+    {
+        request["prompt_cache_options"] = serde_json::json!({
+            "mode": "explicit",
+            "ttl": "30m"
+        });
     }
-
-    // System prompt goes in `instructions` (stable prefix → cacheable).
-    // User message holds only the per-call content (text + images).
-    // `text.format` requests a strict JSON-schema-conformant response.
-    //
-    // Determinism / cost-control knobs:
-    // - `temperature: 0`     Lowest variance. Note: this does NOT give
-    //                        bit-exact reproducibility (MoE routing and GPU
-    //                        nondeterminism still leak through), but it
-    //                        eliminates the bulk of sampling-driven variation
-    //                        so repeated calls on the same image give nearly
-    //                        identical descriptions.
-    // - `top_p: 1`           Explicit; nucleus sampling neutralised so
-    //                        temperature is the sole knob.
-    // - `seed`               Not supported by the Responses API (rejected as
-    //                        unknown_parameter — it's a Chat Completions
-    //                        field). Determinism rests on temperature=0 alone.
-    // - `max_output_tokens`  Bounds worst-case cost and stops runaway
-    //                        responses. Set to 600: a typical photo response
-    //                        is ~250 tokens (description ~100, objects/tags
-    //                        ~120, empty ocr), but document scans or signs
-    //                        with heavy OCR can push the ocr_text array
-    //                        substantially higher. 600 gives headroom without
-    //                        being wasteful — if the model truncates here we
-    //                        want to know.
-    //
-    // Note: reasoning models (o-series, gpt-5 reasoning variants) ignore
-    // temperature/top_p. That's fine — they're not the target here.
-    let mut request = serde_json::json!({
-        "model": model,
-        "instructions": SYSTEM_INSTRUCTIONS,
-        "input": [{
-            "type": "message",
-            "role": "user",
-            "content": content
-        }],
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": "image_description",
-                "strict": true,
-                "schema": description_schema()
-            }
-        },
-        "max_output_tokens": MAX_OUTPUT_TOKENS,
-    });
-
-    if !model.starts_with("gpt-5.6") {
-        if let Some(obj) = request.as_object_mut() {
-            obj.insert("temperature".to_string(), serde_json::json!(0));
-            obj.insert("top_p".to_string(), serde_json::json!(1));
-        }
+    if let Some(key) = prompt_cache_key {
+        request["prompt_cache_key"] = serde_json::json!(key);
     }
-
     Ok(request)
 }
 
@@ -708,10 +638,17 @@ async fn call_responses_api(
     api_key: &str,
     model: &str,
     image_paths: &[&str],
+    prompt_cache_mode: PromptCacheMode,
+    prompt_cache_key: Option<&str>,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let url = format!("{}/responses", OPENAI_BASE_URL);
 
-    let request_body = build_response_request(model, image_paths)?;
+    let request_body = build_response_request(
+        model,
+        image_paths,
+        prompt_cache_mode,
+        prompt_cache_key,
+    )?;
 
     tracing::info!("Sending request to {}", url);
     tracing::debug!("Request body: {}", serde_json::to_string_pretty(&request_body)?);
@@ -1225,11 +1162,24 @@ async fn count_input_tokens(
     api_key: &str,
     model: &str,
     image_path: &str,
+    prompt_cache_mode: PromptCacheMode,
+    prompt_cache_key: Option<&str>,
 ) -> Result<u32, Box<dyn std::error::Error>> {
-    let request_body = build_response_request(model, &[image_path])?;
+    let request_body = build_response_request(
+        model,
+        &[image_path],
+        prompt_cache_mode,
+        prompt_cache_key,
+    )?;
     let mut count_body = request_body;
     if let Some(obj) = count_body.as_object_mut() {
-        for k in ["temperature", "top_p", "max_output_tokens"] {
+        for k in [
+            "temperature",
+            "top_p",
+            "max_output_tokens",
+            "prompt_cache_options",
+            "prompt_cache_key",
+        ] {
             obj.remove(k);
         }
     }
@@ -1299,19 +1249,23 @@ fn write_error_stub(
 /// the chat/vision models used here it's always 0 but we plumb it through
 /// so the schema is uniform.
 #[derive(Debug, Default, Clone, Copy, Serialize)]
-struct UsageStats {
-    input_tokens: u32,
-    cached_input_tokens: u32,
-    output_tokens: u32,
-    reasoning_tokens: u32,
+pub(crate) struct UsageStats {
+    pub(crate) input_tokens: u32,
+    pub(crate) cached_input_tokens: u32,
+    pub(crate) cache_write_input_tokens: u32,
+    pub(crate) output_tokens: u32,
+    pub(crate) reasoning_tokens: u32,
 }
 
 impl UsageStats {
-    fn from_response(response: &serde_json::Value) -> Self {
+    pub(crate) fn from_response(response: &serde_json::Value) -> Self {
         let usage = &response["usage"];
         Self {
             input_tokens: usage["input_tokens"].as_u64().unwrap_or(0) as u32,
             cached_input_tokens: usage["input_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .unwrap_or(0) as u32,
+            cache_write_input_tokens: usage["input_tokens_details"]["cache_write_tokens"]
                 .as_u64()
                 .unwrap_or(0) as u32,
             output_tokens: usage["output_tokens"].as_u64().unwrap_or(0) as u32,
@@ -1321,9 +1275,10 @@ impl UsageStats {
         }
     }
 
-    fn add(&mut self, other: &UsageStats) {
+    pub(crate) fn add(&mut self, other: &UsageStats) {
         self.input_tokens += other.input_tokens;
         self.cached_input_tokens += other.cached_input_tokens;
+        self.cache_write_input_tokens += other.cache_write_input_tokens;
         self.output_tokens += other.output_tokens;
         self.reasoning_tokens += other.reasoning_tokens;
     }
@@ -1331,15 +1286,20 @@ impl UsageStats {
     /// Compute the cost of this usage given a pricing row.
     /// Cached input tokens are billed at `cached_input_per_1m` (typically
     /// ~10% of standard input rate); non-cached input at `input_per_1m`.
-    fn cost(&self, p: &ModelPricing) -> f64 {
-        let non_cached_input = self.input_tokens.saturating_sub(self.cached_input_tokens);
+    pub(crate) fn cost(&self, p: &ModelPricing) -> f64 {
+        let non_cached_input = self
+            .input_tokens
+            .saturating_sub(self.cached_input_tokens)
+            .saturating_sub(self.cache_write_input_tokens);
         let input_cost = (non_cached_input as f64 / 1_000_000.0) * p.input_per_1m;
         let cached_cost =
             (self.cached_input_tokens as f64 / 1_000_000.0) * p.cached_input_per_1m;
+        let cache_write_cost =
+            (self.cache_write_input_tokens as f64 / 1_000_000.0) * p.input_per_1m * 1.25;
         // `output_tokens` already includes reasoning tokens; the nested
         // reasoning count is a diagnostic subset and must not be billed twice.
         let output_cost = (self.output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
-        input_cost + cached_cost + output_cost
+        input_cost + cached_cost + cache_write_cost + output_cost
     }
 }
 
@@ -1362,10 +1322,21 @@ async fn process_image(
     write_next_to_image: bool,
     predicted_input_tokens: u32,
     pricing: Option<&ModelPricing>,
+    prompt_cache_mode: PromptCacheMode,
+    prompt_cache_key: Option<&str>,
 ) -> Result<Option<UsageStats>, Box<dyn std::error::Error>> {
     println!("\n--- Processing: {} ---", image_path);
 
-    let response = match call_responses_api(client, api_key, model, &[image_path]).await {
+    let response = match call_responses_api(
+        client,
+        api_key,
+        model,
+        &[image_path],
+        prompt_cache_mode,
+        prompt_cache_key,
+    )
+    .await
+    {
         Ok(r) => r,
         Err(e) => {
             if write_next_to_image {
@@ -1386,12 +1357,13 @@ async fn process_image(
     //     suggests the two endpoints account differently (worth knowing).
     let usage = UsageStats::from_response(&response);
     println!(
-        "  usage: input={} (cached={}) output={} reasoning={} total={}",
+        "  usage: input={} (cached={} cache_write={}) output={} reasoning={} total={}",
         usage.input_tokens,
         usage.cached_input_tokens,
+        usage.cache_write_input_tokens,
         usage.output_tokens,
         usage.reasoning_tokens,
-        usage.input_tokens + usage.output_tokens + usage.reasoning_tokens
+        usage.input_tokens + usage.output_tokens
     );
     if let Some(p) = pricing {
         let actual_cost = usage.cost(p);
@@ -1511,9 +1483,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         let image_mode = !args.images.is_empty();
         let location_mode = args.location_apply_log.is_some();
-        if image_mode == location_mode {
+        let normalise_mode = !args.normalise_cases.is_empty();
+        if [image_mode, location_mode, normalise_mode]
+            .into_iter()
+            .filter(|enabled| *enabled)
+            .count()
+            != 1
+        {
             return Err(
-                "Choose exactly one input mode: --image or --location-apply-log.".into(),
+                "Choose exactly one input mode: --image, --location-apply-log, or --normalise-case."
+                    .into(),
             );
         }
     }
@@ -1534,8 +1513,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.location_apply_log.is_some() {
         return run_location_experiment(&args, &client, &api_key, model).await;
     }
+    if !args.normalise_cases.is_empty() {
+        return normalise_experiment::run(
+            &args.normalise_cases,
+            args.normalise_output.as_deref(),
+            &args.normalise_reasoning,
+            args.normalise_judge_model.as_deref(),
+            model,
+            &client,
+            &api_key,
+            args.yes,
+        )
+        .await;
+    }
 
     tracing::info!("Images: {} file(s)", args.images.len());
+    println!(
+        "Prompt cache mode: {} key={}",
+        args.prompt_cache_mode.label(),
+        args.prompt_cache_key.as_deref().unwrap_or("<none>")
+    );
 
     // --- Pre-flight: per-image token count, summed for combined estimate ---
     let pricing_table = get_model_pricing();
@@ -1546,15 +1543,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut per_image_tokens: Vec<(String, u32)> = Vec::new();
     let mut total_input_tokens: u64 = 0;
     for image in &args.images {
-        let tokens = count_input_tokens(&client, &api_key, model, image).await?;
+        let tokens = count_input_tokens(
+            &client,
+            &api_key,
+            model,
+            image,
+            args.prompt_cache_mode,
+            args.prompt_cache_key.as_deref(),
+        )
+        .await?;
         println!("  {}: {} input tokens", image, tokens);
         per_image_tokens.push((image.clone(), tokens));
         total_input_tokens += tokens as u64;
     }
 
     let n = args.images.len() as u64;
-    let total_expected_output = EXPECTED_OUTPUT_TOKENS as u64 * n;
-    let total_max_output = MAX_OUTPUT_TOKENS as u64 * n;
+    let request_count = n * u64::from(args.repeat);
+    let repeated_input_tokens = total_input_tokens * u64::from(args.repeat);
+    let total_expected_output = EXPECTED_OUTPUT_TOKENS as u64 * request_count;
+    let total_max_output = MAX_OUTPUT_TOKENS as u64 * request_count;
 
     println!(
         "Total input tokens: {} across {} image(s)",
@@ -1594,16 +1601,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("==================================");
 
     // Single confirmation covering the whole batch, not per-image.
-    print!("Send {} request(s) to OpenAI API? (y/n): ", n);
-    use std::io::Write;
-    std::io::stdout().flush().unwrap();
-    let mut confirmation = String::new();
-    std::io::stdin()
-        .read_line(&mut confirmation)
-        .expect("Failed to read line");
-    if confirmation.trim().to_lowercase() != "y" {
-        tracing::info!("Request cancelled by user");
-        return Ok(());
+    if !args.yes {
+        print!("Send {} request(s) to OpenAI API? (y/n): ", request_count);
+        use std::io::Write;
+        std::io::stdout().flush().unwrap();
+        let mut confirmation = String::new();
+        std::io::stdin()
+            .read_line(&mut confirmation)
+            .expect("Failed to read line");
+        if confirmation.trim().to_lowercase() != "y" {
+            tracing::info!("Request cancelled by user");
+            return Ok(());
+        }
     }
 
     // Sequential processing — one API call per image, no batching.
@@ -1614,38 +1623,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .map(|(p, t)| (p.as_str(), *t))
         .collect();
-    for image in &args.images {
-        let predicted = predicted_by_image.get(image.as_str()).copied().unwrap_or(0);
-        match process_image(
-            &client,
-            &api_key,
-            model,
-            image,
-            args.output_next_to_image,
-            predicted,
-            pricing,
-        )
-        .await
-        {
-            Ok(Some(u)) => aggregate_usage.add(&u),
-            Ok(None) => {}
-            Err(e) => tracing::error!("Failed to process {}: {}", image, e),
+    for repetition in 1..=args.repeat {
+        for image in &args.images {
+            println!("Image repetition {}/{}", repetition, args.repeat);
+            let predicted = predicted_by_image.get(image.as_str()).copied().unwrap_or(0);
+            match process_image(
+                &client,
+                &api_key,
+                model,
+                image,
+                args.output_next_to_image,
+                predicted,
+                pricing,
+                args.prompt_cache_mode,
+                args.prompt_cache_key.as_deref(),
+            )
+            .await
+            {
+                Ok(Some(u)) => aggregate_usage.add(&u),
+                Ok(None) => {}
+                Err(e) => tracing::error!("Failed to process {}: {}", image, e),
+            }
         }
     }
 
     // --- Post-run summary: actual usage + cost vs preflight prediction ---
     println!("\n=== Actual Usage Summary ===");
     println!(
-        "Aggregate tokens: input={} (cached={}) output={} reasoning={}",
+        "Aggregate tokens: input={} (cached={} cache_write={}) output={} reasoning={}",
         aggregate_usage.input_tokens,
         aggregate_usage.cached_input_tokens,
+        aggregate_usage.cache_write_input_tokens,
         aggregate_usage.output_tokens,
         aggregate_usage.reasoning_tokens
     );
     if let Some(p) = pricing {
         let actual_total = aggregate_usage.cost(p);
         let predicted_input_cost =
-            (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
+            (repeated_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
         let predicted_output_cost =
             (total_expected_output as f64 / 1_000_000.0) * p.output_per_1m;
         let predicted_total = predicted_input_cost + predicted_output_cost;
@@ -1665,14 +1680,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             0.0
         };
+        let cache_write_pct = if aggregate_usage.input_tokens > 0 {
+            (aggregate_usage.cache_write_input_tokens as f64
+                / aggregate_usage.input_tokens as f64)
+                * 100.0
+        } else {
+            0.0
+        };
         println!(
-            "Prompt cache hit rate: {:.1}% of input tokens ({} / {})",
+            "Prompt cache: reads={:.1}% ({} / {}), writes={:.1}% ({} / {})",
             cache_hit_pct,
             aggregate_usage.cached_input_tokens,
+            aggregate_usage.input_tokens,
+            cache_write_pct,
+            aggregate_usage.cache_write_input_tokens,
             aggregate_usage.input_tokens
         );
-        let avg_output = if !args.images.is_empty() {
-            aggregate_usage.output_tokens as f64 / args.images.len() as f64
+        let avg_output = if request_count > 0 {
+            aggregate_usage.output_tokens as f64 / request_count as f64
         } else {
             0.0
         };
@@ -1743,10 +1768,30 @@ mod tests {
     }
 
     #[test]
+    fn usage_cost_charges_gpt_5_6_cache_writes_at_1_25x() {
+        let usage = UsageStats {
+            input_tokens: 1_000,
+            cached_input_tokens: 200,
+            cache_write_input_tokens: 300,
+            output_tokens: 0,
+            reasoning_tokens: 0,
+        };
+        let pricing = ModelPricing {
+            input_per_1m: 0.20,
+            cached_input_per_1m: 0.02,
+            output_per_1m: 1.20,
+            supports_batch: true,
+        };
+        let expected = (500.0 * 0.20 + 200.0 * 0.02 + 300.0 * 0.25) / 1_000_000.0;
+        assert!((usage.cost(&pricing) - expected).abs() < f64::EPSILON);
+    }
+
+    #[test]
     fn usage_cost_does_not_double_bill_reasoning_tokens() {
         let usage = UsageStats {
             input_tokens: 1_000,
             cached_input_tokens: 200,
+            cache_write_input_tokens: 0,
             output_tokens: 500,
             reasoning_tokens: 400,
         };

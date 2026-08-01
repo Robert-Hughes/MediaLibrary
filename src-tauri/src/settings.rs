@@ -34,12 +34,12 @@ pub fn default_model() -> String {
     RECOMMENDED_MODELS[0].to_string()
 }
 
-/// Default text-only model for the metadata-normalisation AI calls
-/// (Group B description merge, Group C case-3 title generation). Per
-/// `docs/NORMALISE_METADATA_PLAN.md` §6, nano is plenty for the
-/// text-only merge / generate tasks.
+/// Default text-only model for metadata-normalisation description and title AI calls.
+/// Controlled comparisons in `experiments/openai_image_analysis` found Luna
+/// materially better than nano, while explicit `reasoning.effort = none`
+/// avoided hidden-token truncation in the short title response budget.
 pub fn default_normalise_model() -> String {
-    "gpt-5.4-nano".to_string()
+    "gpt-5.6-luna".to_string()
 }
 
 /// Location hierarchy resolution benefits from native reasoning. Repeated
