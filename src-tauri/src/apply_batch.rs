@@ -497,12 +497,18 @@ impl ApplyEvents for TauriApplyEvents {
                     .map_err(|error| error.to_string())?;
             }
         }
+        let snapshot = self
+            .app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .update_apply_operation(self.session_id, message)?;
+        self.app
+            .emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
+            .map_err(|error| error.to_string())?;
         self.channel
             .send(message.clone())
             .map_err(|error| error.to_string())
     }
 }
-
 #[derive(Debug, Clone, Copy)]
 pub struct MetadataApplyLimits {
     pub batch_size: usize,

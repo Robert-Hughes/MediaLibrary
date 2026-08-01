@@ -2589,7 +2589,19 @@ async fn apply_metadata_draft_edits_cmd(
     progress_channel: tauri::ipc::Channel<apply_batch::MetadataApplyStreamMessage>,
     app: AppHandle,
     apply_state: State<'_, apply_batch::ApplyEditsState>,
+    session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<apply_batch::MetadataApplyResult, String> {
+    let session_snapshot = session_state.snapshot();
+    let session_id = session_snapshot
+        .session_id
+        .ok_or_else(|| "No active media-library session".to_string())?;
+    if session_snapshot.folder.as_deref() != Some(folder_path.as_str()) {
+        return Err("The media-library session changed before apply started".into());
+    }
+    let begun =
+        session_state.begin_apply_operation(session_id, operation_id.clone(), rel_paths.clone())?;
+    emit_session_snapshot(&app, &begun)?;
+
     let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
     let batch_size = usize::from(app_settings.metadata_apply_batch_size);
     let write_concurrency = usize::from(app_settings.metadata_apply_concurrency);
@@ -2599,14 +2611,16 @@ async fn apply_metadata_draft_edits_cmd(
         write_concurrency,
         rel_paths.as_ref().map_or(0, Vec::len)
     );
-    apply_batch::run_apply_edits_command(&apply_state, move |cancel_flag| {
+    let run_app = app.clone();
+    let run_operation_id = operation_id.clone();
+    let result = apply_batch::run_apply_edits_command(&apply_state, move |cancel_flag| {
         tauri::async_runtime::spawn_blocking(move || {
             apply_batch::run_apply_metadata_draft_edits_blocking(
                 folder_path,
                 rel_paths,
-                operation_id,
+                run_operation_id,
                 progress_channel,
-                app,
+                run_app,
                 cancel_flag,
                 apply_batch::MetadataApplyLimits {
                     batch_size,
@@ -2615,13 +2629,45 @@ async fn apply_metadata_draft_edits_cmd(
             )
         })
     })
-    .await
+    .await;
+    if let Err(error) = &result {
+        if let Ok(failed) =
+            session_state.fail_apply_operation(session_id, &operation_id, error.clone())
+        {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+    }
+    result
 }
 
 #[tauri::command]
-fn cancel_apply_edits(apply_state: State<'_, apply_batch::ApplyEditsState>) -> Result<(), String> {
+fn cancel_apply_edits(
+    app: AppHandle,
+    apply_state: State<'_, apply_batch::ApplyEditsState>,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<(), String> {
+    let session_id = session_state
+        .snapshot()
+        .session_id
+        .ok_or_else(|| "No active media-library session".to_string())?;
+    let cancelling = session_state.request_apply_cancellation(session_id)?;
+    emit_session_snapshot(&app, &cancelling)?;
     apply_state.signal_cancel();
     Ok(())
+}
+
+#[tauri::command]
+fn dismiss_media_library_session_apply(
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let session_id = session_state
+        .snapshot()
+        .session_id
+        .ok_or_else(|| "No active media-library session".to_string())?;
+    let snapshot = session_state.dismiss_apply_operation(session_id)?;
+    emit_session_snapshot(&app, &snapshot)?;
+    Ok(snapshot)
 }
 
 fn clear_running(app: &AppHandle) {
@@ -3000,6 +3046,7 @@ mod tests {
             thumbnails: Vec::new(),
             drafts: Default::default(),
             draft_persistence: session::MediaLibrarySessionDraftPersistenceState::Ready,
+            apply_operation: None,
         };
 
         let planned =
@@ -3426,6 +3473,7 @@ pub fn run() {
             load_metadata_draft_edits,
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
+            dismiss_media_library_session_apply,
             get_tag_info,
             get_tag_infos,
             preload_schema,

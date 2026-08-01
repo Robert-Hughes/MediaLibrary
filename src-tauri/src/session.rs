@@ -40,6 +40,33 @@ pub struct MediaLibrarySessionSnapshot {
     pub thumbnails: Vec<MediaLibrarySessionFileThumbnail>,
     pub drafts: MetadataTargetDraftsByFile,
     pub draft_persistence: MediaLibrarySessionDraftPersistenceState,
+    pub apply_operation: Option<MediaLibraryApplyOperation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum MediaLibraryApplyOperationState {
+    Running,
+    Completed,
+    Failed { error: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibraryApplyOperation {
+    pub operation_id: String,
+    pub requested_paths: Option<Vec<String>>,
+    pub state: MediaLibraryApplyOperationState,
+    pub total: Option<usize>,
+    pub current: usize,
+    pub current_file: Option<String>,
+    pub cancelling: bool,
+    pub file_failure_count: usize,
+    pub warning_count: usize,
+    pub summary: Option<crate::apply_batch::MetadataApplySummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -169,6 +196,7 @@ impl MediaLibrarySessionState {
                 thumbnails: Vec::new(),
                 drafts: MetadataTargetDraftsByFile::new(),
                 draft_persistence: MediaLibrarySessionDraftPersistenceState::Loading,
+                apply_operation: None,
             }),
             thumbnail_cache: Mutex::new(HashMap::new()),
             superseded_scan_metadata: Mutex::new(BTreeSet::new()),
@@ -177,6 +205,163 @@ impl MediaLibrarySessionState {
 
     pub fn snapshot(&self) -> MediaLibrarySessionSnapshot {
         self.snapshot.lock().unwrap().clone()
+    }
+
+    pub fn begin_apply_operation(
+        &self,
+        session_id: u64,
+        operation_id: String,
+        requested_paths: Option<Vec<String>>,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed before apply started".into());
+        }
+        if snapshot.apply_operation.as_ref().is_some_and(|operation| {
+            matches!(operation.state, MediaLibraryApplyOperationState::Running)
+        }) {
+            return Err("A metadata apply operation is already running".into());
+        }
+        snapshot.revision += 1;
+        snapshot.apply_operation = Some(MediaLibraryApplyOperation {
+            operation_id,
+            requested_paths,
+            state: MediaLibraryApplyOperationState::Running,
+            total: None,
+            current: 0,
+            current_file: None,
+            cancelling: false,
+            file_failure_count: 0,
+            warning_count: 0,
+            summary: None,
+        });
+        Ok(snapshot.clone())
+    }
+
+    pub fn update_apply_operation(
+        &self,
+        session_id: u64,
+        message: &crate::apply_batch::MetadataApplyStreamMessage,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed during apply".into());
+        }
+        let operation = snapshot
+            .apply_operation
+            .as_mut()
+            .ok_or_else(|| "No metadata apply operation is active".to_string())?;
+        let message_operation_id = match message {
+            crate::apply_batch::MetadataApplyStreamMessage::Started { operation_id, .. }
+            | crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
+                operation_id, ..
+            }
+            | crate::apply_batch::MetadataApplyStreamMessage::Complete { operation_id, .. } => {
+                operation_id
+            }
+        };
+        if operation.operation_id != *message_operation_id {
+            return Err("The metadata apply operation identity changed".into());
+        }
+        match message {
+            crate::apply_batch::MetadataApplyStreamMessage::Started { total, .. } => {
+                operation.total = Some(*total);
+            }
+            crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
+                current,
+                total,
+                results,
+                ..
+            } => {
+                operation.current = *current;
+                operation.total = Some(*total);
+                operation.current_file = results.last().map(|result| result.relative_path.clone());
+                operation.file_failure_count += results
+                    .iter()
+                    .filter(|result| result.error.is_some())
+                    .count();
+                operation.warning_count += results
+                    .iter()
+                    .filter(|result| result.warning.is_some())
+                    .count();
+            }
+            crate::apply_batch::MetadataApplyStreamMessage::Complete { summary, .. } => {
+                operation.current = summary.completed;
+                operation.total = Some(summary.selected);
+                operation.current_file = None;
+                operation.file_failure_count = summary.failed;
+                operation.warning_count = summary.warning_count;
+                operation.summary = Some(summary.clone());
+                operation.state = MediaLibraryApplyOperationState::Completed;
+            }
+        }
+        snapshot.revision += 1;
+        Ok(snapshot.clone())
+    }
+
+    pub fn request_apply_cancellation(
+        &self,
+        session_id: u64,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed before apply cancellation".into());
+        }
+        let operation = snapshot
+            .apply_operation
+            .as_mut()
+            .ok_or_else(|| "No metadata apply operation is active".to_string())?;
+        if !matches!(operation.state, MediaLibraryApplyOperationState::Running) {
+            return Ok(snapshot.clone());
+        }
+        operation.cancelling = true;
+        snapshot.revision += 1;
+        Ok(snapshot.clone())
+    }
+
+    pub fn fail_apply_operation(
+        &self,
+        session_id: u64,
+        operation_id: &str,
+        error: String,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id) {
+            return Err("The media-library session changed during apply failure".into());
+        }
+        let operation = snapshot
+            .apply_operation
+            .as_mut()
+            .ok_or_else(|| "No metadata apply operation is active".to_string())?;
+        if operation.operation_id != operation_id {
+            return Err("The metadata apply operation identity changed".into());
+        }
+        operation.state = MediaLibraryApplyOperationState::Failed { error };
+        operation.current_file = None;
+        snapshot.revision += 1;
+        Ok(snapshot.clone())
+    }
+
+    pub fn dismiss_apply_operation(
+        &self,
+        session_id: u64,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id) {
+            return Err("The media-library session changed before apply was dismissed".into());
+        }
+        if snapshot.apply_operation.is_none() {
+            return Ok(snapshot.clone());
+        }
+        snapshot.apply_operation = None;
+        snapshot.revision += 1;
+        Ok(snapshot.clone())
     }
 
     pub fn begin_open(&self, folder: String) -> MediaLibrarySessionSnapshot {
@@ -193,6 +378,7 @@ impl MediaLibrarySessionState {
         snapshot.thumbnails.clear();
         snapshot.drafts.clear();
         snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::Loading;
+        snapshot.apply_operation = None;
         self.superseded_scan_metadata.lock().unwrap().clear();
         self.thumbnail_cache.lock().unwrap().clear();
         snapshot.clone()

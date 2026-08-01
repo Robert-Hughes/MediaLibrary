@@ -9,6 +9,8 @@ import type {
   ScanErrorPayload,
   ApplicationErrorPayload,
   ApplyEditsFileIssue,
+  ApplyEditsInFlight,
+  ApplyEditsCompletion,
   FileInfo,
   SortConfig,
   VisibleColumn,
@@ -21,6 +23,7 @@ import type {
   TagInfo,
   RecycleFilesResult,
   MediaLibrarySessionSnapshot,
+  MediaLibraryApplyOperation,
   MediaLibrarySessionFilesAdded,
   MediaLibrarySessionFileThumbnail,
   MediaLibrarySessionThumbnailsChanged,
@@ -107,6 +110,35 @@ function emptyMetadataApplyResult(): MetadataApplyResult {
     undelivered_files: [],
     complete_delivery_failed: false,
   };
+}
+
+function projectApplyOperation(operation: MediaLibraryApplyOperation | null): {
+  applying: ApplyEditsInFlight | null;
+  completion: ApplyEditsCompletion | null;
+} {
+  if (operation === null) return { applying: null, completion: null };
+  if (operation.state.status === "running") {
+    return {
+      applying: {
+        total: operation.total ?? 0,
+        current: operation.current,
+        currentFile: operation.current_file,
+        failureCount: operation.file_failure_count,
+        cancelling: operation.cancelling,
+      },
+      completion: null,
+    };
+  }
+  if (operation.state.status === "completed" && operation.summary !== null) {
+    return {
+      applying: null,
+      completion: {
+        summary: operation.summary,
+        issues: [],
+      },
+    };
+  }
+  return { applying: null, completion: null };
 }
 
 export interface TauriApi {
@@ -522,6 +554,11 @@ export function useMediaLibrary(
               targetDraftEdits:
                 targetDraftEditsStoreRef.current.getAllMetadata(),
               targetDraftPersistence: targetDraftPersistenceRef.current,
+              applying: projectApplyOperation(snapshot.apply_operation)
+                .applying,
+              applyCompletion:
+                projectApplyOperation(snapshot.apply_operation).completion ??
+                previous.applyCompletion,
               applicationErrors: [...localErrors, ...backendErrors].slice(
                 -MAX_APPLICATION_ERRORS,
               ),
@@ -560,8 +597,12 @@ export function useMediaLibrary(
             next.applicationErrors = [...localErrors, ...backendErrors].slice(
               -MAX_APPLICATION_ERRORS,
             );
-            next.applying = previous.applying;
-            next.applyCompletion = previous.applyCompletion;
+            const projectedApply = projectApplyOperation(
+              snapshot.apply_operation,
+            );
+            next.applying = projectedApply.applying;
+            next.applyCompletion =
+              projectedApply.completion ?? previous.applyCompletion;
           } else {
             const backendErrors: ApplicationErrorPayload[] =
               snapshot.issues.map((issue) => ({
@@ -577,6 +618,11 @@ export function useMediaLibrary(
               ),
               ...backendErrors,
             ].slice(-MAX_APPLICATION_ERRORS);
+            const projectedApply = projectApplyOperation(
+              snapshot.apply_operation,
+            );
+            next.applying = projectedApply.applying;
+            next.applyCompletion = projectedApply.completion;
           }
           return next;
         });

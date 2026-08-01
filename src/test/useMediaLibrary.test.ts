@@ -226,6 +226,7 @@ describe("useMediaLibrary", () => {
       ],
       drafts: {},
       draft_persistence: { status: "ready" },
+      apply_operation: null,
     });
     mock.setThumbnailPayload("recovered-thumb", "recovered-thumbnail-data");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
