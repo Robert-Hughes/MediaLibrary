@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{ipc::Channel, AppHandle, Manager};
+use tauri::{ipc::Channel, AppHandle, Emitter, Manager};
 
 use crate::apply_edits::{
     apply_single_file_metadata, execute_prepared_metadata_write, executed_relative_path,
@@ -476,10 +476,27 @@ impl TargetApplyLogger for RealTargetApplyLogger {
 
 struct TauriApplyEvents {
     channel: Channel<MetadataApplyStreamMessage>,
+    app: AppHandle,
+    session_id: u64,
 }
 
 impl ApplyEvents for TauriApplyEvents {
     fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
+        if let MetadataApplyStreamMessage::ProgressBatch { results, .. } = message {
+            let metadata: Vec<_> = results
+                .iter()
+                .filter_map(|result| result.fresh_file_metadata.clone())
+                .collect();
+            if !metadata.is_empty() {
+                let delta = self
+                    .app
+                    .state::<crate::session::MediaLibrarySessionState>()
+                    .commit_post_write_metadata_results(self.session_id, metadata)?;
+                self.app
+                    .emit(crate::session::SESSION_METADATA_CHANGED_EVENT, delta)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
         self.channel
             .send(message.clone())
             .map_err(|error| error.to_string())
@@ -510,6 +527,12 @@ pub fn run_apply_metadata_draft_edits_blocking(
         &RealTargetApplyLogger { app: app.clone() },
         &TauriApplyEvents {
             channel: progress_channel,
+            app: app.clone(),
+            session_id: app
+                .state::<crate::session::MediaLibrarySessionState>()
+                .snapshot()
+                .session_id
+                .ok_or_else(|| "No active media-library session".to_owned())?,
         },
         &operation_id,
         cancel_flag,

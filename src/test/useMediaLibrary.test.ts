@@ -1567,11 +1567,10 @@ describe("useMediaLibrary", () => {
       kind: "Text",
       value: "fresh post-write value",
     });
-    expect(state.metadataProgress.getRemaining()).toBe(0);
   });
-  it("invalidates metadata once for each terminal fallback result", async () => {
+
+  it("installs authoritative metadata for terminal fallback results", async () => {
     const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
     await act(async () => result.current[1].openFolder());
     act(() => mock.emitScanComplete());
@@ -1604,7 +1603,13 @@ describe("useMediaLibrary", () => {
     await act(async () => result.current[1].applyDraftEdits("final.jpg"));
     let state = result.current[0];
     if (state.kind !== "loaded") return;
-    expect(state.metadataVersion).toBe(1);
+    const finalOccurrences = state.fileMetadataOccurrences.get("final.jpg");
+    expect(
+      Array.isArray(finalOccurrences) && finalOccurrences[0]?.value,
+    ).toEqual({
+      kind: "Text",
+      value: "final only",
+    });
 
     await publishOccurrences(mock, "changed.jpg");
     await act(async () => {
@@ -1627,7 +1632,13 @@ describe("useMediaLibrary", () => {
     await act(async () => result.current[1].applyDraftEdits("changed.jpg"));
     state = result.current[0];
     if (state.kind !== "loaded") return;
-    expect(state.metadataVersion).toBe(2);
+    const changedOccurrences = state.fileMetadataOccurrences.get("changed.jpg");
+    expect(
+      Array.isArray(changedOccurrences) && changedOccurrences[0]?.value,
+    ).toEqual({
+      kind: "Text",
+      value: "different final",
+    });
   });
 
   it("does not bump metadataVersion for a draft-only target-aware result", async () => {

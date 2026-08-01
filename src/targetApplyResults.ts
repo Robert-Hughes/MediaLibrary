@@ -8,7 +8,6 @@ import {
   targetDraftsFromWire,
   type TargetDraftCollection,
 } from "./targetDraftEdits";
-import { metadataOccurrencesEqualExact } from "./utils/fileMetadataEquality";
 import { recordFromEntries } from "./utils/stringRecord";
 import {
   targetVerifyOutcomesFromBackend,
@@ -135,23 +134,10 @@ export function applyPreparedTargetApplyFileResults(
     })),
   );
 
-  const occurrenceChanged = new Set(
-    stores.occurrences.setMany(
-      prepared.flatMap((file) => {
-        if (file.occurrences === null) return [];
-        const current = stores.occurrences.get(file.relativePath);
-        return !Array.isArray(current) ||
-          !metadataOccurrencesEqualExact(current, file.occurrences)
-          ? [{ path: file.relativePath, value: file.occurrences }]
-          : [];
-      }),
-    ),
-  );
-
   return prepared.map((file) => ({
     relativePath: file.relativePath,
     draftsChanged: draftChanged.has(file.relativePath),
-    occurrencesChanged: occurrenceChanged.has(file.relativePath),
+    occurrencesChanged: false,
   }));
 }
 

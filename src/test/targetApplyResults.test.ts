@@ -144,7 +144,7 @@ describe("target apply occurrence refresh", () => {
     expect(state.drafts.getMetadataFile(path)).toBeDefined();
   });
 
-  it("replaces authoritative occurrences and reports only occurrencesChanged", () => {
+  it("leaves authoritative occurrences to the Rust session delta", () => {
     const state = stores();
     state.occurrences.set(path, [occurrence(1)]);
     const listener = vi.fn();
@@ -161,11 +161,11 @@ describe("target apply occurrence refresh", () => {
 
     expect(application).toMatchObject({
       draftsChanged: false,
-      occurrencesChanged: true,
+      occurrencesChanged: false,
     });
     expect(application).not.toHaveProperty("compatibilityChanged");
-    expect(state.occurrences.get(path)).toEqual([occurrence(3)]);
-    expect(listener).toHaveBeenCalledOnce();
+    expect(state.occurrences.get(path)).toEqual([occurrence(1)]);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("does not replace exact-equal occurrence snapshots", () => {

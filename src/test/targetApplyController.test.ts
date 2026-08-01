@@ -258,7 +258,7 @@ describe("TargetApplyController streamed ownership", () => {
     expect(result.application).toEqual({
       processed: 2,
       draftsChanged: 2,
-      occurrencesChanged: 2,
+      occurrencesChanged: 0,
     });
     expect(result.commandResult.undelivered_files).toEqual([]);
     expect(draftListener).toHaveBeenCalledOnce();
@@ -293,7 +293,7 @@ describe("TargetApplyController streamed ownership", () => {
     expect(result.protocolErrors).toEqual([]);
     expect(result.progressApplicationErrors).toEqual([]);
     expect(JSON.stringify(result).length).toBeLessThan(1_000);
-    expect(stores.occurrences.get(paths[count - 1])).not.toBe("loading");
+    expect(stores.occurrences.get(paths[count - 1])).toBe("loading");
   });
 
   it("uses compact terminal fallback only for an undelivered file", async () => {
@@ -311,7 +311,7 @@ describe("TargetApplyController streamed ownership", () => {
 
     expect(result.application.processed).toBe(1);
     expect(result.commandResult.undelivered_files).toEqual([]);
-    expect(stores.occurrences.get("fallback.jpg")).toEqual([]);
+    expect(stores.occurrences.get("fallback.jpg")).toBe("loading");
   });
 
   it("retains at most one failed chunk for a terminal retry", async () => {

@@ -254,6 +254,7 @@ export function createMockTauriApi(): MockTauriApi {
   let nextThumbnailKey = 1;
   const thumbnailPayloads = new Map<string, string>();
   let initialSnapshotServed = false;
+  const supersededScanMetadata = new Set<string>();
 
   const mock: MockTauriApi = {
     api: null as unknown as TauriApi,
@@ -319,6 +320,7 @@ export function createMockTauriApi(): MockTauriApi {
     emitFileMetadataBatch: (items, scanId) => {
       const sessionId = scanId ?? mock.currentScanId;
       const entries = items
+        .filter((item) => !supersededScanMetadata.has(item.relativePath))
         .filter(
           (item) =>
             sessionId !== mock.currentScanId ||
@@ -430,9 +432,24 @@ export function createMockTauriApi(): MockTauriApi {
     ) => {
       const sessionId = scanId ?? mock.currentScanId;
       if (sessionId !== mock.currentScanId) return;
+      const failedPaths = new Set(affected_files);
       sessionSnapshot = {
         ...sessionSnapshot,
         revision: sessionSnapshot.revision + 1,
+        metadata:
+          error_type === "metadata"
+            ? sessionSnapshot.metadata.map((entry) =>
+                failedPaths.has(entry.relative_path)
+                  ? {
+                      relative_path: entry.relative_path,
+                      state: {
+                        status: "failed" as const,
+                        error: error_message,
+                      },
+                    }
+                  : entry,
+              )
+            : sessionSnapshot.metadata,
         issues: [
           ...sessionSnapshot.issues,
           {
@@ -588,6 +605,7 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "start_scan") {
         mock.currentScanId = args?.scanId as number;
         mock.foundPaths.clear();
+        supersededScanMetadata.clear();
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
@@ -753,6 +771,15 @@ export function createMockTauriApi(): MockTauriApi {
           const terminalFallback =
             mock.targetApplyFinalResultsByPath[relative_path];
           const effectiveResult = terminalFallback ?? progressResult;
+          if (effectiveResult.fresh_file_metadata !== null) {
+            mock.emitFileMetadataReady(
+              relative_path,
+              {},
+              mock.currentScanId,
+              effectiveResult.fresh_file_metadata.occurrences,
+            );
+            supersededScanMetadata.add(relative_path);
+          }
           completedFiles.push(effectiveResult);
           if (terminalFallback) {
             undeliveredFiles.push(terminalFallback);
