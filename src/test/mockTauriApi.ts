@@ -5,6 +5,8 @@ import type {
   MetadataOccurrences,
   MetadataValue,
   MetadataTargetDraftEntry,
+  MetadataDraftTarget,
+  MetadataDraftEdit,
   SchemaMetadataEdit,
   MetadataApplyFileResult,
   MetadataApplySummary,
@@ -12,6 +14,7 @@ import type {
   MediaLibrarySessionSnapshot,
 } from "../types";
 import {
+  TargetDraftEditsStore,
   targetDraftsFromWire,
   targetDraftsToWire,
   type TargetDraftEditsByFile,
@@ -58,6 +61,7 @@ export interface MockTauriApi {
   setThumbnailPayload: (cacheKey: string, thumbnail: string) => void;
   // Models the sole target-aware draft persistence file.
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
+  draftLoadFailuresByFolder: Record<string, string>;
   emitFileFound: (file: FileInfo, scanId?: number) => void;
   foundPaths: Set<string>;
   emitScanComplete: (scanId?: number) => void;
@@ -249,6 +253,8 @@ export function createMockTauriApi(): MockTauriApi {
     issues: [],
     metadata: [],
     thumbnails: [],
+    drafts: {},
+    draft_persistence: { status: "ready" },
   };
   let recoverySnapshot = { ...sessionSnapshot };
   let nextThumbnailKey = 1;
@@ -478,6 +484,7 @@ export function createMockTauriApi(): MockTauriApi {
         },
       }),
     targetDraftEditsByFolder: {},
+    draftLoadFailuresByFolder: {},
     lastPrioritizedPaths: [],
     lastWindowTitle: null,
     lastRecycleArgs: null,
@@ -598,6 +605,18 @@ export function createMockTauriApi(): MockTauriApi {
           issues: [],
           metadata: [],
           thumbnails: [],
+          drafts: targetDraftsToWire(
+            mock.targetDraftEditsByFolder[args?.folderPath as string] ?? {},
+          ),
+          draft_persistence: mock.draftLoadFailuresByFolder[
+            args?.folderPath as string
+          ]
+            ? {
+                status: "load-failed",
+                error:
+                  mock.draftLoadFailuresByFolder[args?.folderPath as string],
+              }
+            : { status: "ready" },
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
@@ -646,6 +665,8 @@ export function createMockTauriApi(): MockTauriApi {
           issues: [],
           metadata: [],
           thumbnails: [],
+          drafts: {},
+          draft_persistence: { status: "ready" },
         };
         return { ...sessionSnapshot };
       }
@@ -696,6 +717,59 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "set_window_title") {
         mock.lastWindowTitle = (args?.title as string) ?? null;
         return;
+      }
+      if (cmd === "set_media_library_session_draft") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const target = args?.target as MetadataDraftTarget;
+        const edit = args?.edit as MetadataDraftEdit;
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        store.setMetadataTarget(relativePath, target, edit);
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "discard_media_library_session_draft") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const target = args?.target as MetadataDraftTarget;
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        store.deleteTarget(relativePath, target);
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
       }
       if (cmd === "load_metadata_draft_edits") {
         const folder = args?.folderPath as string;

@@ -8,7 +8,7 @@ import {
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
 import { makeFile, mockOccurrences } from "./factories";
-import type { MetadataOccurrence } from "../types";
+import type { MetadataOccurrence, MetadataTargetDraftEntry } from "../types";
 
 type SessionSnapshot = {
   session_id: number | null;
@@ -26,8 +26,18 @@ type SessionSnapshot = {
   }>;
   metadata: Array<{ relative_path: string; state: unknown }>;
   thumbnails: Array<{ relative_path: string; state: unknown }>;
+  drafts: Record<string, MetadataTargetDraftEntry[]>;
+  draft_persistence:
+    | { status: "loading" }
+    | { status: "ready" }
+    | { status: "load-failed"; error: string }
+    | { status: "save-failed"; error: string };
 };
 let nextSessionId = 1;
+let sessionDraftsOnOpen: SessionSnapshot["drafts"] = {};
+let sessionDraftPersistenceOnOpen: SessionSnapshot["draft_persistence"] = {
+  status: "ready",
+};
 let sessionSnapshot: SessionSnapshot = {
   session_id: null,
   revision: 0,
@@ -38,9 +48,13 @@ let sessionSnapshot: SessionSnapshot = {
   issues: [],
   metadata: [],
   thumbnails: [],
+  drafts: {},
+  draft_persistence: { status: "ready" },
 };
 function resetSessionMock(): void {
   nextSessionId = 1;
+  sessionDraftsOnOpen = {};
+  sessionDraftPersistenceOnOpen = { status: "ready" };
   sessionSnapshot = {
     session_id: null,
     revision: 0,
@@ -51,6 +65,8 @@ function resetSessionMock(): void {
     issues: [],
     metadata: [],
     thumbnails: [],
+    drafts: {},
+    draft_persistence: { status: "ready" },
   };
 }
 
@@ -133,6 +149,8 @@ function handleSessionCommand(
       issues: [],
       metadata: [],
       thumbnails: [],
+      drafts: sessionDraftsOnOpen,
+      draft_persistence: sessionDraftPersistenceOnOpen,
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -147,6 +165,8 @@ function handleSessionCommand(
       issues: [],
       metadata: [],
       thumbnails: [],
+      drafts: {},
+      draft_persistence: { status: "ready" },
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -454,6 +474,25 @@ describe("App Select Columns metadata counts", () => {
 
     const emit = (event: string, payload: unknown) => {
       for (const handler of handlers[event] ?? []) handler({ payload });
+    };
+    sessionDraftsOnOpen = {
+      "b.jpg": [
+        {
+          target: {
+            kind: "NewProperty",
+            schema_id: { table: "XMP::dc", tag_id: "title" },
+            write_target: {
+              group1: "XMP-test",
+              group7: "ID-Test",
+              tag_name: "TestTag",
+            },
+          },
+          edit: {
+            intent: "Set",
+            value: { kind: "Text", value: "Draft title" },
+          },
+        },
+      ],
     };
 
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {

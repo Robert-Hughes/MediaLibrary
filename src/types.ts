@@ -85,7 +85,7 @@ export type { MediaLibraryThumbnailPayload } from "./types/generated/MediaLibrar
 export type { MediaLibrarySessionFileMetadata } from "./types/generated/MediaLibrarySessionFileMetadata";
 export type { MediaLibrarySessionMetadataChanged } from "./types/generated/MediaLibrarySessionMetadataChanged";
 export type { MediaLibrarySessionMetadataState } from "./types/generated/MediaLibrarySessionMetadataState";
-
+export type { MediaLibrarySessionDraftPersistenceState } from "./types/generated/MediaLibrarySessionDraftPersistenceState";
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
 export type ThumbnailState = "loading" | "failed" | string;
@@ -510,7 +510,10 @@ function stableComparableToken(value: unknown): string {
 // ── App state ─────────────────────────────────────────────────────────────────
 
 export type TargetDraftPersistenceState =
-  { status: "ready" } | { status: "load-failed"; error: string };
+  | { status: "loading" }
+  | { status: "ready" }
+  | { status: "load-failed"; error: string }
+  | { status: "save-failed"; error: string };
 
 export type AppState =
   | { kind: "idle" }

@@ -224,6 +224,8 @@ describe("useMediaLibrary", () => {
           state: { status: "ready", cache_key: "recovered-thumb" },
         },
       ],
+      drafts: {},
+      draft_persistence: { status: "ready" },
     });
     mock.setThumbnailPayload("recovered-thumb", "recovered-thumbnail-data");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -3006,22 +3008,9 @@ describe("useMediaLibrary", () => {
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");
-    const api = {
-      ...mock.api,
-      invoke: (cmd: string, args?: Record<string, unknown>) =>
-        cmd === "load_metadata_draft_edits" && args?.folderPath === "/broken"
-          ? Promise.reject(new Error("malformed target-aware file"))
-          : mock.api.invoke(cmd, args),
-    };
-    const { result } = renderHook(() => useMediaLibrary(api));
-    await expectConsoleErrorMessages(
-      [
-        "Failed to load target-aware target drafts Error: malformed target-aware file",
-      ],
-      async () => {
-        await act(async () => result.current[1].openFolder());
-      },
-    );
+    mock.draftLoadFailuresByFolder["/broken"] = "malformed target-aware file";
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
     await act(async () => mock.emitScanComplete());
     const consoleError = vi
       .spyOn(console, "error")
@@ -3193,22 +3182,9 @@ describe("useMediaLibrary", () => {
   it("reports strict target-aware load failure, preserves it, then switches safely", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
-    const api = {
-      ...mock.api,
-      invoke: (cmd: string, args?: Record<string, unknown>) =>
-        cmd === "load_metadata_draft_edits" && args?.folderPath === "/files"
-          ? Promise.reject(new Error("invalid schema version"))
-          : mock.api.invoke(cmd, args),
-    };
-    const { result } = renderHook(() => useMediaLibrary(api));
-    await expectConsoleErrorMessages(
-      [
-        "Failed to load target-aware target drafts Error: invalid schema version",
-      ],
-      async () => {
-        await act(async () => result.current[1].openFolder());
-      },
-    );
+    mock.draftLoadFailuresByFolder["/files"] = "invalid schema version";
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
     await act(async () => mock.emitScanComplete());
     const state = result.current[0];
     if (state.kind !== "loaded") return;

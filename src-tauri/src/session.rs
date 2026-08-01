@@ -1,3 +1,4 @@
+use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
 use crate::metadata_occurrence::MetadataOccurrences;
 use crate::scanner::{FileInfo, FileMetadata};
 use serde::Serialize;
@@ -37,6 +38,19 @@ pub struct MediaLibrarySessionSnapshot {
     pub issues: Vec<MediaLibrarySessionIssue>,
     pub metadata: Vec<MediaLibrarySessionFileMetadata>,
     pub thumbnails: Vec<MediaLibrarySessionFileThumbnail>,
+    pub drafts: MetadataTargetDraftsByFile,
+    pub draft_persistence: MediaLibrarySessionDraftPersistenceState,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum MediaLibrarySessionDraftPersistenceState {
+    Loading,
+    Ready,
+    LoadFailed { error: String },
+    SaveFailed { error: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -153,6 +167,8 @@ impl MediaLibrarySessionState {
                 issues: Vec::new(),
                 metadata: Vec::new(),
                 thumbnails: Vec::new(),
+                drafts: MetadataTargetDraftsByFile::new(),
+                draft_persistence: MediaLibrarySessionDraftPersistenceState::Loading,
             }),
             thumbnail_cache: Mutex::new(HashMap::new()),
             superseded_scan_metadata: Mutex::new(BTreeSet::new()),
@@ -175,9 +191,82 @@ impl MediaLibrarySessionState {
         snapshot.issues.clear();
         snapshot.metadata.clear();
         snapshot.thumbnails.clear();
+        snapshot.drafts.clear();
+        snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::Loading;
         self.superseded_scan_metadata.lock().unwrap().clear();
         self.thumbnail_cache.lock().unwrap().clear();
         snapshot.clone()
+    }
+
+    pub fn install_draft_load_result(
+        &self,
+        session_id: u64,
+        result: Result<MetadataTargetDraftsByFile, String>,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Opening
+        {
+            return Err("The media-library session changed before drafts loaded".into());
+        }
+        snapshot.revision += 1;
+        match result {
+            Ok(drafts) => {
+                snapshot.drafts = drafts;
+                snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::Ready;
+            }
+            Err(error) => {
+                snapshot.drafts.clear();
+                snapshot.draft_persistence =
+                    MediaLibrarySessionDraftPersistenceState::LoadFailed { error };
+            }
+        }
+        Ok(snapshot.clone())
+    }
+
+    pub fn commit_draft_row(
+        &self,
+        session_id: u64,
+        relative_path: String,
+        entries: Vec<MetadataTargetDraftEntry>,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed before the draft was committed".into());
+        }
+        if !matches!(
+            snapshot.draft_persistence,
+            MediaLibrarySessionDraftPersistenceState::Ready
+        ) {
+            return Err("Draft persistence is not ready".into());
+        }
+        snapshot.revision += 1;
+        if entries.is_empty() {
+            snapshot.drafts.remove(&relative_path);
+        } else {
+            snapshot.drafts.insert(relative_path, entries);
+        }
+        Ok(snapshot.clone())
+    }
+
+    pub fn mark_draft_save_failed(
+        &self,
+        session_id: u64,
+        error: String,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err(
+                "The media-library session changed before the draft failure was recorded".into(),
+            );
+        }
+        snapshot.revision += 1;
+        snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::SaveFailed { error };
+        Ok(snapshot.clone())
     }
 
     pub fn mark_loaded(
@@ -542,6 +631,8 @@ impl MediaLibrarySessionState {
         snapshot.issues.clear();
         snapshot.metadata.clear();
         snapshot.thumbnails.clear();
+        snapshot.drafts.clear();
+        snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::Loading;
         self.thumbnail_cache.lock().unwrap().clear();
         self.superseded_scan_metadata.lock().unwrap().clear();
         snapshot.clone()
