@@ -1218,6 +1218,117 @@ fn discard_media_library_session_drafts(
     Ok(committed)
 }
 
+fn replace_exact_new_property_session_draft(
+    entries: &[draft_edits::MetadataTargetDraftEntry],
+    original_target: &metadata_draft_target::MetadataDraftTarget,
+    replacement_target: &metadata_draft_target::MetadataDraftTarget,
+    original_edit: &draft_edits::MetadataDraftEdit,
+) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
+    let (
+        metadata_draft_target::MetadataDraftTarget::NewProperty {
+            schema_id: original_schema,
+            ..
+        },
+        metadata_draft_target::MetadataDraftTarget::NewProperty {
+            schema_id: replacement_schema,
+            ..
+        },
+    ) = (original_target, replacement_target)
+    else {
+        return Err("Only NewProperty drafts can be moved".into());
+    };
+    if original_schema != replacement_schema {
+        return Err("The replacement destination changed the exact schema".into());
+    }
+    let original_slot = original_target.slot();
+    let original_entry = entries
+        .iter()
+        .find(|entry| entry.target.slot() == original_slot)
+        .ok_or_else(|| "The original draft changed or disappeared".to_string())?;
+    if &original_entry.target != original_target || &original_entry.edit != original_edit {
+        return Err("The original draft changed or disappeared".into());
+    }
+    if original_target == replacement_target {
+        return Ok(None);
+    }
+    let replacement_slot = replacement_target.slot();
+    if entries.iter().any(|entry| {
+        entry.target.slot() == replacement_slot && entry.target.slot() != original_slot
+    }) {
+        return Err("Another pending draft already uses the replacement destination".into());
+    }
+    let mut replaced = entries
+        .iter()
+        .filter(|entry| entry.target.slot() != original_slot)
+        .cloned()
+        .collect::<Vec<_>>();
+    replaced.push(draft_edits::MetadataTargetDraftEntry {
+        target: replacement_target.clone(),
+        edit: original_edit.clone(),
+    });
+    Ok(Some(replaced))
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+fn replace_media_library_session_new_property_draft(
+    session_id: u64,
+    relative_path: String,
+    original_target: metadata_draft_target::MetadataDraftTarget,
+    replacement_target: metadata_draft_target::MetadataDraftTarget,
+    original_edit: draft_edits::MetadataDraftEdit,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the draft was moved".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    validate_exact_session_draft_target(&snapshot, &relative_path, &replacement_target)?;
+    let current_entries = snapshot
+        .drafts
+        .get(&relative_path)
+        .cloned()
+        .unwrap_or_default();
+    let Some(entries) = replace_exact_new_property_session_draft(
+        &current_entries,
+        &original_target,
+        &replacement_target,
+        &original_edit,
+    )?
+    else {
+        return Ok(snapshot);
+    };
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        entries.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
 #[tauri::command]
 fn mutate_media_library_session_draft_rows(
     session_id: u64,
@@ -1457,6 +1568,62 @@ mod tests {
             &[missing.target],
         )
         .is_none());
+    }
+
+    #[test]
+    fn new_property_replacement_moves_the_exact_entry_and_preserves_the_edit() {
+        let original = command_target_new();
+        let mut replacement_target = original.target.clone();
+        let metadata_draft_target::MetadataDraftTarget::NewProperty { write_target, .. } =
+            &mut replacement_target
+        else {
+            panic!("expected NewProperty target");
+        };
+        write_target.group1 = "XMP".to_owned();
+
+        let replaced = replace_exact_new_property_session_draft(
+            std::slice::from_ref(&original),
+            &original.target,
+            &replacement_target,
+            &original.edit,
+        )
+        .unwrap()
+        .expect("a different destination should move the draft");
+
+        assert_eq!(replaced.len(), 1);
+        assert_eq!(replaced[0].target, replacement_target);
+        assert_eq!(replaced[0].edit, original.edit);
+    }
+
+    #[test]
+    fn new_property_replacement_rejects_stale_original_and_schema_changes() {
+        let original = command_target_new();
+        let stale_edit =
+            command_target_edit(metadata_value::MetadataValue::Text("changed".to_owned()));
+        let stale_error = replace_exact_new_property_session_draft(
+            std::slice::from_ref(&original),
+            &original.target,
+            &original.target,
+            &stale_edit,
+        )
+        .unwrap_err();
+        assert!(stale_error.contains("changed or disappeared"));
+
+        let mut changed_schema = original.target.clone();
+        let metadata_draft_target::MetadataDraftTarget::NewProperty { schema_id, .. } =
+            &mut changed_schema
+        else {
+            panic!("expected NewProperty target");
+        };
+        schema_id.tag_id = "283".to_owned();
+        let schema_error = replace_exact_new_property_session_draft(
+            std::slice::from_ref(&original),
+            &original.target,
+            &changed_schema,
+            &original.edit,
+        )
+        .unwrap_err();
+        assert!(schema_error.contains("exact schema"));
     }
 
     #[test]
@@ -1848,6 +2015,7 @@ pub fn run() {
             set_media_library_session_draft,
             discard_media_library_session_draft,
             discard_media_library_session_drafts,
+            replace_media_library_session_new_property_draft,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,

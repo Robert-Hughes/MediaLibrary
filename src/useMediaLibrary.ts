@@ -2290,25 +2290,31 @@ export function useMediaLibrary(
         );
         return false;
       }
-      const persisted = await persistExactDraftMutations(
-        [
+      try {
+        const snapshot = (await api.invoke(
+          "replace_media_library_session_new_property_draft",
           {
-            path: fileRelativePath,
-            deletes: [structuredClone(originalTarget)],
-            upserts: [
-              {
-                target: structuredClone(replacementTarget),
-                edit: structuredClone(originalEdit),
-              },
-            ],
+            sessionId: activeScanIdRef.current,
+            relativePath: fileRelativePath,
+            originalTarget,
+            replacementTarget,
+            originalEdit,
           },
-        ],
-        "metadata-target-new-property-move-failed",
-      );
-      return persisted.success;
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
+        return true;
+      } catch (error) {
+        pushApplicationError(
+          "metadata-target-new-property-move-failed",
+          error,
+          [fileRelativePath],
+        );
+        return false;
+      }
     },
     [
-      persistExactDraftMutations,
+      api,
+      applySessionSnapshot,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
       targetOutcomeExists,

@@ -2083,10 +2083,9 @@ describe("useMediaLibrary", () => {
     });
     const saveCount = () =>
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "replace_media_library_session_new_property_draft",
       ).length;
     const beforeMoveSaves = saveCount();
-
     let moved = false;
     await act(async () => {
       moved = await result.current[1].replaceNewPropertyDraftTarget(
