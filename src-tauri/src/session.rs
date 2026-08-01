@@ -1,12 +1,14 @@
 use crate::metadata_occurrence::MetadataOccurrences;
 use crate::scanner::{FileInfo, FileMetadata};
 use serde::Serialize;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 pub const SESSION_CHANGED_EVENT: &str = "media_library_session_changed";
 pub const SESSION_FILES_ADDED_EVENT: &str = "media_library_session_files_added";
+pub const SESSION_METADATA_CHANGED_EVENT: &str = "media_library_session_metadata_changed";
 pub const SESSION_THUMBNAILS_CHANGED_EVENT: &str = "media_library_session_thumbnails_changed";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -132,6 +134,7 @@ pub struct MediaLibrarySessionState {
     next_thumbnail_version: AtomicU64,
     snapshot: Mutex<MediaLibrarySessionSnapshot>,
     thumbnail_cache: Mutex<HashMap<String, String>>,
+    superseded_scan_metadata: Mutex<BTreeSet<String>>,
 }
 
 impl MediaLibrarySessionState {
@@ -152,6 +155,7 @@ impl MediaLibrarySessionState {
                 thumbnails: Vec::new(),
             }),
             thumbnail_cache: Mutex::new(HashMap::new()),
+            superseded_scan_metadata: Mutex::new(BTreeSet::new()),
         }
     }
 
@@ -171,6 +175,7 @@ impl MediaLibrarySessionState {
         snapshot.issues.clear();
         snapshot.metadata.clear();
         snapshot.thumbnails.clear();
+        self.superseded_scan_metadata.lock().unwrap().clear();
         self.thumbnail_cache.lock().unwrap().clear();
         snapshot.clone()
     }
@@ -237,6 +242,7 @@ impl MediaLibrarySessionState {
         {
             return Err("The media-library session changed during metadata scanning".into());
         }
+        let superseded = self.superseded_scan_metadata.lock().unwrap();
         let mut entries = Vec::with_capacity(results.len());
         for result in results {
             let entry = snapshot
@@ -249,6 +255,9 @@ impl MediaLibrarySessionState {
                         result.relative_path
                     )
                 })?;
+            if superseded.contains(&result.relative_path) {
+                continue;
+            }
             entry.state = MediaLibrarySessionMetadataState::Ready {
                 occurrences: result.occurrences,
             };
@@ -345,6 +354,46 @@ impl MediaLibrarySessionState {
             .collect())
     }
 
+    pub fn commit_post_write_metadata_results(
+        &self,
+        session_id: u64,
+        results: Vec<FileMetadata>,
+    ) -> Result<MediaLibrarySessionMetadataChanged, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed during metadata apply".into());
+        }
+        let mut superseded = self.superseded_scan_metadata.lock().unwrap();
+        let mut entries = Vec::with_capacity(results.len());
+        for result in results {
+            let entry = snapshot
+                .metadata
+                .iter_mut()
+                .find(|entry| entry.relative_path == result.relative_path)
+                .ok_or_else(|| {
+                    format!(
+                        "Post-write metadata arrived for an undiscovered file: {}",
+                        result.relative_path
+                    )
+                })?;
+            superseded.insert(result.relative_path.clone());
+            entry.state = MediaLibrarySessionMetadataState::Ready {
+                occurrences: result.occurrences,
+            };
+            entries.push(entry.clone());
+        }
+        if !entries.is_empty() {
+            snapshot.revision += 1;
+        }
+        Ok(MediaLibrarySessionMetadataChanged {
+            session_id,
+            revision: snapshot.revision,
+            entries,
+        })
+    }
+
     pub fn remove_files(
         &self,
         session_id: u64,
@@ -385,6 +434,10 @@ impl MediaLibrarySessionState {
                 cache.remove(&key);
             }
         }
+        self.superseded_scan_metadata
+            .lock()
+            .unwrap()
+            .retain(|path| !paths.contains(path.as_str()));
         if snapshot.files.len() != file_count
             || snapshot.metadata.len() != metadata_count
             || snapshot.thumbnails.len() != thumbnail_count
@@ -490,6 +543,7 @@ impl MediaLibrarySessionState {
         snapshot.metadata.clear();
         snapshot.thumbnails.clear();
         self.thumbnail_cache.lock().unwrap().clear();
+        self.superseded_scan_metadata.lock().unwrap().clear();
         snapshot.clone()
     }
 }
@@ -499,7 +553,6 @@ impl Default for MediaLibrarySessionState {
         Self::new()
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,6 +682,43 @@ mod tests {
             "data:image/jpeg;base64,abc"
         );
     }
+
+    #[test]
+    fn post_write_metadata_supersedes_late_scan_results() {
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("a.jpg")])
+            .unwrap();
+
+        let post_write = state
+            .commit_post_write_metadata_results(
+                session_id,
+                vec![FileMetadata {
+                    relative_path: "a.jpg".into(),
+                    occurrences: MetadataOccurrences::default(),
+                }],
+            )
+            .unwrap();
+        assert_eq!(post_write.entries.len(), 1);
+        let revision = post_write.revision;
+
+        let late_scan = state
+            .commit_metadata_results(
+                session_id,
+                vec![FileMetadata {
+                    relative_path: "a.jpg".into(),
+                    occurrences: MetadataOccurrences::default(),
+                }],
+            )
+            .unwrap();
+        assert!(late_scan.entries.is_empty());
+        assert_eq!(late_scan.revision, revision);
+        assert_eq!(state.snapshot().revision, revision);
+    }
+
     #[test]
     fn removed_files_reject_late_metadata_results() {
         let state = MediaLibrarySessionState::new();

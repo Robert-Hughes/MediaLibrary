@@ -16,7 +16,6 @@ import type {
   MetadataDraftEdit,
   SchemaMetadataEdit,
   SchemaDefinitionId,
-  FileMetadata,
   TargetDraftPersistenceState,
   MetadataTargetDraftEntry,
   TagInfo,
@@ -349,40 +348,34 @@ export function useMediaLibrary(
     ): number => {
       if (reset) {
         fileMetadataOccurrencesStoreRef.current.clear();
-        metadataCompletedPathsRef.current.clear();
         metadataProgressStoreRef.current.reset();
       }
 
       let newlyCompleted = 0;
       let acceptedReady = 0;
       for (const entry of entries) {
+        const previous = fileMetadataOccurrencesStoreRef.current.has(
+          entry.relative_path,
+        )
+          ? fileMetadataOccurrencesStoreRef.current.get(entry.relative_path)
+          : undefined;
         fileMetadataOccurrencesStoreRef.current.add(entry.relative_path);
         if (entry.state.status === "loading") continue;
 
-        const wasCompleted = metadataCompletedPathsRef.current.has(
-          entry.relative_path,
-        );
         if (entry.state.status === "ready") {
-          if (
-            !reset &&
-            scanMetadataSupersededPathsRef.current.has(entry.relative_path)
-          ) {
-            scanMetadataSupersededPathsRef.current.delete(entry.relative_path);
-          } else {
-            fileMetadataOccurrencesStoreRef.current.set(
-              entry.relative_path,
-              normalizeMetadataOccurrencesFromTauri(entry.state.occurrences),
-            );
-            acceptedReady += 1;
-          }
+          fileMetadataOccurrencesStoreRef.current.set(
+            entry.relative_path,
+            normalizeMetadataOccurrencesFromTauri(entry.state.occurrences),
+          );
+          acceptedReady += 1;
         } else {
           fileMetadataOccurrencesStoreRef.current.setFailed(
             entry.relative_path,
             entry.state.error,
           );
         }
-        metadataCompletedPathsRef.current.add(entry.relative_path);
-        if (!wasCompleted) newlyCompleted += 1;
+        if (previous === undefined || previous === "loading")
+          newlyCompleted += 1;
       }
       if (newlyCompleted > 0) {
         metadataProgressStoreRef.current.incrementReceived(newlyCompleted);
@@ -471,17 +464,13 @@ export function useMediaLibrary(
       if (snapshot.lifecycle === "loaded") {
         const rebuildMetadataProjection =
           isRecovery || snapshot.revision > previousRevision + 1;
+        projectSessionMetadata(snapshot.metadata, rebuildMetadataProjection);
+        metadataProgressStoreRef.current.setTotal(snapshot.files.length);
         if (rebuildMetadataProjection) {
-          projectSessionMetadata(snapshot.metadata, true);
-          metadataProgressStoreRef.current.setTotal(snapshot.files.length);
           void projectSessionThumbnails(
             snapshot.session_id,
             snapshot.thumbnails,
           );
-        } else {
-          for (const file of snapshot.files) {
-            fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
-          }
         }
         for (const issue of snapshot.issues) {
           if (seenSessionIssueIdsRef.current.has(issue.issue_id)) continue;
@@ -490,24 +479,6 @@ export function useMediaLibrary(
             `Worker error (${issue.error_type}):`,
             issue.error_message,
           );
-          if (issue.error_type !== "metadata") continue;
-          let newlyFailed = 0;
-          for (const path of issue.affected_files) {
-            if (!fileMetadataOccurrencesStoreRef.current.has(path)) continue;
-            if (
-              fileMetadataOccurrencesStoreRef.current.get(path) === "loading"
-            ) {
-              newlyFailed += 1;
-            }
-            fileMetadataOccurrencesStoreRef.current.setFailed(
-              path,
-              issue.error_message,
-            );
-            metadataCompletedPathsRef.current.add(path);
-          }
-          if (newlyFailed > 0) {
-            metadataProgressStoreRef.current.incrementReceived(newlyFailed);
-          }
         }
         setAppState((previous) => {
           const canApplyStatusOnly =
@@ -682,19 +653,6 @@ export function useMediaLibrary(
   const fileBufferRef = useRef<FileInfo[]>([]);
   const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFirstFlushRef = useRef<boolean>(true);
-  const metadataBufferRef = useRef<FileMetadata[]>([]);
-  // Exact scan-progress membership. Occurrence state can become authoritative
-  // through an apply result before the scan's own progress slot completes.
-  const metadataCompletedPathsRef = useRef<Set<string>>(new Set());
-  // Once apply returns an authoritative post-write read for a file, any
-  // outstanding metadata result from the current folder scan is older by
-  // construction and must not replace it.
-  const scanMetadataSupersededPathsRef = useRef<Set<string>>(new Set());
-  const metadataBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const isFirstMetadataFlushRef = useRef<boolean>(true);
-
   // Construct the sole production target-aware controller after mount. Its dependency
   // stores keep stable identity for the complete hook lifetime.
   useEffect(() => {
@@ -714,24 +672,7 @@ export function useMediaLibrary(
           autosaveGate: targetDraftAutosaveGateRef.current,
         },
         {
-          onProgressBatch: (payload, applications) => {
-            for (const result of payload.results) {
-              if (
-                result.fresh_file_metadata !== null &&
-                !metadataCompletedPathsRef.current.has(result.relative_path)
-              ) {
-                scanMetadataSupersededPathsRef.current.add(
-                  result.relative_path,
-                );
-              }
-            }
-            if (!applications.some((item) => item.occurrencesChanged)) return;
-            setAppState((prev) =>
-              prev.kind === "loaded"
-                ? { ...prev, metadataVersion: prev.metadataVersion + 1 }
-                : prev,
-            );
-          },
+          onProgressBatch: (_payload, _applications) => {},
           onProtocolError: ({ error }) =>
             pushApplicationError("metadata-target-protocol", error),
           onProgressApplicationError: ({ error }) =>
@@ -824,12 +765,8 @@ export function useMediaLibrary(
 
       // Clear all buffers + timers from any previous scan.
       fileBufferRef.current = [];
-      metadataBufferRef.current = [];
-      metadataCompletedPathsRef.current.clear();
-      scanMetadataSupersededPathsRef.current.clear();
       isFirstFlushRef.current = true;
-      isFirstMetadataFlushRef.current = true;
-      for (const t of [batchTimerRef, metadataBatchTimerRef]) {
+      for (const t of [batchTimerRef]) {
         if (t.current) {
           clearTimeout(t.current);
           t.current = null;
@@ -920,56 +857,6 @@ export function useMediaLibrary(
       });
     };
 
-    // Flush authoritative occurrences.
-    const flushMetadataBatch = () => {
-      const startedAt = frontendNow();
-      const batch = [...metadataBufferRef.current];
-      metadataBufferRef.current = [];
-
-      if (batch.length === 0) return;
-      console.debug(`[metadata] flushing ${batch.length} results`);
-
-      let acceptedCount = 0;
-      let completedCount = 0;
-      for (const res of batch) {
-        if (!fileMetadataOccurrencesStoreRef.current.has(res.relative_path)) {
-          continue;
-        }
-        completedCount += 1;
-        metadataCompletedPathsRef.current.add(res.relative_path);
-        if (scanMetadataSupersededPathsRef.current.has(res.relative_path)) {
-          scanMetadataSupersededPathsRef.current.delete(res.relative_path);
-          continue;
-        }
-        fileMetadataOccurrencesStoreRef.current.set(
-          res.relative_path,
-          normalizeMetadataOccurrencesFromTauri(res.occurrences),
-        );
-        acceptedCount += 1;
-      }
-
-      // Superseded scan results still complete their scan-progress slot even
-      // though their older values are deliberately not installed.
-      metadataProgressStoreRef.current.incrementReceived(completedCount);
-
-      // Increment metadataVersion so that any active sort on image metadata fields
-      // causes the sortedFiles useMemo to recompute.
-      if (acceptedCount > 0) {
-        setAppState((prev) => {
-          if (prev.kind !== "loaded") return prev;
-          if (
-            !prev.sortConfig.primary ||
-            prev.sortConfig.primary.kind !== "image"
-          )
-            return prev;
-          return { ...prev, metadataVersion: prev.metadataVersion + 1 };
-        });
-      }
-      logSlowFrontendOperation("scan-metadata-flush", startedAt, {
-        items: batch.length,
-      });
-    };
-
     const setup = async () => {
       // Create a new pending latch for this setup cycle; startScan awaits it.
       let resolve!: () => void;
@@ -1016,7 +903,7 @@ export function useMediaLibrary(
         console.debug(`[scan_complete] scan_id=${scan_id}`);
 
         // Clear all batch timers and flush remaining batches
-        for (const t of [batchTimerRef, metadataBatchTimerRef]) {
+        for (const t of [batchTimerRef]) {
           if (t.current) {
             clearTimeout(t.current);
             t.current = null;
@@ -1024,7 +911,6 @@ export function useMediaLibrary(
         }
 
         flushBatch();
-        flushMetadataBatch();
       });
 
       const unlistenMetadata = await api.listen(
@@ -1175,7 +1061,7 @@ export function useMediaLibrary(
     // Cancel any pending batch flushes — they would still safely no-op against
     // the idle state, but leaving timers running keeps closures alive past
     // the scan they belong to and adds noise on next render.
-    for (const t of [batchTimerRef, metadataBatchTimerRef]) {
+    for (const t of [batchTimerRef]) {
       if (t.current) {
         clearTimeout(t.current);
         t.current = null;
@@ -1184,8 +1070,6 @@ export function useMediaLibrary(
 
     // Drop any buffered events that haven't been flushed yet.
     fileBufferRef.current = [];
-    metadataBufferRef.current = [];
-    metadataCompletedPathsRef.current.clear();
     targetDraftEditsStoreRef.current.resetMetadata({});
     targetVerifyOutcomesStoreRef.current.clear();
     fileMetadataOccurrencesStoreRef.current.clear();
@@ -1250,16 +1134,12 @@ export function useMediaLibrary(
         .map((item) => item.relative_path);
       const successfulSet = new Set(successful);
       if (successful.length > 0) {
-        metadataBufferRef.current = metadataBufferRef.current.filter(
-          (item) => !successfulSet.has(item.relative_path),
-        );
-
         for (const path of successful) {
+          const metadataState =
+            fileMetadataOccurrencesStoreRef.current.get(path);
           metadataProgressStoreRef.current.removeFile(
-            metadataCompletedPathsRef.current.has(path),
+            metadataState !== "loading",
           );
-          metadataCompletedPathsRef.current.delete(path);
-          scanMetadataSupersededPathsRef.current.delete(path);
         }
         thumbnailStoreRef.current.deletePaths(successful);
         fileMetadataOccurrencesStoreRef.current.deletePaths(successful);
