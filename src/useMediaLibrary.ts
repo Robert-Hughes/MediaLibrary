@@ -1507,13 +1507,47 @@ export function useMediaLibrary(
           results[resultIndex] = failure;
         }
         return results;
+        return results;
+      }
+      const plannerItems: typeof activeItems = [];
+      for (const active of activeItems) {
+        const { relativePath, producer, edits } = active.item;
+        if (producer.kind !== "describe") {
+          plannerItems.push(active);
+          continue;
+        }
+        try {
+          const previousRevision = sessionRevisionRef.current;
+          const snapshot = (await api.invoke(
+            "stage_media_library_session_describe_drafts",
+            {
+              sessionId: activeScanIdRef.current,
+              relativePath,
+              edits,
+            },
+          )) as MediaLibrarySessionSnapshot;
+          applySessionSnapshot(snapshot);
+          results[active.resultIndex] = {
+            kind: "success",
+            changed: snapshot.revision > previousRevision,
+          };
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          logApplicationIssue(
+            "error",
+            "metadata-target-generated-stage",
+            error,
+            [relativePath],
+          );
+          results[active.resultIndex] = { kind: "failure", reason };
+        }
       }
 
       const planned: Array<{
         resultIndex: number;
         mutation: ExactTargetMutationBatchItem;
       }> = [];
-      activeItems.forEach(
+      plannerItems.forEach(
         ({ item: { relativePath, producer, edits }, resultIndex }) => {
           try {
             const plan = planGeneratedTargetDraftBatch({
@@ -1567,6 +1601,8 @@ export function useMediaLibrary(
       return results;
     },
     [
+      api,
+      applySessionSnapshot,
       persistExactDraftMutations,
       requireTargetDraftPersistenceReady,
       writableSchemaDefinitions,

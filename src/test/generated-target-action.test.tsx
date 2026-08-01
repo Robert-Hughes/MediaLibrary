@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+﻿import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { DESCRIBE_TARGET_TAGS } from "../generatedTargetDrafts";
@@ -160,7 +160,7 @@ describe("generated target-aware production action", () => {
     if (result.current[0].kind !== "loaded") return;
     expect(result.current[0].applicationErrors).toHaveLength(errorsBefore);
     expect(
-      saveCount(mock, "mutate_media_library_session_draft_rows") -
+      saveCount(mock, "stage_media_library_session_describe_drafts") -
         targetDraftBefore,
     ).toBe(0);
   });
@@ -200,7 +200,7 @@ describe("generated target-aware production action", () => {
     if (result.current[0].kind !== "loaded") return;
     expect(result.current[0].applicationErrors).toHaveLength(errorsBefore);
     expect(
-      saveCount(mock, "mutate_media_library_session_draft_rows") -
+      saveCount(mock, "stage_media_library_session_describe_drafts") -
         targetDraftBefore,
     ).toBe(0);
   });
@@ -319,12 +319,12 @@ describe("generated target-aware production action", () => {
       },
     });
     expect(
-      saveCount(mock, "mutate_media_library_session_draft_rows") -
+      saveCount(mock, "stage_media_library_session_describe_drafts") -
         beforeTargetDraft,
     ).toBe(1);
   });
 
-  it("stages multiple files with one store notification and autosave", async () => {
+  it("stages multiple files through per-file Rust commands", async () => {
     const { mock, result } = await loadedFile();
     await act(async () => {
       mock.emitFileFound(makeFile({ relative_path: "second.jpg" }));
@@ -365,10 +365,11 @@ describe("generated target-aware production action", () => {
       { kind: "success", changed: true },
       { kind: "success", changed: true },
     ]);
-    expect(notifications).toBe(1);
+    expect(notifications).toBe(2);
     expect(
-      saveCount(mock, "mutate_media_library_session_draft_rows") - savesBefore,
-    ).toBe(1);
+      saveCount(mock, "stage_media_library_session_describe_drafts") -
+        savesBefore,
+    ).toBe(2);
     expect(Object.keys(state.targetDraftEditsStore.getAllMetadata())).toEqual(
       expect.arrayContaining(["file.jpg", "second.jpg"]),
     );
@@ -404,7 +405,10 @@ describe("generated target-aware production action", () => {
     const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
       notifications += 1;
     });
-    const before = saveCount(mock, "mutate_media_library_session_draft_rows");
+    const before = saveCount(
+      mock,
+      "stage_media_library_session_describe_drafts",
+    );
     await act(async () => {
       await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
@@ -418,11 +422,10 @@ describe("generated target-aware production action", () => {
     unsubscribe();
     expect(notifications).toBe(1);
     expect(
-      saveCount(mock, "mutate_media_library_session_draft_rows") - before,
+      saveCount(mock, "stage_media_library_session_describe_drafts") - before,
     ).toBe(1);
   });
-
-  it("emits no notification or save for an exact generated no-op", async () => {
+  it("emits no notification or persistence change for an exact generated no-op", async () => {
     const item = occurrence(ID.mlibAiDescription, "same");
     const { mock, result } = await loadedFile({ occurrences: [item] });
     const state = result.current[0];
@@ -431,7 +434,10 @@ describe("generated target-aware production action", () => {
     const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
       notifications += 1;
     });
-    const before = saveCount(mock, "mutate_media_library_session_draft_rows");
+    const before = saveCount(
+      mock,
+      "stage_media_library_session_describe_drafts",
+    );
     let stageResult;
     await act(async () => {
       stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
@@ -444,13 +450,16 @@ describe("generated target-aware production action", () => {
     expect(stageResult).toEqual({ kind: "success", changed: false });
     expect(notifications).toBe(0);
     expect(
-      saveCount(mock, "mutate_media_library_session_draft_rows") - before,
-    ).toBe(0);
+      saveCount(mock, "stage_media_library_session_describe_drafts") - before,
+    ).toBe(1);
   });
 
   it("leaves the complete file unchanged when a later generated field is invalid", async () => {
     const { mock, result } = await loadedFile();
-    const before = saveCount(mock, "mutate_media_library_session_draft_rows");
+    const before = saveCount(
+      mock,
+      "stage_media_library_session_describe_drafts",
+    );
     let stageResult;
     await act(async () => {
       stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
@@ -467,9 +476,10 @@ describe("generated target-aware production action", () => {
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
     expect(state.targetDraftEdits["file.jpg"]).toBeUndefined();
     expect(
-      saveCount(mock, "mutate_media_library_session_draft_rows") - before,
-    ).toBe(0);
+      saveCount(mock, "stage_media_library_session_describe_drafts") - before,
+    ).toBe(1);
   });
+
   it("readiness prevents work while occurrences are loading", async () => {
     const { mock, result } = await loadedFile({ emitMetadata: false });
     let ready;

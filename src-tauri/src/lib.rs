@@ -1776,6 +1776,191 @@ fn stage_media_library_session_gps_drafts(
     Ok(committed)
 }
 
+fn is_describe_schema(id: &tag_schema::SchemaDefinitionId) -> bool {
+    id.table == "UserDefined::mlib"
+        && id.index.is_none()
+        && matches!(
+            id.tag_id.as_str(),
+            "AIDescription"
+                | "AIInterpretation"
+                | "AITags"
+                | "AIObjects"
+                | "AIOcrText"
+                | "AIModel"
+                | "AIPromptVersion"
+                | "AIGeneratedAt"
+        )
+}
+
+fn selector_matches_write_target(
+    selector: &metadata_occurrence::MetadataObservedSelector,
+    target: &metadata_occurrence::MetadataWriteTarget,
+) -> bool {
+    selector.group1.eq_ignore_ascii_case(&target.group1)
+        && selector.group7.eq_ignore_ascii_case(&target.group7)
+        && selector.tag_name.eq_ignore_ascii_case(&target.tag_name)
+}
+
+fn plan_session_describe_drafts(
+    snapshot: &session::MediaLibrarySessionSnapshot,
+    relative_path: &str,
+    edits: &[draft_edits::SchemaMetadataEdit],
+) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
+    if edits.is_empty() {
+        return Ok(None);
+    }
+    let metadata = snapshot
+        .metadata
+        .iter()
+        .find(|entry| entry.relative_path == relative_path)
+        .ok_or_else(|| "The file is not part of the active media-library session".to_string())?;
+    let occurrences = match &metadata.state {
+        session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
+        session::MediaLibrarySessionMetadataState::Loading => {
+            return Err("Authoritative metadata occurrences are still loading".into())
+        }
+        session::MediaLibrarySessionMetadataState::Failed { error } => {
+            return Err(format!(
+                "Authoritative metadata occurrences failed to load: {error}"
+            ))
+        }
+    };
+    let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
+    let mut seen = std::collections::HashSet::new();
+    let mut planned = snapshot
+        .drafts
+        .get(relative_path)
+        .cloned()
+        .unwrap_or_default();
+
+    for generated in edits {
+        if !seen.insert(generated.schema_id.clone()) {
+            return Err("The generated batch contains the same exact schema more than once".into());
+        }
+        if !is_describe_schema(&generated.schema_id) {
+            return Err("AI description is not allowed to generate this exact schema".into());
+        }
+        if generated.edit.intent != draft_edits::EditIntent::Set || generated.edit.value.is_none() {
+            return Err("AI description supports only Set edits with semantic values".into());
+        }
+        let info = registry
+            .lookup(&generated.schema_id)
+            .ok_or_else(|| "The exact generated metadata schema is unavailable".to_string())?;
+        let new_target = metadata_draft_target::MetadataDraftTarget::from_new_property(info)
+            .map_err(|error| error.to_string())?;
+        let destination = new_target
+            .write_target()
+            .ok_or_else(|| "The generated metadata destination is unavailable".to_string())?;
+        let same_schema = occurrences
+            .0
+            .iter()
+            .filter(|occurrence| occurrence.schema_id == generated.schema_id)
+            .collect::<Vec<_>>();
+        let at_destination = same_schema
+            .iter()
+            .copied()
+            .filter(|occurrence| {
+                occurrence
+                    .observed_selector
+                    .as_ref()
+                    .is_some_and(|selector| selector_matches_write_target(selector, destination))
+            })
+            .collect::<Vec<_>>();
+        if at_destination.is_empty()
+            && same_schema
+                .iter()
+                .any(|occurrence| occurrence.observed_selector.is_none())
+        {
+            return Err(
+                "An authoritative generated-metadata occurrence has no physical selector".into(),
+            );
+        }
+        if at_destination.len() > 1 {
+            return Err(
+                "The generated schema resolves to multiple occurrences at its destination".into(),
+            );
+        }
+        let target = if let Some(occurrence) = at_destination.first() {
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
+                .map_err(|error| error.to_string())?
+        } else {
+            new_target
+        };
+        let slot = target.slot();
+        if planned.iter().any(|stored| {
+            stored.target.slot() != slot && stored.target.write_target() == target.write_target()
+        }) {
+            return Err("Another exact draft target owns the generated destination".into());
+        }
+        let replacement = draft_edits::MetadataTargetDraftEntry {
+            target: target.clone(),
+            edit: generated.edit.clone(),
+        };
+        if let Some(existing) = planned.iter_mut().find(|entry| entry.target.slot() == slot) {
+            if existing.target != target {
+                return Err("A stale complete target owns the generated metadata slot".into());
+            }
+            *existing = replacement;
+        } else {
+            planned.push(replacement);
+        }
+    }
+
+    let current = snapshot
+        .drafts
+        .get(relative_path)
+        .cloned()
+        .unwrap_or_default();
+    Ok((planned != current).then_some(planned))
+}
+
+#[tauri::command]
+fn stage_media_library_session_describe_drafts(
+    session_id: u64,
+    relative_path: String,
+    edits: Vec<draft_edits::SchemaMetadataEdit>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err(
+            "The media-library session changed before description drafts were saved".into(),
+        );
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let Some(planned) = plan_session_describe_drafts(&snapshot, &relative_path, &edits)? else {
+        return Ok(snapshot);
+    };
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        planned.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, planned)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
 #[tauri::command]
 fn mutate_media_library_session_draft_rows(
     session_id: u64,
@@ -2666,6 +2851,7 @@ pub fn run() {
             remove_media_library_session_metadata_field_from_files,
             remove_media_library_session_metadata_fields,
             stage_media_library_session_gps_drafts,
+            stage_media_library_session_describe_drafts,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,
