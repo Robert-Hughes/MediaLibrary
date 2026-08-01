@@ -59,10 +59,9 @@ import { validateFamily1Group } from "./utils/metadataWriteTarget";
 import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSafety";
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
-import {
-  planGeneratedTargetDraftBatch,
-  type GeneratedDraftStageResult,
-  type GeneratedMetadataProducer,
+import type {
+  GeneratedDraftStageResult,
+  GeneratedMetadataProducer,
 } from "./generatedTargetDrafts";
 import {
   BulkMetadataDraftPlanError,
@@ -1482,16 +1481,6 @@ export function useMediaLibrary(
         .map((item, resultIndex) => ({ item, resultIndex }))
         .filter(({ item }) => item.edits.length > 0);
       if (activeItems.length === 0) return results;
-      if (writableSchemaDefinitions === "loading") {
-        const failure: GeneratedDraftStageResult = {
-          kind: "failure",
-          reason: "Writable metadata schema definitions are still loading.",
-        };
-        for (const { resultIndex } of activeItems) {
-          results[resultIndex] = failure;
-        }
-        return results;
-      }
       const startedAt = frontendNow();
       const paths = activeItems.map(({ item }) => item.relativePath);
       if (!requireTargetDraftPersistenceReady(paths)) {
@@ -1507,27 +1496,25 @@ export function useMediaLibrary(
           results[resultIndex] = failure;
         }
         return results;
-        return results;
       }
-      const plannerItems: typeof activeItems = [];
       for (const active of activeItems) {
         const { relativePath, producer, edits } = active.item;
-        if (producer.kind === "normalise") {
-          plannerItems.push(active);
-          continue;
-        }
+        const command =
+          producer.kind === "describe"
+            ? "stage_media_library_session_describe_drafts"
+            : producer.kind === "geocode"
+              ? "stage_media_library_session_geocode_drafts"
+              : "stage_media_library_session_normalise_drafts";
         try {
           const previousRevision = sessionRevisionRef.current;
-          const snapshot = (await api.invoke(
-            producer.kind === "describe"
-              ? "stage_media_library_session_describe_drafts"
-              : "stage_media_library_session_geocode_drafts",
-            {
-              sessionId: activeScanIdRef.current,
-              relativePath,
-              edits,
-            },
-          )) as MediaLibrarySessionSnapshot;
+          const snapshot = (await api.invoke(command, {
+            sessionId: activeScanIdRef.current,
+            relativePath,
+            edits,
+            ...(producer.kind === "normalise"
+              ? { enabledGroups: producer.enabledGroups }
+              : {}),
+          })) as MediaLibrarySessionSnapshot;
           applySessionSnapshot(snapshot);
           results[active.resultIndex] = {
             kind: "success",
@@ -1544,71 +1531,12 @@ export function useMediaLibrary(
           results[active.resultIndex] = { kind: "failure", reason };
         }
       }
-
-      const planned: Array<{
-        resultIndex: number;
-        mutation: ExactTargetMutationBatchItem;
-      }> = [];
-      plannerItems.forEach(
-        ({ item: { relativePath, producer, edits }, resultIndex }) => {
-          try {
-            const plan = planGeneratedTargetDraftBatch({
-              producer,
-              fileName: relativePath,
-              edits,
-              occurrences:
-                fileMetadataOccurrencesStoreRef.current.get(relativePath),
-              targetDrafts:
-                targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
-              writableSchemaDefinitions,
-            });
-            planned.push({
-              resultIndex,
-              mutation: {
-                path: relativePath,
-                upserts: plan.upserts,
-                deletes: plan.deletes,
-              },
-            });
-          } catch (error) {
-            const reason =
-              error instanceof Error ? error.message : String(error);
-            logApplicationIssue(
-              "error",
-              "metadata-target-generated-stage",
-              error,
-              [relativePath],
-            );
-            results[resultIndex] = { kind: "failure", reason };
-          }
-        },
-      );
-
-      if (planned.length === 0) return results;
-      const persisted = await persistExactDraftMutations(
-        planned.map(({ mutation }) => mutation),
-        "metadata-target-generated-stage",
-      );
-      for (const { resultIndex } of planned) {
-        results[resultIndex] = persisted.success
-          ? { kind: "success", changed: persisted.changed }
-          : {
-              kind: "failure",
-              reason: "The generated metadata drafts could not be saved.",
-            };
-      }
       logSlowFrontendOperation("draft-store-batch", startedAt, {
-        files: planned.length,
+        files: activeItems.length,
       });
       return results;
     },
-    [
-      api,
-      applySessionSnapshot,
-      persistExactDraftMutations,
-      requireTargetDraftPersistenceReady,
-      writableSchemaDefinitions,
-    ],
+    [api, applySessionSnapshot, requireTargetDraftPersistenceReady],
   );
 
   const applyGeneratedMetadataDraftBatch = useCallback(

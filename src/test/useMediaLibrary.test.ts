@@ -3269,6 +3269,66 @@ describe("useMediaLibrary", () => {
     ).toBeUndefined();
   });
 
+  it("routes normalise staging through Rust with the confirmed immutable group snapshot", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const descriptionId: SchemaDefinitionId = {
+      table: "XMP::dc",
+      tag_id: "description",
+    };
+    mock.tagInfos.push({
+      id: descriptionId,
+      group0: "XMP",
+      group: "XMP-dc",
+      name: "Description",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    await act(async () => mock.emitScanComplete());
+    await publishOccurrences(mock, "normalise.jpg", []);
+    let staged;
+    await act(async () => {
+      staged = await result.current[1].applyGeneratedMetadataDraftBatch(
+        "normalise.jpg",
+        { kind: "normalise", enabledGroups: ["description"] },
+        [
+          {
+            schema_id: descriptionId,
+            edit: {
+              intent: "Set",
+              value: { kind: "Text", value: "canonical description" },
+            },
+          },
+        ],
+      );
+    });
+    expect(staged).toEqual({ kind: "success", changed: true });
+    const invocation = mock.invocations.find(
+      ({ cmd }) => cmd === "stage_media_library_session_normalise_drafts",
+    );
+    expect(invocation?.args?.enabledGroups).toEqual(["description"]);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "stage_media_library_session_normalise_drafts",
+      ),
+    ).toHaveLength(1);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
+    ).toHaveLength(0);
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    const entries = Object.values(
+      state.targetDraftEditsStore.getMetadataFile("normalise.jpg") ?? {},
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].target.schema_id).toEqual(descriptionId);
+  });
+
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");

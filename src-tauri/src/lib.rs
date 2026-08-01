@@ -1923,6 +1923,71 @@ fn is_geocode_schema(id: &tag_schema::SchemaDefinitionId) -> bool {
         )
 }
 
+fn is_normalise_schema(
+    id: &tag_schema::SchemaDefinitionId,
+    enabled_groups: &[normalise::NormaliseGroup],
+) -> bool {
+    if id.index.is_some() {
+        return false;
+    }
+    enabled_groups.iter().any(|group| match group {
+        normalise::NormaliseGroup::Keywords => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("XMP::Lightroom", "hierarchicalSubject")
+                | ("XMP::dc", "subject")
+                | ("IPTC::ApplicationRecord", "25")
+        ),
+        normalise::NormaliseGroup::Description => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("XMP::dc", "description") | ("Exif::Main", "270") | ("IPTC::ApplicationRecord", "120")
+        ),
+        normalise::NormaliseGroup::Title => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("XMP::dc", "title") | ("IPTC::ApplicationRecord", "5")
+        ),
+        normalise::NormaliseGroup::Headline => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("XMP::photoshop", "Headline") | ("IPTC::ApplicationRecord", "105")
+        ),
+        normalise::NormaliseGroup::Creator => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("XMP::dc", "creator") | ("Exif::Main", "315") | ("IPTC::ApplicationRecord", "80")
+        ),
+        normalise::NormaliseGroup::Copyright => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("XMP::dc", "rights") | ("Exif::Main", "33432") | ("IPTC::ApplicationRecord", "116")
+        ),
+        normalise::NormaliseGroup::IptcUtf8 => {
+            id.table == "IPTC::EnvelopeRecord" && id.tag_id == "90"
+        }
+        normalise::NormaliseGroup::Location => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("XMP::iptcExt", "LocationCreated")
+                | ("XMP::iptcCore", "Location")
+                | ("IPTC::ApplicationRecord", "92")
+                | ("XMP::photoshop", "City")
+                | ("IPTC::ApplicationRecord", "90")
+                | ("XMP::photoshop", "State")
+                | ("IPTC::ApplicationRecord", "95")
+                | ("XMP::photoshop", "Country")
+                | ("IPTC::ApplicationRecord", "101")
+                | ("XMP::iptcCore", "CountryCode")
+                | ("IPTC::ApplicationRecord", "100")
+        ),
+        normalise::NormaliseGroup::Dates => matches!(
+            (id.table.as_str(), id.tag_id.as_str()),
+            ("Exif::Main", "36867")
+                | ("XMP::photoshop", "DateCreated")
+                | ("IPTC::ApplicationRecord", "55")
+                | ("IPTC::ApplicationRecord", "60")
+                | ("Exif::Main", "36868")
+                | ("XMP::xmp", "CreateDate")
+                | ("IPTC::ApplicationRecord", "62")
+                | ("IPTC::ApplicationRecord", "63")
+        ),
+    })
+}
+
 fn plan_session_geocode_drafts(
     snapshot: &session::MediaLibrarySessionSnapshot,
     relative_path: &str,
@@ -2065,6 +2130,151 @@ fn plan_session_geocode_drafts(
         .unwrap_or_default();
     Ok((planned != current).then_some(planned))
 }
+fn plan_session_normalise_drafts(
+    snapshot: &session::MediaLibrarySessionSnapshot,
+    relative_path: &str,
+    edits: &[draft_edits::SchemaMetadataEdit],
+    enabled_groups: &[normalise::NormaliseGroup],
+) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
+    if edits.is_empty() {
+        return Ok(None);
+    }
+    let metadata = snapshot
+        .metadata
+        .iter()
+        .find(|entry| entry.relative_path == relative_path)
+        .ok_or_else(|| "The file is not part of the active media-library session".to_string())?;
+    let occurrences = match &metadata.state {
+        session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
+        session::MediaLibrarySessionMetadataState::Loading => {
+            return Err("Authoritative metadata occurrences are still loading".into())
+        }
+        session::MediaLibrarySessionMetadataState::Failed { error } => {
+            return Err(format!(
+                "Authoritative metadata occurrences failed to load: {error}"
+            ))
+        }
+    };
+    let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
+    let mut seen = std::collections::HashSet::new();
+    let mut planned = snapshot
+        .drafts
+        .get(relative_path)
+        .cloned()
+        .unwrap_or_default();
+
+    for generated in edits {
+        if !seen.insert(generated.schema_id.clone()) {
+            return Err("The generated batch contains the same exact schema more than once".into());
+        }
+        if !is_normalise_schema(&generated.schema_id, enabled_groups) {
+            return Err(
+                "Metadata normalisation is not allowed to generate this exact schema".into(),
+            );
+        }
+        match generated.edit.intent {
+            draft_edits::EditIntent::Set if generated.edit.value.is_some() => {}
+            draft_edits::EditIntent::Delete if generated.edit.value.is_none() => {}
+            _ => return Err("Metadata normalisation received an invalid semantic edit".into()),
+        }
+        let info = registry
+            .lookup(&generated.schema_id)
+            .ok_or_else(|| "The exact generated metadata schema is unavailable".to_string())?;
+        let new_target = metadata_draft_target::MetadataDraftTarget::from_new_property(info)
+            .map_err(|error| error.to_string())?;
+        let destination = new_target
+            .write_target()
+            .ok_or_else(|| "The generated metadata destination is unavailable".to_string())?;
+        let same_schema = occurrences
+            .0
+            .iter()
+            .filter(|occurrence| occurrence.schema_id == generated.schema_id)
+            .collect::<Vec<_>>();
+        let at_destination = same_schema
+            .iter()
+            .copied()
+            .filter(|occurrence| {
+                occurrence
+                    .observed_selector
+                    .as_ref()
+                    .is_some_and(|selector| selector_matches_write_target(selector, destination))
+            })
+            .collect::<Vec<_>>();
+        if at_destination.is_empty()
+            && same_schema
+                .iter()
+                .any(|occurrence| occurrence.observed_selector.is_none())
+        {
+            return Err(
+                "An authoritative generated-metadata occurrence has no physical selector".into(),
+            );
+        }
+        if at_destination.len() > 1 {
+            return Err(
+                "The generated schema resolves to multiple occurrences at its destination".into(),
+            );
+        }
+        let target = if let Some(occurrence) = at_destination.first() {
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
+                .map_err(|error| error.to_string())?
+        } else {
+            new_target
+        };
+        let slot = target.slot();
+        if planned.iter().any(|stored| {
+            stored.target.slot() != slot && stored.target.write_target() == target.write_target()
+        }) {
+            return Err("Another exact draft target owns the generated destination".into());
+        }
+        let owner_index = planned.iter().position(|entry| entry.target.slot() == slot);
+        if let Some(index) = owner_index {
+            if planned[index].target != target {
+                return Err("A stale complete target owns the generated metadata slot".into());
+            }
+        }
+        match generated.edit.intent {
+            draft_edits::EditIntent::Set => {
+                let replacement = draft_edits::MetadataTargetDraftEntry {
+                    target: target.clone(),
+                    edit: generated.edit.clone(),
+                };
+                if let Some(index) = owner_index {
+                    planned[index] = replacement;
+                } else {
+                    planned.push(replacement);
+                }
+            }
+            draft_edits::EditIntent::Delete => match target {
+                metadata_draft_target::MetadataDraftTarget::ExistingOccurrence { .. } => {
+                    let replacement = draft_edits::MetadataTargetDraftEntry {
+                        target: target.clone(),
+                        edit: generated.edit.clone(),
+                    };
+                    if let Some(index) = owner_index {
+                        planned[index] = replacement;
+                    } else {
+                        planned.push(replacement);
+                    }
+                }
+                metadata_draft_target::MetadataDraftTarget::NewProperty { .. } => {
+                    if let Some(index) = owner_index {
+                        planned.remove(index);
+                    }
+                }
+            },
+            draft_edits::EditIntent::ListAdd | draft_edits::EditIntent::ListRemove => {
+                return Err("Metadata normalisation received an unsupported list edit".into())
+            }
+        }
+    }
+
+    let current = snapshot
+        .drafts
+        .get(relative_path)
+        .cloned()
+        .unwrap_or_default();
+    Ok((planned != current).then_some(planned))
+}
 
 #[tauri::command]
 fn stage_media_library_session_describe_drafts(
@@ -2137,6 +2347,53 @@ fn stage_media_library_session_geocode_drafts(
         return Err("Draft persistence is not ready".into());
     }
     let Some(planned) = plan_session_geocode_drafts(&snapshot, &relative_path, &edits)? else {
+        return Ok(snapshot);
+    };
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        planned.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, planned)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+#[tauri::command]
+fn stage_media_library_session_normalise_drafts(
+    session_id: u64,
+    relative_path: String,
+    edits: Vec<draft_edits::SchemaMetadataEdit>,
+    enabled_groups: Vec<normalise::NormaliseGroup>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before normalise drafts were saved".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let Some(planned) =
+        plan_session_normalise_drafts(&snapshot, &relative_path, &edits, &enabled_groups)?
+    else {
         return Ok(snapshot);
     };
     let folder = snapshot
@@ -2298,6 +2555,36 @@ fn clear_running(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalise_schema_allowlist_uses_the_confirmed_group_snapshot() {
+        let description = tag_schema::SchemaDefinitionId {
+            table: "XMP::dc".to_owned(),
+            tag_id: "description".to_owned(),
+            index: None,
+        };
+        assert!(is_normalise_schema(
+            &description,
+            &[normalise::NormaliseGroup::Description],
+        ));
+        assert!(!is_normalise_schema(
+            &description,
+            &[normalise::NormaliseGroup::Title],
+        ));
+    }
+
+    #[test]
+    fn normalise_schema_allowlist_rejects_indexed_variants() {
+        let indexed = tag_schema::SchemaDefinitionId {
+            table: "XMP::dc".to_owned(),
+            tag_id: "description".to_owned(),
+            index: Some(0),
+        };
+        assert!(!is_normalise_schema(
+            &indexed,
+            &[normalise::NormaliseGroup::Description],
+        ));
+    }
 
     #[test]
     fn scan_concurrency_uses_configured_worker_counts() {
@@ -3052,6 +3339,7 @@ pub fn run() {
             stage_media_library_session_gps_drafts,
             stage_media_library_session_describe_drafts,
             stage_media_library_session_geocode_drafts,
+            stage_media_library_session_normalise_drafts,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,
