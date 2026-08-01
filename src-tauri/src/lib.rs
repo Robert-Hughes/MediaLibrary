@@ -1666,6 +1666,116 @@ fn remove_media_library_session_metadata_fields(
     Ok(committed)
 }
 
+fn is_gps_coordinate_schema(id: &tag_schema::SchemaDefinitionId) -> bool {
+    id.table == "GPS::Main"
+        && id.index.is_none()
+        && matches!(id.tag_id.as_str(), "1" | "2" | "3" | "4" | "5" | "6")
+}
+
+fn plan_session_gps_drafts(
+    snapshot: &session::MediaLibrarySessionSnapshot,
+    relative_path: &str,
+    incoming: &[draft_edits::MetadataTargetDraftEntry],
+) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
+    if incoming.is_empty() {
+        return Err("A GPS edit must contain at least one field".into());
+    }
+    let mut slots = std::collections::HashSet::new();
+    let mut selectors = std::collections::HashSet::new();
+    for entry in incoming {
+        if !is_gps_coordinate_schema(entry.target.schema_id()) {
+            return Err("This action accepts only exact GPS coordinate-group schemas".into());
+        }
+        if !slots.insert(entry.target.slot()) {
+            return Err("The GPS batch contains the same exact target slot more than once".into());
+        }
+        if !selectors.insert(entry.target.write_target()) {
+            return Err("Two incoming GPS targets resolve to the same ExifTool destination".into());
+        }
+        validate_exact_session_draft_target(snapshot, relative_path, &entry.target)?;
+    }
+
+    let mut planned = snapshot
+        .drafts
+        .get(relative_path)
+        .cloned()
+        .unwrap_or_default();
+    for entry in incoming {
+        let slot = entry.target.slot();
+        if planned.iter().any(|stored| {
+            stored.target.slot() != slot
+                && stored.target.write_target() == entry.target.write_target()
+        }) {
+            return Err("Another exact draft target uses the captured GPS selector".into());
+        }
+        if let Some(existing) = planned
+            .iter_mut()
+            .find(|stored| stored.target.slot() == slot)
+        {
+            if existing.target != entry.target {
+                return Err(
+                    "The exact GPS target slot is owned by a different complete target snapshot"
+                        .into(),
+                );
+            }
+            *existing = entry.clone();
+        } else {
+            planned.push(entry.clone());
+        }
+    }
+    let current = snapshot
+        .drafts
+        .get(relative_path)
+        .cloned()
+        .unwrap_or_default();
+    Ok((planned != current).then_some(planned))
+}
+
+#[tauri::command]
+fn stage_media_library_session_gps_drafts(
+    session_id: u64,
+    relative_path: String,
+    entries: Vec<draft_edits::MetadataTargetDraftEntry>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the GPS drafts were saved".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let Some(planned) = plan_session_gps_drafts(&snapshot, &relative_path, &entries)? else {
+        return Ok(snapshot);
+    };
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        planned.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, planned)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
 #[tauri::command]
 fn mutate_media_library_session_draft_rows(
     session_id: u64,
@@ -2079,6 +2189,90 @@ mod tests {
     }
 
     #[test]
+    fn gps_planner_accepts_exact_gps_target_and_rejects_non_gps_or_duplicate_slots() {
+        let schema = tag_schema::SchemaDefinitionId {
+            table: "GPS::Main".to_owned(),
+            tag_id: "2".to_owned(),
+            index: None,
+        };
+        let occurrence = metadata_occurrence::MetadataOccurrence {
+            id: metadata_occurrence::MetadataOccurrenceId {
+                document: None,
+                path: "JPEG-APP1-GPS".to_owned(),
+                runtime_tag_id: "2".to_owned(),
+                tag_id_scope: metadata_occurrence::RuntimeTagIdScope {
+                    table: "GPS::Main".to_owned(),
+                    tag_id: "2".to_owned(),
+                    index: None,
+                },
+                copy: 0,
+            },
+            schema_id: schema.clone(),
+            value: metadata_value::MetadataValue::Real(1.0),
+            tag_info: Some(tag_schema::TagInfo {
+                id: schema.clone(),
+                group0: Some("EXIF".to_owned()),
+                group: "GPS".to_owned(),
+                name: "GPSLatitude".to_owned(),
+                writable: true,
+                kind: tag_schema::TagKind::Real,
+                description: None,
+                storage_count: None,
+            }),
+            observed_selector: None,
+            write_target: Some(metadata_occurrence::MetadataWriteTarget {
+                group1: "GPS".to_owned(),
+                group7: "ID-2".to_owned(),
+                tag_name: "GPSLatitude".to_owned(),
+            }),
+        };
+        let target =
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(&occurrence)
+                .unwrap();
+        let incoming = draft_edits::MetadataTargetDraftEntry {
+            target,
+            edit: command_target_edit(metadata_value::MetadataValue::Real(-0.0)),
+        };
+        let snapshot = session::MediaLibrarySessionSnapshot {
+            session_id: Some(7),
+            revision: 1,
+            lifecycle: session::MediaLibrarySessionLifecycle::Loaded,
+            folder: Some("/files".to_owned()),
+            files: Vec::new(),
+            discovery_running: false,
+            issues: Vec::new(),
+            metadata: vec![session::MediaLibrarySessionFileMetadata {
+                relative_path: "gps.jpg".to_owned(),
+                state: session::MediaLibrarySessionMetadataState::Ready {
+                    occurrences: metadata_occurrence::MetadataOccurrences(vec![occurrence]),
+                },
+            }],
+            thumbnails: Vec::new(),
+            drafts: Default::default(),
+            draft_persistence: session::MediaLibrarySessionDraftPersistenceState::Ready,
+        };
+
+        let planned =
+            plan_session_gps_drafts(&snapshot, "gps.jpg", std::slice::from_ref(&incoming))
+                .unwrap()
+                .expect("GPS target should be staged");
+        assert_eq!(planned, vec![incoming.clone()]);
+        assert!(matches!(
+            planned[0].edit.value,
+            Some(metadata_value::MetadataValue::Real(value)) if value == 0.0 && value.is_sign_negative()
+        ));
+
+        let duplicate =
+            plan_session_gps_drafts(&snapshot, "gps.jpg", &[incoming.clone(), incoming.clone()])
+                .unwrap_err();
+        assert!(duplicate.contains("same exact target slot"));
+
+        let non_gps = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let error = plan_session_gps_drafts(&snapshot, "gps.jpg", &[non_gps]).unwrap_err();
+        assert!(error.contains("only exact GPS"));
+    }
+
+    #[test]
     fn target_commands_round_trip_exact_target_aware_sqlite_rows() {
         let dir = tempfile::tempdir().unwrap();
         let folder_path = dir.path().to_string_lossy().into_owned();
@@ -2471,6 +2665,7 @@ pub fn run() {
             remove_media_library_session_metadata_targets,
             remove_media_library_session_metadata_field_from_files,
             remove_media_library_session_metadata_fields,
+            stage_media_library_session_gps_drafts,
             mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,

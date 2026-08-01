@@ -59,7 +59,6 @@ import { validateFamily1Group } from "./utils/metadataWriteTarget";
 import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSafety";
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
-import { validateGpsTargetDraftEntries } from "./gpsTargetDrafts";
 import {
   planGeneratedTargetDraftBatch,
   type GeneratedDraftStageResult,
@@ -1675,16 +1674,16 @@ export function useMediaLibrary(
     ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const validated = validateGpsTargetDraftEntries(
-          entries,
-          fileMetadataOccurrencesStoreRef.current.get(relativePath),
-          targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
-        );
-        const persisted = await persistExactDraftMutations(
-          [{ path: relativePath, upserts: validated, deletes: [] }],
-          "metadata-target-gps-validate",
-        );
-        return persisted.success;
+        const snapshot = (await api.invoke(
+          "stage_media_library_session_gps_drafts",
+          {
+            sessionId: activeScanIdRef.current,
+            relativePath,
+            entries,
+          },
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
+        return true;
       } catch (error) {
         pushApplicationError("metadata-target-gps-validate", error, [
           relativePath,
@@ -1693,7 +1692,8 @@ export function useMediaLibrary(
       }
     },
     [
-      persistExactDraftMutations,
+      api,
+      applySessionSnapshot,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
     ],
