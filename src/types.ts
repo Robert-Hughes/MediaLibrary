@@ -1,3 +1,4 @@
+import type { MetadataApplySummary } from "./types/generated/MetadataApplySummary";
 // ── Generated wire-shape types ────────────────────────────────────────────────
 //
 // These are re-exports of types generated from Rust by ts-rs (see
@@ -541,6 +542,8 @@ export type AppState =
 
       // Apply-edits in-flight state (non-null while metadata apply is running)
       applying: ApplyEditsInFlight | null;
+      /** Final summary retained until the user closes the Apply dialog. */
+      applyCompletion?: ApplyEditsCompletion | null;
 
       /** Exact-target verification outcomes that still need user attention. */
       targetVerifyOutcomes: TargetVerifyOutcomesByFile;
@@ -554,6 +557,17 @@ export interface ApplyEditsInFlight {
   currentFile: string | null;
   failureCount: number;
   cancelling: boolean;
+}
+
+export interface ApplyEditsFileIssue {
+  relativePath: string;
+  severity: "error" | "warning";
+  message: string;
+}
+
+export interface ApplyEditsCompletion {
+  summary: MetadataApplySummary;
+  issues: ApplyEditsFileIssue[];
 }
 
 // ── AI image-description (see docs/IMAGE_ANALYSIS.md) ──────────────────────────

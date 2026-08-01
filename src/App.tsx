@@ -24,7 +24,6 @@ import { StatusBar } from "./components/StatusBar";
 import { ColumnSelectionDialog } from "./components/ColumnSelectionDialog";
 import { BulkMetadataEditorDialog } from "./components/BulkMetadataEditorDialog";
 import { ApplyProgressDialog } from "./components/ApplyProgressDialog";
-import { TargetVerifyOutcomeDialog } from "./components/TargetVerifyOutcomeDialog";
 import { ModalDialog } from "./components/ModalDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -301,12 +300,6 @@ function LoadedView({
     return counts;
   }, [state.targetDraftEdits]);
 
-  const targetVerifyOutcomeCount = Object.values(
-    state.targetVerifyOutcomes,
-  ).reduce((count, entries) => count + Object.keys(entries).length, 0);
-  const showTargetVerification =
-    !state.applying && targetVerifyOutcomeCount > 0;
-
   const draftEditsSummary = useMemo(() => {
     const entries = Object.values(draftCounts).filter((count) => count > 0);
     return entries.length > 0
@@ -557,19 +550,16 @@ function LoadedView({
           onClose={() => setShowColumnDialog(false)}
         />
       )}
-      {state.applying && (
+      {(state.applying || state.applyCompletion) && (
         <ApplyProgressDialog
           applying={state.applying}
+          completion={state.applyCompletion}
           onCancel={actions.cancelApplyEdits}
-        />
-      )}
-      {showTargetVerification && (
-        <TargetVerifyOutcomeDialog
-          outcomes={state.targetVerifyOutcomes}
-          onAccept={actions.acceptTargetVerifyOutcome}
-          onKeep={actions.keepTargetDraftAndDismissOutcome}
-          onDiscard={actions.discardTargetDraftAndOutcome}
-          onDismissAll={actions.dismissAllTargetVerifyOutcomes}
+          onClose={actions.dismissApplyCompletion}
+          verificationOutcomes={state.targetVerifyOutcomes}
+          onAcceptVerification={actions.acceptTargetVerifyOutcome}
+          onKeepVerification={actions.keepTargetDraftAndDismissOutcome}
+          onDiscardVerification={actions.discardTargetDraftAndOutcome}
         />
       )}
       <StatusBar

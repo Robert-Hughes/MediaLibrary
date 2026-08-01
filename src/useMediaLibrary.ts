@@ -11,6 +11,7 @@ import type {
   ThumbnailReadyPayload,
   ScanErrorPayload,
   ApplicationErrorPayload,
+  ApplyEditsFileIssue,
   FileInfo,
   SortConfig,
   VisibleColumn,
@@ -218,6 +219,7 @@ export interface MediaLibraryActions {
     fileRelativePath?: string | string[],
   ) => Promise<MetadataApplyResult>;
   cancelApplyEdits: () => void;
+  dismissApplyCompletion: () => void;
   acceptTargetVerifyOutcome: (
     relativePath: string,
     currentTarget: MetadataDraftTarget,
@@ -281,6 +283,7 @@ export function useMediaLibrary(
     TARGET_DRAFT_NOT_LOADED_STATE,
   );
   const applyActiveRef = useRef(false);
+  const applyIssuesRef = useRef<ApplyEditsFileIssue[]>([]);
   const activeApplyPromiseRef = useRef<Promise<MetadataApplyResult> | null>(
     null,
   );
@@ -431,12 +434,24 @@ export function useMediaLibrary(
             pushApplicationError("metadata-target-protocol", error),
           onProgressApplicationError: ({ error }) =>
             pushApplicationError("metadata-target-progress", error),
-          onFileError: (relativePath, error) =>
-            pushApplicationError("metadata-target-file", error, [relativePath]),
-          onFileWarning: (relativePath, warning) =>
+          onFileError: (relativePath, error) => {
+            applyIssuesRef.current.push({
+              relativePath,
+              severity: "error",
+              message: error,
+            });
+            pushApplicationError("metadata-target-file", error, [relativePath]);
+          },
+          onFileWarning: (relativePath, warning) => {
+            applyIssuesRef.current.push({
+              relativePath,
+              severity: "warning",
+              message: warning,
+            });
             pushApplicationWarning("metadata-target-warning", warning, [
               relativePath,
-            ]),
+            ]);
+          },
         },
       );
       targetApplyControllerRef.current = controller;
@@ -2264,6 +2279,10 @@ export function useMediaLibrary(
         const controller = targetApplyControllerRef.current;
         if (!controller) throw new Error("Target-aware apply is not ready");
         applyActiveRef.current = true;
+        applyIssuesRef.current = [];
+        setAppState((prev) =>
+          prev.kind === "loaded" ? { ...prev, applyCompletion: null } : prev,
+        );
 
         try {
           setAppState((prev) =>
@@ -2281,6 +2300,17 @@ export function useMediaLibrary(
               : prev,
           );
           const result = await controller.run(current.folder, targetPaths);
+          setAppState((prev) =>
+            prev.kind === "loaded"
+              ? {
+                  ...prev,
+                  applyCompletion: {
+                    summary: result.commandResult.summary,
+                    issues: [...applyIssuesRef.current],
+                  },
+                }
+              : prev,
+          );
           return result.commandResult;
         } catch (error) {
           pushApplicationError("metadata-apply", error, requestedPaths ?? []);
@@ -2310,6 +2340,12 @@ export function useMediaLibrary(
     },
     [pushApplicationError, requireTargetDraftPersistenceReady],
   );
+
+  const dismissApplyCompletion = useCallback(() => {
+    setAppState((prev) =>
+      prev.kind === "loaded" ? { ...prev, applyCompletion: null } : prev,
+    );
+  }, []);
 
   const cancelApplyEdits = useCallback(() => {
     void targetApplyControllerRef.current
@@ -2355,6 +2391,7 @@ export function useMediaLibrary(
       discardAllDraftEdits,
       applyDraftEdits,
       cancelApplyEdits,
+      dismissApplyCompletion,
       acceptTargetVerifyOutcome,
       keepTargetDraftAndDismissOutcome,
       discardTargetDraftAndOutcome,
@@ -2393,6 +2430,7 @@ export function useMediaLibrary(
       discardAllDraftEdits,
       applyDraftEdits,
       cancelApplyEdits,
+      dismissApplyCompletion,
       acceptTargetVerifyOutcome,
       keepTargetDraftAndDismissOutcome,
       discardTargetDraftAndOutcome,
