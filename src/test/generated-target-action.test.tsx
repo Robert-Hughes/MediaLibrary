@@ -92,16 +92,10 @@ async function loadedFile(
   const mock = createMockTauriApi();
   installGeneratedSchemaDefinitions(mock);
   mock.pickFolderResolves("/files");
-  const api = options.targetLoadFails
-    ? {
-        ...mock.api,
-        invoke: (cmd: string, args?: Record<string, unknown>) =>
-          cmd === "load_metadata_draft_edits"
-            ? Promise.reject(new Error("broken target drafts"))
-            : mock.api.invoke(cmd, args),
-      }
-    : mock.api;
-  const hook = renderHook(() => useMediaLibrary(api));
+  if (options.targetLoadFails) {
+    mock.draftLoadFailuresByFolder["/files"] = "broken target drafts";
+  }
+  const hook = renderHook(() => useMediaLibrary(mock.api));
   await act(async () => hook.result.current[1].openFolder());
   await act(async () => {
     mock.emitFileFound(makeFile({ relative_path: "file.jpg" }));
@@ -235,27 +229,11 @@ describe("generated target-aware production action", () => {
     const mock = createMockTauriApi();
     installGeneratedSchemaDefinitions(mock);
     mock.pickFolderResolves("/broken");
-    let targetLoads = 0;
-    const api = {
-      ...mock.api,
-      invoke: (cmd: string, args?: Record<string, unknown>) => {
-        if (cmd === "load_metadata_draft_edits" && targetLoads++ === 0) {
-          return Promise.reject(new Error("broken target drafts"));
-        }
-        return mock.api.invoke(cmd, args);
-      },
-    };
-    const { result } = renderHook(() => useMediaLibrary(api));
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => {});
+    mock.pickFolderResolves("/broken");
+    mock.draftLoadFailuresByFolder["/broken"] = "broken target drafts";
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => result.current[1].openFolder());
-    expect(consoleError).toHaveBeenCalledWith(
-      "Failed to load target-aware target drafts",
-      expect.any(Error),
-    );
-    consoleError.mockRestore();
     await act(async () => {
       mock.emitFileFound(makeFile({ relative_path: "broken.jpg" }));
       mock.emitScanComplete();

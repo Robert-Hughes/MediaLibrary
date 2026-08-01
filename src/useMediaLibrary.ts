@@ -38,12 +38,12 @@ import { useRecentFolders } from "./hooks/useRecentFolders";
 import { useWritableSchemaDefinitions } from "./hooks/useWritableSchemaDefinitions";
 import {
   metadataTargetDraftEntryEqualsExact,
+  targetDraftsFromWire,
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
 import { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 import { TargetApplyController } from "./targetApplyController";
 import {
-  loadTargetDraftEdits,
   saveTargetDraftRows,
   targetDraftChangesToMutations,
   type MetadataDraftRowMutation,
@@ -447,6 +447,35 @@ export function useMediaLibrary(
       }
       activeScanIdRef.current = snapshot.session_id;
       activeFolderRef.current = snapshot.folder;
+      const projectedDrafts = targetDraftsFromWire(
+        snapshot.drafts as Record<string, MetadataTargetDraftEntry[]>,
+      );
+      if (isRecovery || previousSessionId !== snapshot.session_id) {
+        targetDraftEditsStoreRef.current.resetMetadata(projectedDrafts);
+      } else {
+        const paths = new Set([
+          ...Object.keys(targetDraftEditsStoreRef.current.getAllMetadata()),
+          ...Object.keys(projectedDrafts),
+        ]);
+        targetDraftEditsStoreRef.current.replaceMetadataFiles(
+          [...paths].map((path) => ({
+            path,
+            persistedEntries: Object.values(projectedDrafts[path] ?? {}),
+          })),
+        );
+      }
+      targetDraftPersistenceRef.current = snapshot.draft_persistence;
+      targetLoadErrorRef.current =
+        snapshot.draft_persistence.status === "load-failed"
+          ? {
+              issue_id: null,
+              scan_id: snapshot.session_id,
+              severity: "error",
+              error_type: "metadata-target-load",
+              error_message: snapshot.draft_persistence.error,
+              affected_files: [],
+            }
+          : null;
       if (snapshot.lifecycle === "opening") {
         if (isRecovery) {
           const { visibleColumns, sortConfig, columnWidths } =
@@ -500,6 +529,9 @@ export function useMediaLibrary(
             return {
               ...previous,
               scanning: snapshot.discovery_running,
+              targetDraftEdits:
+                targetDraftEditsStoreRef.current.getAllMetadata(),
+              targetDraftPersistence: targetDraftPersistenceRef.current,
               applicationErrors: [...localErrors, ...backendErrors].slice(
                 -MAX_APPLICATION_ERRORS,
               ),
@@ -775,10 +807,24 @@ export function useMediaLibrary(
 
       thumbnailStoreRef.current = new ThumbnailStore();
       fileMetadataOccurrencesStoreRef.current.clear();
-      metadataProgressStoreRef.current = new MetadataProgressStore();
       activeFolderRef.current = folder;
-      targetLoadErrorRef.current = null;
-      targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
+      targetDraftEditsStoreRef.current.resetMetadata(
+        targetDraftsFromWire(
+          session.drafts as Record<string, MetadataTargetDraftEntry[]>,
+        ),
+      );
+      targetDraftPersistenceRef.current = session.draft_persistence;
+      targetLoadErrorRef.current =
+        session.draft_persistence.status === "load-failed"
+          ? {
+              issue_id: null,
+              scan_id: scanId,
+              severity: "error",
+              error_type: "metadata-target-load",
+              error_message: session.draft_persistence.error,
+              affected_files: [],
+            }
+          : null;
       targetVerifyOutcomesStoreRef.current.clear();
       const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
       setAppState({
@@ -791,28 +837,6 @@ export function useMediaLibrary(
       api
         .invoke("set_window_title", { title: `Media Library — ${folder}` })
         .catch(() => {});
-
-      try {
-        const loaded = await loadTargetDraftEdits(api, folder);
-        targetDraftEditsStoreRef.current.resetMetadata(loaded);
-        targetDraftPersistenceRef.current = { status: "ready" };
-      } catch (error) {
-        console.error("Failed to load target-aware target drafts", error);
-        targetDraftEditsStoreRef.current.resetMetadata({});
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
-        targetDraftPersistenceRef.current = {
-          status: "load-failed",
-          error: errorMessage,
-        };
-        targetLoadErrorRef.current = {
-          scan_id: scanId,
-          severity: "error",
-          error_type: "metadata-target-load",
-          error_message: errorMessage,
-          affected_files: [],
-        };
-      }
 
       await api.invoke("start_scan", { scanId, folderPath: folder });
       pushRecentFolder(folder);
@@ -987,32 +1011,6 @@ export function useMediaLibrary(
       const initialSession = (await api.invoke(
         "get_media_library_session_snapshot",
       )) as MediaLibrarySessionSnapshot;
-      if (
-        !cancelled &&
-        initialSession.folder &&
-        initialSession.lifecycle !== "idle"
-      ) {
-        try {
-          const loaded = await loadTargetDraftEdits(api, initialSession.folder);
-          targetDraftEditsStoreRef.current.resetMetadata(loaded);
-          targetDraftPersistenceRef.current = { status: "ready" };
-        } catch (error) {
-          const errorMessage =
-            error instanceof Error ? error.message : String(error);
-          targetDraftEditsStoreRef.current.resetMetadata({});
-          targetDraftPersistenceRef.current = {
-            status: "load-failed",
-            error: errorMessage,
-          };
-          targetLoadErrorRef.current = {
-            scan_id: initialSession.session_id ?? -1,
-            severity: "error",
-            error_type: "metadata-target-load",
-            error_message: errorMessage,
-            affected_files: [],
-          };
-        }
-      }
       if (!cancelled) applySessionSnapshot(initialSession);
 
       console.debug("[setup] all listeners registered");
@@ -1334,7 +1332,7 @@ export function useMediaLibrary(
       if (persistence.status === "ready") return true;
       pushApplicationError(
         "metadata-target-unavailable",
-        `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`,
+        `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE}${"error" in persistence ? ` Load error: ${persistence.error}` : ""}`,
         affectedFiles,
       );
       return false;
@@ -1527,7 +1525,7 @@ export function useMediaLibrary(
           kind: "failure",
           reason:
             persistence.status === "load-failed"
-              ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`
+              ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE}${"error" in persistence ? ` Load error: ${persistence.error}` : ""}`
               : TARGET_DRAFT_LOAD_BLOCKED_MESSAGE,
         };
         for (const { resultIndex } of activeItems) {
@@ -1650,7 +1648,7 @@ export function useMediaLibrary(
           kind: "blocked",
           reason:
             persistence.status === "load-failed"
-              ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE} Load error: ${persistence.error}`
+              ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE}${"error" in persistence ? ` Load error: ${persistence.error}` : ""}`
               : TARGET_DRAFT_LOAD_BLOCKED_MESSAGE,
           relativePath: relativePaths[0],
         };
@@ -1879,13 +1877,28 @@ export function useMediaLibrary(
         );
         return;
       }
-      targetDraftEditsStoreRef.current.setMetadataTarget(
-        fileRelativePath,
-        structuredClone(target),
-        edit,
-      );
+      void api
+        .invoke("set_media_library_session_draft", {
+          sessionId: activeScanIdRef.current,
+          relativePath: fileRelativePath,
+          target,
+          edit,
+        })
+        .then((snapshot) =>
+          applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
+        )
+        .catch((error) =>
+          pushApplicationError("metadata-target-save", error, [
+            fileRelativePath,
+          ]),
+        );
     },
-    [pushApplicationError, requireTargetDraftPersistenceReady],
+    [
+      api,
+      applySessionSnapshot,
+      pushApplicationError,
+      requireTargetDraftPersistenceReady,
+    ],
   );
 
   const setNewPropertyDraft = useCallback(
@@ -2298,9 +2311,27 @@ export function useMediaLibrary(
       ) {
         return;
       }
-      targetDraftEditsStoreRef.current.deleteTarget(fileRelativePath, target);
+      void api
+        .invoke("discard_media_library_session_draft", {
+          sessionId: activeScanIdRef.current,
+          relativePath: fileRelativePath,
+          target,
+        })
+        .then((snapshot) =>
+          applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
+        )
+        .catch((error) =>
+          pushApplicationError("metadata-target-discard", error, [
+            fileRelativePath,
+          ]),
+        );
     },
-    [requireTargetDraftPersistenceReady],
+    [
+      api,
+      applySessionSnapshot,
+      pushApplicationError,
+      requireTargetDraftPersistenceReady,
+    ],
   );
 
   const discardTargetDraftValues = useCallback(

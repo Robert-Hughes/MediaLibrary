@@ -327,9 +327,17 @@ fn open_media_library_session(
     session_state: State<'_, session::MediaLibrarySessionState>,
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
     stop_scan_impl(&scan_state, &active_queues);
-    let snapshot = session_state.begin_open(folder_path);
+    let opening = session_state.begin_open(folder_path.clone());
+    let session_id = opening
+        .session_id
+        .ok_or_else(|| "Rust opened a session without an identity".to_string())?;
+    let app_data_dir = commands::shared::app_data_dir(&app)?;
+    let drafts =
+        draft_repository::load_metadata_draft_edits(&app_data_dir, &folder_path, &repository_state);
+    let snapshot = session_state.install_draft_load_result(session_id, drafts)?;
     emit_session_snapshot(&app, &snapshot)?;
     Ok(snapshot)
 }
@@ -932,6 +940,189 @@ fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String
     Ok(registry.schema_writable_transport_set().cloned().collect())
 }
 
+fn validate_exact_session_draft_target(
+    snapshot: &session::MediaLibrarySessionSnapshot,
+    relative_path: &str,
+    target: &metadata_draft_target::MetadataDraftTarget,
+) -> Result<(), String> {
+    let metadata = snapshot
+        .metadata
+        .iter()
+        .find(|entry| entry.relative_path == relative_path)
+        .ok_or_else(|| "The file is not part of the active media-library session".to_string())?;
+    let occurrences = match &metadata.state {
+        session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
+        session::MediaLibrarySessionMetadataState::Loading => {
+            return Err("Authoritative metadata occurrences are still loading".into())
+        }
+        session::MediaLibrarySessionMetadataState::Failed { error } => {
+            return Err(format!(
+                "Authoritative metadata occurrences failed to load: {error}"
+            ))
+        }
+    };
+    match target {
+        metadata_draft_target::MetadataDraftTarget::ExistingOccurrence {
+            occurrence_id, ..
+        } => {
+            let mut matches = occurrences
+                .0
+                .iter()
+                .filter(|occurrence| &occurrence.id == occurrence_id);
+            let occurrence = matches
+                .next()
+                .ok_or_else(|| "The exact metadata occurrence no longer exists".to_string())?;
+            if matches.next().is_some() {
+                return Err("The exact metadata occurrence ID is duplicated".into());
+            }
+            target
+                .validate_existing_occurrence(occurrence)
+                .map_err(|error| error.to_string())
+        }
+        metadata_draft_target::MetadataDraftTarget::NewProperty { schema_id, .. } => {
+            let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
+            let info = registry
+                .lookup(schema_id)
+                .ok_or_else(|| "The selected metadata schema is unknown".to_string())?;
+            target
+                .validate_new_property(info)
+                .map_err(|error| error.to_string())?;
+            if occurrences
+                .0
+                .iter()
+                .any(|occurrence| &occurrence.schema_id == schema_id)
+            {
+                return Err("The selected metadata property already exists".into());
+            }
+            Ok(())
+        }
+    }
+}
+
+fn persist_exact_session_draft_row(
+    app: &AppHandle,
+    repository_state: &draft_edits::DraftRepositoryState,
+    folder: &str,
+    relative_path: String,
+    entries: Vec<draft_edits::MetadataTargetDraftEntry>,
+) -> Result<(), String> {
+    let app_data_dir = commands::shared::app_data_dir(app)?;
+    draft_repository::apply_row_mutations(
+        &app_data_dir,
+        folder,
+        &[draft_repository::MetadataDraftRowMutation {
+            relative_path,
+            entries,
+        }],
+        repository_state,
+    )
+}
+
+#[tauri::command]
+fn set_media_library_session_draft(
+    session_id: u64,
+    relative_path: String,
+    target: metadata_draft_target::MetadataDraftTarget,
+    edit: draft_edits::MetadataDraftEdit,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the draft was saved".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    validate_exact_session_draft_target(&snapshot, &relative_path, &target)?;
+    let mut entries = snapshot
+        .drafts
+        .get(&relative_path)
+        .cloned()
+        .unwrap_or_default();
+    let slot = target.slot();
+    let replacement = draft_edits::MetadataTargetDraftEntry { target, edit };
+    if let Some(existing) = entries.iter_mut().find(|entry| entry.target.slot() == slot) {
+        *existing = replacement;
+    } else {
+        entries.push(replacement);
+    }
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        entries.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
+#[tauri::command]
+fn discard_media_library_session_draft(
+    session_id: u64,
+    relative_path: String,
+    target: metadata_draft_target::MetadataDraftTarget,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the draft was discarded".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let slot = target.slot();
+    let mut entries = snapshot
+        .drafts
+        .get(&relative_path)
+        .cloned()
+        .unwrap_or_default();
+    entries.retain(|entry| entry.target.slot() != slot);
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        &app,
+        &repository_state,
+        folder,
+        relative_path.clone(),
+        entries.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
 // Target-aware draft persistence and apply are the sole metadata-editing boundary.
 #[tauri::command]
 fn save_metadata_draft_rows(
@@ -1472,6 +1663,8 @@ pub fn run() {
             recycle_media_files,
             show_in_explorer,
             set_window_title,
+            set_media_library_session_draft,
+            discard_media_library_session_draft,
             save_metadata_draft_rows,
             load_metadata_draft_edits,
             apply_metadata_draft_edits_cmd,
