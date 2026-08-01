@@ -809,6 +809,48 @@ export function createMockTauriApi(): MockTauriApi {
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
       }
+      if (cmd === "replace_media_library_session_new_property_draft") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const originalTarget = args?.originalTarget as MetadataDraftTarget;
+        const replacementTarget =
+          args?.replacementTarget as MetadataDraftTarget;
+        const originalEdit = args?.originalEdit as MetadataDraftEdit;
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        const original = Object.values(
+          store.getMetadataFile(relativePath) ?? {},
+        ).find(
+          (entry) =>
+            JSON.stringify(entry.target) === JSON.stringify(originalTarget),
+        );
+        if (
+          original === undefined ||
+          JSON.stringify(original.edit) !== JSON.stringify(originalEdit)
+        ) {
+          throw new Error("The original draft changed or disappeared");
+        }
+        store.deleteTarget(relativePath, originalTarget);
+        store.setMetadataTarget(relativePath, replacementTarget, originalEdit);
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
       if (cmd === "mutate_media_library_session_draft_rows") {
         const sessionId = args?.sessionId as number;
         if (sessionId !== mock.currentScanId) throw new Error("stale session");
