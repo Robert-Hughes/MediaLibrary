@@ -1,4 +1,4 @@
-import type { TauriApi } from "../useMediaLibrary";
+﻿import type { TauriApi } from "../useMediaLibrary";
 import type {
   FileInfo,
   ScanErrorPayload,
@@ -20,6 +20,7 @@ import {
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
 type EventHandler = (payload: unknown) => void;
 
@@ -175,7 +176,7 @@ export interface MockTauriApi {
     estimateMode?: "heuristic" | "exact";
   };
 
-  // ── Reverse-geocoding mock state ─────────────────────────────────────
+  // â”€â”€ Reverse-geocoding mock state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /** Records the most recent geocode_images_cmd arguments. */
   lastGeocodeArgs: {
     folderPath: string;
@@ -198,7 +199,7 @@ export interface MockTauriApi {
     nFailed: number;
   };
 
-  // ── Metadata-normalisation mock state ────────────────────────────────
+  // â”€â”€ Metadata-normalisation mock state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   /** Most recent normalise_metadata_cmd args. */
   lastNormaliseArgs: {
     folderPath: string;
@@ -1027,6 +1028,126 @@ export function createMockTauriApi(): MockTauriApi {
               store.deleteTarget(relativePath, entry.target);
             }
           }
+        }
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "stage_media_library_session_describe_drafts") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const edits = args?.edits as SchemaMetadataEdit[];
+        const metadata = sessionSnapshot.metadata.find(
+          (entry) => entry.relative_path === relativePath,
+        );
+        if (!metadata || metadata.state.status !== "ready") {
+          throw new Error(
+            "Authoritative metadata occurrences are still loading",
+          );
+        }
+        const allowed = new Set([
+          "AIDescription",
+          "AIInterpretation",
+          "AITags",
+          "AIObjects",
+          "AIOcrText",
+          "AIModel",
+          "AIPromptVersion",
+          "AIGeneratedAt",
+        ]);
+        const seen = new Set<string>();
+        const planned: MetadataTargetDraftEntry[] = [];
+        for (const { schema_id, edit } of edits) {
+          const token = JSON.stringify(schema_id);
+          if (seen.has(token))
+            throw new Error("same exact schema more than once");
+          seen.add(token);
+          if (
+            schema_id.table !== "UserDefined::mlib" ||
+            !allowed.has(schema_id.tag_id) ||
+            edit.intent !== "Set" ||
+            edit.value === null
+          ) {
+            throw new Error(
+              "AI description is not allowed to generate this edit",
+            );
+          }
+          const occurrence = metadata.state.occurrences.find(
+            (candidate) =>
+              JSON.stringify(candidate.schema_id) === JSON.stringify(schema_id),
+          );
+          let target: MetadataDraftTarget;
+          if (occurrence) {
+            const targetability =
+              existingOccurrenceTargetFromOccurrence(occurrence);
+            if (targetability.kind !== "targetable") {
+              throw new Error(targetability.reason);
+            }
+            target = targetability.target;
+          } else {
+            const writeTarget = knownMetadataWriteTarget(schema_id);
+            if (!writeTarget)
+              throw new Error("No declared generated-metadata destination");
+            target = {
+              kind: "NewProperty",
+              schema_id,
+              write_target: writeTarget,
+            };
+          }
+          planned.push({ target, edit });
+        }
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        const current = Object.values(
+          store.getMetadataFile(relativePath) ?? {},
+        );
+        const changed = planned.some((entry) => {
+          if (
+            current.some(
+              (existing) => JSON.stringify(existing) === JSON.stringify(entry),
+            )
+          ) {
+            return false;
+          }
+          if (entry.target.kind === "ExistingOccurrence") {
+            const occurrenceId = entry.target.occurrence_id;
+            const occurrences =
+              metadata.state.status === "ready"
+                ? metadata.state.occurrences
+                : [];
+            const occurrence = occurrences.find(
+              (candidate) =>
+                JSON.stringify(candidate.id) === JSON.stringify(occurrenceId),
+            );
+            if (
+              occurrence &&
+              entry.edit.intent === "Set" &&
+              JSON.stringify(occurrence.value) ===
+                JSON.stringify(entry.edit.value)
+            ) {
+              return false;
+            }
+          }
+          return true;
+        });
+        if (!changed) return { ...sessionSnapshot };
+        for (const { target, edit } of planned) {
+          store.setMetadataTarget(relativePath, target, edit);
         }
         mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
           store.getAllMetadata();
