@@ -29,6 +29,19 @@ pub struct MediaLibrarySessionSnapshot {
     pub folder: Option<String>,
     pub files: Vec<FileInfo>,
     pub discovery_running: bool,
+    pub issues: Vec<MediaLibrarySessionIssue>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionIssue {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub issue_id: u64,
+    pub severity: String,
+    pub error_type: String,
+    pub error_message: String,
+    pub affected_files: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -44,6 +57,7 @@ pub struct MediaLibrarySessionFilesAdded {
 
 pub struct MediaLibrarySessionState {
     next_session_id: AtomicU64,
+    next_issue_id: AtomicU64,
     snapshot: Mutex<MediaLibrarySessionSnapshot>,
 }
 
@@ -51,6 +65,7 @@ impl MediaLibrarySessionState {
     pub fn new() -> Self {
         Self {
             next_session_id: AtomicU64::new(1),
+            next_issue_id: AtomicU64::new(1),
             snapshot: Mutex::new(MediaLibrarySessionSnapshot {
                 session_id: None,
                 revision: 0,
@@ -58,6 +73,7 @@ impl MediaLibrarySessionState {
                 folder: None,
                 files: Vec::new(),
                 discovery_running: false,
+                issues: Vec::new(),
             }),
         }
     }
@@ -75,6 +91,7 @@ impl MediaLibrarySessionState {
         snapshot.folder = Some(folder);
         snapshot.files.clear();
         snapshot.discovery_running = false;
+        snapshot.issues.clear();
         snapshot.clone()
     }
 
@@ -131,6 +148,50 @@ impl MediaLibrarySessionState {
         Ok(snapshot.clone())
     }
 
+    pub fn add_issue(
+        &self,
+        session_id: u64,
+        severity: String,
+        error_type: String,
+        error_message: String,
+        affected_files: Vec<String>,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || matches!(
+                snapshot.lifecycle,
+                MediaLibrarySessionLifecycle::Idle | MediaLibrarySessionLifecycle::Closing
+            )
+        {
+            return Err("The media-library session changed before the issue was recorded".into());
+        }
+        let issue_id = self.next_issue_id.fetch_add(1, Ordering::Relaxed);
+        snapshot.revision += 1;
+        snapshot.issues.push(MediaLibrarySessionIssue {
+            issue_id,
+            severity,
+            error_type,
+            error_message,
+            affected_files,
+        });
+        const MAX_SESSION_ISSUES: usize = 100;
+        if snapshot.issues.len() > MAX_SESSION_ISSUES {
+            let excess = snapshot.issues.len() - MAX_SESSION_ISSUES;
+            snapshot.issues.drain(0..excess);
+        }
+        Ok(snapshot.clone())
+    }
+
+    pub fn dismiss_issue(&self, issue_id: u64) -> MediaLibrarySessionSnapshot {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        let previous_len = snapshot.issues.len();
+        snapshot.issues.retain(|issue| issue.issue_id != issue_id);
+        if snapshot.issues.len() != previous_len {
+            snapshot.revision += 1;
+        }
+        snapshot.clone()
+    }
+
     pub fn begin_close(&self) -> MediaLibrarySessionSnapshot {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.lifecycle == MediaLibrarySessionLifecycle::Idle {
@@ -152,6 +213,7 @@ impl MediaLibrarySessionState {
         snapshot.folder = None;
         snapshot.files.clear();
         snapshot.discovery_running = false;
+        snapshot.issues.clear();
         snapshot.clone()
     }
 }
@@ -245,5 +307,29 @@ mod tests {
             .add_files(first.session_id.unwrap(), vec![test_file("stale.jpg")])
             .is_err());
         assert!(state.snapshot().files.is_empty());
+    }
+    #[test]
+    fn issues_are_session_owned_and_dismissed_by_stable_id() {
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        state
+            .mark_loaded(opened.session_id.unwrap(), "C:/photos")
+            .unwrap();
+        let with_issue = state
+            .add_issue(
+                opened.session_id.unwrap(),
+                "error".into(),
+                "scanner".into(),
+                "permission denied".into(),
+                vec!["private.jpg".into()],
+            )
+            .unwrap();
+        assert_eq!(with_issue.issues.len(), 1);
+        let issue_id = with_issue.issues[0].issue_id;
+        assert_eq!(state.snapshot().issues[0].issue_id, issue_id);
+
+        let dismissed = state.dismiss_issue(issue_id);
+        assert!(dismissed.issues.is_empty());
+        assert!(dismissed.revision > with_issue.revision);
     }
 }

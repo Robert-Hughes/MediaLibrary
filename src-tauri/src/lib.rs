@@ -192,16 +192,6 @@ struct ScanErrorPayload {
     message: String,
 }
 
-/// Emitted when a worker encounters an error (e.g., ExifTool not found, thumbnail generation failed)
-#[derive(Clone, Serialize)]
-struct ApplicationErrorPayload {
-    scan_id: u64,
-    severity: String,
-    error_type: String, // "metadata", "thumbnail", "scanner"
-    error_message: String,
-    affected_files: Vec<String>, // relative paths of files that failed
-}
-
 /// Emitted when a batch of Image metadata (EXIF etc) has been read.
 #[derive(Clone, Serialize)]
 struct FileMetadataReadyPayload {
@@ -254,11 +244,46 @@ fn emit_session_snapshot(
         .map_err(|error| error.to_string())
 }
 
+fn record_session_issue(
+    app: &AppHandle,
+    session_id: u64,
+    severity: &str,
+    error_type: &str,
+    error_message: String,
+    affected_files: Vec<String>,
+) {
+    match app.state::<session::MediaLibrarySessionState>().add_issue(
+        session_id,
+        severity.to_owned(),
+        error_type.to_owned(),
+        error_message,
+        affected_files,
+    ) {
+        Ok(snapshot) => {
+            if let Err(error) = emit_session_snapshot(app, &snapshot) {
+                log::error!("[session-issue] failed to emit snapshot: {error}");
+            }
+        }
+        Err(error) => log::debug!("[session-issue] discarded stale issue: {error}"),
+    }
+}
+
 #[tauri::command]
 fn get_media_library_session_snapshot(
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> session::MediaLibrarySessionSnapshot {
     session_state.snapshot()
+}
+
+#[tauri::command]
+fn dismiss_media_library_session_issue(
+    issue_id: u64,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.dismiss_issue(issue_id);
+    emit_session_snapshot(&app, &snapshot)?;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -456,31 +481,21 @@ fn start_scan(
                                 let grouped_failures =
                                     scanner::group_metadata_failures(&outcome.failures);
                                 for (error_msg, affected) in grouped_failures {
-                                    let _ = app.emit(
-                                        "worker_error",
-                                        ApplicationErrorPayload {
-                                            scan_id,
-                                            severity: "error".to_string(),
-                                            error_type: "metadata".to_string(),
-                                            error_message: error_msg,
-                                            affected_files: affected,
-                                        },
+                                    record_session_issue(
+                                        &app, scan_id, "error", "metadata", error_msg, affected,
                                     );
                                 }
                             }
                             Err(error_msg) => {
                                 log::error!("[metadata] Error reading metadata: {}", error_msg);
 
-                                // Emit error to UI
-                                let _ = app.emit(
-                                    "worker_error",
-                                    ApplicationErrorPayload {
-                                        scan_id,
-                                        severity: "error".to_string(),
-                                        error_type: "metadata".to_string(),
-                                        error_message: error_msg,
-                                        affected_files: rel_paths.clone(),
-                                    },
+                                record_session_issue(
+                                    &app,
+                                    scan_id,
+                                    "error",
+                                    "metadata",
+                                    error_msg,
+                                    rel_paths.clone(),
                                 );
                             }
                         }
@@ -617,15 +632,13 @@ fn start_scan(
                 },
                 |err| {
                     log::warn!("[walk] error: {} ({:?})", err.message, err.path);
-                    let _ = app_walk_err.emit(
-                        "worker_error",
-                        ApplicationErrorPayload {
-                            scan_id,
-                            severity: "error".to_string(),
-                            error_type: "scanner".to_string(),
-                            error_message: err.message,
-                            affected_files: err.path.into_iter().collect(),
-                        },
+                    record_session_issue(
+                        &app_walk_err,
+                        scan_id,
+                        "error",
+                        "scanner",
+                        err.message,
+                        err.path.into_iter().collect(),
                     );
                 },
             );
@@ -1418,6 +1431,7 @@ pub fn run() {
             get_cli_folder,
             pick_folder,
             get_media_library_session_snapshot,
+            dismiss_media_library_session_issue,
             open_media_library_session,
             close_media_library_session,
             start_scan,

@@ -17,6 +17,13 @@ type SessionSnapshot = {
   folder: string | null;
   files: ReturnType<typeof makeFile>[];
   discovery_running: boolean;
+  issues: Array<{
+    issue_id: number;
+    severity: string;
+    error_type: string;
+    error_message: string;
+    affected_files: string[];
+  }>;
 };
 
 let nextSessionId = 1;
@@ -27,6 +34,7 @@ let sessionSnapshot: SessionSnapshot = {
   folder: null,
   files: [],
   discovery_running: false,
+  issues: [],
 };
 
 function resetSessionMock(): void {
@@ -38,6 +46,7 @@ function resetSessionMock(): void {
     folder: null,
     files: [],
     discovery_running: false,
+    issues: [],
   };
 }
 
@@ -56,6 +65,7 @@ function handleSessionCommand(
       folder: (args as { folderPath: string }).folderPath,
       files: [],
       discovery_running: false,
+      issues: [],
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -67,6 +77,7 @@ function handleSessionCommand(
       folder: null,
       files: [],
       discovery_running: false,
+      issues: [],
     };
     return Promise.resolve({ ...sessionSnapshot });
   }

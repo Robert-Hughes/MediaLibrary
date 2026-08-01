@@ -4,7 +4,6 @@ import type {
   FileMetadataReadyPayload,
   ThumbnailReadyPayload,
   ScanErrorPayload,
-  ApplicationErrorPayload,
   MetadataOccurrences,
   MetadataValue,
   MetadataTargetDraftEntry,
@@ -240,6 +239,7 @@ export function createMockTauriApi(): MockTauriApi {
     folder: null,
     files: [],
     discovery_running: false,
+    issues: [],
   };
   let recoverySnapshot = { ...sessionSnapshot };
 
@@ -283,6 +283,7 @@ export function createMockTauriApi(): MockTauriApi {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           discovery_running: false,
+          issues: [],
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
       }
@@ -327,14 +328,30 @@ export function createMockTauriApi(): MockTauriApi {
         scan_id: scanId ?? mock.currentScanId,
         message,
       } satisfies ScanErrorPayload),
-    emitWorkerError: (error_type, error_message, affected_files = [], scanId) =>
-      emit("worker_error", {
-        scan_id: scanId ?? mock.currentScanId,
-        severity: "error",
-        error_type,
-        error_message,
-        affected_files,
-      } satisfies ApplicationErrorPayload),
+    emitWorkerError: (
+      error_type,
+      error_message,
+      affected_files = [],
+      scanId,
+    ) => {
+      const sessionId = scanId ?? mock.currentScanId;
+      if (sessionId !== mock.currentScanId) return;
+      sessionSnapshot = {
+        ...sessionSnapshot,
+        revision: sessionSnapshot.revision + 1,
+        issues: [
+          ...sessionSnapshot.issues,
+          {
+            issue_id: sessionSnapshot.issues.length + 1,
+            severity: "error",
+            error_type,
+            error_message,
+            affected_files,
+          },
+        ],
+      };
+      emit("media_library_session_changed", { ...sessionSnapshot });
+    },
     invalidateMetadataOccurrences: (relativePath) =>
       emit("apply_metadata_edits_progress", {
         current: 1,
@@ -455,6 +472,7 @@ export function createMockTauriApi(): MockTauriApi {
           folder: args?.folderPath as string,
           files: [],
           discovery_running: false,
+          issues: [],
         };
         return { ...sessionSnapshot };
       }
@@ -466,8 +484,21 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           lifecycle: "loaded",
           discovery_running: true,
+          issues: [],
         };
         return;
+      }
+      if (cmd === "dismiss_media_library_session_issue") {
+        const issueId = args?.issueId as number;
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          issues: sessionSnapshot.issues.filter(
+            (issue) => issue.issue_id !== issueId,
+          ),
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
       }
       if (cmd === "close_media_library_session") {
         sessionSnapshot = {
@@ -482,6 +513,7 @@ export function createMockTauriApi(): MockTauriApi {
           folder: null,
           files: [],
           discovery_running: false,
+          issues: [],
         };
         return { ...sessionSnapshot };
       }

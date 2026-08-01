@@ -215,6 +215,7 @@ describe("useMediaLibrary", () => {
       folder: "/recovered",
       files: [makeFile({ relative_path: "recovered.jpg" })],
       discovery_running: true,
+      issues: [],
     });
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
@@ -821,9 +822,7 @@ describe("useMediaLibrary", () => {
     }
   });
 
-  it("worker_error events with a stale scan_id are still appended", async () => {
-    // Worker_error currently doesn't filter by scan_id; this documents that.
-    // If that behaviour changes, this test will need updating.
+  it("worker issues from a stale session are rejected", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -837,20 +836,23 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(150);
     });
 
-    await expectConsoleErrorMessages(["Worker error (metadata): stale"], () => {
-      act(() => {
-        mock.emitWorkerError(
-          "metadata",
-          "stale",
-          ["x.jpg"],
-          mock.currentScanId - 1,
-        );
-      });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    act(() => {
+      mock.emitWorkerError(
+        "metadata",
+        "stale",
+        ["x.jpg"],
+        mock.currentScanId - 1,
+      );
     });
     const state = result.current[0];
     if (state.kind === "loaded") {
-      expect(state.applicationErrors).toHaveLength(1);
+      expect(state.applicationErrors).toHaveLength(0);
     }
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("file_found events after closeFolder are ignored", async () => {

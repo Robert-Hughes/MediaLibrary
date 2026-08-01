@@ -254,6 +254,7 @@ export function useMediaLibrary(
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
   const sessionRevisionRef = useRef<number>(-1);
+  const seenSessionIssueIdsRef = useRef<Set<number>>(new Set());
   // Monotonic frontend lifecycle identity. Unlike scan_id, this also changes
   // immediately when replacing or closing a scan and cannot collide when the
   // same folder is reopened within one clock tick.
@@ -355,7 +356,11 @@ export function useMediaLibrary(
       }
       if (snapshot.session_id === null || snapshot.folder === null) return;
 
-      const isRecovery = activeScanIdRef.current === -1;
+      const previousSessionId = activeScanIdRef.current;
+      const isRecovery = previousSessionId === -1;
+      if (previousSessionId !== snapshot.session_id) {
+        seenSessionIssueIdsRef.current.clear();
+      }
       activeScanIdRef.current = snapshot.session_id;
       activeFolderRef.current = snapshot.folder;
       if (snapshot.lifecycle === "opening") {
@@ -373,15 +378,59 @@ export function useMediaLibrary(
         return;
       }
       if (snapshot.lifecycle === "loaded") {
+        for (const file of snapshot.files) {
+          fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
+        }
+        for (const issue of snapshot.issues) {
+          if (seenSessionIssueIdsRef.current.has(issue.issue_id)) continue;
+          seenSessionIssueIdsRef.current.add(issue.issue_id);
+          console.error(
+            `Worker error (${issue.error_type}):`,
+            issue.error_message,
+          );
+          if (issue.error_type !== "metadata") continue;
+          let newlyFailed = 0;
+          for (const path of issue.affected_files) {
+            if (!fileMetadataOccurrencesStoreRef.current.has(path)) continue;
+            if (
+              fileMetadataOccurrencesStoreRef.current.get(path) === "loading"
+            ) {
+              newlyFailed += 1;
+            }
+            fileMetadataOccurrencesStoreRef.current.setFailed(
+              path,
+              issue.error_message,
+            );
+            metadataCompletedPathsRef.current.add(path);
+          }
+          if (newlyFailed > 0) {
+            metadataProgressStoreRef.current.incrementReceived(newlyFailed);
+          }
+        }
         setAppState((previous) => {
           const canApplyStatusOnly =
             previous.kind === "loaded" &&
             !isRecovery &&
             snapshot.revision === previousRevision + 1;
-          if (canApplyStatusOnly) {
-            return previous.scanning === snapshot.discovery_running
-              ? previous
-              : { ...previous, scanning: snapshot.discovery_running };
+          if (canApplyStatusOnly && previous.kind === "loaded") {
+            const localErrors = previous.applicationErrors.filter(
+              (error) => error.issue_id == null,
+            );
+            const backendErrors: ApplicationErrorPayload[] =
+              snapshot.issues.map((issue) => ({
+                ...issue,
+                severity: (issue.severity === "warning"
+                  ? "warning"
+                  : "error") as ApplicationErrorPayload["severity"],
+                scan_id: snapshot.session_id!,
+              }));
+            return {
+              ...previous,
+              scanning: snapshot.discovery_running,
+              applicationErrors: [...localErrors, ...backendErrors].slice(
+                -MAX_APPLICATION_ERRORS,
+              ),
+            };
           }
 
           const presentation =
@@ -402,9 +451,37 @@ export function useMediaLibrary(
             next.galleryPath = previous.galleryPath;
             next.selectedPath = previous.selectedPath;
             next.metadataVersion = previous.metadataVersion;
-            next.applicationErrors = previous.applicationErrors;
+            const localErrors = previous.applicationErrors.filter(
+              (error) => error.issue_id == null,
+            );
+            const backendErrors: ApplicationErrorPayload[] =
+              snapshot.issues.map((issue) => ({
+                ...issue,
+                severity: (issue.severity === "warning"
+                  ? "warning"
+                  : "error") as ApplicationErrorPayload["severity"],
+                scan_id: snapshot.session_id!,
+              }));
+            next.applicationErrors = [...localErrors, ...backendErrors].slice(
+              -MAX_APPLICATION_ERRORS,
+            );
             next.applying = previous.applying;
             next.applyCompletion = previous.applyCompletion;
+          } else {
+            const backendErrors: ApplicationErrorPayload[] =
+              snapshot.issues.map((issue) => ({
+                ...issue,
+                severity: (issue.severity === "warning"
+                  ? "warning"
+                  : "error") as ApplicationErrorPayload["severity"],
+                scan_id: snapshot.session_id!,
+              }));
+            next.applicationErrors = [
+              ...next.applicationErrors.filter(
+                (error) => error.issue_id == null,
+              ),
+              ...backendErrors,
+            ].slice(-MAX_APPLICATION_ERRORS);
           }
           return next;
         });
@@ -427,6 +504,7 @@ export function useMediaLibrary(
         affectedFiles,
       );
       const payload: ApplicationErrorPayload = {
+        issue_id: null,
         scan_id: activeScanIdRef.current,
         severity,
         error_type: errorType,
@@ -925,63 +1003,6 @@ export function useMediaLibrary(
         setAppState({ kind: "idle" });
       });
 
-      const unlistenWorkerError = await api.listen("worker_error", (raw) => {
-        if (cancelled) return;
-        const original = raw as ApplicationErrorPayload;
-        const affectedFiles =
-          original.error_type === "metadata" &&
-          original.scan_id === activeScanIdRef.current
-            ? original.affected_files.filter((path) =>
-                fileMetadataOccurrencesStoreRef.current.has(path),
-              )
-            : original.affected_files;
-        if (
-          original.error_type === "metadata" &&
-          original.scan_id === activeScanIdRef.current &&
-          original.affected_files.length > 0 &&
-          affectedFiles.length === 0
-        ) {
-          return;
-        }
-        const payload = { ...original, affected_files: affectedFiles };
-        console.error(
-          `Worker error (${payload.error_type}):`,
-          payload.error_message,
-        );
-
-        if (
-          payload.scan_id === activeScanIdRef.current &&
-          payload.error_type === "metadata"
-        ) {
-          let newlyFailed = 0;
-          for (const path of payload.affected_files) {
-            if (
-              fileMetadataOccurrencesStoreRef.current.get(path) === "loading"
-            ) {
-              newlyFailed += 1;
-            }
-            fileMetadataOccurrencesStoreRef.current.setFailed(
-              path,
-              payload.error_message,
-            );
-            metadataCompletedPathsRef.current.add(path);
-          }
-          if (newlyFailed > 0) {
-            metadataProgressStoreRef.current.incrementReceived(newlyFailed);
-          }
-        }
-
-        // Add error to the state so UI can display it (capped — see MAX_APPLICATION_ERRORS)
-        setAppState((prev) => {
-          if (prev.kind !== "loaded") return prev;
-          const next = [...prev.applicationErrors, payload];
-          if (next.length > MAX_APPLICATION_ERRORS) {
-            next.splice(0, next.length - MAX_APPLICATION_ERRORS);
-          }
-          return { ...prev, applicationErrors: next };
-        });
-      });
-
       unlisteners.push(
         unlistenSession,
         unlistenFound,
@@ -989,7 +1010,6 @@ export function useMediaLibrary(
         unlistenMetadata,
         unlistenThumbnail,
         unlistenError,
-        unlistenWorkerError,
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
@@ -1426,14 +1446,25 @@ export function useMediaLibrary(
     targetVerifyOutcomesStoreRef.current.clear();
   }, []);
 
-  const dismissError = useCallback((index: number) => {
-    setAppState((prev) => {
-      if (prev.kind !== "loaded") return prev;
-      const newErrors = [...prev.applicationErrors];
-      newErrors.splice(index, 1);
-      return { ...prev, applicationErrors: newErrors };
-    });
-  }, []);
+  const dismissError = useCallback(
+    (index: number) => {
+      const current =
+        appState.kind === "loaded" ? appState.applicationErrors[index] : null;
+      if (current?.issue_id != null) {
+        void api.invoke("dismiss_media_library_session_issue", {
+          issueId: current.issue_id,
+        });
+        return;
+      }
+      setAppState((prev) => {
+        if (prev.kind !== "loaded") return prev;
+        const newErrors = [...prev.applicationErrors];
+        newErrors.splice(index, 1);
+        return { ...prev, applicationErrors: newErrors };
+      });
+    },
+    [api, appState],
+  );
 
   const requireAuthoritativeMetadataReady = useCallback(
     (

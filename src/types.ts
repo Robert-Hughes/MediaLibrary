@@ -77,6 +77,7 @@ export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
 export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrarySessionLifecycle";
 export type { MediaLibrarySessionSnapshot } from "./types/generated/MediaLibrarySessionSnapshot";
 export type { MediaLibrarySessionFilesAdded } from "./types/generated/MediaLibrarySessionFilesAdded";
+export type { MediaLibrarySessionIssue } from "./types/generated/MediaLibrarySessionIssue";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 
@@ -863,6 +864,7 @@ export interface ScanErrorPayload {
 }
 
 export interface ApplicationErrorPayload {
+  issue_id?: number | null;
   scan_id: number;
   severity: "error" | "warning";
   error_type: string;
