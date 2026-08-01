@@ -18,7 +18,6 @@ import type {
   TargetApplyChannel,
   TargetApplyTauriApi,
 } from "../targetApplyTauri";
-import { TargetDraftAutosaveGate } from "../targetDraftAutosaveGate";
 import {
   TargetDraftEditsStore,
   targetDraftsFromWire,
@@ -188,15 +187,11 @@ function harness(
   callbacks: TargetApplyControllerCallbacks = {},
 ) {
   const api = new FakeApplyApi();
-  const gate = new TargetDraftAutosaveGate();
   const stores = makeStores(paths);
-  const controller = new TargetApplyController(
-    { api, stores, autosaveGate: gate },
-    callbacks,
-  );
-  return { api, controller, gate, stores };
+  const controller = new TargetApplyController({ api, stores }, callbacks);
+  return { api, controller, stores };
+  return { api, controller, stores };
 }
-
 function sendStarted(args: Record<string, unknown>, total: number): void {
   (args.progressChannel as TargetApplyChannel).onmessage({
     kind: "started",
@@ -520,7 +515,7 @@ describe("TargetApplyController streamed ownership", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const paths = ["file.jpg"];
-    const { api, controller, gate } = harness(paths, {
+    const { api, controller } = harness(paths, {
       onProgressBatch: () => {
         throw new Error("listener failed");
       },
@@ -534,7 +529,6 @@ describe("TargetApplyController streamed ownership", () => {
     };
 
     await expect(controller.run("folder", paths)).resolves.toBeDefined();
-    expect(gate.isSuppressed()).toBe(false);
     expect(controller.getState()).toEqual({ status: "idle" });
     expect(consoleError).toHaveBeenCalledWith(
       expect.stringContaining("onProgressBatch"),
@@ -542,16 +536,17 @@ describe("TargetApplyController streamed ownership", () => {
     );
     consoleError.mockRestore();
   });
-
-  it("rejects overlapping runs before a second command or suspension", async () => {
-    const { api, controller, gate } = harness([]);
+  it("rejects overlapping runs before a second command", async () => {
+    const { api, controller } = harness([]);
     const command = deferred<MetadataApplyResult>();
     api.onApply = async (args) => {
       sendStarted(args, 0);
       return command.promise;
     };
     const first = controller.run("folder", []);
-    await vi.waitFor(() => expect(gate.isSuppressed()).toBe(true));
+    await vi.waitFor(() =>
+      expect(controller.getState().status).toBe("running"),
+    );
 
     await expect(controller.run("folder", [])).rejects.toBeInstanceOf(
       TargetApplyControllerBusyError,

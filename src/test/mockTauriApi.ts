@@ -694,6 +694,14 @@ export function createMockTauriApi(): MockTauriApi {
             .map((item) => item.relative_path),
         );
         if (recycled.size > 0) {
+          const drafts = targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          );
+          for (const relativePath of recycled) delete drafts[relativePath];
+          mock.targetDraftEditsByFolder[folder] = drafts;
           sessionSnapshot = {
             ...sessionSnapshot,
             revision: sessionSnapshot.revision + 1,
@@ -706,7 +714,9 @@ export function createMockTauriApi(): MockTauriApi {
             thumbnails: sessionSnapshot.thumbnails.filter(
               (entry) => !recycled.has(entry.relative_path),
             ),
+            drafts: targetDraftsToWire(drafts),
           };
+          emit("media_library_session_changed", { ...sessionSnapshot });
         }
         return { results };
       }
@@ -766,6 +776,34 @@ export function createMockTauriApi(): MockTauriApi {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "mutate_media_library_session_draft_rows") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const drafts = targetDraftsFromWire(
+          sessionSnapshot.drafts as Record<string, MetadataTargetDraftEntry[]>,
+        );
+        for (const mutation of args?.mutations as Array<{
+          relative_path: string;
+          entries: MetadataTargetDraftEntry[];
+        }>) {
+          if (mutation.entries.length === 0) {
+            delete drafts[mutation.relative_path];
+          } else {
+            drafts[mutation.relative_path] = targetDraftsFromWire({
+              [mutation.relative_path]: mutation.entries,
+            })[mutation.relative_path];
+          }
+        }
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] = drafts;
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(drafts),
           draft_persistence: { status: "ready" },
         };
         emit("media_library_session_changed", { ...sessionSnapshot });

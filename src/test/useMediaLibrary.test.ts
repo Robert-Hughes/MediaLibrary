@@ -1700,7 +1700,9 @@ describe("useMediaLibrary", () => {
       state.targetDraftEditsStore.getMetadataFile("new.jpg"),
     ).toBeDefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toHaveLength(1);
   });
 
@@ -1716,8 +1718,9 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "draft" },
     };
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
-        .length;
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ).length;
     const stateStore = () => {
       const state = result.current[0];
       if (state.kind !== "loaded") throw new Error("expected loaded state");
@@ -2025,7 +2028,7 @@ describe("useMediaLibrary", () => {
       );
     });
     await settleAutosaves();
-    expect(saveCount()).toBe(family7SaveCount + 1);
+    expect(saveCount()).toBe(family7SaveCount + 2);
     expect(
       Object.values(stateStore().getMetadataFile("family7-case.jpg") ?? {}),
     ).toHaveLength(2);
@@ -2079,8 +2082,9 @@ describe("useMediaLibrary", () => {
       await result.current[1].setNewPropertyDraft("move.jpg", original, edit);
     });
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
-        .length;
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ).length;
     const beforeMoveSaves = saveCount();
 
     let moved = false;
@@ -2198,8 +2202,9 @@ describe("useMediaLibrary", () => {
       );
     });
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
-        .length;
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ).length;
     const beforeMoveSaves = saveCount();
     const consoleError = vi
       .spyOn(console, "error")
@@ -2364,7 +2369,7 @@ describe("useMediaLibrary", () => {
     ).toEqual([]);
     expect(
       mock.invocations
-        .filter(({ cmd }) => cmd === "save_metadata_draft_rows")
+        .filter(({ cmd }) => cmd === "mutate_media_library_session_draft_rows")
         .map(({ args }) => args?.folderPath),
     ).toEqual([]);
   });
@@ -2417,7 +2422,9 @@ describe("useMediaLibrary", () => {
       ),
     ).toEqual([]);
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toEqual([]);
   });
 
@@ -2450,7 +2457,9 @@ describe("useMediaLibrary", () => {
 
     expect(result.current[0].kind).toBe("idle");
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toEqual([]);
     expect(mock.targetDraftEditsByFolder).toEqual({});
   });
@@ -2499,7 +2508,9 @@ describe("useMediaLibrary", () => {
       state.targetDraftEditsStore.getMetadataFile("shared.jpg"),
     ).toBeUndefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toEqual([]);
   });
 
@@ -2547,7 +2558,9 @@ describe("useMediaLibrary", () => {
       },
     ]);
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toHaveLength(1);
   });
 
@@ -2562,8 +2575,9 @@ describe("useMediaLibrary", () => {
       value: { kind: "Text" as const, value: "pending" },
     };
     const saveCount = () =>
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows")
-        .length;
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ).length;
     const startDeferredRequest = (path: string, id: SchemaDefinitionId) => {
       const deferred = deferNextTagInfoLookup(mock);
       let request!: Promise<boolean>;
@@ -2719,7 +2733,6 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitScanComplete());
     const state = result.current[0];
     if (state.kind !== "loaded") return;
-    const targetDraftStore = state.targetDraftEditsStore;
     const targetVerificationStore = state.targetVerifyOutcomesStore;
 
     const id = testId("XMP-dc:Subject");
@@ -2756,9 +2769,19 @@ describe("useMediaLibrary", () => {
       intent: "Set" as const,
       value: { kind: "Text" as const, value: "pending" },
     };
-    act(() => {
-      targetDraftStore.setMetadataTarget("replace.jpg", replacement, edit);
-      targetDraftStore.setMetadataTarget("replace.jpg", sibling, edit);
+    await act(async () => {
+      await mock.api.invoke("mutate_media_library_session_draft_rows", {
+        sessionId: mock.currentScanId,
+        mutations: [
+          {
+            relative_path: "replace.jpg",
+            entries: [
+              { target: replacement, edit },
+              { target: sibling, edit },
+            ],
+          },
+        ],
+      });
     });
     const entry = targetVerifyOutcomeFromBackend("replace.jpg", {
       target: {
@@ -2798,14 +2821,26 @@ describe("useMediaLibrary", () => {
         metadataDraftTargetSlotToken(sibling)
       ],
     ).toBeDefined();
-    expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "discard_media_library_session_draft",
+      ),
     ).toHaveLength(1);
     await settleAutosaves();
 
-    act(() => {
-      targetDraftStore.setMetadataTarget("replace.jpg", replacement, edit);
+    await act(async () => {
+      await mock.api.invoke("mutate_media_library_session_draft_rows", {
+        sessionId: mock.currentScanId,
+        mutations: [
+          {
+            relative_path: "replace.jpg",
+            entries: [
+              { target: replacement, edit },
+              { target: sibling, edit },
+            ],
+          },
+        ],
+      });
       targetVerificationStore.replaceFile("replace.jpg", [entry]);
     });
     mock.invocations.length = 0;
@@ -2834,7 +2869,9 @@ describe("useMediaLibrary", () => {
     );
     await settleAutosaves();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "discard_media_library_session_draft",
+      ),
     ).toHaveLength(1);
   });
 
@@ -2984,12 +3021,12 @@ describe("useMediaLibrary", () => {
       write_target: structuredClone(ifd0.write_target!),
     };
     let removed = false;
-    act(() => {
-      removed = result.current[1].removeMetadataTargets("shared-schema.jpg", [
-        target,
-      ]);
+    await act(async () => {
+      removed = await result.current[1].removeMetadataTargets(
+        "shared-schema.jpg",
+        [target],
+      );
     });
-
     expect(removed).toBe(true);
     const state = result.current[0];
     if (state.kind !== "loaded") throw new Error("expected loaded state");
@@ -3058,7 +3095,7 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
-    act(() => {
+    await act(async () => {
       result.current[1].setExistingOccurrenceDraft(
         "blocked.jpg",
         existingTarget,
@@ -3068,18 +3105,18 @@ describe("useMediaLibrary", () => {
         "blocked.jpg",
         existingTarget,
       );
-      exactRemovalSucceeded = result.current[1].removeMetadataTargets(
+      exactRemovalSucceeded = await result.current[1].removeMetadataTargets(
         "blocked.jpg",
         [existingTarget],
       );
-      groupRemovalSucceeded = result.current[1].removeMetadataFields(
+      groupRemovalSucceeded = await result.current[1].removeMetadataFields(
         "blocked.jpg",
         [id],
       );
-      selectedRemovalSucceeded = result.current[1].removeMetadataFieldFromFiles(
-        id,
-        ["blocked.jpg"],
-      );
+      selectedRemovalSucceeded =
+        await result.current[1].removeMetadataFieldFromFiles(id, [
+          "blocked.jpg",
+        ]);
     });
     expect(exactRemovalSucceeded).toBe(false);
     expect(groupRemovalSucceeded).toBe(false);
@@ -3091,7 +3128,9 @@ describe("useMediaLibrary", () => {
     const loadFailedTargetDraftStore = state.targetDraftEditsStore;
     const loadFailedTargetVerificationStore = state.targetVerifyOutcomesStore;
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toHaveLength(0);
 
     act(() =>
@@ -3135,7 +3174,9 @@ describe("useMediaLibrary", () => {
     expect(state.targetDraftEdits["blocked.jpg"]).toBeDefined();
     expect(state.targetVerifyOutcomes["blocked.jpg"]).toBeDefined();
     expect(
-      mock.invocations.filter(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toHaveLength(0);
 
     await act(async () => {
@@ -3195,7 +3236,9 @@ describe("useMediaLibrary", () => {
     });
     expect(state.applicationErrors[0].error_type).toBe("metadata-target-load");
     expect(
-      mock.invocations.some(({ cmd }) => cmd === "save_metadata_draft_rows"),
+      mock.invocations.some(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
     ).toBe(false);
 
     await act(async () => result.current[1].openRecent("/second"));
@@ -3217,18 +3260,11 @@ describe("useMediaLibrary", () => {
         },
       );
     });
+    expect(mock.targetDraftEditsByFolder["/second"]?.["new.jpg"]).toBeDefined();
     expect(
-      mock.invocations.find(({ cmd }) => cmd === "save_metadata_draft_rows")
-        ?.args?.folderPath,
-    ).toBe("/second");
-    expect(
-      mock.invocations.some(
-        ({ cmd, args }) =>
-          cmd === "save_metadata_draft_rows" && args?.folderPath === "/files",
-      ),
-    ).toBe(false);
+      mock.targetDraftEditsByFolder["/files"]?.["new.jpg"],
+    ).toBeUndefined();
   });
-
   it("uses the switched folder for target autosave and clears on close", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/first");
@@ -3260,11 +3296,10 @@ describe("useMediaLibrary", () => {
         edit,
       );
     });
-    await settleAutosaves();
-    const saveFolders = mock.invocations
-      .filter(({ cmd }) => cmd === "save_metadata_draft_rows")
-      .map(({ args }) => args?.folderPath);
-    expect(saveFolders).toEqual(["/first", "/second"]);
+    const mutationSessionIds = mock.invocations
+      .filter(({ cmd }) => cmd === "mutate_media_library_session_draft_rows")
+      .map(({ args }) => args?.sessionId);
+    expect(mutationSessionIds).toEqual([1, 2]);
     const loaded = result.current[0];
     if (loaded.kind !== "loaded") return;
     const store = loaded.targetDraftEditsStore;

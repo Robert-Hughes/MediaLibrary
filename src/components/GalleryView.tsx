@@ -95,22 +95,22 @@ interface Props {
   onRemoveMetadataTargets?: (
     fileRelativePath: string,
     targets: MetadataDraftTarget[],
-  ) => boolean;
+  ) => boolean | Promise<boolean>;
   onApplyGpsTargetDraftBatch?: (
     fileRelativePath: string,
     entries: MetadataTargetDraftEntry[],
-  ) => boolean;
+  ) => boolean | Promise<boolean>;
   onSetNewPropertyDraft?: (
     fileRelativePath: string,
     target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
     edit: MetadataDraftEdit,
-  ) => Promise<boolean>;
+  ) => boolean | Promise<boolean>;
   onReplaceNewPropertyDraftTarget?: (
     fileRelativePath: string,
     originalTarget: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
     replacementTarget: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
     originalEdit: MetadataDraftEdit,
-  ) => Promise<boolean>;
+  ) => boolean | Promise<boolean>;
   onDiscardTargetPropertyDraft?: (
     fileRelativePath: string,
     target: MetadataDraftTarget,
@@ -118,7 +118,7 @@ interface Props {
   onDiscardTargetDraftBatch?: (
     fileRelativePath: string,
     targets: MetadataDraftTarget[],
-  ) => boolean;
+  ) => boolean | Promise<boolean>;
   onDiscardAllEdits?: (fileRelativePath: string) => void;
   onApplyEdits?: (fileRelativePath: string) => void;
   /** Trigger the AI-description flow for the currently-displayed file. */

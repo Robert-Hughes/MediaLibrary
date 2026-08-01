@@ -40,17 +40,12 @@ import {
   metadataTargetDraftEntryEqualsExact,
   targetDraftsFromWire,
   TargetDraftEditsStore,
+  type ExactTargetMutationBatchItem,
 } from "./targetDraftEdits";
-import { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 import { TargetApplyController } from "./targetApplyController";
-import {
-  saveTargetDraftRows,
-  targetDraftChangesToMutations,
-  type MetadataDraftRowMutation,
-} from "./targetDraftTauri";
-import { CoalescingAsyncQueue } from "./coalescingAsyncQueue";
-import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
+import type { MetadataDraftRowMutation } from "./targetDraftTauri";
 import type { MetadataDraftTarget } from "./types";
+import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
 import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
@@ -83,8 +78,6 @@ import {
   type BulkMetadataDraftPlan,
   type BulkMetadataDraftRequest,
 } from "./bulkMetadataDrafts";
-
-const TARGET_DRAFT_AUTOSAVE_MIN_INTERVAL_MS = 3_000;
 
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
@@ -159,14 +152,14 @@ export interface MediaLibraryActions {
     relativePath: string,
     producer: GeneratedMetadataProducer,
     edits: SchemaMetadataEdit[],
-  ) => GeneratedDraftStageResult;
+  ) => Promise<GeneratedDraftStageResult>;
   applyGeneratedMetadataDraftBatches: (
     items: readonly {
       relativePath: string;
       producer: GeneratedMetadataProducer;
       edits: SchemaMetadataEdit[];
     }[],
-  ) => GeneratedDraftStageResult[];
+  ) => Promise<GeneratedDraftStageResult[]>;
   previewBulkMetadataDraftBatch: (
     relativePaths: string[],
     request: BulkMetadataDraftRequest,
@@ -176,23 +169,23 @@ export interface MediaLibraryActions {
   stageBulkMetadataDraftBatch: (
     relativePaths: string[],
     request: BulkMetadataDraftRequest,
-  ) => boolean;
+  ) => Promise<boolean>;
   removeMetadataTargets: (
     relativePath: string,
     targets: MetadataDraftTarget[],
-  ) => boolean;
+  ) => Promise<boolean>;
   removeMetadataFields: (
     relativePath: string,
     schemaIds: SchemaDefinitionId[],
-  ) => boolean;
+  ) => Promise<boolean>;
   removeMetadataFieldFromFiles: (
     schemaId: SchemaDefinitionId,
     relativePaths: string[],
-  ) => boolean;
+  ) => Promise<boolean>;
   applyGpsTargetDraftBatch: (
     relativePath: string,
     entries: MetadataTargetDraftEntry[],
-  ) => boolean;
+  ) => Promise<boolean>;
   setExistingOccurrenceDraft: (
     fileRelativePath: string,
     target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }>,
@@ -216,7 +209,7 @@ export interface MediaLibraryActions {
   discardTargetDraftValues: (
     fileRelativePath: string,
     targets: MetadataDraftTarget[],
-  ) => boolean;
+  ) => Promise<boolean>;
   discardAllDraftEdits: (fileRelativePath?: string | string[]) => void;
   applyDraftEdits: (
     fileRelativePath?: string | string[],
@@ -256,6 +249,7 @@ export function useMediaLibrary(
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
   const sessionRevisionRef = useRef<number>(-1);
+  const sessionFilePathsRef = useRef<Set<string>>(new Set());
   const seenSessionIssueIdsRef = useRef<Set<number>>(new Set());
   // Monotonic frontend lifecycle identity. Unlike scan_id, this also changes
   // immediately when replacing or closing a scan and cannot collide when the
@@ -267,18 +261,6 @@ export function useMediaLibrary(
   const targetVerifyOutcomesStoreRef = useRef<TargetVerifyOutcomesStore>(
     new TargetVerifyOutcomesStore(),
   );
-  const targetDraftAutosaveGateRef = useRef<TargetDraftAutosaveGate>(
-    new TargetDraftAutosaveGate(),
-  );
-  const targetDraftSaveQueueRef = useRef<CoalescingAsyncQueue<{
-    folder: string;
-    mutations: MetadataDraftRowMutation[];
-    revisions: Map<string, number>;
-  }> | null>(null);
-  const targetDraftDirtyRowsRef = useRef(
-    new Map<string, { revision: number; mutation: MetadataDraftRowMutation }>(),
-  );
-  const targetDraftMutationRevisionRef = useRef(0);
   const targetApplyControllerRef = useRef<TargetApplyController | null>(null);
   const apiRef = useRef(api);
   apiRef.current = api;
@@ -429,10 +411,10 @@ export function useMediaLibrary(
       if (snapshot.revision <= sessionRevisionRef.current) return;
       const previousRevision = sessionRevisionRef.current;
       sessionRevisionRef.current = snapshot.revision;
-
       if (snapshot.lifecycle === "idle") {
         const hadActiveSession =
           activeScanIdRef.current !== -1 || activeFolderRef.current !== null;
+        sessionFilePathsRef.current.clear();
         activeScanIdRef.current = -1;
         activeFolderRef.current = null;
         if (hadActiveSession) setAppState({ kind: "idle" });
@@ -491,6 +473,24 @@ export function useMediaLibrary(
         return;
       }
       if (snapshot.lifecycle === "loaded") {
+        const nextFilePaths = new Set(
+          snapshot.files.map((file) => file.relative_path),
+        );
+        const removedPaths = [...sessionFilePathsRef.current].filter(
+          (path) => !nextFilePaths.has(path),
+        );
+        if (removedPaths.length > 0) {
+          for (const path of removedPaths) {
+            const metadataState =
+              fileMetadataOccurrencesStoreRef.current.get(path);
+            metadataProgressStoreRef.current.removeFile(
+              metadataState !== "loading",
+            );
+          }
+          thumbnailStoreRef.current.deletePaths(removedPaths);
+          fileMetadataOccurrencesStoreRef.current.deletePaths(removedPaths);
+        }
+        sessionFilePathsRef.current = nextFilePaths;
         const rebuildMetadataProjection =
           isRecovery || snapshot.revision > previousRevision + 1;
         projectSessionMetadata(snapshot.metadata, rebuildMetadataProjection);
@@ -643,27 +643,6 @@ export function useMediaLibrary(
     [pushApplicationIssue],
   );
 
-  if (targetDraftSaveQueueRef.current === null) {
-    targetDraftSaveQueueRef.current = new CoalescingAsyncQueue(
-      async ({ folder, mutations, revisions }) => {
-        const startedAt = frontendNow();
-        await saveTargetDraftRows(apiRef.current, folder, mutations);
-        for (const [path, revision] of revisions) {
-          if (
-            targetDraftDirtyRowsRef.current.get(path)?.revision === revision
-          ) {
-            targetDraftDirtyRowsRef.current.delete(path);
-          }
-        }
-        logSlowFrontendOperation("draft-autosave", startedAt, {
-          files: mutations.length,
-        });
-      },
-      (error) => pushApplicationError("metadata-target-save", error),
-      { minIntervalMs: TARGET_DRAFT_AUTOSAVE_MIN_INTERVAL_MS },
-    );
-  }
-
   useEffect(() => {
     targetDraftEditsStoreRef.current.setCurrentValueResolver((path, target) =>
       currentValueForMetadataDraftTarget(
@@ -701,7 +680,6 @@ export function useMediaLibrary(
             occurrences: fileMetadataOccurrencesStoreRef.current,
             verification: targetVerifyOutcomesStoreRef.current,
           },
-          autosaveGate: targetDraftAutosaveGateRef.current,
         },
         {
           onProgressBatch: (_payload, _applications) => {},
@@ -776,8 +754,6 @@ export function useMediaLibrary(
       // file_found / scan_complete events are never missed.  The latch is a
       // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
       await listenersReadyRef.current;
-      await targetDraftSaveQueueRef.current?.flush();
-      targetDraftDirtyRowsRef.current.clear();
 
       // Finish cancellation before
       // clearing stable stores so late controller events cannot cross folders.
@@ -855,6 +831,9 @@ export function useMediaLibrary(
       console.debug(
         `[file_found] flushing ${batch.length} files (total buffer was ${batch.length})`,
       );
+      for (const file of batch) {
+        sessionFilePathsRef.current.add(file.relative_path);
+      }
 
       setAppState((prev) => {
         if (prev.kind === "idle") return prev;
@@ -1132,17 +1111,6 @@ export function useMediaLibrary(
         .map((item) => item.relative_path);
       const successfulSet = new Set(successful);
       if (successful.length > 0) {
-        for (const path of successful) {
-          const metadataState =
-            fileMetadataOccurrencesStoreRef.current.get(path);
-          metadataProgressStoreRef.current.removeFile(
-            metadataState !== "loading",
-          );
-        }
-        thumbnailStoreRef.current.deletePaths(successful);
-        fileMetadataOccurrencesStoreRef.current.deletePaths(successful);
-        targetDraftEditsStoreRef.current.deletePaths(successful);
-
         setAppState((prev) => {
           if (prev.kind !== "loaded" || prev.folder !== current.folder) {
             return prev;
@@ -1162,7 +1130,6 @@ export function useMediaLibrary(
                 : prev.galleryPath,
           };
         });
-        await targetDraftSaveQueueRef.current?.flush();
       }
 
       const failures = result.results.filter((item) => !item.recycled);
@@ -1183,12 +1150,11 @@ export function useMediaLibrary(
     [api, pushApplicationError],
   );
 
-  // One production subscription owns both the React snapshot and target-aware
-  // autosave. Controller-applied backend snapshots notify this same path while
-  // the gate is suppressed, so they update UI without a duplicate save.
+  // Rust session snapshots own persistence. The frontend store subscription
+  // only projects authoritative draft changes into React and dependent stores.
   useEffect(() => {
     const store = targetDraftEditsStoreRef.current;
-    return store.subscribe((changes) => {
+    return store.subscribe(() => {
       const next = store.getAllMetadata();
       targetVerifyOutcomesStoreRef.current.pruneAgainstDrafts(next);
       setAppState((prev) => {
@@ -1197,38 +1163,8 @@ export function useMediaLibrary(
         }
         return { ...prev, targetDraftEdits: next };
       });
-      const folder = activeFolderRef.current;
-      if (
-        !folder ||
-        targetDraftPersistenceRef.current.status !== "ready" ||
-        targetDraftAutosaveGateRef.current.isSuppressed()
-      ) {
-        return;
-      }
-      const mutations = targetDraftChangesToMutations(changes);
-      for (const mutation of mutations) {
-        const revision = ++targetDraftMutationRevisionRef.current;
-        targetDraftDirtyRowsRef.current.set(mutation.relative_path, {
-          revision,
-          mutation,
-        });
-      }
-      targetDraftSaveQueueRef.current?.schedule({
-        folder,
-        mutations: Array.from(
-          targetDraftDirtyRowsRef.current.values(),
-          ({ mutation }) => mutation,
-        ),
-        revisions: new Map(
-          Array.from(
-            targetDraftDirtyRowsRef.current,
-            ([path, { revision }]) => [path, revision] as const,
-          ),
-        ),
-      });
     });
-  }, [pushApplicationError]);
-
+  }, []);
   useEffect(() => {
     const store = targetVerifyOutcomesStoreRef.current;
     return store.subscribe((next) => {
@@ -1340,6 +1276,45 @@ export function useMediaLibrary(
     [pushApplicationError],
   );
 
+  const persistExactDraftMutations = useCallback(
+    async (
+      mutations: readonly ExactTargetMutationBatchItem[],
+      errorType: string,
+    ): Promise<{ success: boolean; changed: boolean }> => {
+      if (mutations.length === 0) return { success: true, changed: false };
+      const paths = [...new Set(mutations.map((mutation) => mutation.path))];
+      if (!requireTargetDraftPersistenceReady(paths)) {
+        return { success: false, changed: false };
+      }
+      const sessionId = activeScanIdRef.current;
+      if (sessionId < 0) return { success: false, changed: false };
+      const staged = new TargetDraftEditsStore();
+      staged.resetMetadata(targetDraftEditsStoreRef.current.getAllMetadata());
+      let changed: boolean;
+      try {
+        changed = staged.applyExactMutationBatch(mutations);
+      } catch (error) {
+        pushApplicationError(errorType, error, paths);
+        return { success: false, changed: false };
+      }
+      if (!changed) return { success: true, changed: false };
+      const rowMutations: MetadataDraftRowMutation[] = paths.map((path) => ({
+        relative_path: path,
+        entries: Object.values(staged.getMetadataFile(path) ?? {}),
+      }));
+      try {
+        await api.invoke("mutate_media_library_session_draft_rows", {
+          sessionId,
+          mutations: rowMutations,
+        });
+        return { success: true, changed: true };
+      } catch (error) {
+        pushApplicationError(errorType, error, paths);
+        return { success: false, changed: false };
+      }
+    },
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
+  );
   const targetOutcomeExists = useCallback(
     (relativePath: string, currentTarget: MetadataDraftTarget): boolean => {
       const file = targetVerifyOutcomesStoreRef.current.getFile(relativePath);
@@ -1352,9 +1327,8 @@ export function useMediaLibrary(
     },
     [],
   );
-
   const removeTargetDraftAndOutcome = useCallback(
-    (relativePath: string, currentTarget: MetadataDraftTarget) => {
+    async (relativePath: string, currentTarget: MetadataDraftTarget) => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return;
       if (!targetOutcomeExists(relativePath, currentTarget)) return;
       const slot = metadataDraftTargetSlotToken(currentTarget);
@@ -1366,21 +1340,31 @@ export function useMediaLibrary(
       ) {
         return;
       }
-      targetDraftEditsStoreRef.current.deleteTarget(
-        relativePath,
-        currentTarget,
-      );
-      targetVerifyOutcomesStoreRef.current.deleteOutcome(
-        relativePath,
-        currentTarget,
-      );
+      try {
+        await api.invoke("discard_media_library_session_draft", {
+          sessionId: activeScanIdRef.current,
+          relativePath,
+          target: structuredClone(currentTarget),
+        });
+        targetVerifyOutcomesStoreRef.current.deleteOutcome(
+          relativePath,
+          currentTarget,
+        );
+      } catch (error) {
+        pushApplicationError("metadata-target-discard", error, [relativePath]);
+      }
     },
-    [requireTargetDraftPersistenceReady, targetOutcomeExists],
+    [
+      api,
+      pushApplicationError,
+      requireTargetDraftPersistenceReady,
+      targetOutcomeExists,
+    ],
   );
 
   const acceptTargetVerifyOutcome = useCallback(
     (relativePath: string, currentTarget: MetadataDraftTarget) => {
-      removeTargetDraftAndOutcome(relativePath, currentTarget);
+      void removeTargetDraftAndOutcome(relativePath, currentTarget);
     },
     [removeTargetDraftAndOutcome],
   );
@@ -1489,15 +1473,14 @@ export function useMediaLibrary(
       writableSchemaDefinitions,
     ],
   );
-
   const applyGeneratedMetadataDraftBatches = useCallback(
-    (
+    async (
       items: readonly {
         relativePath: string;
         producer: GeneratedMetadataProducer;
         edits: SchemaMetadataEdit[];
       }[],
-    ): GeneratedDraftStageResult[] => {
+    ): Promise<GeneratedDraftStageResult[]> => {
       if (items.length === 0) return [];
       const results: GeneratedDraftStageResult[] = items.map(() => ({
         kind: "success",
@@ -1536,11 +1519,7 @@ export function useMediaLibrary(
 
       const planned: Array<{
         resultIndex: number;
-        mutation: {
-          path: string;
-          upserts: ReturnType<typeof planGeneratedTargetDraftBatch>["upserts"];
-          deletes: ReturnType<typeof planGeneratedTargetDraftBatch>["deletes"];
-        };
+        mutation: ExactTargetMutationBatchItem;
       }> = [];
       activeItems.forEach(
         ({ item: { relativePath, producer, edits }, resultIndex }) => {
@@ -1578,46 +1557,43 @@ export function useMediaLibrary(
       );
 
       if (planned.length === 0) return results;
-      try {
-        const changed =
-          targetDraftEditsStoreRef.current.applyExactMutationBatch(
-            planned.map(({ mutation }) => mutation),
-          );
-        for (const { resultIndex } of planned) {
-          results[resultIndex] = { kind: "success", changed };
-        }
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        logApplicationIssue(
-          "error",
-          "metadata-target-generated-stage",
-          error,
-          planned.map(({ mutation }) => mutation.path),
-        );
-        for (const { resultIndex } of planned) {
-          results[resultIndex] = { kind: "failure", reason };
-        }
+      const persisted = await persistExactDraftMutations(
+        planned.map(({ mutation }) => mutation),
+        "metadata-target-generated-stage",
+      );
+      for (const { resultIndex } of planned) {
+        results[resultIndex] = persisted.success
+          ? { kind: "success", changed: persisted.changed }
+          : {
+              kind: "failure",
+              reason: "The generated metadata drafts could not be saved.",
+            };
       }
       logSlowFrontendOperation("draft-store-batch", startedAt, {
         files: planned.length,
       });
       return results;
     },
-    [requireTargetDraftPersistenceReady, writableSchemaDefinitions],
+    [
+      persistExactDraftMutations,
+      requireTargetDraftPersistenceReady,
+      writableSchemaDefinitions,
+    ],
   );
 
   const applyGeneratedMetadataDraftBatch = useCallback(
-    (
+    async (
       relativePath: string,
       producer: GeneratedMetadataProducer,
       edits: SchemaMetadataEdit[],
-    ): GeneratedDraftStageResult =>
-      applyGeneratedMetadataDraftBatches([
-        { relativePath, producer, edits },
-      ])[0] ?? { kind: "success", changed: false },
+    ): Promise<GeneratedDraftStageResult> =>
+      (
+        await applyGeneratedMetadataDraftBatches([
+          { relativePath, producer, edits },
+        ])
+      )[0] ?? { kind: "success", changed: false },
     [applyGeneratedMetadataDraftBatches],
   );
-
   const buildBulkMetadataDraftPlan = useCallback(
     (relativePaths: string[], request: BulkMetadataDraftRequest) => {
       const paths = [...new Set(relativePaths)];
@@ -1673,15 +1649,19 @@ export function useMediaLibrary(
   );
 
   const stageBulkMetadataDraftBatch = useCallback(
-    (relativePaths: string[], request: BulkMetadataDraftRequest): boolean => {
+    async (
+      relativePaths: string[],
+      request: BulkMetadataDraftRequest,
+    ): Promise<boolean> => {
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       try {
         const plan = buildBulkMetadataDraftPlan(paths, request);
-        targetDraftEditsStoreRef.current.applyExactMutationBatch(
+        const persisted = await persistExactDraftMutations(
           plan.mutations,
+          "metadata-target-bulk-stage",
         );
-        return true;
+        return persisted.success;
       } catch (error) {
         pushApplicationError("metadata-target-bulk-stage", error, paths);
         return false;
@@ -1689,13 +1669,17 @@ export function useMediaLibrary(
     },
     [
       buildBulkMetadataDraftPlan,
+      persistExactDraftMutations,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
     ],
   );
 
   const applyGpsTargetDraftBatch = useCallback(
-    (relativePath: string, entries: MetadataTargetDraftEntry[]): boolean => {
+    async (
+      relativePath: string,
+      entries: MetadataTargetDraftEntry[],
+    ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
         const validated = validateGpsTargetDraftEntries(
@@ -1703,11 +1687,11 @@ export function useMediaLibrary(
           fileMetadataOccurrencesStoreRef.current.get(relativePath),
           targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
         );
-        targetDraftEditsStoreRef.current.setMetadataBatch(
-          relativePath,
-          validated,
+        const persisted = await persistExactDraftMutations(
+          [{ path: relativePath, upserts: validated, deletes: [] }],
+          "metadata-target-gps-validate",
         );
-        return true;
+        return persisted.success;
       } catch (error) {
         pushApplicationError("metadata-target-gps-validate", error, [
           relativePath,
@@ -1715,7 +1699,11 @@ export function useMediaLibrary(
         return false;
       }
     },
-    [pushApplicationError, requireTargetDraftPersistenceReady],
+    [
+      persistExactDraftMutations,
+      pushApplicationError,
+      requireTargetDraftPersistenceReady,
+    ],
   );
 
   const removalMutation = useCallback(
@@ -1750,7 +1738,10 @@ export function useMediaLibrary(
   );
 
   const removeMetadataTargets = useCallback(
-    (relativePath: string, targets: MetadataDraftTarget[]): boolean => {
+    async (
+      relativePath: string,
+      targets: MetadataDraftTarget[],
+    ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
         const plan = planMetadataTargetRemovals({
@@ -1760,17 +1751,20 @@ export function useMediaLibrary(
           targetDrafts:
             targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
         });
-        targetDraftEditsStoreRef.current.applyExactMutationBatch([
-          {
-            path: relativePath,
-            upserts: plan.upserts.map(({ target, edit }) => ({
-              target: structuredClone(target),
-              edit: structuredClone(edit),
-            })),
-            deletes: plan.deletes.map((target) => structuredClone(target)),
-          },
-        ]);
-        return true;
+        const persisted = await persistExactDraftMutations(
+          [
+            {
+              path: relativePath,
+              upserts: plan.upserts.map(({ target, edit }) => ({
+                target: structuredClone(target),
+                edit: structuredClone(edit),
+              })),
+              deletes: plan.deletes.map((target) => structuredClone(target)),
+            },
+          ],
+          "metadata-target-remove-exact",
+        );
+        return persisted.success;
       } catch (error) {
         pushApplicationError("metadata-target-remove-exact", error, [
           relativePath,
@@ -1778,26 +1772,44 @@ export function useMediaLibrary(
         return false;
       }
     },
-    [pushApplicationError, requireTargetDraftPersistenceReady],
+    [
+      persistExactDraftMutations,
+      pushApplicationError,
+      requireTargetDraftPersistenceReady,
+    ],
   );
 
   const removeMetadataFields = useCallback(
-    (relativePath: string, schemaIds: SchemaDefinitionId[]): boolean => {
+    async (
+      relativePath: string,
+      schemaIds: SchemaDefinitionId[],
+    ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
         const mutation = removalMutation(relativePath, schemaIds);
-        targetDraftEditsStoreRef.current.applyExactMutationBatch([mutation]);
-        return true;
+        const persisted = await persistExactDraftMutations(
+          [mutation],
+          "metadata-target-remove",
+        );
+        return persisted.success;
       } catch (error) {
         pushApplicationError("metadata-target-remove", error, [relativePath]);
         return false;
       }
     },
-    [pushApplicationError, removalMutation, requireTargetDraftPersistenceReady],
+    [
+      persistExactDraftMutations,
+      pushApplicationError,
+      removalMutation,
+      requireTargetDraftPersistenceReady,
+    ],
   );
 
   const removeMetadataFieldFromFiles = useCallback(
-    (schemaId: SchemaDefinitionId, relativePaths: string[]): boolean => {
+    async (
+      schemaId: SchemaDefinitionId,
+      relativePaths: string[],
+    ): Promise<boolean> => {
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       try {
@@ -1814,16 +1826,23 @@ export function useMediaLibrary(
             throw contextualError;
           }
         });
-        targetDraftEditsStoreRef.current.applyExactMutationBatch(mutations);
-        return true;
+        const persisted = await persistExactDraftMutations(
+          mutations,
+          "metadata-target-remove-files",
+        );
+        return persisted.success;
       } catch (error) {
         pushApplicationError("metadata-target-remove-files", error, paths);
         return false;
       }
     },
-    [pushApplicationError, removalMutation, requireTargetDraftPersistenceReady],
+    [
+      persistExactDraftMutations,
+      pushApplicationError,
+      removalMutation,
+      requireTargetDraftPersistenceReady,
+    ],
   );
-
   const setExistingOccurrenceDraft = useCallback(
     (
       fileRelativePath: string,
@@ -2087,20 +2106,25 @@ export function useMediaLibrary(
         );
         return false;
       }
-      targetDraftEditsStoreRef.current.setMetadataTarget(
-        fileRelativePath,
-        structuredClone(target),
-        edit,
+      const persisted = await persistExactDraftMutations(
+        [
+          {
+            path: fileRelativePath,
+            upserts: [{ target: structuredClone(target), edit }],
+            deletes: [],
+          },
+        ],
+        "metadata-target-new-property-save",
       );
-      return true;
+      return persisted.success;
     },
     [
+      persistExactDraftMutations,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
       targetOutcomeExists,
     ],
   );
-
   const replaceNewPropertyDraftTarget = useCallback(
     async (
       fileRelativePath: string,
@@ -2266,9 +2290,8 @@ export function useMediaLibrary(
         );
         return false;
       }
-
-      try {
-        targetDraftEditsStoreRef.current.applyExactMutationBatch([
+      const persisted = await persistExactDraftMutations(
+        [
           {
             path: fileRelativePath,
             deletes: [structuredClone(originalTarget)],
@@ -2279,18 +2302,13 @@ export function useMediaLibrary(
               },
             ],
           },
-        ]);
-        return true;
-      } catch (error) {
-        pushApplicationError(
-          "metadata-target-new-property-move-failed",
-          error,
-          [fileRelativePath],
-        );
-        return false;
-      }
+        ],
+        "metadata-target-new-property-move-failed",
+      );
+      return persisted.success;
     },
     [
+      persistExactDraftMutations,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
       targetOutcomeExists,
@@ -2333,49 +2351,51 @@ export function useMediaLibrary(
       requireTargetDraftPersistenceReady,
     ],
   );
-
   const discardTargetDraftValues = useCallback(
-    (fileRelativePath: string, targets: MetadataDraftTarget[]): boolean => {
+    async (
+      fileRelativePath: string,
+      targets: MetadataDraftTarget[],
+    ): Promise<boolean> => {
       if (targets.length === 0) return true;
-      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
-      try {
-        targetDraftEditsStoreRef.current.applyExactMutationBatch([
+      const persisted = await persistExactDraftMutations(
+        [
           {
             path: fileRelativePath,
             upserts: [],
             deletes: targets,
           },
-        ]);
-        return true;
-      } catch (error) {
-        pushApplicationError("metadata-target-discard-targets", error, [
-          fileRelativePath,
-        ]);
-        return false;
-      }
+        ],
+        "metadata-target-discard-targets",
+      );
+      return persisted.success;
     },
-    [pushApplicationError, requireTargetDraftPersistenceReady],
+    [persistExactDraftMutations],
   );
-
   const discardAllDraftEdits = useCallback(
     (fileRelativePath?: string | string[]) => {
       const paths =
         fileRelativePath === undefined
-          ? []
+          ? Object.keys(targetDraftEditsStoreRef.current.getAllMetadata())
           : Array.isArray(fileRelativePath)
             ? fileRelativePath
             : [fileRelativePath];
-      if (fileRelativePath === undefined) {
-        if (requireTargetDraftPersistenceReady()) {
-          targetDraftEditsStoreRef.current.clear();
-        }
-      } else {
-        if (requireTargetDraftPersistenceReady(paths)) {
-          targetDraftEditsStoreRef.current.deletePaths(paths);
-        }
-      }
+      const mutations = paths.flatMap((path) => {
+        const entries = Object.values(
+          targetDraftEditsStoreRef.current.getMetadataFile(path) ?? {},
+        );
+        return entries.length === 0
+          ? []
+          : [
+              {
+                path,
+                upserts: [],
+                deletes: entries.map((entry) => entry.target),
+              },
+            ];
+      });
+      void persistExactDraftMutations(mutations, "metadata-target-discard-all");
     },
-    [requireTargetDraftPersistenceReady],
+    [persistExactDraftMutations],
   );
 
   const applyDraftEdits = useCallback(
@@ -2388,17 +2408,17 @@ export function useMediaLibrary(
         if (applyActiveRef.current) {
           throw new Error("A metadata apply operation is already running");
         }
-
         const applyAll = fileRelativePath === undefined;
-        const requestedPaths = applyAll
-          ? undefined
-          : [
-              ...new Set(
-                Array.isArray(fileRelativePath)
-                  ? fileRelativePath
-                  : [fileRelativePath],
-              ),
-            ];
+        const requestedPaths: string[] | undefined =
+          fileRelativePath === undefined
+            ? undefined
+            : [
+                ...new Set(
+                  Array.isArray(fileRelativePath)
+                    ? fileRelativePath
+                    : [fileRelativePath],
+                ),
+              ];
         if (!requireTargetDraftPersistenceReady(requestedPaths ?? [])) {
           throw new Error(TARGET_DRAFT_LOAD_BLOCKED_MESSAGE);
         }
@@ -2411,8 +2431,6 @@ export function useMediaLibrary(
         if (targetCount === 0) {
           return emptyMetadataApplyResult();
         }
-
-        await targetDraftSaveQueueRef.current?.flush();
         const controller = targetApplyControllerRef.current;
         if (!controller) throw new Error("Target-aware apply is not ready");
         applyActiveRef.current = true;

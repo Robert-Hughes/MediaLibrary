@@ -139,11 +139,14 @@ describe("generated target-aware production action", () => {
       notifications += 1;
     });
     const errorsBefore = state.applicationErrors.length;
-    const targetDraftBefore = saveCount(mock, "save_metadata_draft_rows");
+    const targetDraftBefore = saveCount(
+      mock,
+      "mutate_media_library_session_draft_rows",
+    );
     let stageResult;
 
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [],
@@ -157,15 +160,16 @@ describe("generated target-aware production action", () => {
     if (result.current[0].kind !== "loaded") return;
     expect(result.current[0].applicationErrors).toHaveLength(errorsBefore);
     expect(
-      saveCount(mock, "save_metadata_draft_rows") - targetDraftBefore,
+      saveCount(mock, "mutate_media_library_session_draft_rows") -
+        targetDraftBefore,
     ).toBe(0);
   });
 
   it("treats empty edits as unchanged while occurrences are loading", async () => {
     const { result } = await loadedFile({ emitMetadata: false });
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [],
@@ -180,10 +184,13 @@ describe("generated target-aware production action", () => {
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
     expect(state.targetDraftPersistence.status).toBe("load-failed");
     const errorsBefore = state.applicationErrors.length;
-    const targetDraftBefore = saveCount(mock, "save_metadata_draft_rows");
+    const targetDraftBefore = saveCount(
+      mock,
+      "mutate_media_library_session_draft_rows",
+    );
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [],
@@ -193,15 +200,16 @@ describe("generated target-aware production action", () => {
     if (result.current[0].kind !== "loaded") return;
     expect(result.current[0].applicationErrors).toHaveLength(errorsBefore);
     expect(
-      saveCount(mock, "save_metadata_draft_rows") - targetDraftBefore,
+      saveCount(mock, "mutate_media_library_session_draft_rows") -
+        targetDraftBefore,
     ).toBe(0);
   });
 
   it("still rejects a non-empty result when target persistence is unavailable", async () => {
     const { result } = await loadedFile({ targetLoadFails: true });
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
@@ -256,8 +264,8 @@ describe("generated target-aware production action", () => {
     });
 
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "valid.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "valid")],
@@ -269,8 +277,8 @@ describe("generated target-aware production action", () => {
   it("still rejects a non-empty result while occurrences are loading", async () => {
     const { result } = await loadedFile({ emitMetadata: false });
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
@@ -281,11 +289,14 @@ describe("generated target-aware production action", () => {
 
   it("stages a missing describe field only as NewProperty and autosaves target-aware once", async () => {
     const { mock, result } = await loadedFile();
-    const beforeTargetDraft = saveCount(mock, "save_metadata_draft_rows");
+    const beforeTargetDraft = saveCount(
+      mock,
+      "mutate_media_library_session_draft_rows",
+    );
 
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
@@ -308,7 +319,8 @@ describe("generated target-aware production action", () => {
       },
     });
     expect(
-      saveCount(mock, "save_metadata_draft_rows") - beforeTargetDraft,
+      saveCount(mock, "mutate_media_library_session_draft_rows") -
+        beforeTargetDraft,
     ).toBe(1);
   });
 
@@ -325,22 +337,27 @@ describe("generated target-aware production action", () => {
     const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
       notifications += 1;
     });
-    const savesBefore = saveCount(mock, "save_metadata_draft_rows");
+    const savesBefore = saveCount(
+      mock,
+      "mutate_media_library_session_draft_rows",
+    );
 
     let stageResults;
-    act(() => {
-      stageResults = result.current[1].applyGeneratedMetadataDraftBatches([
-        {
-          relativePath: "file.jpg",
-          producer: { kind: "describe" },
-          edits: [generated(ID.mlibAiDescription, "first")],
-        },
-        {
-          relativePath: "second.jpg",
-          producer: { kind: "describe" },
-          edits: [generated(ID.mlibAiDescription, "second")],
-        },
-      ]);
+    await act(async () => {
+      stageResults = await result.current[1].applyGeneratedMetadataDraftBatches(
+        [
+          {
+            relativePath: "file.jpg",
+            producer: { kind: "describe" },
+            edits: [generated(ID.mlibAiDescription, "first")],
+          },
+          {
+            relativePath: "second.jpg",
+            producer: { kind: "describe" },
+            edits: [generated(ID.mlibAiDescription, "second")],
+          },
+        ],
+      );
     });
     unsubscribe();
 
@@ -349,7 +366,9 @@ describe("generated target-aware production action", () => {
       { kind: "success", changed: true },
     ]);
     expect(notifications).toBe(1);
-    expect(saveCount(mock, "save_metadata_draft_rows") - savesBefore).toBe(1);
+    expect(
+      saveCount(mock, "mutate_media_library_session_draft_rows") - savesBefore,
+    ).toBe(1);
     expect(Object.keys(state.targetDraftEditsStore.getAllMetadata())).toEqual(
       expect.arrayContaining(["file.jpg", "second.jpg"]),
     );
@@ -358,8 +377,8 @@ describe("generated target-aware production action", () => {
   it("stages a unique existing occurrence through its full runtime target", async () => {
     const item = occurrence(ID.mlibAiDescription);
     const { result } = await loadedFile({ occurrences: [item] });
-    act(() => {
-      result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "generated")],
@@ -385,9 +404,9 @@ describe("generated target-aware production action", () => {
     const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
       notifications += 1;
     });
-    const before = saveCount(mock, "save_metadata_draft_rows");
-    act(() => {
-      result.current[1].applyGeneratedMetadataDraftBatch(
+    const before = saveCount(mock, "mutate_media_library_session_draft_rows");
+    await act(async () => {
+      await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [
@@ -398,7 +417,9 @@ describe("generated target-aware production action", () => {
     });
     unsubscribe();
     expect(notifications).toBe(1);
-    expect(saveCount(mock, "save_metadata_draft_rows") - before).toBe(1);
+    expect(
+      saveCount(mock, "mutate_media_library_session_draft_rows") - before,
+    ).toBe(1);
   });
 
   it("emits no notification or save for an exact generated no-op", async () => {
@@ -410,10 +431,10 @@ describe("generated target-aware production action", () => {
     const unsubscribe = state.targetDraftEditsStore.subscribe(() => {
       notifications += 1;
     });
-    const before = saveCount(mock, "save_metadata_draft_rows");
+    const before = saveCount(mock, "mutate_media_library_session_draft_rows");
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [generated(ID.mlibAiDescription, "same")],
@@ -422,15 +443,17 @@ describe("generated target-aware production action", () => {
     unsubscribe();
     expect(stageResult).toEqual({ kind: "success", changed: false });
     expect(notifications).toBe(0);
-    expect(saveCount(mock, "save_metadata_draft_rows") - before).toBe(0);
+    expect(
+      saveCount(mock, "mutate_media_library_session_draft_rows") - before,
+    ).toBe(0);
   });
 
   it("leaves the complete file unchanged when a later generated field is invalid", async () => {
     const { mock, result } = await loadedFile();
-    const before = saveCount(mock, "save_metadata_draft_rows");
+    const before = saveCount(mock, "mutate_media_library_session_draft_rows");
     let stageResult;
-    act(() => {
-      stageResult = result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      stageResult = await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [
@@ -443,7 +466,9 @@ describe("generated target-aware production action", () => {
     const state = result.current[0];
     if (state.kind !== "loaded") throw new Error("Expected loaded state");
     expect(state.targetDraftEdits["file.jpg"]).toBeUndefined();
-    expect(saveCount(mock, "save_metadata_draft_rows") - before).toBe(0);
+    expect(
+      saveCount(mock, "mutate_media_library_session_draft_rows") - before,
+    ).toBe(0);
   });
   it("readiness prevents work while occurrences are loading", async () => {
     const { mock, result } = await loadedFile({ emitMetadata: false });
@@ -487,8 +512,8 @@ describe("generated target-aware production action", () => {
   it("does not mutate caller-owned generated entries", async () => {
     const { result } = await loadedFile();
     const entry = generated(ID.mlibAiDescription, "generated");
-    act(() => {
-      result.current[1].applyGeneratedMetadataDraftBatch(
+    await act(async () => {
+      await result.current[1].applyGeneratedMetadataDraftBatch(
         "file.jpg",
         { kind: "describe" },
         [entry],

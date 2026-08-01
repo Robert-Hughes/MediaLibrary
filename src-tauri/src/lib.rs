@@ -802,6 +802,7 @@ fn recycle_media_files(
     app: AppHandle,
     active_queues: State<'_, ActiveQueues>,
     session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
 ) -> Result<recycle::RecycleFilesResult, String> {
     let result = recycle::recycle_files_with(&folder, relative_paths, |path| {
         trash::delete(path).map_err(|error| error.to_string())
@@ -819,13 +820,39 @@ fn recycle_media_files(
         queue.remove_paths(&recycled_paths);
     }
     if !recycled_paths.is_empty() {
-        let snapshot = session_state.remove_files(
-            session_state
-                .snapshot()
-                .session_id
-                .ok_or_else(|| "No active media-library session".to_string())?,
-            &recycled_paths,
-        )?;
+        let active = session_state.snapshot();
+        let session_id = active
+            .session_id
+            .ok_or_else(|| "No active media-library session".to_string())?;
+        if active.folder.as_deref() != Some(folder.as_str()) {
+            return Err(
+                "The media-library session changed before recycled drafts were removed".into(),
+            );
+        }
+        let draft_mutations = recycled_paths
+            .iter()
+            .filter(|path| active.drafts.contains_key(path.as_str()))
+            .map(|relative_path| draft_repository::MetadataDraftRowMutation {
+                relative_path: relative_path.clone(),
+                entries: Vec::new(),
+            })
+            .collect::<Vec<_>>();
+        if !draft_mutations.is_empty() {
+            let app_data_dir = commands::shared::app_data_dir(&app)?;
+            if let Err(error) = draft_repository::apply_row_mutations(
+                &app_data_dir,
+                &folder,
+                &draft_mutations,
+                &repository_state,
+            ) {
+                if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone())
+                {
+                    let _ = emit_session_snapshot(&app, &failed);
+                }
+                return Err(error);
+            }
+        }
+        let snapshot = session_state.remove_files(session_id, &recycled_paths)?;
         emit_session_snapshot(&app, &snapshot)?;
     }
     Ok(result)
@@ -1123,6 +1150,63 @@ fn discard_media_library_session_draft(
     Ok(committed)
 }
 
+#[tauri::command]
+fn mutate_media_library_session_draft_rows(
+    session_id: u64,
+    mutations: Vec<draft_repository::MetadataDraftRowMutation>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before the drafts were saved".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let discovered = snapshot
+        .files
+        .iter()
+        .map(|file| file.relative_path.as_str())
+        .collect::<std::collections::HashSet<_>>();
+    if let Some(unknown) = mutations
+        .iter()
+        .find(|mutation| !discovered.contains(mutation.relative_path.as_str()))
+    {
+        return Err(format!(
+            "Draft row '{}' is not part of the active media-library session",
+            unknown.relative_path
+        ));
+    }
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    let app_data_dir = commands::shared::app_data_dir(&app)?;
+    if let Err(error) =
+        draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
+    {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(&app, &failed);
+        }
+        return Err(error);
+    }
+    let committed = session_state.commit_draft_rows(
+        session_id,
+        mutations
+            .into_iter()
+            .map(|mutation| (mutation.relative_path, mutation.entries))
+            .collect(),
+    )?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
 // Target-aware draft persistence and apply are the sole metadata-editing boundary.
 #[tauri::command]
 fn save_metadata_draft_rows(
@@ -1665,6 +1749,7 @@ pub fn run() {
             set_window_title,
             set_media_library_session_draft,
             discard_media_library_session_draft,
+            mutate_media_library_session_draft_rows,
             save_metadata_draft_rows,
             load_metadata_draft_edits,
             apply_metadata_draft_edits_cmd,
