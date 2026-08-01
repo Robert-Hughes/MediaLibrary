@@ -74,6 +74,8 @@ export type { LocationContext } from "./types/generated/LocationContext";
 export type { PerImageStats as NormalisePerImageStats } from "./types/generated/PerImageStats";
 export type { PerGroupStats as NormalisePerGroupStats } from "./types/generated/PerGroupStats";
 export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
+export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrarySessionLifecycle";
+export type { MediaLibrarySessionSnapshot } from "./types/generated/MediaLibrarySessionSnapshot";
 
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 

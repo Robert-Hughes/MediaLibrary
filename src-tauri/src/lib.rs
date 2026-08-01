@@ -28,6 +28,7 @@ pub mod openai_normalise;
 mod openai_request;
 mod recycle;
 pub mod scanner;
+pub mod session;
 pub mod settings;
 pub mod tag_schema;
 pub mod util;
@@ -252,6 +253,49 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
         .map(|p| p.to_string())
 }
 
+fn emit_session_snapshot(
+    app: &AppHandle,
+    snapshot: &session::MediaLibrarySessionSnapshot,
+) -> Result<(), String> {
+    app.emit(session::SESSION_CHANGED_EVENT, snapshot.clone())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_media_library_session_snapshot(
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> session::MediaLibrarySessionSnapshot {
+    session_state.snapshot()
+}
+
+#[tauri::command]
+fn open_media_library_session(
+    folder_path: String,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    scan_state: State<'_, ScanState>,
+    active_queues: State<'_, ActiveQueues>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    stop_scan_impl(&scan_state, &active_queues);
+    let snapshot = session_state.begin_open(folder_path);
+    emit_session_snapshot(&app, &snapshot)?;
+    Ok(snapshot)
+}
+
+#[tauri::command]
+fn close_media_library_session(
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    scan_state: State<'_, ScanState>,
+    active_queues: State<'_, ActiveQueues>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let closing = session_state.begin_close();
+    emit_session_snapshot(&app, &closing)?;
+    stop_scan_impl(&scan_state, &active_queues);
+    let idle = session_state.finish_close();
+    emit_session_snapshot(&app, &idle)?;
+    Ok(idle)
+}
 /// Start a background scan of `folder_path`.
 ///
 /// Three concurrent phases, all starting as soon as files are discovered:
@@ -290,7 +334,15 @@ fn start_scan(
     app: AppHandle,
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
+    session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<(), String> {
+    let current_session = session_state.snapshot();
+    if current_session.session_id != Some(scan_id)
+        || current_session.folder.as_deref() != Some(folder_path.as_str())
+        || current_session.lifecycle != session::MediaLibrarySessionLifecycle::Opening
+    {
+        return Err("The requested scan does not match the active media-library session".into());
+    }
     let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
     let configured_metadata_workers = usize::from(app_settings.metadata_scan_concurrency);
     let configured_thumbnail_workers = usize::from(app_settings.thumbnail_concurrency);
@@ -310,6 +362,9 @@ fn start_scan(
     let queues_for_thread = (*active_queues).clone();
     let app_clone = app.clone();
     let cancel_clone = cancellation_flag.clone();
+
+    let loaded = session_state.mark_loaded(scan_id, &folder_path)?;
+    emit_session_snapshot(&app, &loaded)?;
 
     std::thread::spawn(move || {
         let root = std::path::PathBuf::from(&folder_path);
@@ -663,11 +718,7 @@ fn start_scan(
     Ok(())
 }
 
-#[tauri::command]
-fn stop_scan(
-    scan_state: State<'_, ScanState>,
-    active_queues: State<'_, ActiveQueues>,
-) -> Result<(), String> {
+fn stop_scan_impl(scan_state: &ScanState, active_queues: &ActiveQueues) {
     scan_state.signal_cancellation();
     if let Some(q) = active_queues.thumbnails() {
         q.abort();
@@ -675,6 +726,14 @@ fn stop_scan(
     if let Some(q) = active_queues.file_metadata() {
         q.abort();
     }
+}
+
+#[tauri::command]
+fn stop_scan(
+    scan_state: State<'_, ScanState>,
+    active_queues: State<'_, ActiveQueues>,
+) -> Result<(), String> {
+    stop_scan_impl(&scan_state, &active_queues);
     Ok(())
 }
 
@@ -1339,6 +1398,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(ScanState::new())
+        .manage(session::MediaLibrarySessionState::new())
         .manage(ActiveQueues::new())
         .manage(apply_batch::ApplyEditsState::new())
         .manage(openai_describe::DescribeState::default())
@@ -1350,6 +1410,9 @@ pub fn run() {
             log_to_console,
             get_cli_folder,
             pick_folder,
+            get_media_library_session_snapshot,
+            open_media_library_session,
+            close_media_library_session,
             start_scan,
             stop_scan,
             prioritize_queues,

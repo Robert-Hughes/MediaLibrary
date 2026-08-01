@@ -206,6 +206,26 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].recentFolders).toEqual([]);
   });
 
+  it("recovers an active Rust session snapshot on mount", async () => {
+    const mock = createMockTauriApi();
+    mock.setSessionSnapshot({
+      session_id: 42,
+      revision: 7,
+      lifecycle: "loaded",
+      folder: "/recovered",
+    });
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => {
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+    });
+
+    expect(result.current[0]).toMatchObject({
+      kind: "loading",
+      folder: "/recovered",
+    });
+  });
+
   it("loads recent folders from localStorage on mount", async () => {
     localStorage.setItem(
       "media_library_recent_folders",
@@ -1099,7 +1119,7 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
   });
 
-  it("closeFolder invokes stop_scan on the backend", async () => {
+  it("closeFolder invokes the Rust session close command", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1112,8 +1132,10 @@ describe("useMediaLibrary", () => {
       result.current[1].closeFolder();
     });
 
-    const stopCalls = mock.invocations.filter((c) => c.cmd === "stop_scan");
-    expect(stopCalls).toHaveLength(1);
+    const closeCalls = mock.invocations.filter(
+      (c) => c.cmd === "close_media_library_session",
+    );
+    expect(closeCalls).toHaveLength(1);
   });
 
   it("starting a new scan stops the old one and discards old events", async () => {
@@ -1142,12 +1164,12 @@ describe("useMediaLibrary", () => {
     });
     expect(mock.currentScanId).not.toBe(oldScanId);
 
-    // stop_scan must have been invoked before start_scan
+    // Rust opens a new authoritative session before its scan starts.
     const cmds = mock.invocations.map((c) => c.cmd);
-    const stopIdx = cmds.indexOf("stop_scan");
+    const openIdx = cmds.indexOf("open_media_library_session");
     const startIdx = cmds.indexOf("start_scan");
-    expect(stopIdx).toBeGreaterThanOrEqual(0);
-    expect(startIdx).toBeGreaterThan(stopIdx);
+    expect(openIdx).toBeGreaterThanOrEqual(0);
+    expect(startIdx).toBeGreaterThan(openIdx);
 
     // Late events from the previous scan must be ignored
     act(() => {

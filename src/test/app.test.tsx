@@ -10,6 +10,59 @@ import App from "../App";
 import { makeFile, mockOccurrences } from "./factories";
 import type { MetadataOccurrence } from "../types";
 
+type SessionSnapshot = {
+  session_id: number | null;
+  revision: number;
+  lifecycle: "idle" | "opening" | "loaded" | "closing";
+  folder: string | null;
+};
+
+let nextSessionId = 1;
+let sessionSnapshot: SessionSnapshot = {
+  session_id: null,
+  revision: 0,
+  lifecycle: "idle",
+  folder: null,
+};
+
+function resetSessionMock(): void {
+  nextSessionId = 1;
+  sessionSnapshot = {
+    session_id: null,
+    revision: 0,
+    lifecycle: "idle",
+    folder: null,
+  };
+}
+
+function handleSessionCommand(
+  cmd: string,
+  args?: unknown,
+): Promise<SessionSnapshot> | undefined {
+  if (cmd === "get_media_library_session_snapshot") {
+    return Promise.resolve({ ...sessionSnapshot });
+  }
+  if (cmd === "open_media_library_session") {
+    sessionSnapshot = {
+      session_id: nextSessionId++,
+      revision: sessionSnapshot.revision + 1,
+      lifecycle: "opening",
+      folder: (args as { folderPath: string }).folderPath,
+    };
+    return Promise.resolve({ ...sessionSnapshot });
+  }
+  if (cmd === "close_media_library_session") {
+    sessionSnapshot = {
+      session_id: null,
+      revision: sessionSnapshot.revision + 2,
+      lifecycle: "idle",
+      folder: null,
+    };
+    return Promise.resolve({ ...sessionSnapshot });
+  }
+  return undefined;
+}
+
 // Mock Tauri API
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -23,6 +76,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 describe("App schema preloading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSessionMock();
   });
 
   it("shows schema loading dialog before preload_schema resolves", async () => {
@@ -30,7 +84,9 @@ describe("App schema preloading", () => {
     const mockInvoke = vi.mocked(invoke);
 
     let resolvePreload!: () => void;
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "preload_schema") {
         return new Promise<void>((res) => {
           resolvePreload = res;
@@ -55,7 +111,9 @@ describe("App schema preloading", () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
 
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       return Promise.resolve(null);
@@ -79,7 +137,9 @@ describe("App schema preloading", () => {
 
     const backendError =
       "exiftool not found: No such file or directory (os error 2)";
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "preload_schema") return Promise.reject(backendError);
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       return Promise.resolve(null);
@@ -118,6 +178,7 @@ describe("App schema preloading", () => {
 describe("App CLI folder argument", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSessionMock();
   });
 
   it("opens folder from CLI argument on mount", async () => {
@@ -125,7 +186,9 @@ describe("App CLI folder argument", () => {
     const mockInvoke = vi.mocked(invoke);
 
     // Mock get_cli_folder to return a folder path
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "get_cli_folder") {
         return Promise.resolve("D:\\Files\\2024");
       }
@@ -166,7 +229,9 @@ describe("App CLI folder argument", () => {
     const mockInvoke = vi.mocked(invoke);
 
     // Mock get_cli_folder to return null (no CLI argument)
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "get_cli_folder") {
         return Promise.resolve(null);
       }
@@ -201,7 +266,9 @@ describe("App CLI folder argument", () => {
       .mockImplementation(() => {});
 
     // Mock get_cli_folder to throw an error
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "get_cli_folder") {
         return Promise.reject(new Error("Failed to get CLI folder"));
       }
@@ -230,7 +297,9 @@ describe("App CLI folder argument", () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
 
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "get_cli_folder") {
         return Promise.resolve("D:\\Files\\2024");
       }
@@ -270,6 +339,7 @@ describe("App CLI folder argument", () => {
 describe("App Select Columns metadata counts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSessionMock();
     localStorage.clear();
   });
 
@@ -297,6 +367,8 @@ describe("App Select Columns metadata counts", () => {
     };
 
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/files");
@@ -441,6 +513,8 @@ describe("App Select Columns metadata counts", () => {
     };
 
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/files");
@@ -588,6 +662,7 @@ describe("App Select Columns metadata counts", () => {
 describe("App occurrence wiring regression", () => {
   it("carries unique and identical-duplicate payloads through scan stores into Gallery details", async () => {
     vi.clearAllMocks();
+    resetSessionMock();
     localStorage.clear();
     localStorage.setItem("media_library_gallery_details_visible", "1");
     const { invoke } = await import("@tauri-apps/api/core");
@@ -606,7 +681,9 @@ describe("App occurrence wiring regression", () => {
     const emit = (event: string, payload: unknown) => {
       for (const handler of handlers[event] ?? []) handler({ payload });
     };
-    mockInvoke.mockImplementation((cmd: string) => {
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
       if (cmd === "preload_schema") return Promise.resolve();
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/files");
