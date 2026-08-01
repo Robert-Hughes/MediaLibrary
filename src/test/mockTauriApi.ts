@@ -13,6 +13,7 @@ import type {
   MetadataApplyFileResult,
   MetadataApplySummary,
   TagInfo,
+  MediaLibrarySessionSnapshot,
 } from "../types";
 import {
   targetDraftsFromWire,
@@ -57,6 +58,7 @@ export function createApplyEditsProgressGate(): MockApplyEditsProgressGate {
 export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
+  setSessionSnapshot: (snapshot: MediaLibrarySessionSnapshot) => void;
   // Models the sole target-aware draft persistence file.
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
   emitFileFound: (file: FileInfo, scanId?: number) => void;
@@ -231,11 +233,27 @@ export interface MockTauriApi {
 export function createMockTauriApi(): MockTauriApi {
   let nextFolder: string | null = null;
   const handlers: Record<string, EventHandler[]> = {};
+  let nextSessionId = 1;
+  let sessionSnapshot: MediaLibrarySessionSnapshot = {
+    session_id: null,
+    revision: 0,
+    lifecycle: "idle",
+    folder: null,
+  };
+  let recoverySnapshot = { ...sessionSnapshot };
 
   const mock: MockTauriApi = {
     api: null as unknown as TauriApi,
     pickFolderResolves: (path) => {
       nextFolder = path;
+    },
+    setSessionSnapshot: (snapshot) => {
+      sessionSnapshot = { ...snapshot };
+      recoverySnapshot = { ...snapshot };
+      if (snapshot.session_id !== null) {
+        nextSessionId = Math.max(nextSessionId, snapshot.session_id + 1);
+        mock.currentScanId = snapshot.session_id;
+      }
     },
     foundPaths: new Set(),
     emitFileFound: (file, scanId) => {
@@ -405,11 +423,41 @@ export function createMockTauriApi(): MockTauriApi {
       mock.invocations.push({ cmd, args });
       if (cmd === "pick_folder") return nextFolder;
       if (cmd === "get_cli_folder") return null;
+      if (cmd === "get_media_library_session_snapshot") {
+        return { ...recoverySnapshot };
+      }
+      if (cmd === "open_media_library_session") {
+        sessionSnapshot = {
+          session_id: nextSessionId++,
+          revision: sessionSnapshot.revision + 1,
+          lifecycle: "opening",
+          folder: args?.folderPath as string,
+        };
+        return { ...sessionSnapshot };
+      }
       if (cmd === "start_scan") {
-        // The frontend now generates the scanId and passes it in args
-        mock.currentScanId = (args?.scanId as number) ?? mock.currentScanId + 1;
+        mock.currentScanId = args?.scanId as number;
         mock.foundPaths.clear();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          lifecycle: "loaded",
+        };
         return;
+      }
+      if (cmd === "close_media_library_session") {
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          lifecycle: "closing",
+        };
+        sessionSnapshot = {
+          session_id: null,
+          revision: sessionSnapshot.revision + 1,
+          lifecycle: "idle",
+          folder: null,
+        };
+        return { ...sessionSnapshot };
       }
       if (cmd === "stop_scan") {
         return;

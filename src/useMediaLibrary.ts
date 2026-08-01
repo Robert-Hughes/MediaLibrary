@@ -24,6 +24,7 @@ import type {
   MetadataTargetDraftEntry,
   TagInfo,
   RecycleFilesResult,
+  MediaLibrarySessionSnapshot,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
@@ -252,6 +253,7 @@ export function useMediaLibrary(
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
+  const sessionRevisionRef = useRef<number>(-1);
   // Monotonic frontend lifecycle identity. Unlike scan_id, this also changes
   // immediately when replacing or closing a scan and cannot collide when the
   // same folder is reopened within one clock tick.
@@ -286,6 +288,42 @@ export function useMediaLibrary(
   const applyIssuesRef = useRef<ApplyEditsFileIssue[]>([]);
   const activeApplyPromiseRef = useRef<Promise<MetadataApplyResult> | null>(
     null,
+  );
+
+  const applySessionSnapshot = useCallback(
+    (snapshot: MediaLibrarySessionSnapshot) => {
+      if (snapshot.lifecycle === "idle" && snapshot.revision === 0) return;
+      if (snapshot.revision <= sessionRevisionRef.current) return;
+      sessionRevisionRef.current = snapshot.revision;
+
+      if (snapshot.lifecycle === "idle") {
+        const hadActiveSession =
+          activeScanIdRef.current !== -1 || activeFolderRef.current !== null;
+        activeScanIdRef.current = -1;
+        activeFolderRef.current = null;
+        if (hadActiveSession) setAppState({ kind: "idle" });
+        return;
+      }
+      if (snapshot.session_id === null || snapshot.folder === null) return;
+
+      const isRecovery = activeScanIdRef.current === -1;
+      activeScanIdRef.current = snapshot.session_id;
+      activeFolderRef.current = snapshot.folder;
+      if (
+        isRecovery &&
+        (snapshot.lifecycle === "opening" || snapshot.lifecycle === "loaded")
+      ) {
+        const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
+        setAppState({
+          kind: "loading",
+          folder: snapshot.folder,
+          visibleColumns,
+          columnWidths,
+          sortConfig,
+        });
+      }
+    },
+    [],
   );
 
   const pushApplicationIssue = useCallback(
@@ -508,14 +546,16 @@ export function useMediaLibrary(
       // clearing stable stores so late controller events cannot cross folders.
       await cancelActiveApplyAndWait();
 
-      // Generate scan_id FIRST, before any cleanup, so we can accept events immediately
-      const scanId = Date.now();
-      console.debug(`[startScan] folder=${folder} scanId=${scanId}`);
+      const session = (await api.invoke("open_media_library_session", {
+        folderPath: folder,
+      })) as MediaLibrarySessionSnapshot;
+      if (session.session_id === null || session.folder !== folder) {
+        throw new Error("Rust opened an invalid media-library session");
+      }
+      const scanId = session.session_id;
+      console.debug(`[startScan] folder=${folder} sessionId=${scanId}`);
 
-      // Stop any existing scan before starting a new one.
-      await api.invoke("stop_scan").catch(() => {});
-
-      // Switch to new scan_id immediately — no gap where it's -1.
+      // The Rust session identity is also the scan identity used by streamed work.
       activeScanIdRef.current = scanId;
 
       // Clear all buffers + timers from any previous scan.
@@ -726,6 +766,11 @@ export function useMediaLibrary(
         resolve = r;
       });
 
+      const unlistenSession = await api.listen(
+        "media_library_session_changed",
+        (raw) => applySessionSnapshot(raw as MediaLibrarySessionSnapshot),
+      );
+
       const unlistenFound = await api.listen("file_found", (raw) => {
         if (cancelled) return;
         const { scan_id, files } = raw as FileFoundPayload;
@@ -907,6 +952,7 @@ export function useMediaLibrary(
       });
 
       unlisteners.push(
+        unlistenSession,
         unlistenFound,
         unlistenComplete,
         unlistenMetadata,
@@ -916,6 +962,11 @@ export function useMediaLibrary(
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
+      const initialSession = (await api.invoke(
+        "get_media_library_session_snapshot",
+      )) as MediaLibrarySessionSnapshot;
+      if (!cancelled) applySessionSnapshot(initialSession);
+
       console.debug("[setup] all listeners registered");
       resolve();
     };
@@ -925,7 +976,7 @@ export function useMediaLibrary(
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [api]);
+  }, [api, applySessionSnapshot]);
 
   const openFolder = useCallback(async () => {
     const folder = (await api.invoke("pick_folder")) as string | null;
@@ -977,7 +1028,11 @@ export function useMediaLibrary(
     fileMetadataOccurrencesStoreRef.current.clear();
 
     setAppState({ kind: "idle" });
-    api.invoke("stop_scan").catch(() => {});
+    api
+      .invoke("close_media_library_session")
+      .catch((error) =>
+        console.error("Failed to close media-library session", error),
+      );
     api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
   }, [api, cancelActiveApplyAndWait]);
 
