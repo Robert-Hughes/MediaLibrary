@@ -1,5 +1,5 @@
 /** App-level coverage for the sole target-aware metadata apply path. */
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -216,9 +216,10 @@ describe("target-aware progress and results", () => {
       "Cancelling",
     );
     act(() => gate.advance());
-    await waitFor(() =>
-      expect(screen.queryByTestId("apply-progress-dialog")).toBeNull(),
-    );
+    expect(await screen.findByTestId("apply-complete-summary")).toBeVisible();
+    expect(screen.getByText("Apply cancelled")).toBeVisible();
+    await user.click(screen.getByText("Close"));
+    expect(screen.queryByTestId("apply-progress-dialog")).toBeNull();
     expect(mockApiInstance.applyProgressEvents).toHaveLength(1);
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeVisible();
   });
@@ -285,9 +286,18 @@ describe("target-aware progress and results", () => {
       ),
     );
     act(() => gate.advance());
-    await waitFor(() =>
-      expect(screen.queryByTestId("apply-progress-dialog")).toBeNull(),
-    );
+    expect(
+      await screen.findByTestId("apply-complete-summary"),
+    ).toHaveTextContent("2 applied, 1 failed, 1 warning");
+    expect(screen.queryByTestId("apply-complete-details")).toBeNull();
+    await user.click(screen.getByText("Show details"));
+    const details = screen.getByTestId("apply-complete-details");
+    expect(within(details).getByText("failed.jpg")).toBeVisible();
+    expect(within(details).getByText("File write error")).toBeVisible();
+    expect(within(details).getByText("warning.jpg")).toBeVisible();
+    expect(within(details).getByText("ExifTool warning message")).toBeVisible();
+    await user.click(screen.getByText("Close"));
+    expect(screen.queryByTestId("apply-progress-dialog")).toBeNull();
     expect(screen.getByText(/File write error/)).toBeVisible();
     expect(screen.getByText(/ExifTool warning message/)).toBeVisible();
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeVisible();
@@ -324,9 +334,11 @@ describe("target-aware progress and results", () => {
     );
     const { user } = await openFolderWithFile();
     await user.click(screen.getByTestId("status-bar-apply-all-btn"));
-    expect(
-      await screen.findByTestId("target-verify-outcome-dialog"),
-    ).toBeVisible();
+    expect(await screen.findByTestId("apply-complete-summary")).toBeVisible();
+    expect(screen.queryByTestId("target-verify-outcome-dialog")).toBeNull();
+    expect(screen.queryByTestId("apply-verification-details")).toBeNull();
+    await user.click(screen.getByText("Show details"));
+    expect(screen.getByTestId("apply-verification-details")).toBeVisible();
     expect(screen.getByText("Mismatch")).toBeVisible();
   });
 });
