@@ -3153,6 +3153,57 @@ describe("useMediaLibrary", () => {
     ).toBe(false);
   });
 
+  it("stages captured GPS targets through the Rust command", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    const id = { table: "GPS::Main", tag_id: "2" };
+    const occurrence = occurrenceFor(id, 0);
+    await publishOccurrences(mock, "gps.jpg", [occurrence]);
+    const entry = {
+      target: {
+        kind: "ExistingOccurrence" as const,
+        occurrence_id: structuredClone(occurrence.id),
+        schema_id: structuredClone(occurrence.schema_id),
+        write_target: structuredClone(occurrence.write_target!),
+      },
+      edit: {
+        intent: "Set" as const,
+        value: { kind: "Real" as const, value: -0 },
+      },
+    };
+
+    let staged = false;
+    await act(async () => {
+      staged = await result.current[1].applyGpsTargetDraftBatch("gps.jpg", [
+        entry,
+      ]);
+    });
+    expect(staged).toBe(true);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "stage_media_library_session_gps_drafts",
+      ),
+    ).toHaveLength(1);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
+    ).toHaveLength(0);
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    const stored = Object.values(
+      state.targetDraftEditsStore.getMetadataFile("gps.jpg") ?? {},
+    );
+    expect(stored).toEqual([entry]);
+    const value = stored[0].edit.value;
+    expect(value?.kind).toBe("Real");
+    if (value?.kind === "Real") expect(Object.is(value.value, -0)).toBe(true);
+  });
+
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");

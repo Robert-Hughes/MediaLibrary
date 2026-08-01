@@ -887,6 +887,34 @@ export function createMockTauriApi(): MockTauriApi {
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
       }
+      if (cmd === "stage_media_library_session_gps_drafts") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const entries = args?.entries as MetadataTargetDraftEntry[];
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        for (const entry of entries) {
+          store.setMetadataTarget(relativePath, entry.target, entry.edit);
+        }
+        mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] =
+          store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
       if (cmd === "remove_media_library_session_metadata_field_from_files") {
         const sessionId = args?.sessionId as number;
         if (sessionId !== mock.currentScanId) throw new Error("stale session");
