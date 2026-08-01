@@ -1,7 +1,6 @@
 import type { TauriApi } from "../useMediaLibrary";
 import type {
   FileInfo,
-  ThumbnailReadyPayload,
   ScanErrorPayload,
   MetadataOccurrences,
   MetadataValue,
@@ -56,6 +55,7 @@ export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
   setSessionSnapshot: (snapshot: MediaLibrarySessionSnapshot) => void;
+  setThumbnailPayload: (cacheKey: string, thumbnail: string) => void;
   // Models the sole target-aware draft persistence file.
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
   emitFileFound: (file: FileInfo, scanId?: number) => void;
@@ -248,8 +248,11 @@ export function createMockTauriApi(): MockTauriApi {
     discovery_running: false,
     issues: [],
     metadata: [],
+    thumbnails: [],
   };
   let recoverySnapshot = { ...sessionSnapshot };
+  let nextThumbnailKey = 1;
+  const thumbnailPayloads = new Map<string, string>();
   let initialSnapshotServed = false;
 
   const mock: MockTauriApi = {
@@ -265,17 +268,23 @@ export function createMockTauriApi(): MockTauriApi {
         mock.currentScanId = snapshot.session_id;
       }
     },
+    setThumbnailPayload: (cacheKey, thumbnail) => {
+      thumbnailPayloads.set(cacheKey, thumbnail);
+    },
     foundPaths: new Set(),
     emitFileFound: (file, scanId) => {
       const sessionId = scanId ?? mock.currentScanId;
       if (sessionId === mock.currentScanId) {
-        mock.foundPaths.add(file.relative_path);
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           files: [...sessionSnapshot.files, file],
           metadata: [
             ...sessionSnapshot.metadata,
+            { relative_path: file.relative_path, state: { status: "loading" } },
+          ],
+          thumbnails: [
+            ...sessionSnapshot.thumbnails,
             { relative_path: file.relative_path, state: { status: "loading" } },
           ],
         };
@@ -369,11 +378,45 @@ export function createMockTauriApi(): MockTauriApi {
         entries,
       });
     },
-    emitThumbnailReady: (relative_path, thumbnail, scanId) =>
-      emit("thumbnail_ready", {
-        scan_id: scanId ?? mock.currentScanId,
-        results: [{ relative_path, thumbnail }],
-      } satisfies ThumbnailReadyPayload),
+    emitThumbnailReady: (relative_path, thumbnail, scanId) => {
+      const sessionId = scanId ?? mock.currentScanId;
+      if (sessionId !== mock.currentScanId) {
+        emit("media_library_session_thumbnails_changed", {
+          session_id: sessionId,
+          revision: sessionSnapshot.revision + 1,
+          entries: [],
+        });
+        return;
+      }
+      const existing = sessionSnapshot.thumbnails.find(
+        (entry) => entry.relative_path === relative_path,
+      );
+      if (!existing) return;
+      const state =
+        thumbnail === null
+          ? ({ status: "failed" } as const)
+          : (() => {
+              const cacheKey = `test-thumbnail-${nextThumbnailKey++}`;
+              thumbnailPayloads.set(cacheKey, thumbnail);
+              return { status: "ready" as const, cache_key: cacheKey };
+            })();
+      const entry = { relative_path, state };
+      sessionSnapshot = {
+        ...sessionSnapshot,
+        revision: sessionSnapshot.revision + 1,
+        thumbnails: [
+          ...sessionSnapshot.thumbnails.filter(
+            (item) => item.relative_path !== relative_path,
+          ),
+          entry,
+        ],
+      };
+      emit("media_library_session_thumbnails_changed", {
+        session_id: sessionId,
+        revision: sessionSnapshot.revision,
+        entries: [entry],
+      });
+    },
     emitScanError: (message, scanId) =>
       emit("scan_error", {
         scan_id: scanId ?? mock.currentScanId,
@@ -519,6 +562,14 @@ export function createMockTauriApi(): MockTauriApi {
         }
         return { ...sessionSnapshot };
       }
+      if (cmd === "get_media_library_thumbnails") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) return [];
+        return ((args?.cacheKeys as string[]) ?? []).flatMap((cache_key) => {
+          const thumbnail = thumbnailPayloads.get(cache_key);
+          return thumbnail === undefined ? [] : [{ cache_key, thumbnail }];
+        });
+      }
       if (cmd === "open_media_library_session") {
         sessionSnapshot = {
           session_id: nextSessionId++,
@@ -529,6 +580,7 @@ export function createMockTauriApi(): MockTauriApi {
           discovery_running: false,
           issues: [],
           metadata: [],
+          thumbnails: [],
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
@@ -543,6 +595,7 @@ export function createMockTauriApi(): MockTauriApi {
           discovery_running: true,
           issues: [],
           metadata: [],
+          thumbnails: [],
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return;
@@ -574,6 +627,7 @@ export function createMockTauriApi(): MockTauriApi {
           discovery_running: false,
           issues: [],
           metadata: [],
+          thumbnails: [],
         };
         return { ...sessionSnapshot };
       }
@@ -608,6 +662,9 @@ export function createMockTauriApi(): MockTauriApi {
               (file) => !recycled.has(file.relative_path),
             ),
             metadata: sessionSnapshot.metadata.filter(
+              (entry) => !recycled.has(entry.relative_path),
+            ),
+            thumbnails: sessionSnapshot.thumbnails.filter(
               (entry) => !recycled.has(entry.relative_path),
             ),
           };

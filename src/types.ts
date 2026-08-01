@@ -78,6 +78,10 @@ export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrar
 export type { MediaLibrarySessionSnapshot } from "./types/generated/MediaLibrarySessionSnapshot";
 export type { MediaLibrarySessionFilesAdded } from "./types/generated/MediaLibrarySessionFilesAdded";
 export type { MediaLibrarySessionIssue } from "./types/generated/MediaLibrarySessionIssue";
+export type { MediaLibrarySessionFileThumbnail } from "./types/generated/MediaLibrarySessionFileThumbnail";
+export type { MediaLibrarySessionThumbnailState } from "./types/generated/MediaLibrarySessionThumbnailState";
+export type { MediaLibrarySessionThumbnailsChanged } from "./types/generated/MediaLibrarySessionThumbnailsChanged";
+export type { MediaLibraryThumbnailPayload } from "./types/generated/MediaLibraryThumbnailPayload";
 export type { MediaLibrarySessionFileMetadata } from "./types/generated/MediaLibrarySessionFileMetadata";
 export type { MediaLibrarySessionMetadataChanged } from "./types/generated/MediaLibrarySessionMetadataChanged";
 export type { MediaLibrarySessionMetadataState } from "./types/generated/MediaLibrarySessionMetadataState";

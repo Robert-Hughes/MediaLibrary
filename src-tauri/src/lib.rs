@@ -193,12 +193,6 @@ struct ScanErrorPayload {
 }
 
 #[derive(Clone, Serialize)]
-struct ThumbnailReadyPayload {
-    scan_id: u64,
-    results: Vec<ThumbnailResult>,
-}
-
-#[derive(Clone, Serialize)]
 struct ThumbnailResult {
     relative_path: String,
     thumbnail: Option<String>,
@@ -252,6 +246,36 @@ fn commit_session_metadata(app: &AppHandle, session_id: u64, results: Vec<scanne
         }
         Err(error) => log::debug!("[session-metadata] discarded stale results: {error}"),
     }
+}
+
+fn commit_session_thumbnails(app: &AppHandle, session_id: u64, results: Vec<ThumbnailResult>) {
+    let results = results
+        .into_iter()
+        .map(|result| (result.relative_path, result.thumbnail))
+        .collect();
+    match app
+        .state::<session::MediaLibrarySessionState>()
+        .commit_thumbnail_results(session_id, results)
+    {
+        Ok(delta) => {
+            if delta.entries.is_empty() {
+                return;
+            }
+            if let Err(error) = app.emit(session::SESSION_THUMBNAILS_CHANGED_EVENT, delta) {
+                log::error!("[session-thumbnails] failed to emit delta: {error}");
+            }
+        }
+        Err(error) => log::debug!("[session-thumbnails] discarded stale results: {error}"),
+    }
+}
+
+#[tauri::command]
+fn get_media_library_thumbnails(
+    session_id: u64,
+    cache_keys: Vec<String>,
+    session: State<'_, session::MediaLibrarySessionState>,
+) -> Result<Vec<session::MediaLibraryThumbnailPayload>, String> {
+    session.thumbnail_payloads(session_id, &cache_keys)
 }
 
 fn record_session_issue(
@@ -550,24 +574,16 @@ fn start_scan(
                         Ok(result) => batch.push(result),
                         Err(mpsc::RecvTimeoutError::Timeout) => {
                             if !batch.is_empty() {
-                                let _ = app.emit(
-                                    "thumbnail_ready",
-                                    ThumbnailReadyPayload {
-                                        scan_id,
-                                        results: std::mem::take(&mut batch),
-                                    },
+                                commit_session_thumbnails(
+                                    &app,
+                                    scan_id,
+                                    std::mem::take(&mut batch),
                                 );
                             }
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
                             if !batch.is_empty() {
-                                let _ = app.emit(
-                                    "thumbnail_ready",
-                                    ThumbnailReadyPayload {
-                                        scan_id,
-                                        results: batch,
-                                    },
-                                );
+                                commit_session_thumbnails(&app, scan_id, batch);
                             }
                             break;
                         }
@@ -1446,6 +1462,7 @@ pub fn run() {
             get_cli_folder,
             pick_folder,
             get_media_library_session_snapshot,
+            get_media_library_thumbnails,
             dismiss_media_library_session_issue,
             open_media_library_session,
             close_media_library_session,

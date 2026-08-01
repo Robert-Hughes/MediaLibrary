@@ -6,7 +6,6 @@ import {
 } from "./types";
 import type {
   AppState,
-  ThumbnailReadyPayload,
   ScanErrorPayload,
   ApplicationErrorPayload,
   ApplyEditsFileIssue,
@@ -24,6 +23,9 @@ import type {
   RecycleFilesResult,
   MediaLibrarySessionSnapshot,
   MediaLibrarySessionFilesAdded,
+  MediaLibrarySessionFileThumbnail,
+  MediaLibrarySessionThumbnailsChanged,
+  MediaLibraryThumbnailPayload,
   MediaLibrarySessionFileMetadata,
   MediaLibrarySessionMetadataChanged,
 } from "./types";
@@ -390,6 +392,44 @@ export function useMediaLibrary(
     [],
   );
 
+  const projectSessionThumbnails = useCallback(
+    async (
+      sessionId: number,
+      entries: MediaLibrarySessionFileThumbnail[],
+    ): Promise<void> => {
+      const ready = new Map<string, string>();
+      for (const entry of entries) {
+        thumbnailStoreRef.current.add(entry.relative_path);
+        if (entry.state.status === "loading") continue;
+        if (entry.state.status === "failed") {
+          thumbnailStoreRef.current.set(entry.relative_path, "failed");
+          continue;
+        }
+        thumbnailStoreRef.current.set(entry.relative_path, "loading");
+        ready.set(entry.state.cache_key, entry.relative_path);
+      }
+      if (ready.size === 0) return;
+      const payloads = (await api.invoke("get_media_library_thumbnails", {
+        sessionId,
+        cacheKeys: [...ready.keys()],
+      })) as MediaLibraryThumbnailPayload[];
+      if (activeScanIdRef.current !== sessionId) return;
+      const received = new Set<string>();
+      for (const payload of payloads) {
+        const relativePath = ready.get(payload.cache_key);
+        if (!relativePath) continue;
+        received.add(payload.cache_key);
+        thumbnailStoreRef.current.set(relativePath, payload.thumbnail);
+      }
+      for (const [cacheKey, relativePath] of ready) {
+        if (!received.has(cacheKey)) {
+          thumbnailStoreRef.current.set(relativePath, "failed");
+        }
+      }
+    },
+    [api],
+  );
+
   const applySessionSnapshot = useCallback(
     (snapshot: MediaLibrarySessionSnapshot) => {
       if (snapshot.lifecycle === "idle" && snapshot.revision === 0) return;
@@ -434,6 +474,10 @@ export function useMediaLibrary(
         if (rebuildMetadataProjection) {
           projectSessionMetadata(snapshot.metadata, true);
           metadataProgressStoreRef.current.setTotal(snapshot.files.length);
+          void projectSessionThumbnails(
+            snapshot.session_id,
+            snapshot.thumbnails,
+          );
         } else {
           for (const file of snapshot.files) {
             fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
@@ -545,7 +589,11 @@ export function useMediaLibrary(
         });
       }
     },
-    [loadedStateFromProjection, projectSessionMetadata],
+    [
+      loadedStateFromProjection,
+      projectSessionMetadata,
+      projectSessionThumbnails,
+    ],
   );
 
   const pushApplicationIssue = useCallback(
@@ -646,13 +694,6 @@ export function useMediaLibrary(
     null,
   );
   const isFirstMetadataFlushRef = useRef<boolean>(true);
-  const thumbnailBufferRef = useRef<
-    { relative_path: string; thumbnail: string | null }[]
-  >([]);
-  const thumbnailBatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const isFirstThumbnailFlushRef = useRef<boolean>(true);
 
   // Construct the sole production target-aware controller after mount. Its dependency
   // stores keep stable identity for the complete hook lifetime.
@@ -786,15 +827,9 @@ export function useMediaLibrary(
       metadataBufferRef.current = [];
       metadataCompletedPathsRef.current.clear();
       scanMetadataSupersededPathsRef.current.clear();
-      thumbnailBufferRef.current = [];
       isFirstFlushRef.current = true;
       isFirstMetadataFlushRef.current = true;
-      isFirstThumbnailFlushRef.current = true;
-      for (const t of [
-        batchTimerRef,
-        metadataBatchTimerRef,
-        thumbnailBatchTimerRef,
-      ]) {
+      for (const t of [batchTimerRef, metadataBatchTimerRef]) {
         if (t.current) {
           clearTimeout(t.current);
           t.current = null;
@@ -935,27 +970,6 @@ export function useMediaLibrary(
       });
     };
 
-    // Flush thumbnail batch - updates ThumbnailStore without triggering
-    // unnecessary React state updates (the store handles per-row reactivity)
-    const flushThumbnailBatch = () => {
-      const startedAt = frontendNow();
-      const batch = [...thumbnailBufferRef.current];
-      thumbnailBufferRef.current = [];
-      if (batch.length > 0)
-        console.debug(`[thumbnail] flushing ${batch.length} results`);
-
-      for (const res of batch) {
-        thumbnailStoreRef.current.set(
-          res.relative_path,
-          res.thumbnail === null ? "failed" : res.thumbnail,
-        );
-      }
-      // No React state update needed - useSyncExternalStore handles per-row updates
-      logSlowFrontendOperation("scan-thumbnail-flush", startedAt, {
-        items: batch.length,
-      });
-    };
-
     const setup = async () => {
       // Create a new pending latch for this setup cycle; startScan awaits it.
       let resolve!: () => void;
@@ -1002,11 +1016,7 @@ export function useMediaLibrary(
         console.debug(`[scan_complete] scan_id=${scan_id}`);
 
         // Clear all batch timers and flush remaining batches
-        for (const t of [
-          batchTimerRef,
-          metadataBatchTimerRef,
-          thumbnailBatchTimerRef,
-        ]) {
+        for (const t of [batchTimerRef, metadataBatchTimerRef]) {
           if (t.current) {
             clearTimeout(t.current);
             t.current = null;
@@ -1015,7 +1025,6 @@ export function useMediaLibrary(
 
         flushBatch();
         flushMetadataBatch();
-        flushThumbnailBatch();
       });
 
       const unlistenMetadata = await api.listen(
@@ -1052,21 +1061,24 @@ export function useMediaLibrary(
         },
       );
 
-      const unlistenThumbnail = await api.listen("thumbnail_ready", (raw) => {
-        if (cancelled) return;
-        const { scan_id, results } = raw as ThumbnailReadyPayload;
-        if (scan_id !== activeScanIdRef.current) return;
-        console.debug(`[thumbnail] received ${results.length} results`);
-
-        thumbnailBufferRef.current.push(...results);
-        scheduleBatchedFlush(
-          thumbnailBufferRef.current.length,
-          thumbnailBatchTimerRef,
-          isFirstThumbnailFlushRef,
-          flushThumbnailBatch,
-          200,
-        );
-      });
+      const unlistenThumbnail = await api.listen(
+        "media_library_session_thumbnails_changed",
+        async (raw) => {
+          if (cancelled) return;
+          const delta = raw as MediaLibrarySessionThumbnailsChanged;
+          if (delta.session_id !== activeScanIdRef.current) return;
+          if (delta.revision <= sessionRevisionRef.current) return;
+          if (delta.revision !== sessionRevisionRef.current + 1) {
+            const snapshot = (await api.invoke(
+              "get_media_library_session_snapshot",
+            )) as MediaLibrarySessionSnapshot;
+            if (!cancelled) applySessionSnapshot(snapshot);
+            return;
+          }
+          sessionRevisionRef.current = delta.revision;
+          await projectSessionThumbnails(delta.session_id, delta.entries);
+        },
+      );
 
       const unlistenError = await api.listen("scan_error", (raw) => {
         if (cancelled) return;
@@ -1131,6 +1143,7 @@ export function useMediaLibrary(
     applySessionSnapshot,
     loadedStateFromProjection,
     projectSessionMetadata,
+    projectSessionThumbnails,
   ]);
 
   const openFolder = useCallback(async () => {
@@ -1162,11 +1175,7 @@ export function useMediaLibrary(
     // Cancel any pending batch flushes — they would still safely no-op against
     // the idle state, but leaving timers running keeps closures alive past
     // the scan they belong to and adds noise on next render.
-    for (const t of [
-      batchTimerRef,
-      metadataBatchTimerRef,
-      thumbnailBatchTimerRef,
-    ]) {
+    for (const t of [batchTimerRef, metadataBatchTimerRef]) {
       if (t.current) {
         clearTimeout(t.current);
         t.current = null;
@@ -1177,7 +1186,6 @@ export function useMediaLibrary(
     fileBufferRef.current = [];
     metadataBufferRef.current = [];
     metadataCompletedPathsRef.current.clear();
-    thumbnailBufferRef.current = [];
     targetDraftEditsStoreRef.current.resetMetadata({});
     targetVerifyOutcomesStoreRef.current.clear();
     fileMetadataOccurrencesStoreRef.current.clear();
@@ -1243,9 +1251,6 @@ export function useMediaLibrary(
       const successfulSet = new Set(successful);
       if (successful.length > 0) {
         metadataBufferRef.current = metadataBufferRef.current.filter(
-          (item) => !successfulSet.has(item.relative_path),
-        );
-        thumbnailBufferRef.current = thumbnailBufferRef.current.filter(
           (item) => !successfulSet.has(item.relative_path),
         );
 

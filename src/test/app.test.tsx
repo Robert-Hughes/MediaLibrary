@@ -25,6 +25,7 @@ type SessionSnapshot = {
     affected_files: string[];
   }>;
   metadata: Array<{ relative_path: string; state: unknown }>;
+  thumbnails: Array<{ relative_path: string; state: unknown }>;
 };
 let nextSessionId = 1;
 let sessionSnapshot: SessionSnapshot = {
@@ -36,8 +37,8 @@ let sessionSnapshot: SessionSnapshot = {
   discovery_running: false,
   issues: [],
   metadata: [],
+  thumbnails: [],
 };
-
 function resetSessionMock(): void {
   nextSessionId = 1;
   sessionSnapshot = {
@@ -49,6 +50,7 @@ function resetSessionMock(): void {
     discovery_running: false,
     issues: [],
     metadata: [],
+    thumbnails: [],
   };
 }
 
@@ -130,6 +132,7 @@ function handleSessionCommand(
       discovery_running: false,
       issues: [],
       metadata: [],
+      thumbnails: [],
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -143,6 +146,7 @@ function handleSessionCommand(
       discovery_running: false,
       issues: [],
       metadata: [],
+      thumbnails: [],
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
