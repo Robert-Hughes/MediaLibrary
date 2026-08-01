@@ -3204,6 +3204,71 @@ describe("useMediaLibrary", () => {
     if (value?.kind === "Real") expect(Object.is(value.value, -0)).toBe(true);
   });
 
+  it("routes reverse-geocode staging through Rust and cancels a staged creation on Delete", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const schemaId: SchemaDefinitionId = {
+      table: "UserDefined::mlib",
+      tag_id: "ReverseGeocodeJSONv2",
+    };
+    mock.tagInfos.push({
+      id: schemaId,
+      group0: "XMP",
+      group: "XMP-mlib",
+      name: "ReverseGeocodeJSONv2",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+    await publishOccurrences(mock, "geo.jpg", []);
+
+    let staged;
+    await act(async () => {
+      staged = await result.current[1].applyGeneratedMetadataDraftBatch(
+        "geo.jpg",
+        { kind: "geocode" },
+        [
+          {
+            schema_id: schemaId,
+            edit: {
+              intent: "Set",
+              value: { kind: "Text", value: "generated" },
+            },
+          },
+        ],
+      );
+    });
+    expect(staged).toEqual({ kind: "success", changed: true });
+
+    let cancelled;
+    await act(async () => {
+      cancelled = await result.current[1].applyGeneratedMetadataDraftBatch(
+        "geo.jpg",
+        { kind: "geocode" },
+        [{ schema_id: schemaId, edit: { intent: "Delete", value: null } }],
+      );
+    });
+    expect(cancelled).toEqual({ kind: "success", changed: true });
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "stage_media_library_session_geocode_drafts",
+      ),
+    ).toHaveLength(2);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+      ),
+    ).toHaveLength(0);
+    const state = result.current[0];
+    if (state.kind !== "loaded") throw new Error("expected loaded state");
+    expect(
+      state.targetDraftEditsStore.getMetadataFile("geo.jpg"),
+    ).toBeUndefined();
+  });
+
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");
