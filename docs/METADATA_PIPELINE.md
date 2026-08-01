@@ -77,12 +77,8 @@ folder is strict: a malformed row blocks draft mutation and apply and does not
 fall back. Autosave validates and writes only changed rows in one transaction;
 it never reads or serialises the complete draft collection.
 
-On first use, a version-6 `MediaLibraryTargetDraftEdits.jsonl` snapshot is
-imported transactionally and retained as
-`MediaLibraryTargetDraftEdits.migrated.jsonl`.
-
-The historical `MediaLibraryDraftEdits.jsonl` file is ignored, not migrated,
-and never touched.
+Historical JSONL draft files are ignored and never touched. SQLite is the only
+active draft store and there is no runtime import or fallback path.
 
 ## Apply controller and backend
 

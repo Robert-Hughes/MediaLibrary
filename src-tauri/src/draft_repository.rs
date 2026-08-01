@@ -5,9 +5,8 @@
 //! validation, reconciliation, and writes stay scoped to the affected rows.
 
 use crate::draft_edits::{
-    canonical_root, frontend_relative_path, read_snapshot, resolve_photo_path, validate_slots,
+    canonical_root, frontend_relative_path, resolve_photo_path, validate_slots,
     DraftRepositoryState, MetadataTargetDraftEntry, MetadataTargetDraftsByFile,
-    TARGET_DRAFT_BACKUP_FILE_NAME, TARGET_DRAFT_FILE_NAME,
 };
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use sea_query::{ColumnDef, Expr, ExprTrait, Iden, OnConflict, Query, SqliteQueryBuilder, Table};
@@ -18,8 +17,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const DATABASE_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.sqlite3";
-const MIGRATED_DRAFT_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.migrated.jsonl";
-const MIGRATED_BACKUP_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.backup.migrated.jsonl";
 const DATABASE_SCHEMA_VERSION: i64 = 1;
 
 #[derive(Iden)]
@@ -121,7 +118,7 @@ fn insert_row(
         .map_err(|error| sqlite_error("Could not insert draft database row", error))
 }
 
-fn migrate_legacy_snapshot(connection: &mut Connection, app_data_dir: &Path) -> Result<(), String> {
+fn validate_schema_version(connection: &Connection) -> Result<(), String> {
     let current_version = connection
         .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
         .map_err(|error| sqlite_error("Could not read draft database schema version", error))?;
@@ -130,59 +127,21 @@ fn migrate_legacy_snapshot(connection: &mut Connection, app_data_dir: &Path) -> 
             "Unsupported future draft database schema version {current_version}; this build supports version {DATABASE_SCHEMA_VERSION}"
         ));
     }
-    if current_version == DATABASE_SCHEMA_VERSION {
-        archive_legacy_files(app_data_dir);
-        return Ok(());
+    if current_version == 0 {
+        connection
+            .pragma_update(None, "user_version", DATABASE_SCHEMA_VERSION)
+            .map_err(|error| sqlite_error("Could not set draft database schema version", error))?;
     }
-
-    let legacy_path = app_data_dir.join(TARGET_DRAFT_FILE_NAME);
-    let legacy_rows = read_snapshot(&legacy_path)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| sqlite_error("Could not start draft migration transaction", error))?;
-    for (photo_path, entries) in legacy_rows {
-        validate_slots(&photo_path.to_string_lossy(), &entries, None)?;
-        let entries_json = serde_json::to_string(&entries)
-            .map_err(|error| sqlite_error("Could not serialise migrated draft row", error))?;
-        insert_row(&transaction, &photo_path.to_string_lossy(), &entries_json)?;
-    }
-    transaction
-        .pragma_update(None, "user_version", DATABASE_SCHEMA_VERSION)
-        .map_err(|error| sqlite_error("Could not set draft database schema version", error))?;
-    transaction
-        .commit()
-        .map_err(|error| sqlite_error("Could not commit draft database migration", error))?;
-    archive_legacy_files(app_data_dir);
     Ok(())
-}
-
-fn archive_legacy_files(app_data_dir: &Path) {
-    for (source_name, destination_name) in [
-        (TARGET_DRAFT_FILE_NAME, MIGRATED_DRAFT_FILE_NAME),
-        (TARGET_DRAFT_BACKUP_FILE_NAME, MIGRATED_BACKUP_FILE_NAME),
-    ] {
-        let source = app_data_dir.join(source_name);
-        let destination = app_data_dir.join(destination_name);
-        if !source.exists() || destination.exists() {
-            continue;
-        }
-        if let Err(error) = std::fs::rename(&source, &destination) {
-            log::warn!(
-                "[draft_repository] Could not archive migrated draft file {} to {}: {error}",
-                source.display(),
-                destination.display()
-            );
-        }
-    }
 }
 
 fn open_repository(app_data_dir: &Path) -> Result<Connection, String> {
     std::fs::create_dir_all(app_data_dir).map_err(|error| error.to_string())?;
-    let mut connection = Connection::open(database_path(app_data_dir))
+    let connection = Connection::open(database_path(app_data_dir))
         .map_err(|error| sqlite_error("Could not open draft database", error))?;
     configure_connection(&connection)?;
     create_schema(&connection)?;
-    migrate_legacy_snapshot(&mut connection, app_data_dir)?;
+    validate_schema_version(&connection)?;
     Ok(connection)
 }
 
@@ -526,6 +485,8 @@ mod tests {
     use crate::tag_schema::SchemaDefinitionId;
     use tempfile::tempdir;
 
+    const LEGACY_TARGET_DRAFT_FILE_NAME: &str = "MediaLibraryTargetDraftEdits.jsonl";
+
     fn entry(value: &str) -> MetadataTargetDraftEntry {
         MetadataTargetDraftEntry {
             target: MetadataDraftTarget::NewProperty {
@@ -744,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_jsonl_migrates_once_to_absolute_keyed_rows() {
+    fn legacy_jsonl_is_ignored_and_left_untouched() {
         let app_data = tempdir().unwrap();
         let library = tempdir().unwrap();
         create_library_file(library.path(), "a.jpg");
@@ -755,19 +716,22 @@ mod tests {
             "edits": [entry("legacy")],
         });
         std::fs::write(
-            app_data.path().join(TARGET_DRAFT_FILE_NAME),
+            app_data.path().join(LEGACY_TARGET_DRAFT_FILE_NAME),
             format!("// legacy\n{legacy}\n"),
         )
         .unwrap();
         let state = DraftRepositoryState::default();
 
+        let original = std::fs::read(app_data.path().join(LEGACY_TARGET_DRAFT_FILE_NAME)).unwrap();
         let loaded =
             load_metadata_draft_edits(app_data.path(), library.path().to_str().unwrap(), &state)
                 .unwrap();
 
-        assert_eq!(loaded["a.jpg"], vec![entry("legacy")]);
+        assert!(loaded.is_empty());
         assert!(database_file_path(app_data.path()).exists());
-        assert!(!app_data.path().join(TARGET_DRAFT_FILE_NAME).exists());
-        assert!(app_data.path().join(MIGRATED_DRAFT_FILE_NAME).exists());
+        assert_eq!(
+            std::fs::read(app_data.path().join(LEGACY_TARGET_DRAFT_FILE_NAME)).unwrap(),
+            original
+        );
     }
 }
