@@ -1,11 +1,13 @@
 use crate::metadata_occurrence::MetadataOccurrences;
 use crate::scanner::{FileInfo, FileMetadata};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 pub const SESSION_CHANGED_EVENT: &str = "media_library_session_changed";
 pub const SESSION_FILES_ADDED_EVENT: &str = "media_library_session_files_added";
+pub const SESSION_THUMBNAILS_CHANGED_EVENT: &str = "media_library_session_thumbnails_changed";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -32,6 +34,7 @@ pub struct MediaLibrarySessionSnapshot {
     pub discovery_running: bool,
     pub issues: Vec<MediaLibrarySessionIssue>,
     pub metadata: Vec<MediaLibrarySessionFileMetadata>,
+    pub thumbnails: Vec<MediaLibrarySessionFileThumbnail>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -63,6 +66,43 @@ pub struct MediaLibrarySessionMetadataChanged {
     pub entries: Vec<MediaLibrarySessionFileMetadata>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(tag = "status", rename_all = "kebab-case")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub enum MediaLibrarySessionThumbnailState {
+    Loading,
+    Ready { cache_key: String },
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionFileThumbnail {
+    pub relative_path: String,
+    pub state: MediaLibrarySessionThumbnailState,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionThumbnailsChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub entries: Vec<MediaLibrarySessionFileThumbnail>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibraryThumbnailPayload {
+    pub cache_key: String,
+    pub thumbnail: String,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
@@ -89,7 +129,9 @@ pub struct MediaLibrarySessionFilesAdded {
 pub struct MediaLibrarySessionState {
     next_session_id: AtomicU64,
     next_issue_id: AtomicU64,
+    next_thumbnail_version: AtomicU64,
     snapshot: Mutex<MediaLibrarySessionSnapshot>,
+    thumbnail_cache: Mutex<HashMap<String, String>>,
 }
 
 impl MediaLibrarySessionState {
@@ -97,6 +139,7 @@ impl MediaLibrarySessionState {
         Self {
             next_session_id: AtomicU64::new(1),
             next_issue_id: AtomicU64::new(1),
+            next_thumbnail_version: AtomicU64::new(1),
             snapshot: Mutex::new(MediaLibrarySessionSnapshot {
                 session_id: None,
                 revision: 0,
@@ -106,7 +149,9 @@ impl MediaLibrarySessionState {
                 discovery_running: false,
                 issues: Vec::new(),
                 metadata: Vec::new(),
+                thumbnails: Vec::new(),
             }),
+            thumbnail_cache: Mutex::new(HashMap::new()),
         }
     }
 
@@ -125,6 +170,8 @@ impl MediaLibrarySessionState {
         snapshot.discovery_running = false;
         snapshot.issues.clear();
         snapshot.metadata.clear();
+        snapshot.thumbnails.clear();
+        self.thumbnail_cache.lock().unwrap().clear();
         snapshot.clone()
     }
 
@@ -164,6 +211,12 @@ impl MediaLibrarySessionState {
             .extend(files.iter().map(|file| MediaLibrarySessionFileMetadata {
                 relative_path: file.relative_path.clone(),
                 state: MediaLibrarySessionMetadataState::Loading,
+            }));
+        snapshot
+            .thumbnails
+            .extend(files.iter().map(|file| MediaLibrarySessionFileThumbnail {
+                relative_path: file.relative_path.clone(),
+                state: MediaLibrarySessionThumbnailState::Loading,
             }));
         snapshot.files.extend(files.iter().cloned());
         Ok(MediaLibrarySessionFilesAdded {
@@ -211,6 +264,87 @@ impl MediaLibrarySessionState {
         })
     }
 
+    pub fn commit_thumbnail_results(
+        &self,
+        session_id: u64,
+        results: Vec<(String, Option<String>)>,
+    ) -> Result<MediaLibrarySessionThumbnailsChanged, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed during thumbnail generation".into());
+        }
+        let mut cache = self.thumbnail_cache.lock().unwrap();
+        let mut entries = Vec::with_capacity(results.len());
+        for (relative_path, thumbnail) in results {
+            let entry = snapshot
+                .thumbnails
+                .iter_mut()
+                .find(|entry| entry.relative_path == relative_path)
+                .ok_or_else(|| {
+                    format!("Thumbnail arrived for an undiscovered file: {relative_path}")
+                })?;
+            if let MediaLibrarySessionThumbnailState::Ready { cache_key } = &entry.state {
+                cache.remove(cache_key);
+            }
+            entry.state = match thumbnail {
+                Some(thumbnail) => {
+                    let version = self.next_thumbnail_version.fetch_add(1, Ordering::Relaxed);
+                    let cache_key = format!("{session_id}:{version}");
+                    cache.insert(cache_key.clone(), thumbnail);
+                    MediaLibrarySessionThumbnailState::Ready { cache_key }
+                }
+                None => MediaLibrarySessionThumbnailState::Failed,
+            };
+            entries.push(entry.clone());
+        }
+        if !entries.is_empty() {
+            snapshot.revision += 1;
+        }
+        Ok(MediaLibrarySessionThumbnailsChanged {
+            session_id,
+            revision: snapshot.revision,
+            entries,
+        })
+    }
+
+    pub fn thumbnail_payloads(
+        &self,
+        session_id: u64,
+        cache_keys: &[String],
+    ) -> Result<Vec<MediaLibraryThumbnailPayload>, String> {
+        let snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err(
+                "The media-library session changed before thumbnails were retrieved".into(),
+            );
+        }
+        let valid: std::collections::HashSet<&str> = snapshot
+            .thumbnails
+            .iter()
+            .filter_map(|entry| match &entry.state {
+                MediaLibrarySessionThumbnailState::Ready { cache_key } => Some(cache_key.as_str()),
+                _ => None,
+            })
+            .collect();
+        let cache = self.thumbnail_cache.lock().unwrap();
+        Ok(cache_keys
+            .iter()
+            .filter(|key| valid.contains(key.as_str()))
+            .filter_map(|key| {
+                cache
+                    .get(key)
+                    .map(|thumbnail| MediaLibraryThumbnailPayload {
+                        cache_key: key.clone(),
+                        thumbnail: thumbnail.clone(),
+                    })
+            })
+            .collect())
+    }
+
     pub fn remove_files(
         &self,
         session_id: u64,
@@ -226,13 +360,35 @@ impl MediaLibrarySessionState {
             relative_paths.iter().map(String::as_str).collect();
         let file_count = snapshot.files.len();
         let metadata_count = snapshot.metadata.len();
+        let thumbnail_count = snapshot.thumbnails.len();
+        let removed_cache_keys: Vec<String> = snapshot
+            .thumbnails
+            .iter()
+            .filter(|entry| paths.contains(entry.relative_path.as_str()))
+            .filter_map(|entry| match &entry.state {
+                MediaLibrarySessionThumbnailState::Ready { cache_key } => Some(cache_key.clone()),
+                _ => None,
+            })
+            .collect();
         snapshot
             .files
             .retain(|file| !paths.contains(file.relative_path.as_str()));
         snapshot
             .metadata
             .retain(|entry| !paths.contains(entry.relative_path.as_str()));
-        if snapshot.files.len() != file_count || snapshot.metadata.len() != metadata_count {
+        snapshot
+            .thumbnails
+            .retain(|entry| !paths.contains(entry.relative_path.as_str()));
+        if !removed_cache_keys.is_empty() {
+            let mut cache = self.thumbnail_cache.lock().unwrap();
+            for key in removed_cache_keys {
+                cache.remove(&key);
+            }
+        }
+        if snapshot.files.len() != file_count
+            || snapshot.metadata.len() != metadata_count
+            || snapshot.thumbnails.len() != thumbnail_count
+        {
             snapshot.revision += 1;
         }
         Ok(snapshot.clone())
@@ -332,6 +488,8 @@ impl MediaLibrarySessionState {
         snapshot.discovery_running = false;
         snapshot.issues.clear();
         snapshot.metadata.clear();
+        snapshot.thumbnails.clear();
+        self.thumbnail_cache.lock().unwrap().clear();
         snapshot.clone()
     }
 }
@@ -445,6 +603,31 @@ mod tests {
             .add_files(first.session_id.unwrap(), vec![test_file("stale.jpg")])
             .is_err());
         assert!(state.snapshot().files.is_empty());
+    }
+
+    #[test]
+    fn thumbnail_payloads_are_session_owned_and_recoverable_by_cache_key() {
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("a.jpg")])
+            .unwrap();
+        let delta = state
+            .commit_thumbnail_results(
+                session_id,
+                vec![("a.jpg".into(), Some("data:image/jpeg;base64,abc".into()))],
+            )
+            .unwrap();
+        let cache_key = match &delta.entries[0].state {
+            MediaLibrarySessionThumbnailState::Ready { cache_key } => cache_key.clone(),
+            _ => panic!("expected ready"),
+        };
+        assert_eq!(
+            state.thumbnail_payloads(session_id, &[cache_key]).unwrap()[0].thumbnail,
+            "data:image/jpeg;base64,abc"
+        );
     }
     #[test]
     fn removed_files_reject_late_metadata_results() {

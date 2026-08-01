@@ -207,6 +207,7 @@ describe("useMediaLibrary", () => {
   });
 
   it("recovers an active Rust session snapshot on mount", async () => {
+    vi.useRealTimers();
     const mock = createMockTauriApi();
     mock.setSessionSnapshot({
       session_id: 42,
@@ -217,7 +218,14 @@ describe("useMediaLibrary", () => {
       discovery_running: true,
       issues: [],
       metadata: [],
+      thumbnails: [
+        {
+          relative_path: "recovered.jpg",
+          state: { status: "ready", cache_key: "recovered-thumb" },
+        },
+      ],
     });
+    mock.setThumbnailPayload("recovered-thumb", "recovered-thumbnail-data");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => {
@@ -230,8 +238,20 @@ describe("useMediaLibrary", () => {
       files: [expect.objectContaining({ relative_path: "recovered.jpg" })],
       scanning: true,
     });
+    await act(async () => {
+      for (let index = 0; index < 20; index += 1) await Promise.resolve();
+    });
+    expect(
+      mock.invocations.some(
+        ({ cmd }) => cmd === "get_media_library_thumbnails",
+      ),
+    ).toBe(true);
+    const recovered = result.current[0];
+    if (recovered.kind !== "loaded") throw new Error("Expected loaded state");
+    expect(recovered.thumbnails.get("recovered.jpg")).toBe(
+      "recovered-thumbnail-data",
+    );
   });
-
   it("loads recent folders from localStorage on mount", async () => {
     localStorage.setItem(
       "media_library_recent_folders",
