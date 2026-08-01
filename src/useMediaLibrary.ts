@@ -63,10 +63,7 @@ import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSa
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import { validateGpsTargetDraftEntries } from "./gpsTargetDrafts";
-import {
-  planMetadataRemovalTargets,
-  planMetadataTargetRemovals,
-} from "./metadataRemovalTargets";
+import { planMetadataRemovalTargets } from "./metadataRemovalTargets";
 import {
   planGeneratedTargetDraftBatch,
   type GeneratedDraftStageResult,
@@ -1736,7 +1733,6 @@ export function useMediaLibrary(
     },
     [],
   );
-
   const removeMetadataTargets = useCallback(
     async (
       relativePath: string,
@@ -1744,27 +1740,16 @@ export function useMediaLibrary(
     ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const plan = planMetadataTargetRemovals({
-          targets,
-          occurrences:
-            fileMetadataOccurrencesStoreRef.current.get(relativePath),
-          targetDrafts:
-            targetDraftEditsStoreRef.current.getMetadataFile(relativePath),
-        });
-        const persisted = await persistExactDraftMutations(
-          [
-            {
-              path: relativePath,
-              upserts: plan.upserts.map(({ target, edit }) => ({
-                target: structuredClone(target),
-                edit: structuredClone(edit),
-              })),
-              deletes: plan.deletes.map((target) => structuredClone(target)),
-            },
-          ],
-          "metadata-target-remove-exact",
-        );
-        return persisted.success;
+        const snapshot = (await api.invoke(
+          "remove_media_library_session_metadata_targets",
+          {
+            sessionId: activeScanIdRef.current,
+            relativePath,
+            targets,
+          },
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
+        return true;
       } catch (error) {
         pushApplicationError("metadata-target-remove-exact", error, [
           relativePath,
@@ -1773,7 +1758,8 @@ export function useMediaLibrary(
       }
     },
     [
-      persistExactDraftMutations,
+      api,
+      applySessionSnapshot,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
     ],
