@@ -76,6 +76,8 @@ export type { PerGroupStats as NormalisePerGroupStats } from "./types/generated/
 export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
 export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrarySessionLifecycle";
 export type { MediaLibrarySessionSnapshot } from "./types/generated/MediaLibrarySessionSnapshot";
+export type { MediaLibraryApplyOperation } from "./types/generated/MediaLibraryApplyOperation";
+export type { MediaLibraryApplyOperationState } from "./types/generated/MediaLibraryApplyOperationState";
 export type { MediaLibrarySessionFilesAdded } from "./types/generated/MediaLibrarySessionFilesAdded";
 export type { MediaLibrarySessionIssue } from "./types/generated/MediaLibrarySessionIssue";
 export type { MediaLibrarySessionFileThumbnail } from "./types/generated/MediaLibrarySessionFileThumbnail";

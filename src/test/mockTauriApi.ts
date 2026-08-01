@@ -262,6 +262,7 @@ export function createMockTauriApi(): MockTauriApi {
     thumbnails: [],
     drafts: {},
     draft_persistence: { status: "ready" },
+    apply_operation: null,
   };
   let recoverySnapshot = { ...sessionSnapshot };
   let nextThumbnailKey = 1;
@@ -624,6 +625,7 @@ export function createMockTauriApi(): MockTauriApi {
                   mock.draftLoadFailuresByFolder[args?.folderPath as string],
               }
             : { status: "ready" },
+          apply_operation: null,
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
@@ -674,6 +676,7 @@ export function createMockTauriApi(): MockTauriApi {
           thumbnails: [],
           drafts: {},
           draft_persistence: { status: "ready" },
+          apply_operation: null,
         };
         return { ...sessionSnapshot };
       }
