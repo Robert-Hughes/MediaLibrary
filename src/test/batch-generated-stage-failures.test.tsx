@@ -93,7 +93,7 @@ describe("useBatchImageJob generated staging failures", () => {
       ["a.jpg", "b.jpg", "c.jpg"],
     );
 
-    act(() => {
+    await act(async () => {
       emit("stage_started", { total: 3 });
       emit("stage_progress", {
         current: 1,
@@ -129,6 +129,7 @@ describe("useBatchImageJob generated staging failures", () => {
         ],
         usageSummary: { count: 3 },
       });
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     expect(staged).toEqual(["b.jpg", "a.jpg"]);
@@ -153,7 +154,7 @@ describe("useBatchImageJob generated staging failures", () => {
         : { kind: "success", changed: true };
     });
 
-    act(() => {
+    await act(async () => {
       emit("stage_started", { total: 2 });
       emit("stage_progress", {
         current: 1,
@@ -176,10 +177,11 @@ describe("useBatchImageJob generated staging failures", () => {
         failed: [],
         usageSummary: { count: 2 },
       });
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
+    await waitFor(() => expect(hook.result.current.state.phase).toBe("done"));
     expect(staged).toEqual(["a.jpg", "b.jpg"]);
-    expect(hook.result.current.state.phase).toBe("done");
     expect(hook.result.current.state.succeeded).toEqual(["b.jpg"]);
     expect(hook.result.current.state.failures).toEqual([
       {
@@ -195,7 +197,7 @@ describe("useBatchImageJob generated staging failures", () => {
       () => ({ kind: "success", changed: false }),
       ["noop.jpg"],
     );
-    act(() => {
+    await act(async () => {
       emit("stage_progress", {
         current: 1,
         total: 1,
@@ -209,6 +211,7 @@ describe("useBatchImageJob generated staging failures", () => {
         failed: [],
         usageSummary: { count: 1 },
       });
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(hook.result.current.state.succeeded).toEqual(["noop.jpg"]);
     expect(hook.result.current.state.failures).toEqual([]);
@@ -218,7 +221,7 @@ describe("useBatchImageJob generated staging failures", () => {
     const hook = await startRun(() => {
       throw new Error("callback exploded");
     }, ["bad.jpg"]);
-    act(() => {
+    await act(async () => {
       const progress = {
         current: 1,
         total: 1,
@@ -234,7 +237,9 @@ describe("useBatchImageJob generated staging failures", () => {
         failed: [],
         usageSummary: { count: 1 },
       });
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+    await waitFor(() => expect(hook.result.current.state.phase).toBe("done"));
     expect(hook.result.current.state.succeeded).toEqual([]);
     expect(hook.result.current.state.failures).toEqual([
       {
@@ -254,7 +259,7 @@ describe("useBatchImageJob generated staging failures", () => {
           : { kind: "success", changed: true },
       ["file.jpg"],
     );
-    act(() => {
+    await act(async () => {
       emit("stage_progress", {
         current: 1,
         total: 1,
@@ -268,15 +273,18 @@ describe("useBatchImageJob generated staging failures", () => {
         failed: [],
         usageSummary: { count: 1 },
       });
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    expect(hook.result.current.state.failures).toHaveLength(1);
+    await waitFor(() =>
+      expect(hook.result.current.state.failures).toHaveLength(1),
+    );
 
     act(() => hook.result.current.actions.close());
     fail = false;
     act(() => hook.result.current.actions.start("/files", ["file.jpg"]));
     await waitFor(() => expect(hook.result.current.open).toBe(true));
     act(() => hook.result.current.actions.confirm());
-    act(() => {
+    await act(async () => {
       emit("stage_progress", {
         current: 1,
         total: 1,
@@ -290,6 +298,7 @@ describe("useBatchImageJob generated staging failures", () => {
         failed: [],
         usageSummary: { count: 1 },
       });
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(hook.result.current.state.failures).toEqual([]);
     expect(hook.result.current.state.succeeded).toEqual(["file.jpg"]);

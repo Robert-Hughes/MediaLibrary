@@ -39,7 +39,7 @@ interface Props {
   ) =>
     | { kind: "ready"; plan: BulkMetadataDraftPlan }
     | { kind: "blocked"; reason: string; relativePath?: string };
-  onStage: (request: BulkMetadataDraftRequest) => boolean;
+  onStage: (request: BulkMetadataDraftRequest) => boolean | Promise<boolean>;
   onClose: () => void;
 }
 
@@ -429,8 +429,8 @@ export function BulkMetadataEditorDialog({
               </button>
               <button
                 className="btn-primary"
-                onClick={() => {
-                  if (onStage(request)) onClose();
+                onClick={async () => {
+                  if (await onStage(request)) onClose();
                 }}
               >
                 Stage draft edits

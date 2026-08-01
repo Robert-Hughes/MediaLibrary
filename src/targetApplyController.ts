@@ -14,7 +14,6 @@ import {
   cancelTargetApply,
   type TargetApplyTauriApi,
 } from "./targetApplyTauri";
-import type { TargetDraftAutosaveGate } from "./targetDraftAutosaveGate";
 
 const STREAM_EVENT = "metadata_apply_stream";
 const MAX_RETAINED_CONTROLLER_ERRORS = 20;
@@ -29,7 +28,6 @@ type ProgressBatchMessage = Extract<
 export interface TargetApplyControllerDependencies {
   api: TargetApplyTauriApi;
   stores: TargetApplyResultStores;
-  autosaveGate: TargetDraftAutosaveGate;
 }
 
 export interface TargetApplyControllerProtocolError {
@@ -190,8 +188,6 @@ export class TargetApplyController {
     const progressApplicationErrors: TargetApplyControllerApplicationError[] =
       [];
     let acceptMessages = true;
-    let suspension: ReturnType<TargetDraftAutosaveGate["trySuspend"]> | null =
-      null;
     let lastSequence = 0;
     let streamCurrent = 0;
     let streamTotal: number | null = null;
@@ -289,7 +285,6 @@ export class TargetApplyController {
     };
 
     try {
-      suspension = this.dependencies.autosaveGate.trySuspend();
       this.setState({
         status: "running",
         total: null,
@@ -451,7 +446,6 @@ export class TargetApplyController {
     } finally {
       acceptMessages = false;
       retry = null;
-      suspension?.release();
       if (this.activeRunToken === runToken) this.activeRunToken = null;
       this.cancellationRequest = null;
       this.setState({ status: "idle" });

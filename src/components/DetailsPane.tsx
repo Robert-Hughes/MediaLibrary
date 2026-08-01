@@ -105,19 +105,25 @@ interface Props {
     target: ExistingOccurrenceTarget,
     edit: MetadataDraftEdit,
   ) => void;
-  onRemoveMetadataTargets?: (targets: MetadataDraftTarget[]) => boolean;
-  onApplyGpsTargetDraftBatch?: (entries: MetadataTargetDraftEntry[]) => boolean;
+  onRemoveMetadataTargets?: (
+    targets: MetadataDraftTarget[],
+  ) => boolean | Promise<boolean>;
+  onApplyGpsTargetDraftBatch?: (
+    entries: MetadataTargetDraftEntry[],
+  ) => boolean | Promise<boolean>;
   onSetNewPropertyDraft?: (
     target: NewPropertyTarget,
     edit: MetadataDraftEdit,
-  ) => Promise<boolean>;
+  ) => boolean | Promise<boolean>;
   onReplaceNewPropertyDraftTarget?: (
     originalTarget: NewPropertyTarget,
     replacementTarget: NewPropertyTarget,
     originalEdit: MetadataDraftEdit,
-  ) => Promise<boolean>;
+  ) => boolean | Promise<boolean>;
   onDiscardTargetPropertyDraft?: (target: MetadataDraftTarget) => void;
-  onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
+  onDiscardTargetDraftBatch?: (
+    targets: MetadataDraftTarget[],
+  ) => boolean | Promise<boolean>;
   onDiscardAllEdits?: () => void;
   onApplyEdits?: () => void;
   /**
@@ -352,8 +358,12 @@ function DetailsGroupContextMenu({
   targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceState;
   onEditGps?: (group: GpsTagGroup) => void;
-  onRemoveMetadataTargets?: (targets: MetadataDraftTarget[]) => boolean;
-  onDiscardTargetDraftBatch?: (targets: MetadataDraftTarget[]) => boolean;
+  onRemoveMetadataTargets?: (
+    targets: MetadataDraftTarget[],
+  ) => boolean | Promise<boolean>;
+  onDiscardTargetDraftBatch?: (
+    targets: MetadataDraftTarget[],
+  ) => boolean | Promise<boolean>;
   onBlocked: (message: string) => void;
   onClose: () => void;
 }) {
@@ -1690,8 +1700,9 @@ export function DetailsPane({
             for (const { id, edit } of edits) {
               if (schemaDefinitionIdEquals(id, newPropertyTarget.schema_id)) {
                 saves.push(
-                  onSetNewPropertyDraft?.(newPropertyTarget, edit) ??
-                    Promise.resolve(false),
+                  Promise.resolve(
+                    onSetNewPropertyDraft?.(newPropertyTarget, edit) ?? false,
+                  ),
                 );
                 continue;
               }
@@ -1702,8 +1713,9 @@ export function DetailsPane({
                   : null;
               if (resolution?.kind === "available") {
                 saves.push(
-                  onSetNewPropertyDraft?.(resolution.target, edit) ??
-                    Promise.resolve(false),
+                  Promise.resolve(
+                    onSetNewPropertyDraft?.(resolution.target, edit) ?? false,
+                  ),
                 );
               }
             }

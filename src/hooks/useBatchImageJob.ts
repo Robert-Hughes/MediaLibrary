@@ -206,13 +206,14 @@ export interface UseBatchImageJobOptions {
   onApplyEdits?: (
     relativePath: string,
     edits: import("../types").SchemaMetadataEdit[],
-  ) => GeneratedDraftStageResult;
-  /** Batch equivalent used by high-volume jobs to stage one store mutation. */
+  ) => GeneratedDraftStageResult | Promise<GeneratedDraftStageResult>;
+  /** Batch equivalent used by high-volume jobs to stage one durable mutation. */
   onApplyEditsBatch?: (
     items: readonly BatchDraftEdits[],
-  ) => readonly GeneratedDraftStageResult[];
+  ) =>
+    | readonly GeneratedDraftStageResult[]
+    | Promise<readonly GeneratedDraftStageResult[]>;
 }
-
 /**
  * Generic batch-image-job hook. See file-level doc-comment for shape.
  *
@@ -275,6 +276,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       const off = await listen<T>(evt, (e) => mounted && h(e.payload));
       unlisteners.push(off);
     };
+    let progressQueue = Promise.resolve();
 
     void (async () => {
       // Universal events — same shape across all batch jobs.
@@ -287,7 +289,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           currentFile: null,
         }));
       });
-      const handleProgress = (progress: readonly BatchJobProgress[]) => {
+      const handleProgress = async (progress: readonly BatchJobProgress[]) => {
         if (progress.length === 0) return;
         const stagingFailures = new Map<number, BatchJobFailure>();
         const candidates = progress
@@ -298,7 +300,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           try {
             const batchStage = onApplyEditsBatchRef.current;
             if (batchStage) {
-              const results = batchStage(
+              const results = await batchStage(
                 candidates.map(({ item }) => ({
                   relativePath: item.relativePath,
                   edits: item.edits!,
@@ -319,8 +321,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
                 });
               });
             } else {
-              candidates.forEach(({ item, index }) => {
-                const result = onApplyEditsRef.current?.(
+              for (const { item, index } of candidates) {
+                const result = await onApplyEditsRef.current?.(
                   item.relativePath,
                   item.edits!,
                 );
@@ -331,7 +333,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
                     detail: result.reason,
                   });
                 }
-              });
+              }
             }
           } catch (error) {
             const detail =
@@ -403,12 +405,18 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       if (config.batchedProgress) {
         await sub<{ results: BatchJobProgress[] }>(
           `${config.eventPrefix}_progress_batch`,
-          (payload) => handleProgress(payload.results),
+          (payload) => {
+            progressQueue = progressQueue.then(() =>
+              handleProgress(payload.results),
+            );
+          },
         );
       } else {
         await sub<BatchJobProgress>(
           `${config.eventPrefix}_progress`,
-          (payload) => handleProgress([payload]),
+          (payload) => {
+            progressQueue = progressQueue.then(() => handleProgress([payload]));
+          },
         );
       }
       await sub<{
@@ -420,51 +428,53 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         }>;
         usageSummary: unknown;
       }>(`${config.eventPrefix}_complete`, (p) => {
-        const parsed = config.parseSummaryPayload(p.usageSummary);
-        const frontendFailures = frontendStagingFailuresRef.current;
-        const frontendFailedPaths = new Set(
-          frontendFailures.map((failure) => failure.relativePath),
-        );
-        const merged: BatchJobFailure[] = [];
-        for (const failure of [...p.failed, ...frontendFailures]) {
-          if (
-            !merged.some(
-              (existing) =>
-                existing.relativePath === failure.relativePath &&
-                existing.kind === failure.kind &&
-                existing.detail === failure.detail,
-            )
-          ) {
-            merged.push(failure);
+        void progressQueue.then(() => {
+          const parsed = config.parseSummaryPayload(p.usageSummary);
+          const frontendFailures = frontendStagingFailuresRef.current;
+          const frontendFailedPaths = new Set(
+            frontendFailures.map((failure) => failure.relativePath),
+          );
+          const merged: BatchJobFailure[] = [];
+          for (const failure of [...p.failed, ...frontendFailures]) {
+            if (
+              !merged.some(
+                (existing) =>
+                  existing.relativePath === failure.relativePath &&
+                  existing.kind === failure.kind &&
+                  existing.detail === failure.detail,
+              )
+            ) {
+              merged.push(failure);
+            }
           }
-        }
-        const order = new Map(
-          runOrderRef.current.map((relativePath, index) => [
-            relativePath,
-            index,
-          ]),
-        );
-        merged.sort(
-          (left, right) =>
-            (order.get(left.relativePath) ?? Number.MAX_SAFE_INTEGER) -
-            (order.get(right.relativePath) ?? Number.MAX_SAFE_INTEGER),
-        );
-        const succeeded = p.succeeded.filter(
-          (relativePath) => !frontendFailedPaths.has(relativePath),
-        );
-        const summary =
-          config.reconcileSummaryPayload?.(parsed, {
+          const order = new Map(
+            runOrderRef.current.map((relativePath, index) => [
+              relativePath,
+              index,
+            ]),
+          );
+          merged.sort(
+            (left, right) =>
+              (order.get(left.relativePath) ?? Number.MAX_SAFE_INTEGER) -
+              (order.get(right.relativePath) ?? Number.MAX_SAFE_INTEGER),
+          );
+          const succeeded = p.succeeded.filter(
+            (relativePath) => !frontendFailedPaths.has(relativePath),
+          );
+          const summary =
+            config.reconcileSummaryPayload?.(parsed, {
+              succeeded,
+              failures: merged,
+            }) ?? parsed;
+          safeSetState((s) => ({
+            ...s,
+            phase: "done",
+            cancelling: false,
             succeeded,
             failures: merged,
-          }) ?? parsed;
-        safeSetState((s) => ({
-          ...s,
-          phase: "done",
-          cancelling: false,
-          succeeded,
-          failures: merged,
-          summary,
-        }));
+            summary,
+          }));
+        });
       });
 
       // Adapter-specific extras (e.g. describe estimate events).

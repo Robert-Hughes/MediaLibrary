@@ -224,17 +224,18 @@ impl MediaLibrarySessionState {
         Ok(snapshot.clone())
     }
 
-    pub fn commit_draft_row(
+    pub fn commit_draft_rows(
         &self,
         session_id: u64,
-        relative_path: String,
-        entries: Vec<MetadataTargetDraftEntry>,
+        rows: Vec<(String, Vec<MetadataTargetDraftEntry>)>,
     ) -> Result<MediaLibrarySessionSnapshot, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
         {
-            return Err("The media-library session changed before the draft was committed".into());
+            return Err(
+                "The media-library session changed before the drafts were committed".into(),
+            );
         }
         if !matches!(
             snapshot.draft_persistence,
@@ -242,13 +243,27 @@ impl MediaLibrarySessionState {
         ) {
             return Err("Draft persistence is not ready".into());
         }
+        if rows.is_empty() {
+            return Ok(snapshot.clone());
+        }
         snapshot.revision += 1;
-        if entries.is_empty() {
-            snapshot.drafts.remove(&relative_path);
-        } else {
-            snapshot.drafts.insert(relative_path, entries);
+        for (relative_path, entries) in rows {
+            if entries.is_empty() {
+                snapshot.drafts.remove(&relative_path);
+            } else {
+                snapshot.drafts.insert(relative_path, entries);
+            }
         }
         Ok(snapshot.clone())
+    }
+
+    pub fn commit_draft_row(
+        &self,
+        session_id: u64,
+        relative_path: String,
+        entries: Vec<MetadataTargetDraftEntry>,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        self.commit_draft_rows(session_id, vec![(relative_path, entries)])
     }
 
     pub fn mark_draft_save_failed(
@@ -499,6 +514,7 @@ impl MediaLibrarySessionState {
         let file_count = snapshot.files.len();
         let metadata_count = snapshot.metadata.len();
         let thumbnail_count = snapshot.thumbnails.len();
+        let draft_count = snapshot.drafts.len();
         let removed_cache_keys: Vec<String> = snapshot
             .thumbnails
             .iter()
@@ -517,6 +533,9 @@ impl MediaLibrarySessionState {
         snapshot
             .thumbnails
             .retain(|entry| !paths.contains(entry.relative_path.as_str()));
+        snapshot
+            .drafts
+            .retain(|path, _| !paths.contains(path.as_str()));
         if !removed_cache_keys.is_empty() {
             let mut cache = self.thumbnail_cache.lock().unwrap();
             for key in removed_cache_keys {
@@ -530,6 +549,7 @@ impl MediaLibrarySessionState {
         if snapshot.files.len() != file_count
             || snapshot.metadata.len() != metadata_count
             || snapshot.thumbnails.len() != thumbnail_count
+            || snapshot.drafts.len() != draft_count
         {
             snapshot.revision += 1;
         }

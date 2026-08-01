@@ -53,7 +53,7 @@ export interface UseDescribeImagesOptions {
   onApplyEdits?: (
     relativePath: string,
     edits: SchemaMetadataEdit[],
-  ) => GeneratedDraftStageResult;
+  ) => GeneratedDraftStageResult | Promise<GeneratedDraftStageResult>;
 }
 
 /**

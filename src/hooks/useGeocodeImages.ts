@@ -40,7 +40,7 @@ export interface UseGeocodeImagesOptions {
   onApplyEdits?: (
     relativePath: string,
     edits: SchemaMetadataEdit[],
-  ) => GeneratedDraftStageResult;
+  ) => GeneratedDraftStageResult | Promise<GeneratedDraftStageResult>;
 }
 
 /**

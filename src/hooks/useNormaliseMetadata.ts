@@ -71,14 +71,16 @@ export interface UseNormaliseMetadataOptions {
     relativePath: string,
     edits: SchemaMetadataEdit[],
     confirmedEnabledGroups: readonly NormaliseGroup[],
-  ) => GeneratedDraftStageResult;
+  ) => GeneratedDraftStageResult | Promise<GeneratedDraftStageResult>;
   onApplyEditsBatch?: (
     items: readonly {
       relativePath: string;
       edits: SchemaMetadataEdit[];
     }[],
     confirmedEnabledGroups: readonly NormaliseGroup[],
-  ) => readonly GeneratedDraftStageResult[];
+  ) =>
+    | readonly GeneratedDraftStageResult[]
+    | Promise<readonly GeneratedDraftStageResult[]>;
 }
 
 interface StartArgs {
