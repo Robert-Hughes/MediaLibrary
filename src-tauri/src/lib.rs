@@ -180,13 +180,6 @@ impl Default for ActiveQueues {
 
 // ── Event payloads ────────────────────────────────────────────────────────────
 
-/// Emitted in batches as the directory walk finds files.
-#[derive(Clone, Serialize)]
-struct FileFoundPayload {
-    scan_id: u64,
-    files: Vec<scanner::FileInfo>,
-}
-
 /// Emitted when the directory walk is complete (no payload needed).
 #[derive(Clone, Serialize)]
 struct ScanCompletePayload {
@@ -654,13 +647,17 @@ fn start_scan(
                     let batch = std::mem::take(&mut *queue);
                     drop(queue); // Release lock before emitting
 
-                    let _ = app_flush.emit(
-                        "file_found",
-                        FileFoundPayload {
-                            scan_id,
-                            files: batch,
-                        },
-                    );
+                    match app_flush
+                        .state::<session::MediaLibrarySessionState>()
+                        .add_files(scan_id, batch)
+                    {
+                        Ok(delta) => {
+                            let _ = app_flush.emit(session::SESSION_FILES_ADDED_EVENT, delta);
+                        }
+                        Err(error) => {
+                            log::debug!("[file-discovery] discarded stale batch: {error}")
+                        }
+                    }
                 } else {
                     drop(queue); // Release lock even if queue is empty
                 }
@@ -672,13 +669,17 @@ fn start_scan(
                     if !queue.is_empty() {
                         let batch = std::mem::take(&mut *queue);
                         drop(queue);
-                        let _ = app_flush.emit(
-                            "file_found",
-                            FileFoundPayload {
-                                scan_id,
-                                files: batch,
-                            },
-                        );
+                        match app_flush
+                            .state::<session::MediaLibrarySessionState>()
+                            .add_files(scan_id, batch)
+                        {
+                            Ok(delta) => {
+                                let _ = app_flush.emit(session::SESSION_FILES_ADDED_EVENT, delta);
+                            }
+                            Err(error) => {
+                                log::debug!("[file-discovery] discarded stale final batch: {error}")
+                            }
+                        }
                     }
                     break;
                 }
@@ -689,6 +690,12 @@ fn start_scan(
         walk_handle.join().unwrap();
         flush_handle.join().unwrap();
 
+        if let Ok(snapshot) = app_clone
+            .state::<session::MediaLibrarySessionState>()
+            .finish_discovery(scan_id)
+        {
+            let _ = emit_session_snapshot(&app_clone, &snapshot);
+        }
         let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
 
         // Clear running flag immediately so a new scan can start.

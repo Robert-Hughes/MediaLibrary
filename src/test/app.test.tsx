@@ -15,6 +15,8 @@ type SessionSnapshot = {
   revision: number;
   lifecycle: "idle" | "opening" | "loaded" | "closing";
   folder: string | null;
+  files: ReturnType<typeof makeFile>[];
+  discovery_running: boolean;
 };
 
 let nextSessionId = 1;
@@ -23,6 +25,8 @@ let sessionSnapshot: SessionSnapshot = {
   revision: 0,
   lifecycle: "idle",
   folder: null,
+  files: [],
+  discovery_running: false,
 };
 
 function resetSessionMock(): void {
@@ -32,6 +36,8 @@ function resetSessionMock(): void {
     revision: 0,
     lifecycle: "idle",
     folder: null,
+    files: [],
+    discovery_running: false,
   };
 }
 
@@ -48,6 +54,8 @@ function handleSessionCommand(
       revision: sessionSnapshot.revision + 1,
       lifecycle: "opening",
       folder: (args as { folderPath: string }).folderPath,
+      files: [],
+      discovery_running: false,
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -57,6 +65,8 @@ function handleSessionCommand(
       revision: sessionSnapshot.revision + 2,
       lifecycle: "idle",
       folder: null,
+      files: [],
+      discovery_running: false,
     };
     return Promise.resolve({ ...sessionSnapshot });
   }
@@ -447,8 +457,9 @@ describe("App Select Columns metadata counts", () => {
     });
 
     act(() => {
-      emit("file_found", {
-        scan_id: scanId,
+      emit("media_library_session_files_added", {
+        session_id: scanId,
+        revision: sessionSnapshot.revision + 2,
         files: [
           makeFile({ relative_path: "a.jpg" }),
           makeFile({ relative_path: "b.jpg" }),
@@ -574,8 +585,9 @@ describe("App Select Columns metadata counts", () => {
 
     // 1. Load/open a folder with two files.
     act(() => {
-      emit("file_found", {
-        scan_id: scanId,
+      emit("media_library_session_files_added", {
+        session_id: scanId,
+        revision: sessionSnapshot.revision + 2,
         files: [
           makeFile({ relative_path: "a.jpg" }),
           makeFile({ relative_path: "b.jpg" }),
@@ -713,8 +725,9 @@ describe("App occurrence wiring regression", () => {
       scanId = (call?.[1] as { scanId: number }).scanId;
     });
     act(() => {
-      emit("file_found", {
-        scan_id: scanId,
+      emit("media_library_session_files_added", {
+        session_id: scanId,
+        revision: sessionSnapshot.revision + 2,
         files: [
           makeFile({ relative_path: "unique.jpg" }),
           makeFile({ relative_path: "duplicate.jpg" }),
