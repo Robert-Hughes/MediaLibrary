@@ -553,7 +553,7 @@ function LoadedView({
       {(state.applying || state.applyCompletion) && (
         <ApplyProgressDialog
           applying={state.applying}
-          completion={state.applyCompletion}
+          completion={state.applyCompletion ?? null}
           onCancel={actions.cancelApplyEdits}
           onClose={actions.dismissApplyCompletion}
           verificationOutcomes={state.targetVerifyOutcomes}
