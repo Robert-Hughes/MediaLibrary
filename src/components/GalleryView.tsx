@@ -8,6 +8,7 @@ import type {
   FileMetadataOccurrencesStore,
   MetadataDraftTarget,
   MetadataTargetDraftEntry,
+  MetadataRemovalPreview,
   SchemaMetadataEdit,
   TargetDraftPersistenceState,
 } from "../types";
@@ -97,6 +98,10 @@ interface Props {
     fileRelativePath: string,
     targets: MetadataDraftTarget[],
   ) => boolean | Promise<boolean>;
+  onPreviewMetadataTargetRemovals?: (
+    fileRelativePath: string,
+    targets: MetadataDraftTarget[],
+  ) => Promise<MetadataRemovalPreview | null>;
   onPreviewGpsTargetDraftBatch?: (
     fileRelativePath: string,
     edits: SchemaMetadataEdit[],
@@ -150,6 +155,7 @@ export function GalleryView({
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
   onRemoveMetadataTargets,
+  onPreviewMetadataTargetRemovals,
   onPreviewGpsTargetDraftBatch,
   onApplyGpsTargetDraftBatch,
   onSetNewPropertyDraft,
@@ -561,6 +567,12 @@ export function GalleryView({
               }
               onRemoveMetadataTargets={(targets) =>
                 onRemoveMetadataTargets?.(file.relative_path, targets) ?? false
+              }
+              onPreviewMetadataTargetRemovals={(targets) =>
+                onPreviewMetadataTargetRemovals?.(
+                  file.relative_path,
+                  targets,
+                ) ?? Promise.resolve(null)
               }
               onPreviewGpsTargetDraftBatch={(edits) =>
                 onPreviewGpsTargetDraftBatch?.(file.relative_path, edits) ??

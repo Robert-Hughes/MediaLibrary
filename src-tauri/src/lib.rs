@@ -1495,6 +1495,70 @@ fn plan_exact_session_target_removals(
     Ok((planned != entries).then_some(planned))
 }
 
+fn preview_exact_session_target_removals(
+    entries: &[draft_edits::MetadataTargetDraftEntry],
+    targets: &[metadata_draft_target::MetadataDraftTarget],
+) -> Result<draft_edits::MetadataRemovalPreview, String> {
+    plan_exact_session_target_removals(entries, targets)?;
+    let delete_edit = draft_edits::MetadataDraftEdit {
+        value: None,
+        intent: draft_edits::EditIntent::Delete,
+    };
+    let mut existing_fields_to_delete = 0;
+    let mut staged_creations_to_cancel = 0;
+    let mut no_op_targets = 0;
+    for target in targets {
+        match target {
+            metadata_draft_target::MetadataDraftTarget::NewProperty { .. } => {
+                staged_creations_to_cancel += 1;
+            }
+            metadata_draft_target::MetadataDraftTarget::ExistingOccurrence { .. } => {
+                let owner = entries
+                    .iter()
+                    .find(|entry| entry.target.slot() == target.slot());
+                if owner.is_some_and(|entry| entry.edit == delete_edit) {
+                    no_op_targets += 1;
+                } else {
+                    existing_fields_to_delete += 1;
+                }
+            }
+        }
+    }
+    Ok(draft_edits::MetadataRemovalPreview {
+        existing_fields_to_delete,
+        staged_creations_to_cancel,
+        no_op_targets,
+        affected_count: existing_fields_to_delete + staged_creations_to_cancel,
+    })
+}
+
+#[tauri::command]
+fn preview_media_library_session_metadata_target_removals(
+    session_id: u64,
+    relative_path: String,
+    targets: Vec<metadata_draft_target::MetadataDraftTarget>,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<draft_edits::MetadataRemovalPreview, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err(
+            "The media-library session changed before metadata removal was previewed".into(),
+        );
+    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
+    for target in &targets {
+        validate_exact_session_draft_target(&snapshot, &relative_path, target)?;
+    }
+    let current_entries = snapshot
+        .drafts
+        .get(&relative_path)
+        .cloned()
+        .unwrap_or_default();
+    preview_exact_session_target_removals(&current_entries, &targets)
+}
+
 #[tauri::command]
 fn remove_media_library_session_metadata_targets(
     session_id: u64,
@@ -3093,6 +3157,27 @@ mod tests {
     }
 
     #[test]
+    fn exact_target_removal_preview_reports_authoritative_counts() {
+        let existing = command_target_existing("JPEG-APP1-IFD0", "IFD0");
+        let created = command_target_new();
+        let mut already_deleted = command_target_existing("JPEG-APP1-IFD1", "IFD1");
+        already_deleted.edit = draft_edits::MetadataDraftEdit {
+            intent: draft_edits::EditIntent::Delete,
+            value: None,
+        };
+        let preview = preview_exact_session_target_removals(
+            &[created.clone(), already_deleted.clone()],
+            &[existing.target, created.target, already_deleted.target],
+        )
+        .unwrap();
+
+        assert_eq!(preview.existing_fields_to_delete, 1);
+        assert_eq!(preview.staged_creations_to_cancel, 1);
+        assert_eq!(preview.no_op_targets, 1);
+        assert_eq!(preview.affected_count, 2);
+    }
+
+    #[test]
     fn exact_target_removal_rejects_duplicate_and_stale_slots_atomically() {
         let existing = command_target_existing("JPEG-APP1-IFD0", "IFD0");
         let duplicate_error = plan_exact_session_target_removals(
@@ -3642,6 +3727,7 @@ pub fn run() {
             resolve_media_library_session_verification_outcome,
             dismiss_media_library_session_verification_outcomes,
             replace_media_library_session_new_property_draft,
+            preview_media_library_session_metadata_target_removals,
             remove_media_library_session_metadata_targets,
             remove_media_library_session_metadata_field_from_files,
             remove_media_library_session_metadata_fields,

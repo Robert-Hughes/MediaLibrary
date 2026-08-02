@@ -1,25 +1,25 @@
-import type { TargetDraftCollection } from "./targetDraftEdits";
+import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   FileMetadataOccurrencesState,
   MetadataDraftTarget,
   SchemaDefinitionId,
   TargetDraftPersistenceState,
-} from "./types";
+} from "../types";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
-} from "./utils/metadataDraftTarget";
+} from "../utils/metadataDraftTarget";
 import {
   formatSchemaDefinitionIdForDiagnostics,
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
-} from "./utils/schemaDefinitionId";
+} from "../utils/schemaDefinitionId";
 import {
   findDuplicateMetadataOccurrenceId,
   resolveExactMetadataOccurrence,
-} from "./utils/metadataOccurrences";
-import { wireStructuralEqual } from "./utils/wireStructuralEquality";
+} from "../utils/metadataOccurrences";
+import { wireStructuralEqual } from "../utils/wireStructuralEquality";
 
 type ExistingOccurrenceTarget = Extract<
   MetadataDraftTarget,

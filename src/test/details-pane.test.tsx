@@ -2597,7 +2597,7 @@ describe("DetailsPane: Group context menu", () => {
     expect(discardTargets).not.toHaveBeenCalled();
   });
 
-  it("hides group Remove for an already staged exact Delete while retaining Discard", async () => {
+  it("lets the Rust preview classify an already staged exact Delete as a no-op", async () => {
     vi.resetModules();
     const { DetailsPane: FreshDetailsPane } =
       await import("../components/DetailsPane");
@@ -2615,13 +2615,21 @@ describe("DetailsPane: Group context menu", () => {
       value: null,
     });
 
+    const remove = vi.fn();
+    const preview = vi.fn(async () => ({
+      existingFieldsToDelete: 0,
+      stagedCreationsToCancel: 0,
+      noOpTargets: 1,
+      affectedCount: 0,
+    }));
     render(
       <FreshDetailsPane
         file={file}
 
         occurrences={occurrences}
         targetDraftEdits={targetStore.getMetadataFile("p.jpg")}
-        onRemoveMetadataTargets={vi.fn()}
+        onPreviewMetadataTargetRemovals={preview}
+        onRemoveMetadataTargets={remove}
         onDiscardTargetDraftBatch={vi.fn(() => true)}
       />,
     );
@@ -2633,7 +2641,9 @@ describe("DetailsPane: Group context menu", () => {
     expect(
       await screen.findByRole("button", { name: "Discard 1 XMP-dc edit…" }),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Remove/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Remove/ }));
+    await waitFor(() => expect(preview).toHaveBeenCalledWith([exactTarget]));
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("uses the complete group when the details search filters out some rows", async () => {

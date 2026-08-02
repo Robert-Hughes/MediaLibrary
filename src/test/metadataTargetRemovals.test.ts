@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MetadataTargetRemovalPlanError,
   planMetadataTargetRemovals,
-} from "../metadataRemovalTargets";
+} from "./backendMetadataRemovalPlanner";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
