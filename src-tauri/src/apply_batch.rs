@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tauri::{ipc::Channel, AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::apply_edits::{
     apply_single_file_metadata, execute_prepared_metadata_write, executed_relative_path,
@@ -483,13 +483,12 @@ impl TargetApplyLogger for RealTargetApplyLogger {
     }
 }
 
-struct TauriApplyEvents {
-    channel: Channel<MetadataApplyStreamMessage>,
+struct SessionApplyEvents {
     app: AppHandle,
     session_id: u64,
 }
 
-impl ApplyEvents for TauriApplyEvents {
+impl ApplyEvents for SessionApplyEvents {
     fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
         let snapshot = self
             .app
@@ -497,9 +496,6 @@ impl ApplyEvents for TauriApplyEvents {
             .update_apply_operation(self.session_id, message)?;
         self.app
             .emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
-            .map_err(|error| error.to_string())?;
-        self.channel
-            .send(message.clone())
             .map_err(|error| error.to_string())
     }
 }
@@ -514,7 +510,6 @@ pub fn run_apply_metadata_draft_edits_blocking(
     folder_path: String,
     relative_paths: Option<Vec<String>>,
     operation_id: String,
-    progress_channel: Channel<MetadataApplyStreamMessage>,
     app: AppHandle,
     cancel_flag: Arc<AtomicBool>,
     limits: MetadataApplyLimits,
@@ -526,8 +521,7 @@ pub fn run_apply_metadata_draft_edits_blocking(
         &RealSingleFileApply,
         &RealDraftReconciler,
         &RealTargetApplyLogger { app: app.clone() },
-        &TauriApplyEvents {
-            channel: progress_channel,
+        &SessionApplyEvents {
             app: app.clone(),
             session_id: app
                 .state::<crate::session::MediaLibrarySessionState>()

@@ -91,14 +91,19 @@ describe("Rust-authoritative application boundary", () => {
 
   it("does not retain a frontend apply state controller", () => {
     expect(productionSources).not.toHaveProperty("../targetApplyController.ts");
+    expect(productionSources).not.toHaveProperty("../targetApplyCommand.ts");
+    expect(productionSources).not.toHaveProperty("../targetApplyTauri.ts");
     expect(useMediaLibrary).toBeDefined();
-    expect(useMediaLibrary).toContain("runTargetApplyCommand");
-    expect(useMediaLibrary).toContain("cancelTargetApply");
+    expect(useMediaLibrary).toContain('"apply_metadata_draft_edits_cmd"');
+    expect(useMediaLibrary).toContain('"cancel_apply_edits"');
+    expect(useMediaLibrary).not.toContain("createChannel");
     expect(useMediaLibrary).not.toContain("TargetApplyController");
     expect(useMediaLibrary).not.toContain("applyActiveRef");
     expect(useMediaLibrary).not.toContain("activeApplyPromiseRef");
     expect(useMediaLibrary).not.toContain("onFileError:");
     expect(useMediaLibrary).not.toContain("onFileWarning:");
+    expect(rustLib).toContain("begin_new_apply_operation");
+    expect(rustLib).not.toContain("progress_channel:");
     expect(useMediaLibrary).toContain(
       '"dismiss_media_library_session_apply_operation"',
     );

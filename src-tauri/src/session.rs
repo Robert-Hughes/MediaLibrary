@@ -231,6 +231,7 @@ pub struct MediaLibrarySessionState {
     next_session_id: AtomicU64,
     next_issue_id: AtomicU64,
     next_thumbnail_version: AtomicU64,
+    next_apply_operation_id: AtomicU64,
     snapshot: Mutex<MediaLibrarySessionSnapshot>,
     thumbnail_cache: Mutex<HashMap<String, String>>,
     superseded_scan_metadata: Mutex<BTreeSet<String>>,
@@ -242,6 +243,7 @@ impl MediaLibrarySessionState {
             next_session_id: AtomicU64::new(1),
             next_issue_id: AtomicU64::new(1),
             next_thumbnail_version: AtomicU64::new(1),
+            next_apply_operation_id: AtomicU64::new(1),
             snapshot: Mutex::new(MediaLibrarySessionSnapshot {
                 session_id: None,
                 revision: 0,
@@ -592,6 +594,18 @@ impl MediaLibrarySessionState {
             summary: None,
         });
         Ok(snapshot.clone())
+    }
+
+    pub fn begin_new_apply_operation(
+        &self,
+        session_id: u64,
+        requested_paths: Option<Vec<String>>,
+    ) -> Result<(String, MediaLibrarySessionSnapshot), String> {
+        let sequence = self.next_apply_operation_id.fetch_add(1, Ordering::Relaxed);
+        let operation_id = format!("target-apply-{sequence}");
+        let snapshot =
+            self.begin_apply_operation(session_id, operation_id.clone(), requested_paths)?;
+        Ok((operation_id, snapshot))
     }
 
     pub fn update_apply_operation(
@@ -1631,6 +1645,26 @@ mod tests {
         let dismissed = state.dismiss_issue(issue_id);
         assert!(dismissed.issues.is_empty());
         assert!(dismissed.revision > with_issue.revision);
+    }
+
+    #[test]
+    fn apply_operation_ids_are_allocated_by_the_session() {
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+
+        let (first_id, first) = state
+            .begin_new_apply_operation(session_id, Some(vec!["a.jpg".into()]))
+            .unwrap();
+        assert_eq!(first_id, "target-apply-1");
+        assert_eq!(first.apply_operation.unwrap().operation_id, first_id);
+        state
+            .fail_apply_operation(session_id, &first_id, "done".into())
+            .unwrap();
+
+        let (second_id, _) = state.begin_new_apply_operation(session_id, None).unwrap();
+        assert_eq!(second_id, "target-apply-2");
     }
 
     #[test]

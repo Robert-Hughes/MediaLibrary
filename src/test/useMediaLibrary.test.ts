@@ -3063,6 +3063,14 @@ describe("useMediaLibrary", () => {
     const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
     await act(async () => result.current[1].applyDraftEdits(path));
 
+    const applyInvocation = mock.invocations.find(
+      ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
+    );
+    expect(applyInvocation?.args).toEqual({
+      sessionId: 1,
+      relPaths: [path],
+    });
+
     const state = result.current[0];
     if (state.kind !== "loaded") return;
     const verification = Object.values(state.targetVerifyOutcomes[path])[0];
@@ -3514,10 +3522,10 @@ describe("useMediaLibrary", () => {
       mock.invocations.filter(
         ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       ),
-    ).toHaveLength(0);
+    ).toHaveLength(1);
 
-    // Even if a non-UI caller mutates the exposed store directly, the apply
-    // boundary still refuses to invoke target-aware for the failed-load folder.
+    // Even if a non-UI caller mutates the exposed store directly, Rust still
+    // rejects Apply for the failed-load folder.
     act(() =>
       state.targetDraftEditsStore.setMetadataTarget(
         "forced.jpg",
@@ -3542,7 +3550,7 @@ describe("useMediaLibrary", () => {
       mock.invocations.filter(
         ({ cmd }) => cmd === "apply_metadata_draft_edits_cmd",
       ),
-    ).toHaveLength(0);
+    ).toHaveLength(2);
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
