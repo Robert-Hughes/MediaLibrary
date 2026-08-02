@@ -17,9 +17,7 @@ import type {
   TargetDraftEditsByFile,
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
-import type { TargetApplyControllerState } from "./targetApplyController";
 import type { TargetVerifyOutcomesByFile } from "./targetVerifyOutcomes";
-import type { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 
 export type { FileInfo, MediaKind };
 export type { MetadataValue } from "./types/generated/MetadataValue";
@@ -555,7 +553,6 @@ export type AppState =
       targetDraftEdits: TargetDraftEditsByFile;
       targetDraftEditsStore: TargetDraftEditsStore;
       targetDraftPersistence: TargetDraftPersistenceState;
-      targetApplying: TargetApplyControllerState;
 
       // Apply-edits in-flight state (non-null while metadata apply is running)
       applying: ApplyEditsInFlight | null;
@@ -563,7 +560,6 @@ export type AppState =
       applyCompletion?: ApplyEditsCompletion | null;
       /** Exact-target verification outcomes that still need user attention. */
       targetVerifyOutcomes: TargetVerifyOutcomesByFile;
-      targetVerifyOutcomesStore: TargetVerifyOutcomesStore;
       /** Recoverable describe/geocode/normalise operation projections. */
       batchOperations: Record<string, MediaLibraryBatchOperation | undefined>;
     };

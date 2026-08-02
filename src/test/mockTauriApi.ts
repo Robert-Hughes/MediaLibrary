@@ -65,6 +65,9 @@ export interface MockTauriApi {
   api: TauriApi;
   pickFolderResolves: (path: string | null) => void;
   setSessionSnapshot: (snapshot: MediaLibrarySessionSnapshot) => void;
+  emitVerificationOutcomes: (
+    outcomes: MediaLibrarySessionSnapshot["verification_outcomes"],
+  ) => void;
   setThumbnailPayload: (cacheKey: string, thumbnail: string) => void;
   // Models the sole target-aware draft persistence file.
   targetDraftEditsByFolder: MockTargetDraftEditsByFolder;
@@ -284,6 +287,14 @@ export function createMockTauriApi(): MockTauriApi {
         nextSessionId = Math.max(nextSessionId, snapshot.session_id + 1);
         mock.currentScanId = snapshot.session_id;
       }
+    },
+    emitVerificationOutcomes: (outcomes) => {
+      sessionSnapshot = {
+        ...sessionSnapshot,
+        revision: sessionSnapshot.revision + 1,
+        verification_outcomes: structuredClone(outcomes),
+      };
+      emit("media_library_session_changed", { ...sessionSnapshot });
     },
     setThumbnailPayload: (cacheKey, thumbnail) => {
       thumbnailPayloads.set(cacheKey, thumbnail);

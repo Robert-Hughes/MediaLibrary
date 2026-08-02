@@ -255,23 +255,19 @@ describe("target verification store", () => {
     expect(Object.isFrozen(stored.sent)).toBe(true);
   });
 
-  it("deletes exact outcomes and prunes only missing or changed targets", () => {
+  it("clears the projected snapshot without redundant notification", () => {
     const store = new TargetVerifyOutcomesStore();
-    const first = targetVerifyOutcomeFromBackend(
+    const listener = vi.fn();
+    store.subscribe(listener);
+    const entry = targetVerifyOutcomeFromBackend(
       "a.jpg",
-      backend({ kind: "Keep" }, existing(0)),
+      backend({ kind: "Keep" }),
     )!;
-    const sibling = targetVerifyOutcomeFromBackend(
-      "a.jpg",
-      backend({ kind: "Keep" }, existing(1)),
-    )!;
-    store.replaceFile("a.jpg", [first, sibling]);
-    store.pruneAgainstDrafts(
-      targetDraftsFromWire({ "a.jpg": [draft(existing(1))] }),
-    );
-    expect(Object.values(store.getFile("a.jpg")!)).toEqual([sibling]);
-    expect(store.deleteOutcome("a.jpg", existing(1))).toBe(true);
+    store.replaceFile("a.jpg", [entry]);
+
+    expect(store.clear()).toBe(true);
     expect(store.getFile("a.jpg")).toBeUndefined();
     expect(store.clear()).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(2);
   });
 });

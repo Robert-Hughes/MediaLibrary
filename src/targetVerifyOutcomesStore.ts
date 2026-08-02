@@ -1,11 +1,6 @@
-import type { MetadataDraftTarget } from "./types";
-import type { TargetDraftEditsByFile } from "./targetDraftEdits";
 import {
   clearTargetVerifyOutcomes,
   emptyTargetVerifyOutcomes,
-  pruneTargetVerifyOutcomesAgainstDrafts,
-  removeTargetVerifyOutcome,
-  removeTargetVerifyOutcomesForFile,
   replaceTargetVerifyOutcomesForFiles,
   type TargetVerifyOutcome,
   type TargetVerifyOutcomesByFile,
@@ -16,6 +11,7 @@ export type TargetVerifyOutcomesListener = (
   snapshot: TargetVerifyOutcomesByFile,
 ) => void;
 
+/** Disposable rendering projection of Rust-owned verification outcomes. */
 export class TargetVerifyOutcomesStore {
   private snapshot = emptyTargetVerifyOutcomes();
   private readonly listeners = new Set<TargetVerifyOutcomesListener>();
@@ -49,20 +45,6 @@ export class TargetVerifyOutcomesStore {
     );
     this.install(next);
     return changedPaths;
-  }
-
-  deleteOutcome(path: string, target: MetadataDraftTarget): boolean {
-    return this.install(removeTargetVerifyOutcome(this.snapshot, path, target));
-  }
-
-  deletePath(path: string): boolean {
-    return this.install(removeTargetVerifyOutcomesForFile(this.snapshot, path));
-  }
-
-  pruneAgainstDrafts(targetDrafts: TargetDraftEditsByFile): boolean {
-    return this.install(
-      pruneTargetVerifyOutcomesAgainstDrafts(this.snapshot, targetDrafts),
-    );
   }
 
   clear(): boolean {
