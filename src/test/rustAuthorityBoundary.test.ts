@@ -89,6 +89,16 @@ describe("Rust-authoritative application boundary", () => {
     expect(rustLib).toContain("fn preview_exact_session_target_removals(");
   });
 
+  it("leaves New Property command eligibility to Rust", () => {
+    expect(useMediaLibrary).not.toContain("classifyNewPropertyDestination");
+    expect(useMediaLibrary).not.toContain("tagInfoSupportsMetadataWrite");
+    expect(useMediaLibrary).not.toContain("validateFamily1Group");
+    expect(rustLib).toContain("validate_new_property(info)");
+    expect(rustLib).toContain(
+      "Another pending draft already uses the intended complete selector",
+    );
+  });
+
   it("does not retain a frontend apply state controller", () => {
     expect(productionSources).not.toHaveProperty("../targetApplyController.ts");
     expect(productionSources).not.toHaveProperty("../targetApplyCommand.ts");

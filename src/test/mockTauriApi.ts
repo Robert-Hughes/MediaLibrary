@@ -23,9 +23,15 @@ import { planBulkMetadataDraftBatch } from "./backendBulkMetadataDraftPlanner";
 import { planGeneratedTargetDraftBatch } from "./backendGeneratedTargetDraftPlanner";
 import { planGpsTargetDraftBatch } from "./backendGpsTargetDraftPlanner";
 import { planMetadataTargetRemovals } from "./backendMetadataRemovalPlanner";
-import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import {
+  existingOccurrenceTargetFromOccurrence,
+  newPropertyDraftTarget,
+} from "../utils/metadataDraftTarget";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
+import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
+import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
+import { validateFamily1Group } from "../utils/metadataWriteTarget";
 type EventHandler = (payload: unknown) => void;
 
 type MockTargetDraftEditsByFolder = Record<string, TargetDraftEditsByFile>;
@@ -636,6 +642,62 @@ export function createMockTauriApi(): MockTauriApi {
     }
   };
 
+  const validateNewPropertyTarget = (
+    relativePath: string,
+    target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
+    ignoredPendingTarget?: MetadataDraftTarget,
+  ) => {
+    if (sessionSnapshot.draft_persistence.status !== "ready") {
+      throw new Error("Draft persistence is not ready");
+    }
+    const metadata = sessionSnapshot.metadata.find(
+      (entry) => entry.relative_path === relativePath,
+    );
+    if (metadata?.state.status !== "ready") {
+      throw new Error("Authoritative metadata occurrences are still loading");
+    }
+    const info = mock.tagInfos.find((candidate) =>
+      schemaDefinitionIdEquals(candidate.id, target.schema_id),
+    );
+    const expected = info ? newPropertyDraftTarget(info) : null;
+    if (
+      !info ||
+      expected?.kind !== "available" ||
+      expected.target.write_target.group7 !== target.write_target.group7 ||
+      expected.target.write_target.tag_name !== target.write_target.tag_name ||
+      validateFamily1Group(target.write_target.group1) !== null
+    ) {
+      throw new Error("The selected New Property target is invalid");
+    }
+    const drafts = targetDraftsFromWire(
+      sessionSnapshot.drafts as Record<string, MetadataTargetDraftEntry[]>,
+    );
+    const safety = classifyNewPropertyDestination({
+      schemaId: target.schema_id,
+      writeTarget: target.write_target,
+      occurrences: metadata.state.occurrences,
+      pendingTargets: Object.values(drafts[relativePath] ?? {}).map(
+        (entry) => entry.target,
+      ),
+      ignoredPendingTarget: ignoredPendingTarget ?? target,
+    });
+    if (safety.kind !== "available") {
+      throw new Error(`The New Property destination is ${safety.kind}`);
+    }
+    const pendingVerification = (
+      sessionSnapshot.verification_outcomes[relativePath] ?? []
+    ).some((outcome) => {
+      const current =
+        outcome.draft_reconciliation.kind === "Replace"
+          ? outcome.draft_reconciliation.target
+          : outcome.target;
+      return JSON.stringify(current) === JSON.stringify(target);
+    });
+    if (pendingVerification) {
+      throw new Error("Resolve the verification outcome before editing");
+    }
+  };
+
   const api: TauriApi = {
     invoke: async (cmd, args) => {
       mock.invocations.push({ cmd, args });
@@ -839,6 +901,9 @@ export function createMockTauriApi(): MockTauriApi {
         const relativePath = args?.relativePath as string;
         const target = args?.target as MetadataDraftTarget;
         const edit = args?.edit as MetadataDraftEdit;
+        if (target.kind === "NewProperty") {
+          validateNewPropertyTarget(relativePath, target);
+        }
         const store = new TargetDraftEditsStore();
         store.resetMetadata(
           targetDraftsFromWire(
@@ -993,6 +1058,39 @@ export function createMockTauriApi(): MockTauriApi {
         const replacementTarget =
           args?.replacementTarget as MetadataDraftTarget;
         const originalEdit = args?.originalEdit as MetadataDraftEdit;
+        if (
+          originalTarget.kind !== "NewProperty" ||
+          replacementTarget.kind !== "NewProperty"
+        ) {
+          throw new Error("Only New Property drafts can be moved");
+        }
+        if (
+          !schemaDefinitionIdEquals(
+            originalTarget.schema_id,
+            replacementTarget.schema_id,
+          )
+        ) {
+          throw new Error(
+            "The replacement destination changed the exact schema",
+          );
+        }
+        const originalHasPendingVerification = (
+          sessionSnapshot.verification_outcomes[relativePath] ?? []
+        ).some((outcome) => {
+          const current =
+            outcome.draft_reconciliation.kind === "Replace"
+              ? outcome.draft_reconciliation.target
+              : outcome.target;
+          return JSON.stringify(current) === JSON.stringify(originalTarget);
+        });
+        if (originalHasPendingVerification) {
+          throw new Error("Resolve the verification outcome before editing");
+        }
+        validateNewPropertyTarget(
+          relativePath,
+          replacementTarget,
+          originalTarget,
+        );
         const store = new TargetDraftEditsStore();
         store.resetMetadata(
           targetDraftsFromWire(
