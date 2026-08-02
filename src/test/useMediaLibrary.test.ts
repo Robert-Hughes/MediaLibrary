@@ -16,7 +16,6 @@ import type {
   TagInfo,
   TagKind,
 } from "../types";
-import { targetVerifyOutcomeFromBackend } from "../targetVerifyOutcomes";
 import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
 import {
   family7GroupFromRuntimeTagId,
@@ -206,9 +205,11 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].recentFolders).toEqual([]);
   });
 
-  it("recovers an active Rust session snapshot on mount", async () => {
+  it("recovers the complete Rust-authoritative session projection on mount", async () => {
     vi.useRealTimers();
     const mock = createMockTauriApi();
+    const draft = newPropertyTargetDraft("RecoveredField", "pending");
+    const occurrence = occurrenceFor(testId("RecoveredMetadata"));
     mock.setSessionSnapshot({
       session_id: 42,
       revision: 7,
@@ -216,46 +217,107 @@ describe("useMediaLibrary", () => {
       folder: "/recovered",
       files: [makeFile({ relative_path: "recovered.jpg" })],
       discovery_running: true,
-      issues: [],
-      metadata: [],
+      issues: [
+        {
+          issue_id: 8,
+          severity: "warning",
+          error_type: "recovered_issue",
+          error_message: "Recovered issue",
+          affected_files: ["recovered.jpg"],
+        },
+      ],
+      metadata: [
+        {
+          relative_path: "recovered.jpg",
+          state: { status: "ready", occurrences: [occurrence] },
+        },
+      ],
       thumbnails: [
         {
           relative_path: "recovered.jpg",
           state: { status: "ready", cache_key: "recovered-thumb" },
         },
       ],
-      drafts: {},
+      drafts: { "recovered.jpg": [draft] },
       draft_persistence: { status: "ready" },
-      apply_operation: null,
+      apply_operation: {
+        operation_id: "apply-1",
+        requested_paths: ["recovered.jpg"],
+        state: { status: "running" },
+        total: 1,
+        current: 0,
+        current_file: "recovered.jpg",
+        cancelling: false,
+        file_failure_count: 0,
+        warning_count: 0,
+        summary: null,
+      },
       verification_outcomes: {},
-      batch_operations: {},
+      batch_operations: {
+        describe: {
+          operation_id: "describe-1",
+          kind: "describe",
+          phase: "running",
+          total: 1,
+          current: 0,
+          current_file: "recovered.jpg",
+          cancelling: false,
+          failures: [],
+          succeeded: [],
+          estimate: null,
+          summary: null,
+          error: null,
+        },
+      },
     });
     mock.setThumbnailPayload("recovered-thumb", "recovered-thumbnail-data");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const { result } = renderHook(() => useMediaLibrary(mock.api));
 
     await act(async () => {
-      for (let index = 0; index < 5; index += 1) await Promise.resolve();
+      for (let index = 0; index < 20; index += 1) await Promise.resolve();
     });
 
-    expect(result.current[0]).toMatchObject({
-      kind: "loaded",
+    const recovered = result.current[0];
+    if (recovered.kind !== "loaded") throw new Error("Expected loaded state");
+    expect(recovered).toMatchObject({
       folder: "/recovered",
       files: [expect.objectContaining({ relative_path: "recovered.jpg" })],
       scanning: true,
+      applying: {
+        total: 1,
+        current: 0,
+        currentFile: "recovered.jpg",
+      },
+      applicationErrors: [
+        expect.objectContaining({ error_type: "recovered_issue" }),
+      ],
+      batchOperations: {
+        describe: expect.objectContaining({
+          operation_id: "describe-1",
+          phase: "running",
+        }),
+      },
     });
-    await act(async () => {
-      for (let index = 0; index < 20; index += 1) await Promise.resolve();
-    });
+    expect(recovered.thumbnails.get("recovered.jpg")).toBe(
+      "recovered-thumbnail-data",
+    );
+    expect(recovered.fileMetadataOccurrences.get("recovered.jpg")).toEqual([
+      occurrence,
+    ]);
+    expect(
+      recovered.targetDraftEdits["recovered.jpg"][
+        metadataDraftTargetSlotToken(draft.target)
+      ],
+    ).toEqual(draft);
     expect(
       mock.invocations.some(
         ({ cmd }) => cmd === "get_media_library_thumbnails",
       ),
     ).toBe(true);
-    const recovered = result.current[0];
-    if (recovered.kind !== "loaded") throw new Error("Expected loaded state");
-    expect(recovered.thumbnails.get("recovered.jpg")).toBe(
-      "recovered-thumbnail-data",
-    );
+    consoleError.mockRestore();
   });
   it("loads recent folders from localStorage on mount", async () => {
     localStorage.setItem(
@@ -2118,18 +2180,21 @@ describe("useMediaLibrary", () => {
     expect(moved).toBe(true);
     expect(saveCount()).toBe(unchangedSaveCount);
 
-    const verification = targetVerifyOutcomeFromBackend("move.jpg", {
-      target: replacement,
-      draft_reconciliation: { kind: "Keep" },
-      display_name: "Move",
-      kind: "Mismatch",
-      sent: edit.value,
-      before: null,
-      observed: { kind: "Text", value: "readback" },
-      message: "pending verification",
-    })!;
     act(() =>
-      state.targetVerifyOutcomesStore.replaceFile("move.jpg", [verification]),
+      mock.emitVerificationOutcomes({
+        "move.jpg": [
+          {
+            target: replacement,
+            draft_reconciliation: { kind: "Keep" },
+            display_name: "Move",
+            kind: "Mismatch",
+            sent: edit.value,
+            before: null,
+            observed: { kind: "Text", value: "readback" },
+            message: "pending verification",
+          },
+        ],
+      }),
     );
     await expectConsoleErrorMessages(
       [
@@ -2731,7 +2796,6 @@ describe("useMediaLibrary", () => {
     act(() => mock.emitScanComplete());
     const state = result.current[0];
     if (state.kind !== "loaded") return;
-    const targetVerificationStore = state.targetVerifyOutcomesStore;
 
     const id = testId("XMP-dc:Subject");
     const replacement = {
@@ -2781,25 +2845,30 @@ describe("useMediaLibrary", () => {
         ],
       });
     });
-    const entry = targetVerifyOutcomeFromBackend("replace.jpg", {
-      target: {
-        kind: "NewProperty",
-        schema_id: id,
-        write_target: {
-          group1: "XMP-test",
-          group7: "ID-Test",
-          tag_name: "TestTag",
-        },
-      },
-      draft_reconciliation: { kind: "Replace", target: replacement },
-      display_name: "Subject",
-      kind: "Mismatch",
-      sent: { kind: "Text", value: "pending" },
-      before: null,
-      observed: { kind: "Text", value: "on disk" },
-      message: "coerced",
-    })!;
-    act(() => targetVerificationStore.replaceFile("replace.jpg", [entry]));
+    const emitReplacementVerification = () =>
+      mock.emitVerificationOutcomes({
+        "replace.jpg": [
+          {
+            target: {
+              kind: "NewProperty",
+              schema_id: id,
+              write_target: {
+                group1: "XMP-test",
+                group7: "ID-Test",
+                tag_name: "TestTag",
+              },
+            },
+            draft_reconciliation: { kind: "Replace", target: replacement },
+            display_name: "Subject",
+            kind: "Mismatch",
+            sent: { kind: "Text", value: "pending" },
+            before: null,
+            observed: { kind: "Text", value: "on disk" },
+            message: "coerced",
+          },
+        ],
+      });
+    act(emitReplacementVerification);
     await settleAutosaves();
     mock.invocations.length = 0;
 
@@ -2807,7 +2876,7 @@ describe("useMediaLibrary", () => {
       result.current[1].acceptTargetVerifyOutcome("replace.jpg", replacement),
     );
     await settleAutosaves();
-    let current = result.current[0];
+    const current = result.current[0];
     if (current.kind !== "loaded") return;
     expect(
       current.targetDraftEdits["replace.jpg"][
@@ -2840,7 +2909,7 @@ describe("useMediaLibrary", () => {
           },
         ],
       });
-      targetVerificationStore.replaceFile("replace.jpg", [entry]);
+      emitReplacementVerification();
     });
     mock.invocations.length = 0;
     await act(async () => {
@@ -2859,7 +2928,7 @@ describe("useMediaLibrary", () => {
     expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
     expect(mock.invocations).toHaveLength(1);
 
-    act(() => targetVerificationStore.replaceFile("replace.jpg", [entry]));
+    act(emitReplacementVerification);
     act(() =>
       result.current[1].discardTargetDraftAndOutcome(
         "replace.jpg",
@@ -3448,7 +3517,6 @@ describe("useMediaLibrary", () => {
     expect(state.targetDraftEdits).toBe(targetSnapshot);
     expect(state.targetDraftEdits).toEqual({});
     const loadFailedTargetDraftStore = state.targetDraftEditsStore;
-    const loadFailedTargetVerificationStore = state.targetVerifyOutcomesStore;
     expect(
       mock.invocations.filter(
         ({ cmd }) => cmd === "set_media_library_session_draft",
@@ -3456,26 +3524,27 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(0);
 
     act(() =>
+      mock.emitVerificationOutcomes({
+        "blocked.jpg": [
+          {
+            target: existingTarget,
+            draft_reconciliation: { kind: "Blocked", reason: "stale" },
+            display_name: "Subject",
+            kind: "Blocked",
+            sent: null,
+            before: null,
+            observed: null,
+            message: null,
+          },
+        ],
+      }),
+    );
+    act(() =>
       loadFailedTargetDraftStore.setMetadataTarget(
         "blocked.jpg",
         existingTarget,
         edit,
       ),
-    );
-    const blockedVerification = targetVerifyOutcomeFromBackend("blocked.jpg", {
-      target: existingTarget,
-      draft_reconciliation: { kind: "Blocked", reason: "stale" },
-      display_name: "Subject",
-      kind: "Blocked",
-      sent: null,
-      before: null,
-      observed: null,
-      message: null,
-    })!;
-    act(() =>
-      loadFailedTargetVerificationStore.replaceFile("blocked.jpg", [
-        blockedVerification,
-      ]),
     );
     act(() => {
       result.current[1].acceptTargetVerifyOutcome(

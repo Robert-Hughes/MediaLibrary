@@ -439,7 +439,6 @@ export class TargetApplyController {
       };
     } finally {
       acceptMessages = false;
-      retry = null;
       if (this.activeRunToken === runToken) this.activeRunToken = null;
       this.cancellationRequest = null;
       this.setState({ status: "idle" });

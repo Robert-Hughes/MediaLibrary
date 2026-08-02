@@ -333,12 +333,8 @@ export function useMediaLibrary(
         targetDraftEdits: targetDraftEditsStoreRef.current.getAllMetadata(),
         targetDraftEditsStore: targetDraftEditsStoreRef.current,
         targetDraftPersistence: targetDraftPersistenceRef.current,
-        targetApplying: targetApplyControllerRef.current?.getState() ?? {
-          status: "idle",
-        },
         applying: null,
         targetVerifyOutcomes: targetVerifyOutcomesStoreRef.current.getAll(),
-        targetVerifyOutcomesStore: targetVerifyOutcomesStoreRef.current,
         batchOperations: {},
       };
     },
@@ -770,13 +766,8 @@ export function useMediaLibrary(
             cancelling: targetApplying.cancelling,
           };
         }
-        if (
-          prev.targetApplying === targetApplying &&
-          prev.applying === applying
-        ) {
-          return prev;
-        }
-        return { ...prev, targetApplying, applying };
+        if (prev.applying === applying) return prev;
+        return { ...prev, applying };
       });
     });
     return () => {
@@ -1201,7 +1192,6 @@ export function useMediaLibrary(
     const store = targetDraftEditsStoreRef.current;
     return store.subscribe(() => {
       const next = store.getAllMetadata();
-      targetVerifyOutcomesStoreRef.current.pruneAgainstDrafts(next);
       setAppState((prev) => {
         if (prev.kind !== "loaded" || prev.targetDraftEdits === next) {
           return prev;
