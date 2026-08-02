@@ -18,6 +18,7 @@ import type {
   NormaliseGroup,
   NormaliseRequestItem,
   NormaliseSummary,
+  MediaLibraryBatchOperation,
 } from "../types";
 import {
   useBatchImageJob,
@@ -67,6 +68,7 @@ export interface NormaliseActions {
 }
 
 export interface UseNormaliseMetadataOptions {
+  operation?: MediaLibraryBatchOperation;
   onApplyEdits?: (
     relativePath: string,
     edits: SchemaMetadataEdit[],
@@ -249,6 +251,7 @@ export function useNormaliseMetadata(
   const job = useBatchImageJob<StartArgs, NormaliseEstimate, NormaliseSummary>(
     config,
     {
+      operation: options.operation,
       onApplyEdits: options.onApplyEdits
         ? (relativePath, edits) =>
             options.onApplyEdits!(

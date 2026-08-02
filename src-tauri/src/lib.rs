@@ -59,7 +59,7 @@ fn since_startup_ms() -> u128 {
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
 
-// ── Shared state ──────────────────────────────────────────────────────────────
+// â”€â”€ Shared state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 pub struct ScanState {
     running: Mutex<bool>,
@@ -179,7 +179,7 @@ impl Default for ActiveQueues {
     }
 }
 
-// ── Event payloads ────────────────────────────────────────────────────────────
+// â”€â”€ Event payloads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /// Emitted when the directory walk is complete (no payload needed).
 #[derive(Clone, Serialize)]
@@ -199,7 +199,7 @@ struct ThumbnailResult {
     thumbnail: Option<String>,
 }
 
-// ── Commands ──────────────────────────────────────────────────────────────────
+// â”€â”€ Commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[tauri::command]
 fn log_to_console(level: String, message: String) {
@@ -361,16 +361,16 @@ fn close_media_library_session(
 ///
 /// Three concurrent phases, all starting as soon as files are discovered:
 ///
-///  Phase 1 — streaming file discovery (single thread):
+///  Phase 1 â€” streaming file discovery (single thread):
 ///    Walks the directory tree. For each image file found, emits `file_found`
 ///    immediately so the frontend can add it to the list. Also feeds the file
 ///    into the image metadata queue and thumbnail queue right away.
 ///    Emits `scan_complete` (no payload) when the walk finishes.
 ///
-///  Phase 2 — Image Metadata (thread pool, starts alongside phase 1):
+///  Phase 2 â€” Image Metadata (thread pool, starts alongside phase 1):
 ///    Reads EXIF data per file and emits `file_metadata_ready`.
 ///
-///  Phase 3 — thumbnail generation (thread pool, starts alongside phase 1):
+///  Phase 3 â€” thumbnail generation (thread pool, starts alongside phase 1):
 ///    Generates thumbnails and emits `thumbnail_ready`.
 ///    Supports priority reordering via `prioritize_queues`.
 fn effective_scan_concurrency(
@@ -470,7 +470,7 @@ fn start_scan(
 
         let root_arc = Arc::new(root.clone());
 
-        // ── Phase 2: Image Metadata workers ───────────────────────────────
+        // â”€â”€ Phase 2: Image Metadata workers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         let metadata_handles: Vec<_> = (0..metadata_workers)
             .map(|_| {
                 let queue = file_metadata_queue.clone();
@@ -567,7 +567,7 @@ fn start_scan(
                 })
             })
             .collect();
-        // ── Phase 3: thumbnail workers ────────────────────────────────────
+        // â”€â”€ Phase 3: thumbnail workers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // All thumbnail producers send results through one channel. A single
         // emitter batches both extracted image thumbnails and immediate
         // audio/video placeholders before notifying the frontend.
@@ -622,7 +622,7 @@ fn start_scan(
                 })
             })
             .collect();
-        // ── Phase 1: streaming directory walk ─────────────────────────────
+        // â”€â”€ Phase 1: streaming directory walk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // Run the directory walk in a separate thread so we can implement
         // timeout-based flushing even when the walk is slow.
         let file_queue = Arc::new(Mutex::new(Vec::new()));
@@ -753,7 +753,7 @@ fn start_scan(
         }
         drop(thumbnail_result_tx);
         let _ = thumbnail_emitter.join();
-        // Clear the queue slots — but only if a newer scan hasn't already
+        // Clear the queue slots â€” but only if a newer scan hasn't already
         // installed its own queues here.  Without this guard, a fast
         // folder-switch can null out the new scan's queues and break
         // prioritize_queues / stop_scan for it.
@@ -2590,80 +2590,6 @@ fn stage_media_library_session_bulk_drafts(
 }
 
 #[tauri::command]
-fn mutate_media_library_session_draft_rows(
-    session_id: u64,
-    mutations: Vec<draft_repository::MetadataDraftRowMutation>,
-    app: AppHandle,
-    session_state: State<'_, session::MediaLibrarySessionState>,
-    repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the drafts were saved".into());
-    }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
-    let discovered = snapshot
-        .files
-        .iter()
-        .map(|file| file.relative_path.as_str())
-        .collect::<std::collections::HashSet<_>>();
-    if let Some(unknown) = mutations
-        .iter()
-        .find(|mutation| !discovered.contains(mutation.relative_path.as_str()))
-    {
-        return Err(format!(
-            "Draft row '{}' is not part of the active media-library session",
-            unknown.relative_path
-        ));
-    }
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
-    let app_data_dir = commands::shared::app_data_dir(&app)?;
-    if let Err(error) =
-        draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
-    {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
-        return Err(error);
-    }
-    let committed = session_state.commit_draft_rows(
-        session_id,
-        mutations
-            .into_iter()
-            .map(|mutation| (mutation.relative_path, mutation.entries))
-            .collect(),
-    )?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
-}
-// Target-aware draft persistence and apply are the sole metadata-editing boundary.
-#[tauri::command]
-fn save_metadata_draft_rows(
-    folder_path: String,
-    mutations: Vec<draft_repository::MetadataDraftRowMutation>,
-    app: AppHandle,
-    repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<(), String> {
-    let app_data_dir = commands::shared::app_data_dir(&app)?;
-    draft_repository::apply_row_mutations(
-        &app_data_dir,
-        &folder_path,
-        &mutations,
-        &repository_state,
-    )
-}
-
-#[tauri::command]
 fn load_metadata_draft_edits(
     folder_path: String,
     app: AppHandle,
@@ -2759,6 +2685,20 @@ fn dismiss_media_library_session_apply(
         .session_id
         .ok_or_else(|| "No active media-library session".to_string())?;
     let snapshot = session_state.dismiss_apply_operation(session_id)?;
+    emit_session_snapshot(&app, &snapshot)?;
+    Ok(snapshot)
+}
+#[tauri::command]
+fn dismiss_media_library_session_batch_operation(
+    kind: String,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let session_id = session_state
+        .snapshot()
+        .session_id
+        .ok_or_else(|| "No active media-library session".to_string())?;
+    let snapshot = session_state.dismiss_batch_operation(session_id, &kind)?;
     emit_session_snapshot(&app, &snapshot)?;
     Ok(snapshot)
 }
@@ -3141,6 +3081,7 @@ mod tests {
             draft_persistence: session::MediaLibrarySessionDraftPersistenceState::Ready,
             apply_operation: None,
             verification_outcomes: Default::default(),
+            batch_operations: Default::default(),
         };
 
         let planned =
@@ -3404,7 +3345,7 @@ mod tests {
         assert!(elapsed >= Duration::from_millis(15));
     }
 
-    // ── ActiveQueues race-condition tests ─────────────────────────────────────
+    // â”€â”€ ActiveQueues race-condition tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     #[test]
     fn clear_if_mine_clears_when_my_queues_are_still_installed() {
@@ -3494,7 +3435,7 @@ mod tests {
     }
 }
 
-// ── App entry point ───────────────────────────────────────────────────────────
+// â”€â”€ App entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -3564,12 +3505,11 @@ pub fn run() {
             stage_media_library_session_normalise_drafts,
             preview_media_library_session_bulk_drafts,
             stage_media_library_session_bulk_drafts,
-            mutate_media_library_session_draft_rows,
-            save_metadata_draft_rows,
             load_metadata_draft_edits,
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
             dismiss_media_library_session_apply,
+            dismiss_media_library_session_batch_operation,
             get_tag_info,
             get_tag_infos,
             preload_schema,

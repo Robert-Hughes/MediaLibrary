@@ -1,28 +1,19 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import {
-  FileMetadataOccurrencesStore,
   type MetadataApplyFileResult,
   type MetadataApplyResult,
   type MetadataApplySummary,
-  type MetadataTargetDraftEntry,
-  type MetadataTargetOutcome,
 } from "../types";
 import {
   TargetApplyController,
   TargetApplyControllerBusyError,
   type TargetApplyControllerCallbacks,
 } from "../targetApplyController";
-import type { TargetApplyResultStores } from "../targetApplyResults";
 import type {
   TargetApplyChannel,
   TargetApplyTauriApi,
 } from "../targetApplyTauri";
-import {
-  TargetDraftEditsStore,
-  targetDraftsFromWire,
-} from "../targetDraftEdits";
-import { TargetVerifyOutcomesStore } from "../targetVerifyOutcomesStore";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -32,39 +23,6 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, resolve, reject };
-}
-
-const target = {
-  kind: "NewProperty" as const,
-  schema_id: { table: "Exif::Main", tag_id: "282" },
-  write_target: {
-    group1: "XMP-test",
-    group7: "ID-Test",
-    tag_name: "TestTag",
-  },
-};
-
-function draft(value = "draft"): MetadataTargetDraftEntry {
-  return {
-    target: structuredClone(target),
-    edit: {
-      intent: "Set",
-      value: { kind: "Text", value },
-    },
-  };
-}
-
-function outcome(): MetadataTargetOutcome {
-  return {
-    target: structuredClone(target),
-    draft_reconciliation: { kind: "Keep" },
-    display_name: "TestTag",
-    kind: "Mismatch",
-    sent: { kind: "Text", value: "draft" },
-    before: null,
-    observed: { kind: "Text", value: "observed" },
-    message: "verification required",
-  };
 }
 
 function fileResult(
@@ -172,25 +130,14 @@ class FakeApplyApi implements TargetApplyTauriApi {
   }
 }
 
-function makeStores(paths: readonly string[]): TargetApplyResultStores {
-  const occurrences = new FileMetadataOccurrencesStore();
-  for (const path of paths) occurrences.add(path);
-  return {
-    drafts: new TargetDraftEditsStore(),
-    occurrences,
-    verification: new TargetVerifyOutcomesStore(),
-  };
-}
-
 function harness(
   paths: readonly string[],
   callbacks: TargetApplyControllerCallbacks = {},
 ) {
   const api = new FakeApplyApi();
-  const stores = makeStores(paths);
-  const controller = new TargetApplyController({ api, stores }, callbacks);
-  return { api, controller, stores };
-  return { api, controller, stores };
+  void paths;
+  const controller = new TargetApplyController({ api }, callbacks);
+  return { api, controller };
 }
 function sendStarted(args: Record<string, unknown>, total: number): void {
   (args.progressChannel as TargetApplyChannel).onmessage({
@@ -229,44 +176,13 @@ function sendComplete(
 }
 
 describe("TargetApplyController streamed ownership", () => {
-  it("applies each streamed file exactly once and does not replay terminal data", async () => {
-    const paths = ["a.jpg", "b.jpg"];
-    const { api, controller, stores } = harness(paths);
-    stores.drafts.resetMetadata(
-      targetDraftsFromWire({
-        "a.jpg": [draft("a")],
-        "b.jpg": [draft("b")],
-      }),
-    );
-    const draftListener = vi.fn();
-    stores.drafts.subscribe(draftListener);
-    const done = summary(2);
-    api.onApply = async (args) => {
-      sendStarted(args, 2);
-      sendBatch(args, 1, 2, 2, [fileResult("a.jpg"), fileResult("b.jpg")]);
-      sendComplete(args, done);
-      return terminal(done);
-    };
-
-    const result = await controller.run("folder", paths);
-
-    expect(result.application).toEqual({
-      processed: 2,
-      draftsChanged: 2,
-      occurrencesChanged: 0,
-    });
-    expect(result.commandResult.undelivered_files).toEqual([]);
-    expect(draftListener).toHaveBeenCalledOnce();
-    expect(Object.keys(stores.drafts.getAllMetadata())).toEqual([]);
-  });
-
   it("keeps returned controller state compact across thousands of heavyweight results", async () => {
     const count = 3_000;
     const paths = Array.from(
       { length: count },
       (_, index) => `file-${index}.jpg`,
     );
-    const { api, controller, stores } = harness(paths);
+    const { api, controller } = harness(paths);
     const done = summary(count);
     api.onApply = async (args) => {
       sendStarted(args, count);
@@ -288,12 +204,11 @@ describe("TargetApplyController streamed ownership", () => {
     expect(result.protocolErrors).toEqual([]);
     expect(result.progressApplicationErrors).toEqual([]);
     expect(JSON.stringify(result).length).toBeLessThan(1_000);
-    expect(stores.occurrences.get(paths[count - 1])).toBe("loading");
   });
 
   it("uses compact terminal fallback only for an undelivered file", async () => {
     const paths = ["fallback.jpg"];
-    const { api, controller, stores } = harness(paths);
+    const { api, controller } = harness(paths);
     const fallback = fileResult("fallback.jpg");
     const done = summary(1, { delivery_failure_count: 1 });
     api.onApply = async (args) => {
@@ -305,91 +220,6 @@ describe("TargetApplyController streamed ownership", () => {
     const result = await controller.run("folder", paths);
 
     expect(result.application.processed).toBe(1);
-    expect(result.commandResult.undelivered_files).toEqual([]);
-    expect(stores.occurrences.get("fallback.jpg")).toBe("loading");
-  });
-
-  it("retains at most one failed chunk for a terminal retry", async () => {
-    const paths = ["first.jpg", "second.jpg"];
-    const { api, controller, stores } = harness(paths);
-    stores.drafts.resetMetadata(
-      targetDraftsFromWire({
-        "first.jpg": [draft("first")],
-        "second.jpg": [draft("second")],
-      }),
-    );
-    vi.spyOn(stores.drafts, "replaceMetadataFiles")
-      .mockImplementationOnce(() => {
-        throw new Error("first transient failure");
-      })
-      .mockImplementationOnce(() => {
-        throw new Error("second transient failure");
-      });
-    const done = summary(2);
-    api.onApply = async (args) => {
-      sendStarted(args, 2);
-      sendBatch(args, 1, 1, 2, [fileResult("first.jpg")]);
-      sendBatch(args, 2, 2, 2, [fileResult("second.jpg")]);
-      sendComplete(args, done);
-      return terminal(done);
-    };
-
-    const result = await controller.run("folder", paths);
-
-    expect(result.progressApplicationErrors).toHaveLength(2);
-    expect(stores.drafts.getMetadataFile("first.jpg")).toBeUndefined();
-    expect(stores.drafts.getMetadataFile("second.jpg")).toBeDefined();
-  });
-
-  it("retries one transient application failure after command completion", async () => {
-    const paths = ["retry.jpg"];
-    const { api, controller, stores } = harness(paths);
-    stores.drafts.resetMetadata(
-      targetDraftsFromWire({ "retry.jpg": [draft()] }),
-    );
-    const original = stores.drafts.replaceMetadataFiles.bind(stores.drafts);
-    vi.spyOn(stores.drafts, "replaceMetadataFiles")
-      .mockImplementationOnce(() => {
-        throw new Error("transient failure");
-      })
-      .mockImplementation(original);
-    const done = summary(1);
-    api.onApply = async (args) => {
-      sendStarted(args, 1);
-      sendBatch(args, 1, 1, 1, [fileResult("retry.jpg")]);
-      sendComplete(args, done);
-      return terminal(done);
-    };
-
-    const result = await controller.run("folder", paths);
-
-    expect(result.progressApplicationErrors).toHaveLength(1);
-    expect(stores.drafts.getMetadataFile("retry.jpg")).toBeUndefined();
-  });
-
-  it("preserves draft and verification semantics in streamed batches", async () => {
-    const paths = ["verify.jpg"];
-    const { api, controller, stores } = harness(paths);
-    const done = summary(1);
-    api.onApply = async (args) => {
-      sendStarted(args, 1);
-      sendBatch(args, 1, 1, 1, [
-        fileResult("verify.jpg", {
-          fresh_file_metadata: null,
-          target_outcomes: [outcome()],
-          persisted_draft_entries: [draft()],
-        }),
-      ]);
-      sendComplete(args, done);
-      return terminal(done);
-    };
-
-    await controller.run("folder", paths);
-
-    expect(stores.drafts.getMetadataFile("verify.jpg")).toBeDefined();
-    expect(
-      Object.keys(stores.verification.getFile("verify.jpg") ?? {}),
-    ).toHaveLength(1);
   });
 
   it("reports compact cancelled completion without marking unprocessed files complete", async () => {
@@ -468,7 +298,7 @@ describe("TargetApplyController streamed ownership", () => {
 
   it("releases old channel state and rejects stale events from a prior Apply", async () => {
     const paths = ["file.jpg"];
-    const { api, controller, stores } = harness(paths);
+    const { api, controller } = harness(paths);
     const firstDone = summary(0);
     api.onApply = async (args) => {
       sendStarted(args, 0);
@@ -507,7 +337,6 @@ describe("TargetApplyController streamed ownership", () => {
     const result = await secondRun;
 
     expect(result.protocolErrors).toEqual([]);
-    expect(stores.occurrences.get("file.jpg")).toBe("loading");
   });
 
   it("contains callback failures and still releases lifecycle ownership", async () => {

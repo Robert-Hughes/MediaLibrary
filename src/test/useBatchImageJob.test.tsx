@@ -18,11 +18,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import type { Mock } from "vitest";
 import { act, renderHook, waitFor } from "@testing-library/react";
+import type { MediaLibraryBatchOperation } from "../types";
 import {
   useBatchImageJob,
   type BatchJobConfig,
 } from "../hooks/useBatchImageJob";
-
 let invokeMock: Mock<(...args: unknown[]) => Promise<unknown>>;
 let listenMock: Mock<(...args: unknown[]) => Promise<() => void>>;
 
@@ -177,5 +177,68 @@ describe("useBatchImageJob deferred estimate latch", () => {
     // called with an "estimate"-style name.
     const calls = invokeMock.mock.calls.map((c) => c[0]);
     expect(calls).not.toContain("estimate_cmd");
+  });
+
+  it("reconstructs awaiting-confirm, running, and completed state from Rust operations after remount", async () => {
+    const config = makeConfig(async () => []);
+    const awaiting: MediaLibraryBatchOperation = {
+      operation_id: "describe-1",
+      kind: "describe",
+      phase: "awaiting-confirm",
+      total: 2,
+      current: 2,
+      current_file: null,
+      cancelling: false,
+      failures: [],
+      succeeded: [],
+      estimate: { totalInputTokens: 42 },
+      summary: null,
+      error: null,
+    };
+
+    const { result, rerender } = renderHook(
+      ({ operation }: { operation?: MediaLibraryBatchOperation }) =>
+        useBatchImageJob<string[], EstimatePayload, SummaryPayload>(config, {
+          operation,
+        }),
+      { initialProps: { operation: awaiting } },
+    );
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+    expect(result.current.state.phase).toBe("awaiting-confirm");
+    expect(result.current.state.estimate).toEqual({ totalInputTokens: 42 });
+
+    rerender({
+      operation: {
+        ...awaiting,
+        phase: "running",
+        current: 1,
+        current_file: "a.jpg",
+        cancelling: true,
+        succeeded: ["b.jpg"],
+      },
+    });
+    await waitFor(() => expect(result.current.state.phase).toBe("running"));
+    expect(result.current.state.currentFile).toBe("a.jpg");
+    expect(result.current.state.cancelling).toBe(true);
+
+    rerender({
+      operation: {
+        ...awaiting,
+        phase: "completed",
+        succeeded: ["a.jpg", "b.jpg"],
+        summary: { actualCostUsd: 0.25 },
+      },
+    });
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(result.current.state.summary).toEqual({ actualCostUsd: 0.25 });
+
+    act(() => result.current.actions.close());
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "dismiss_media_library_session_batch_operation",
+        { kind: "test" },
+      ),
+    );
   });
 });

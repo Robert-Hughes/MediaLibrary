@@ -34,7 +34,7 @@ use std::time::Duration;
 use std::{future::Future, num::NonZeroUsize};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Typed wire kind for a per-image batch-job failure.
 ///
@@ -408,8 +408,92 @@ impl<'a> BatchProgressEmitter<'a> {
         Self { app, prefix }
     }
 
-    /// Emit `${prefix}_started` with the total item count.
+    fn active_session_id(&self) -> Option<u64> {
+        self.app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .snapshot()
+            .session_id
+    }
+
+    fn emit_session_snapshot(&self, snapshot: crate::session::MediaLibrarySessionSnapshot) {
+        let _ = self
+            .app
+            .emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+    }
+
+    pub fn estimate_started(&self, total: usize) {
+        if let Some(session_id) = self.active_session_id() {
+            if let Ok(snapshot) = self
+                .app
+                .state::<crate::session::MediaLibrarySessionState>()
+                .begin_batch_operation(
+                    session_id,
+                    self.prefix,
+                    crate::session::MediaLibraryBatchOperationPhase::Estimating,
+                    total,
+                )
+            {
+                self.emit_session_snapshot(snapshot);
+            }
+        }
+    }
+
+    pub fn estimate_progress(
+        &self,
+        current: usize,
+        total: usize,
+        relative_path: &str,
+        error: Option<&str>,
+    ) {
+        if let Some(session_id) = self.active_session_id() {
+            if let Ok(snapshot) = self
+                .app
+                .state::<crate::session::MediaLibrarySessionState>()
+                .update_batch_operation_estimate_progress(
+                    session_id,
+                    self.prefix,
+                    current,
+                    total,
+                    Some(relative_path.to_owned()),
+                    error.map(str::to_owned),
+                )
+            {
+                self.emit_session_snapshot(snapshot);
+            }
+        }
+    }
+
+    pub fn estimate_complete<S: Serialize>(&self, estimate: &S) {
+        let Some(session_id) = self.active_session_id() else {
+            return;
+        };
+        let Ok(estimate) = serde_json::to_value(estimate) else {
+            return;
+        };
+        if let Ok(snapshot) = self
+            .app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .complete_batch_operation_estimate(session_id, self.prefix, estimate)
+        {
+            self.emit_session_snapshot(snapshot);
+        }
+    }
+
     pub fn started(&self, total: usize) {
+        if let Some(session_id) = self.active_session_id() {
+            if let Ok(snapshot) = self
+                .app
+                .state::<crate::session::MediaLibrarySessionState>()
+                .begin_batch_operation(
+                    session_id,
+                    self.prefix,
+                    crate::session::MediaLibraryBatchOperationPhase::Running,
+                    total,
+                )
+            {
+                self.emit_session_snapshot(snapshot);
+            }
+        }
         #[derive(Clone, Serialize)]
         struct Payload {
             total: usize,
@@ -418,7 +502,6 @@ impl<'a> BatchProgressEmitter<'a> {
             .app
             .emit(&format!("{}_started", self.prefix), Payload { total });
     }
-
     /// Emit `${prefix}_progress` with semantic draft edits.
     pub fn progress_metadata(
         &self,
@@ -429,6 +512,23 @@ impl<'a> BatchProgressEmitter<'a> {
         error: Option<&str>,
         edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
     ) {
+        if let Some(session_id) = self.active_session_id() {
+            if let Ok(snapshot) = self
+                .app
+                .state::<crate::session::MediaLibrarySessionState>()
+                .update_batch_operation_progress(
+                    session_id,
+                    self.prefix,
+                    current,
+                    total,
+                    Some(relative_path.to_owned()),
+                    Some(status),
+                    error.map(str::to_owned),
+                )
+            {
+                self.emit_session_snapshot(snapshot);
+            }
+        }
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload<'a> {
@@ -458,6 +558,26 @@ impl<'a> BatchProgressEmitter<'a> {
 
     /// Emit `${prefix}_progress_batch` using the scanner-style `results` envelope.
     pub fn progress_metadata_batch(&self, results: &[BatchMetadataProgress]) {
+        if let Some(session_id) = self.active_session_id() {
+            let state = self.app.state::<crate::session::MediaLibrarySessionState>();
+            let mut latest = None;
+            for result in results {
+                if let Ok(snapshot) = state.update_batch_operation_progress(
+                    session_id,
+                    self.prefix,
+                    result.current,
+                    result.total,
+                    Some(result.relative_path.clone()),
+                    Some(&result.status),
+                    result.error.clone(),
+                ) {
+                    latest = Some(snapshot);
+                }
+            }
+            if let Some(snapshot) = latest {
+                self.emit_session_snapshot(snapshot);
+            }
+        }
         #[derive(Clone, Serialize)]
         struct Payload<'a> {
             results: &'a [BatchMetadataProgress],
@@ -467,8 +587,6 @@ impl<'a> BatchProgressEmitter<'a> {
             Payload { results },
         );
     }
-
-    /// Emit `${prefix}_complete` with the per-job summary payload.
     ///
     /// `summary` is whatever shape the caller chose (token totals for
     /// describe, source counters for geocode, …). The emitter doesn't
@@ -480,6 +598,33 @@ impl<'a> BatchProgressEmitter<'a> {
         failed: &[BatchFailureRow],
         summary: &S,
     ) {
+        if let Some(session_id) = self.active_session_id() {
+            let failures = failed
+                .iter()
+                .map(
+                    |failure| crate::session::MediaLibraryBatchOperationFailure {
+                        relative_path: failure.relative_path.clone(),
+                        kind: failure.kind.as_wire().to_owned(),
+                        detail: failure.detail.clone(),
+                    },
+                )
+                .collect();
+            if let Ok(summary_value) = serde_json::to_value(summary) {
+                if let Ok(snapshot) = self
+                    .app
+                    .state::<crate::session::MediaLibrarySessionState>()
+                    .complete_batch_operation(
+                        session_id,
+                        self.prefix,
+                        succeeded.to_vec(),
+                        failures,
+                        summary_value,
+                    )
+                {
+                    self.emit_session_snapshot(snapshot);
+                }
+            }
+        }
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload<'a, S: Serialize> {

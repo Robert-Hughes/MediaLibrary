@@ -43,10 +43,8 @@ import {
   metadataTargetDraftEntryEqualsExact,
   targetDraftsFromWire,
   TargetDraftEditsStore,
-  type ExactTargetMutationBatchItem,
 } from "./targetDraftEdits";
 import { TargetApplyController } from "./targetApplyController";
-import type { MetadataDraftRowMutation } from "./targetDraftTauri";
 import type { MetadataDraftTarget } from "./types";
 import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
 import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
@@ -341,6 +339,7 @@ export function useMediaLibrary(
         applying: null,
         targetVerifyOutcomes: targetVerifyOutcomesStoreRef.current.getAll(),
         targetVerifyOutcomesStore: targetVerifyOutcomesStoreRef.current,
+        batchOperations: {},
       };
     },
     [],
@@ -469,16 +468,17 @@ export function useMediaLibrary(
           })),
         );
       }
+      const verificationOutcomes = snapshot.verification_outcomes ?? {};
       const verificationPaths = new Set([
         ...Object.keys(targetVerifyOutcomesStoreRef.current.getAll()),
-        ...Object.keys(snapshot.verification_outcomes),
+        ...Object.keys(verificationOutcomes),
       ]);
       targetVerifyOutcomesStoreRef.current.replaceFiles(
         [...verificationPaths].map((path) => ({
           path,
           outcomes: targetVerifyOutcomesFromBackend(
             path,
-            snapshot.verification_outcomes[path] ?? [],
+            verificationOutcomes[path] ?? [],
           ),
         })),
       );
@@ -565,9 +565,8 @@ export function useMediaLibrary(
             return {
               ...previous,
               scanning: snapshot.discovery_running,
-              targetDraftEdits:
-                targetDraftEditsStoreRef.current.getAllMetadata(),
               targetDraftPersistence: targetDraftPersistenceRef.current,
+              batchOperations: snapshot.batch_operations ?? {},
               applying: projectApplyOperation(snapshot.apply_operation)
                 .applying,
               applyCompletion:
@@ -593,6 +592,7 @@ export function useMediaLibrary(
             snapshot.discovery_running,
             presentation,
           );
+          next.batchOperations = snapshot.batch_operations ?? {};
           if (previous.kind === "loaded") {
             next.galleryPath = previous.galleryPath;
             next.selectedPath = previous.selectedPath;
@@ -1320,46 +1320,6 @@ export function useMediaLibrary(
     },
     [pushApplicationError],
   );
-
-  const persistExactDraftMutations = useCallback(
-    async (
-      mutations: readonly ExactTargetMutationBatchItem[],
-      errorType: string,
-    ): Promise<{ success: boolean; changed: boolean }> => {
-      if (mutations.length === 0) return { success: true, changed: false };
-      const paths = [...new Set(mutations.map((mutation) => mutation.path))];
-      if (!requireTargetDraftPersistenceReady(paths)) {
-        return { success: false, changed: false };
-      }
-      const sessionId = activeScanIdRef.current;
-      if (sessionId < 0) return { success: false, changed: false };
-      const staged = new TargetDraftEditsStore();
-      staged.resetMetadata(targetDraftEditsStoreRef.current.getAllMetadata());
-      let changed: boolean;
-      try {
-        changed = staged.applyExactMutationBatch(mutations);
-      } catch (error) {
-        pushApplicationError(errorType, error, paths);
-        return { success: false, changed: false };
-      }
-      if (!changed) return { success: true, changed: false };
-      const rowMutations: MetadataDraftRowMutation[] = paths.map((path) => ({
-        relative_path: path,
-        entries: Object.values(staged.getMetadataFile(path) ?? {}),
-      }));
-      try {
-        await api.invoke("mutate_media_library_session_draft_rows", {
-          sessionId,
-          mutations: rowMutations,
-        });
-        return { success: true, changed: true };
-      } catch (error) {
-        pushApplicationError(errorType, error, paths);
-        return { success: false, changed: false };
-      }
-    },
-    [api, pushApplicationError, requireTargetDraftPersistenceReady],
-  );
   const targetOutcomeExists = useCallback(
     (relativePath: string, currentTarget: MetadataDraftTarget): boolean => {
       const file = targetVerifyOutcomesStoreRef.current.getFile(relativePath);
@@ -2067,20 +2027,23 @@ export function useMediaLibrary(
         );
         return false;
       }
-      const persisted = await persistExactDraftMutations(
-        [
-          {
-            path: fileRelativePath,
-            upserts: [{ target: structuredClone(target), edit }],
-            deletes: [],
-          },
-        ],
-        "metadata-target-new-property-save",
-      );
-      return persisted.success;
+      try {
+        await api.invoke("set_media_library_session_draft", {
+          sessionId: activeScanIdRef.current,
+          relativePath: fileRelativePath,
+          target: structuredClone(target),
+          edit: structuredClone(edit),
+        });
+        return true;
+      } catch (error) {
+        pushApplicationError("metadata-target-new-property-save", error, [
+          fileRelativePath,
+        ]);
+        return false;
+      }
     },
     [
-      persistExactDraftMutations,
+      api,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
       targetOutcomeExists,
@@ -2358,25 +2321,29 @@ export function useMediaLibrary(
           : Array.isArray(fileRelativePath)
             ? fileRelativePath
             : [fileRelativePath];
-      const mutations = paths.flatMap((path) => {
-        const entries = Object.values(
-          targetDraftEditsStoreRef.current.getMetadataFile(path) ?? {},
-        );
-        return entries.length === 0
-          ? []
-          : [
-              {
-                path,
-                upserts: [],
-                deletes: entries.map((entry) => entry.target),
-              },
-            ];
-      });
-      void persistExactDraftMutations(mutations, "metadata-target-discard-all");
+      const sessionId = activeScanIdRef.current;
+      if (sessionId < 0 || paths.length === 0) return;
+      void (async () => {
+        try {
+          for (const relativePath of paths) {
+            const targets = Object.values(
+              targetDraftEditsStoreRef.current.getMetadataFile(relativePath) ??
+                {},
+            ).map((entry) => entry.target);
+            if (targets.length === 0) continue;
+            await api.invoke("discard_media_library_session_drafts", {
+              sessionId,
+              relativePath,
+              targets,
+            });
+          }
+        } catch (error) {
+          pushApplicationError("metadata-target-discard-all", error, paths);
+        }
+      })();
     },
-    [persistExactDraftMutations],
+    [api, pushApplicationError],
   );
-
   const applyDraftEdits = useCallback(
     (fileRelativePath?: string | string[]): Promise<MetadataApplyResult> => {
       const run = async (): Promise<MetadataApplyResult> => {

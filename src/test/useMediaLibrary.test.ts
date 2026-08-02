@@ -1,4 +1,4 @@
-﻿import { renderHook, act } from "@testing-library/react";
+import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi, type MockTauriApi } from "./mockTauriApi";
@@ -228,6 +228,7 @@ describe("useMediaLibrary", () => {
       draft_persistence: { status: "ready" },
       apply_operation: null,
       verification_outcomes: {},
+      batch_operations: {},
     });
     mock.setThumbnailPayload("recovered-thumb", "recovered-thumbnail-data");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -1703,7 +1704,7 @@ describe("useMediaLibrary", () => {
     ).toBeDefined();
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(1);
   });
@@ -1721,7 +1722,7 @@ describe("useMediaLibrary", () => {
     };
     const saveCount = () =>
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ).length;
     const stateStore = () => {
       const state = result.current[0];
@@ -1916,9 +1917,7 @@ describe("useMediaLibrary", () => {
       Object.values(stateStore().getMetadataFile("owned.jpg") ?? {}).map(
         ({ target }) => target,
       ),
-    ).toEqual(
-      expect.arrayContaining([existingTarget, newPropertyTargetFor(ownedId)]),
-    );
+    ).toEqual([newPropertyTargetFor(ownedId)]);
 
     const ambiguousId = testId("XMP-test:AmbiguousOwnership");
     await publishOccurrences(mock, "ambiguous.jpg");
@@ -1964,7 +1963,7 @@ describe("useMediaLibrary", () => {
     expect(saveCount()).toBe(ambiguousSaveCount + 1);
     expect(
       Object.values(stateStore().getMetadataFile("ambiguous.jpg") ?? {}),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
 
     const collisionId = testId("XMP-test:PendingCollision");
     const collisionTarget = newPropertyTargetFor(collisionId);
@@ -2204,7 +2203,7 @@ describe("useMediaLibrary", () => {
     });
     const saveCount = () =>
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ).length;
     const beforeMoveSaves = saveCount();
     const consoleError = vi
@@ -2370,7 +2369,7 @@ describe("useMediaLibrary", () => {
     ).toEqual([]);
     expect(
       mock.invocations
-        .filter(({ cmd }) => cmd === "mutate_media_library_session_draft_rows")
+        .filter(({ cmd }) => cmd === "set_media_library_session_draft")
         .map(({ args }) => args?.folderPath),
     ).toEqual([]);
   });
@@ -2424,7 +2423,7 @@ describe("useMediaLibrary", () => {
     ).toEqual([]);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toEqual([]);
   });
@@ -2459,7 +2458,7 @@ describe("useMediaLibrary", () => {
     expect(result.current[0].kind).toBe("idle");
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toEqual([]);
     expect(mock.targetDraftEditsByFolder).toEqual({});
@@ -2510,7 +2509,7 @@ describe("useMediaLibrary", () => {
     ).toBeUndefined();
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toEqual([]);
   });
@@ -2560,7 +2559,7 @@ describe("useMediaLibrary", () => {
     ]);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(1);
   });
@@ -2577,7 +2576,7 @@ describe("useMediaLibrary", () => {
     };
     const saveCount = () =>
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ).length;
     const startDeferredRequest = (path: string, id: SchemaDefinitionId) => {
       const deferred = deferNextTagInfoLookup(mock);
@@ -2650,9 +2649,7 @@ describe("useMediaLibrary", () => {
       Object.values(store().getMetadataFile("owned-race.jpg") ?? {}).map(
         ({ target }) => target,
       ),
-    ).toEqual(
-      expect.arrayContaining([ownedTarget, newPropertyTargetFor(ownedId)]),
-    );
+    ).toEqual([newPropertyTargetFor(ownedId)]);
 
     const ambiguousId = testId("XMP-test:AmbiguousDuringLookup");
     await publishOccurrences(mock, "ambiguous-race.jpg");
@@ -2695,7 +2692,7 @@ describe("useMediaLibrary", () => {
     expect(saveCount()).toBe(ambiguousSaves + 1);
     expect(
       Object.values(store().getMetadataFile("ambiguous-race.jpg") ?? {}),
-    ).toHaveLength(3);
+    ).toHaveLength(1);
 
     const unavailableId = testId("XMP-test:UnavailableDuringLookup");
     await publishOccurrences(mock, "unavailable-race.jpg");
@@ -2846,19 +2843,19 @@ describe("useMediaLibrary", () => {
       targetVerificationStore.replaceFile("replace.jpg", [entry]);
     });
     mock.invocations.length = 0;
-    act(() =>
+    await act(async () => {
       result.current[1].keepTargetDraftAndDismissOutcome(
         "replace.jpg",
         replacement,
-      ),
-    );
-    current = result.current[0];
+      );
+      await settleAutosaves();
+    });
     if (current.kind !== "loaded") return;
     expect(
-      current.targetDraftEdits["replace.jpg"][
+      current.targetDraftEdits["replace.jpg"]?.[
         metadataDraftTargetSlotToken(replacement)
       ],
-    ).toBeDefined();
+    ).toBeUndefined();
     expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
     expect(mock.invocations).toHaveLength(1);
 
@@ -3050,7 +3047,7 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(1);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
   });
@@ -3088,7 +3085,7 @@ describe("useMediaLibrary", () => {
     expect(invocation?.args?.relativePaths).toEqual(["a.jpg", "b.jpg"]);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
 
@@ -3132,7 +3129,7 @@ describe("useMediaLibrary", () => {
     });
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
   });
@@ -3168,7 +3165,7 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(1);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
 
@@ -3228,7 +3225,7 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(1);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
     const state = result.current[0];
@@ -3297,7 +3294,7 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(2);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
     const state = result.current[0];
@@ -3355,7 +3352,7 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(1);
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
     const state = result.current[0];
@@ -3454,7 +3451,7 @@ describe("useMediaLibrary", () => {
     const loadFailedTargetVerificationStore = state.targetVerifyOutcomesStore;
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
 
@@ -3500,7 +3497,7 @@ describe("useMediaLibrary", () => {
     expect(state.targetVerifyOutcomes["blocked.jpg"]).toBeDefined();
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toHaveLength(0);
 
@@ -3562,7 +3559,7 @@ describe("useMediaLibrary", () => {
     expect(state.applicationErrors[0].error_type).toBe("metadata-target-load");
     expect(
       mock.invocations.some(
-        ({ cmd }) => cmd === "mutate_media_library_session_draft_rows",
+        ({ cmd }) => cmd === "set_media_library_session_draft",
       ),
     ).toBe(false);
 
@@ -3622,7 +3619,7 @@ describe("useMediaLibrary", () => {
       );
     });
     const mutationSessionIds = mock.invocations
-      .filter(({ cmd }) => cmd === "mutate_media_library_session_draft_rows")
+      .filter(({ cmd }) => cmd === "set_media_library_session_draft")
       .map(({ args }) => args?.sessionId);
     expect(mutationSessionIds).toEqual([1, 2]);
     const loaded = result.current[0];

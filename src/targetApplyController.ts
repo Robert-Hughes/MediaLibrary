@@ -5,15 +5,16 @@ import type {
   MetadataApplySummary,
 } from "./types";
 import {
-  applyTargetApplyFileResults,
-  type TargetApplyFileApplication,
-  type TargetApplyResultStores,
-} from "./targetApplyResults";
-import {
   applyTargetDraftEdits,
   cancelTargetApply,
   type TargetApplyTauriApi,
 } from "./targetApplyTauri";
+
+export interface TargetApplyFileApplication {
+  relativePath: string;
+  draftsChanged: false;
+  occurrencesChanged: false;
+}
 
 const STREAM_EVENT = "metadata_apply_stream";
 const MAX_RETAINED_CONTROLLER_ERRORS = 20;
@@ -24,10 +25,8 @@ type ProgressBatchMessage = Extract<
   MetadataApplyStreamMessage,
   { kind: "progress_batch" }
 >;
-
 export interface TargetApplyControllerDependencies {
   api: TargetApplyTauriApi;
-  stores?: TargetApplyResultStores;
 }
 
 export interface TargetApplyControllerProtocolError {
@@ -258,26 +257,15 @@ export class TargetApplyController {
     const applyBatch = (
       message: ProgressBatchMessage,
       results: MetadataApplyFileResult[],
-      allowRetry: boolean,
     ): boolean => {
       presentDiagnostics(results);
-      let applications: TargetApplyFileApplication[];
-      const stores = this.dependencies.stores;
-      if (stores === undefined) {
-        applications = results.map((result) => ({
+      const applications: TargetApplyFileApplication[] = results.map(
+        (result) => ({
           relativePath: result.relative_path,
           draftsChanged: false,
           occurrencesChanged: false,
-        }));
-      } else {
-        try {
-          applications = applyTargetApplyFileResults(results, stores);
-        } catch (error) {
-          recordApplicationError(error, results);
-          if (allowRetry && retry === null) retry = { message, results };
-          return false;
-        }
-      }
+        }),
+      );
       application.draftsChanged += applications.filter(
         (item) => item.draftsChanged,
       ).length;
@@ -362,7 +350,7 @@ export class TargetApplyController {
             fileFailureCount += message.results.filter(
               (result) => result.error !== null,
             ).length;
-            applyBatch(message, message.results, true);
+            applyBatch(message, message.results);
             this.updateRunningState({
               current: message.current,
               total: message.total,
@@ -420,7 +408,7 @@ export class TargetApplyController {
           total: commandResult.summary.selected,
           results,
         };
-        applyBatch(fallbackMessage, results, true);
+        applyBatch(fallbackMessage, results);
       }
       commandResult.undelivered_files.length = 0;
 
@@ -431,7 +419,7 @@ export class TargetApplyController {
       if (pendingRetry !== null) {
         const pending = pendingRetry;
         retry = null;
-        applyBatch(pending.message, pending.results, false);
+        applyBatch(pending.message, pending.results);
       }
 
       application.processed = commandResult.summary.completed;

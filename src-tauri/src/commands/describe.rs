@@ -11,7 +11,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::batch_job;
 use crate::commands::shared::{app_data_dir, make_openai_http, resolve_rel};
@@ -377,6 +377,8 @@ pub async fn estimate_describe_cost_cmd(
         s.ai_cost_estimate_mode,
         total
     );
+    let emitter = batch_job::BatchProgressEmitter::new(&app, "describe");
+    emitter.estimate_started(total);
     let _ = app.emit(
         "describe_estimate_started",
         DescribeEstimateStartedPayload { total },
@@ -389,6 +391,7 @@ pub async fn estimate_describe_cost_cmd(
                 return Err("Cancelled by user".into());
             }
             let current = index + 1;
+            emitter.estimate_progress(current, total, rel, None);
             let _ = app.emit(
                 "describe_estimate_progress",
                 DescribeEstimateProgressPayload {
@@ -414,16 +417,25 @@ pub async fn estimate_describe_cost_cmd(
             "[describe] heuristic estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
             total_input_tokens, predicted_cost, upper_bound
         );
-        let _ = app.emit(
-            "describe_estimate_complete",
-            DescribeEstimateCompletePayload {
+        let estimate = DescribeEstimateCompletePayload {
+            total_input_tokens,
+            predicted_cost_usd: predicted_cost,
+            upper_bound_cost_usd: upper_bound,
+            model: s.openai_model.clone(),
+            estimate_mode: s.ai_cost_estimate_mode,
+        };
+        emitter.estimate_complete(&estimate);
+        let _ = app.emit("describe_estimate_complete", estimate);
+        /* replaced payload */
+        if false {
+            let _ = DescribeEstimateCompletePayload {
                 total_input_tokens,
                 predicted_cost_usd: predicted_cost,
                 upper_bound_cost_usd: upper_bound,
                 model: s.openai_model.clone(),
                 estimate_mode: s.ai_cost_estimate_mode,
-            },
-        );
+            };
+        }
         describe_state.clear();
         return Ok(());
     }
@@ -466,6 +478,7 @@ pub async fn estimate_describe_cost_cmd(
         let expected_cost = (n as f64 / 1_000_000.0) * pricing.input_per_1m
             + (openai_describe::EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0)
                 * pricing.output_per_1m;
+        emitter.estimate_progress(current, total, rel, None);
         let _ = app.emit(
             "describe_estimate_progress",
             DescribeEstimateProgressPayload {
@@ -487,16 +500,24 @@ pub async fn estimate_describe_cost_cmd(
         "[describe] estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
         total_input_tokens, predicted_cost, upper_bound
     );
-    let _ = app.emit(
-        "describe_estimate_complete",
-        DescribeEstimateCompletePayload {
+    let estimate = DescribeEstimateCompletePayload {
+        total_input_tokens,
+        predicted_cost_usd: predicted_cost,
+        upper_bound_cost_usd: upper_bound,
+        model: s.openai_model.clone(),
+        estimate_mode: s.ai_cost_estimate_mode,
+    };
+    emitter.estimate_complete(&estimate);
+    let _ = app.emit("describe_estimate_complete", estimate);
+    if false {
+        let _ = DescribeEstimateCompletePayload {
             total_input_tokens,
             predicted_cost_usd: predicted_cost,
             upper_bound_cost_usd: upper_bound,
             model: s.openai_model.clone(),
             estimate_mode: s.ai_cost_estimate_mode,
-        },
-    );
+        };
+    }
     // The cancel flag installed for this estimate run is dropped: the
     // user is now in the awaiting-confirm phase. If they confirm, the
     // `describe_images_cmd` handler will install a fresh flag for the
@@ -652,12 +673,22 @@ pub async fn describe_images_cmd(
 
 #[tauri::command]
 pub fn cancel_describe_cmd(
+    app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
+    if let Some(session_id) = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .snapshot()
+        .session_id
+    {
+        let snapshot = app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .request_batch_operation_cancellation(session_id, "describe")?;
+        let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+    }
     describe_state.signal_cancel();
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

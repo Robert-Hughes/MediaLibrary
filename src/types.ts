@@ -1,5 +1,5 @@
 import type { MetadataApplySummary } from "./types/generated/MetadataApplySummary";
-// ── Generated wire-shape types ────────────────────────────────────────────────
+import type { MediaLibraryBatchOperation } from "./types/generated/MediaLibraryBatchOperation";
 //
 // These are re-exports of types generated from Rust by ts-rs (see
 // docs/GENERATED_TYPES.md). Do not hand-edit the originals in
@@ -77,7 +77,8 @@ export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
 export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrarySessionLifecycle";
 export type { MediaLibrarySessionSnapshot } from "./types/generated/MediaLibrarySessionSnapshot";
 export type { MediaLibraryApplyOperation } from "./types/generated/MediaLibraryApplyOperation";
-export type { MediaLibraryApplyOperationState } from "./types/generated/MediaLibraryApplyOperationState";
+export type { MediaLibraryBatchOperation } from "./types/generated/MediaLibraryBatchOperation";
+export type { MediaLibraryBatchOperationPhase } from "./types/generated/MediaLibraryBatchOperationPhase";
 export type { MediaLibrarySessionFilesAdded } from "./types/generated/MediaLibrarySessionFilesAdded";
 export type { MediaLibrarySessionIssue } from "./types/generated/MediaLibrarySessionIssue";
 export type { MediaLibrarySessionFileThumbnail } from "./types/generated/MediaLibrarySessionFileThumbnail";
@@ -560,10 +561,11 @@ export type AppState =
       applying: ApplyEditsInFlight | null;
       /** Final summary retained until the user closes the Apply dialog. */
       applyCompletion?: ApplyEditsCompletion | null;
-
       /** Exact-target verification outcomes that still need user attention. */
       targetVerifyOutcomes: TargetVerifyOutcomesByFile;
       targetVerifyOutcomesStore: TargetVerifyOutcomesStore;
+      /** Recoverable describe/geocode/normalise operation projections. */
+      batchOperations: Record<string, MediaLibraryBatchOperation | undefined>;
     };
 
 export interface ApplyEditsInFlight {

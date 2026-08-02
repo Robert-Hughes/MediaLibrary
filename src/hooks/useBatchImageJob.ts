@@ -30,7 +30,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { BatchFailureKind, BatchJobFailureKind } from "../types";
+import type {
+  BatchFailureKind,
+  BatchJobFailureKind,
+  MediaLibraryBatchOperation,
+} from "../types";
 import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 
 export type BatchJobPhase =
@@ -197,6 +201,8 @@ export interface BatchJobConfig<StartArgs, EstimatePayload, SummaryPayload> {
 }
 
 export interface UseBatchImageJobOptions {
+  /** Authoritative Rust operation projection used for recovery and lifecycle. */
+  operation?: MediaLibraryBatchOperation;
   /**
    * Invoked for each item whose `${prefix}_progress` event reports
    * `status === "ok"` and carries draft edits. Caller merges these into
@@ -239,6 +245,33 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   const [open, setOpen] = useState(false);
   const [state, setState] =
     useState<BatchJobState<EstimatePayload, SummaryPayload>>(initialState);
+
+  useEffect(() => {
+    const operation = options.operation;
+    if (!operation) return;
+    const phase: BatchJobPhase =
+      operation.phase === "completed" || operation.phase === "failed"
+        ? "done"
+        : operation.phase;
+    setOpen(true);
+    setState((current) => ({
+      ...current,
+      phase,
+      total: operation.total,
+      current: operation.current,
+      currentFile: operation.current_file,
+      cancelling: operation.cancelling,
+      failures: operation.failures.map((failure) => ({
+        relativePath: failure.relative_path,
+        kind: failure.kind as BatchJobFailureKind,
+        detail: failure.detail,
+      })),
+      succeeded: [...operation.succeeded],
+      estimate: operation.estimate as EstimatePayload | null,
+      summary: operation.summary as SummaryPayload | null,
+      estimateError: operation.error,
+    }));
+  }, [options.operation]);
   // Track latest phase synchronously so `cancel` can decide whether to
   // close immediately without depending on setState batching order.
   const phaseRef = useRef<BatchJobPhase>("estimating");
@@ -615,13 +648,17 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       setState(initialState);
     }
   }, [config.commands.cancel]);
-
   const close = useCallback(() => {
+    if (options.operation) {
+      void invoke("dismiss_media_library_session_batch_operation", {
+        kind: config.eventPrefix,
+      });
+    }
     frontendStagingFailuresRef.current = [];
     runOrderRef.current = [];
     setOpen(false);
     setState(initialState);
-  }, []);
+  }, [config.eventPrefix, options.operation]);
 
   return { open, state, actions: { start, confirm, cancel, close } };
 }
