@@ -527,6 +527,7 @@ export type AppState =
     }
   | {
       kind: "loaded";
+      sessionId: number;
       folder: string;
       files: FileInfo[];
       thumbnails: ThumbnailStore;

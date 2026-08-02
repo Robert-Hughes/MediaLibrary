@@ -609,75 +609,20 @@ export default function App() {
   const [geocodeOverwrite, setGeocodeOverwrite] = useState<
     OverwriteCount | undefined
   >(undefined);
-  const stageDescribeEdits = useCallback(
-    (relativePath: string, edits: import("./types").SchemaMetadataEdit[]) =>
-      actions.applyGeneratedMetadataDraftBatch(
-        relativePath,
-        { kind: "describe" },
-        edits,
-      ),
-    [actions],
-  );
-  const stageGeocodeEdits = useCallback(
-    (relativePath: string, edits: import("./types").SchemaMetadataEdit[]) =>
-      actions.applyGeneratedMetadataDraftBatch(
-        relativePath,
-        { kind: "geocode" },
-        edits,
-      ),
-    [actions],
-  );
-  const stageNormaliseEdits = useCallback(
-    (
-      relativePath: string,
-      edits: import("./types").SchemaMetadataEdit[],
-      confirmedEnabledGroups: readonly import("./types").NormaliseGroup[],
-    ) =>
-      actions.applyGeneratedMetadataDraftBatch(
-        relativePath,
-        {
-          kind: "normalise",
-          enabledGroups: structuredClone(confirmedEnabledGroups),
-        },
-        edits,
-      ),
-    [actions],
-  );
-  const stageNormaliseEditsBatch = useCallback(
-    (
-      items: readonly {
-        relativePath: string;
-        edits: import("./types").SchemaMetadataEdit[];
-      }[],
-      confirmedEnabledGroups: readonly import("./types").NormaliseGroup[],
-    ) =>
-      actions.applyGeneratedMetadataDraftBatches(
-        items.map(({ relativePath, edits }) => ({
-          relativePath,
-          producer: {
-            kind: "normalise" as const,
-            enabledGroups: structuredClone(confirmedEnabledGroups),
-          },
-          edits,
-        })),
-      ),
-    [actions],
-  );
   const describe = useDescribeImages({
+    sessionId: state.kind === "loaded" ? state.sessionId : undefined,
     operation:
       state.kind === "loaded" ? state.batchOperations.describe : undefined,
-    onApplyEdits: stageDescribeEdits,
   });
   const geocode = useGeocodeImages({
+    sessionId: state.kind === "loaded" ? state.sessionId : undefined,
     operation:
       state.kind === "loaded" ? state.batchOperations.geocode : undefined,
-    onApplyEdits: stageGeocodeEdits,
   });
   const normalise = useNormaliseMetadata({
+    sessionId: state.kind === "loaded" ? state.sessionId : undefined,
     operation:
       state.kind === "loaded" ? state.batchOperations.normalise : undefined,
-    onApplyEdits: stageNormaliseEdits,
-    onApplyEditsBatch: stageNormaliseEditsBatch,
   });
   const confirmDescribe = () => {
     if (!actions.canStageGeneratedMetadata(describe.state.relPaths)) return;

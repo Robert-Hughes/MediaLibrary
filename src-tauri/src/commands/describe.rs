@@ -356,11 +356,22 @@ where
 /// `/responses/input_tokens` call once per image and hard-fails on errors.
 #[tauri::command]
 pub async fn estimate_describe_cost_cmd(
-    folder_path: String,
+    session_id: u64,
     rel_paths: Vec<String>,
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
+    let snapshot = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != crate::session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before estimation started".into());
+    }
+    let folder_path = snapshot
+        .folder
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     let cancel_flag = describe_state.install();
     let s = settings::load_settings(&app_data_dir(&app)?)?;
     if s.openai_api_key.trim().is_empty() {
@@ -377,7 +388,15 @@ pub async fn estimate_describe_cost_cmd(
         s.ai_cost_estimate_mode,
         total
     );
-    let emitter = batch_job::BatchProgressEmitter::new(&app, "describe");
+    let emitter = batch_job::BatchProgressEmitter::begin(
+        &app,
+        "describe",
+        session_id,
+        crate::session::MediaLibraryBatchOperationPhase::Estimating,
+        rel_paths.clone(),
+        Some(serde_json::to_value(&rel_paths).map_err(|error| error.to_string())?),
+        None,
+    )?;
     emitter.estimate_started(total);
     let _ = app.emit(
         "describe_estimate_started",
@@ -388,6 +407,7 @@ pub async fn estimate_describe_cost_cmd(
         for (index, rel) in rel_paths.iter().enumerate() {
             if cancel_flag.load(Ordering::Relaxed) {
                 describe_state.clear();
+                emitter.fail("Cancelled by user");
                 return Err("Cancelled by user".into());
             }
             let current = index + 1;
@@ -412,7 +432,10 @@ pub async fn estimate_describe_cost_cmd(
                 &s.openai_model,
                 total_input_tokens,
                 total,
-            )?;
+            )
+            .inspect_err(|error| {
+                emitter.fail(error.clone());
+            })?;
         log::info!(
             "[describe] heuristic estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
             total_input_tokens, predicted_cost, upper_bound
@@ -440,7 +463,9 @@ pub async fn estimate_describe_cost_cmd(
         return Ok(());
     }
 
-    let (http, _) = make_openai_http(&app)?;
+    let (http, _) = make_openai_http(&app).inspect_err(|error| {
+        emitter.fail(error.clone());
+    })?;
     let client = openai_describe::OpenAiDescribeClient::from_http(http);
     let pricing = openai_describe::pricing_for(&s.openai_model)
         .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
@@ -448,6 +473,7 @@ pub async fn estimate_describe_cost_cmd(
     for (index, rel) in rel_paths.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             describe_state.clear();
+            emitter.fail("Cancelled by user");
             return Err("Cancelled by user".into());
         }
         let current = index + 1;
@@ -460,7 +486,9 @@ pub async fn estimate_describe_cost_cmd(
                     message: e.clone(),
                 },
             );
-            format!("{}: {}", rel, e)
+            let error = format!("{}: {}", rel, e);
+            emitter.fail(error.clone());
+            error
         })?;
         let n = openai_describe::count_input_tokens(&client, &s.openai_model, &bytes)
             .await
@@ -472,7 +500,9 @@ pub async fn estimate_describe_cost_cmd(
                         message: e.clone(),
                     },
                 );
-                format!("{}: {}", rel, e)
+                let error = format!("{}: {}", rel, e);
+                emitter.fail(error.clone());
+                error
             })?;
         total_input_tokens += n as u64;
         let expected_cost = (n as f64 / 1_000_000.0) * pricing.input_per_1m
@@ -495,7 +525,10 @@ pub async fn estimate_describe_cost_cmd(
         &s.openai_model,
         total_input_tokens,
         total,
-    )?;
+    )
+    .inspect_err(|error| {
+        emitter.fail(error.clone());
+    })?;
     log::info!(
         "[describe] estimate complete total_input_tokens={} predicted_cost_usd={:.6} upper_bound_cost_usd={:.6}",
         total_input_tokens, predicted_cost, upper_bound
@@ -532,18 +565,46 @@ pub async fn estimate_describe_cost_cmd(
 /// summary.
 #[tauri::command]
 pub async fn describe_images_cmd(
-    folder_path: String,
-    rel_paths: Vec<String>,
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
-    let (http, s) = make_openai_http(&app)?;
+    let snapshot = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .snapshot();
+    if snapshot.session_id != Some(session_id) {
+        return Err("The media-library session changed before description started".into());
+    }
+    let operation = snapshot
+        .batch_operations
+        .get("describe")
+        .filter(|operation| operation.operation_id == operation_id)
+        .ok_or_else(|| "The description operation identity changed".to_string())?;
+    let rel_paths = operation.requested_paths.clone();
+    let folder_path = snapshot
+        .folder
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    let total = rel_paths.len();
+    let emitter = batch_job::BatchProgressEmitter::resume(
+        &app,
+        "describe",
+        session_id,
+        operation_id,
+        total,
+        batch_job::GeneratedDraftProducer::Describe,
+    )?;
+    let (http, s) = make_openai_http(&app).inspect_err(|error| {
+        emitter.fail(error.clone());
+    })?;
     let client = openai_describe::OpenAiDescribeClient::from_http(http);
     let pricing = openai_describe::pricing_for(&s.openai_model)
-        .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
+        .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))
+        .inspect_err(|error| {
+            emitter.fail(error.clone());
+        })?;
     let cancel_flag = describe_state.install();
 
-    let total = rel_paths.len();
     let describe_concurrency = usize::from(s.describe_concurrency);
     log::info!(
         "[describe] starting describe model={} prompt_version={} total={} concurrency={}",
@@ -552,7 +613,6 @@ pub async fn describe_images_cmd(
         total,
         describe_concurrency
     );
-    let emitter = batch_job::BatchProgressEmitter::new(&app, "describe");
     let folder_path = Arc::new(folder_path);
     let model = Arc::new(s.openai_model.clone());
     let batch_started_at = std::time::Instant::now();
@@ -587,6 +647,7 @@ pub async fn describe_images_cmd(
         Ok(batch) => batch,
         Err(error) => {
             describe_state.clear();
+            emitter.fail(error.clone());
             return Err(error);
         }
     };
@@ -624,7 +685,10 @@ pub async fn describe_images_cmd(
         &s.openai_model,
         aggregate.input_tokens as u64,
         dispatched_api_calls,
-    )?;
+    )
+    .inspect_err(|error| {
+        emitter.fail(error.clone());
+    })?;
     let actual = aggregate.cost(&pricing);
 
     let usage_summary = UsageSummary {
@@ -673,19 +737,15 @@ pub async fn describe_images_cmd(
 
 #[tauri::command]
 pub fn cancel_describe_cmd(
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
-    if let Some(session_id) = app
+    let snapshot = app
         .state::<crate::session::MediaLibrarySessionState>()
-        .snapshot()
-        .session_id
-    {
-        let snapshot = app
-            .state::<crate::session::MediaLibrarySessionState>()
-            .request_batch_operation_cancellation(session_id, "describe")?;
-        let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
-    }
+        .request_batch_operation_cancellation(session_id, &operation_id)?;
+    let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
     describe_state.signal_cancel();
     Ok(())
 }

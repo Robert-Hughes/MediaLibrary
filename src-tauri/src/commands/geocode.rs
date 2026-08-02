@@ -11,18 +11,55 @@ use crate::commands::shared::app_data_dir;
 use crate::geocode::{self, GeocodeRequestItem, GeocodeSummary};
 use crate::geocode_cache;
 
+#[tauri::command]
+pub fn prepare_geocode_images_cmd(
+    session_id: u64,
+    items: Vec<GeocodeRequestItem>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let requested_paths = items.iter().map(|item| item.rel_path.clone()).collect();
+    let emitter = batch_job::BatchProgressEmitter::begin(
+        &app,
+        "geocode",
+        session_id,
+        crate::session::MediaLibraryBatchOperationPhase::AwaitingConfirm,
+        requested_paths,
+        Some(serde_json::to_value(items).map_err(|error| error.to_string())?),
+        None,
+    )?;
+    emitter.estimate_complete(&serde_json::Value::Null);
+    Ok(())
+}
+
 /// Reverse-geocode a batch of images. This command owns the Tauri
 /// cancellation flag, loads/saves the on-disk cache, and adapts the
 /// shared `BatchProgressEmitter` to the runner's `GeocodeEventSink`
 /// trait.
 #[tauri::command]
 pub async fn geocode_images_cmd(
-    folder_path: String,
-    items: Vec<GeocodeRequestItem>,
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     geocode_state: State<'_, geocode::GeocodeState>,
 ) -> Result<(), String> {
-    let _ = folder_path; // resolution happens client-side; included for symmetry with describe.
+    let snapshot = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .snapshot();
+    if snapshot.session_id != Some(session_id) {
+        return Err("The media-library session changed before geocoding started".into());
+    }
+    let operation = snapshot
+        .batch_operations
+        .get("geocode")
+        .filter(|operation| operation.operation_id == operation_id)
+        .ok_or_else(|| "The geocode operation identity changed".to_string())?;
+    let items: Vec<GeocodeRequestItem> = serde_json::from_value(
+        operation
+            .request
+            .clone()
+            .ok_or_else(|| "The geocode operation request is unavailable".to_string())?,
+    )
+    .map_err(|error| format!("The retained geocode request is invalid: {error}"))?;
     let cancel_flag = geocode_state.install();
     let client = geocode::GeocodeClient::new();
     let app_data = app_data_dir(&app).ok();
@@ -34,16 +71,21 @@ pub async fn geocode_images_cmd(
     log::info!("[geocode] starting total={}", items.len());
 
     let sink = TauriGeocodeSink {
-        emitter: batch_job::BatchProgressEmitter::new(&app, "geocode"),
+        emitter: batch_job::BatchProgressEmitter::resume(
+            &app,
+            "geocode",
+            session_id,
+            operation_id,
+            items.len(),
+            batch_job::GeneratedDraftProducer::Geocode,
+        )?,
     };
 
     let outcome =
         geocode::run_geocode_batch(&items, &client, &mut cache, &cancel_flag, &sink, |c| {
             match &app_data {
-                // No app_data_dir → don't try to persist. The batch loop's
-                // typed-draft emissions still landed in the frontend store;
-                // we just can't memoise this batch's results across
-                // restarts.
+                // No app_data_dir means this batch cannot be memoised across
+                // restarts; generated drafts are still staged by Rust.
                 Some(dir) => geocode_cache::save(dir, c),
                 None => Ok(()),
             }
@@ -99,19 +141,15 @@ impl<'a> geocode::GeocodeEventSink for TauriGeocodeSink<'a> {
 
 #[tauri::command]
 pub fn cancel_geocode_cmd(
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     geocode_state: State<'_, geocode::GeocodeState>,
 ) -> Result<(), String> {
-    if let Some(session_id) = app
+    let snapshot = app
         .state::<crate::session::MediaLibrarySessionState>()
-        .snapshot()
-        .session_id
-    {
-        let snapshot = app
-            .state::<crate::session::MediaLibrarySessionState>()
-            .request_batch_operation_cancellation(session_id, "geocode")?;
-        let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
-    }
+        .request_batch_operation_cancellation(session_id, &operation_id)?;
+    let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
     geocode_state.signal_cancel();
     Ok(())
 }

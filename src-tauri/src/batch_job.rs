@@ -401,18 +401,98 @@ impl<T> EventBatch<T> {
 pub struct BatchProgressEmitter<'a> {
     app: &'a AppHandle,
     prefix: &'static str,
+    session_id: u64,
+    operation_id: String,
+    producer: Option<GeneratedDraftProducer>,
+    staging_failures: Mutex<Vec<crate::session::MediaLibraryBatchOperationFailure>>,
+}
+
+#[derive(Clone, Debug)]
+pub enum GeneratedDraftProducer {
+    Describe,
+    Geocode,
+    Normalise {
+        enabled_groups: Vec<crate::normalise::NormaliseGroup>,
+    },
+}
+
+impl GeneratedDraftProducer {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Describe => "describe",
+            Self::Geocode => "geocode",
+            Self::Normalise { .. } => "normalise",
+        }
+    }
 }
 
 impl<'a> BatchProgressEmitter<'a> {
-    pub fn new(app: &'a AppHandle, prefix: &'static str) -> Self {
-        Self { app, prefix }
+    pub fn begin(
+        app: &'a AppHandle,
+        prefix: &'static str,
+        session_id: u64,
+        phase: crate::session::MediaLibraryBatchOperationPhase,
+        requested_paths: Vec<String>,
+        request: Option<serde_json::Value>,
+        producer: Option<GeneratedDraftProducer>,
+    ) -> Result<Self, String> {
+        let total = requested_paths.len();
+        let snapshot = app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .begin_batch_operation(session_id, prefix, phase, total, requested_paths, request)?;
+        let operation_id = snapshot
+            .batch_operations
+            .get(prefix)
+            .expect("the operation was inserted above")
+            .operation_id
+            .clone();
+        app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            app,
+            prefix,
+            session_id,
+            operation_id,
+            producer,
+            staging_failures: Mutex::new(Vec::new()),
+        })
     }
 
-    fn active_session_id(&self) -> Option<u64> {
-        self.app
+    pub fn resume(
+        app: &'a AppHandle,
+        prefix: &'static str,
+        session_id: u64,
+        operation_id: String,
+        total: usize,
+        producer: GeneratedDraftProducer,
+    ) -> Result<Self, String> {
+        let snapshot = app
             .state::<crate::session::MediaLibrarySessionState>()
-            .snapshot()
-            .session_id
+            .start_batch_operation(session_id, &operation_id, total)?;
+        app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            app,
+            prefix,
+            session_id,
+            operation_id,
+            producer: Some(producer),
+            staging_failures: Mutex::new(Vec::new()),
+        })
+    }
+
+    pub fn operation_id(&self) -> &str {
+        &self.operation_id
+    }
+
+    pub fn fail(&self, error: impl Into<String>) {
+        if let Ok(snapshot) = self
+            .app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .fail_batch_operation(self.session_id, &self.operation_id, error.into())
+        {
+            self.emit_session_snapshot(snapshot);
+        }
     }
 
     fn emit_session_snapshot(&self, snapshot: crate::session::MediaLibrarySessionSnapshot) {
@@ -422,20 +502,7 @@ impl<'a> BatchProgressEmitter<'a> {
     }
 
     pub fn estimate_started(&self, total: usize) {
-        if let Some(session_id) = self.active_session_id() {
-            if let Ok(snapshot) = self
-                .app
-                .state::<crate::session::MediaLibrarySessionState>()
-                .begin_batch_operation(
-                    session_id,
-                    self.prefix,
-                    crate::session::MediaLibraryBatchOperationPhase::Estimating,
-                    total,
-                )
-            {
-                self.emit_session_snapshot(snapshot);
-            }
-        }
+        let _ = total;
     }
 
     pub fn estimate_progress(
@@ -445,55 +512,36 @@ impl<'a> BatchProgressEmitter<'a> {
         relative_path: &str,
         error: Option<&str>,
     ) {
-        if let Some(session_id) = self.active_session_id() {
-            if let Ok(snapshot) = self
-                .app
-                .state::<crate::session::MediaLibrarySessionState>()
-                .update_batch_operation_estimate_progress(
-                    session_id,
-                    self.prefix,
-                    current,
-                    total,
-                    Some(relative_path.to_owned()),
-                    error.map(str::to_owned),
-                )
-            {
-                self.emit_session_snapshot(snapshot);
-            }
+        if let Ok(snapshot) = self
+            .app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .update_batch_operation_estimate_progress(
+                self.session_id,
+                &self.operation_id,
+                current,
+                total,
+                Some(relative_path.to_owned()),
+                error.map(str::to_owned),
+            )
+        {
+            self.emit_session_snapshot(snapshot);
         }
     }
 
     pub fn estimate_complete<S: Serialize>(&self, estimate: &S) {
-        let Some(session_id) = self.active_session_id() else {
-            return;
-        };
         let Ok(estimate) = serde_json::to_value(estimate) else {
             return;
         };
         if let Ok(snapshot) = self
             .app
             .state::<crate::session::MediaLibrarySessionState>()
-            .complete_batch_operation_estimate(session_id, self.prefix, estimate)
+            .complete_batch_operation_estimate(self.session_id, &self.operation_id, estimate)
         {
             self.emit_session_snapshot(snapshot);
         }
     }
 
     pub fn started(&self, total: usize) {
-        if let Some(session_id) = self.active_session_id() {
-            if let Ok(snapshot) = self
-                .app
-                .state::<crate::session::MediaLibrarySessionState>()
-                .begin_batch_operation(
-                    session_id,
-                    self.prefix,
-                    crate::session::MediaLibraryBatchOperationPhase::Running,
-                    total,
-                )
-            {
-                self.emit_session_snapshot(snapshot);
-            }
-        }
         #[derive(Clone, Serialize)]
         struct Payload {
             total: usize,
@@ -512,22 +560,25 @@ impl<'a> BatchProgressEmitter<'a> {
         error: Option<&str>,
         edits: Option<&crate::draft_edits::SchemaMetadataEditMap>,
     ) {
-        if let Some(session_id) = self.active_session_id() {
-            if let Ok(snapshot) = self
-                .app
-                .state::<crate::session::MediaLibrarySessionState>()
-                .update_batch_operation_progress(
-                    session_id,
-                    self.prefix,
-                    current,
-                    total,
-                    Some(relative_path.to_owned()),
-                    Some(status),
-                    error.map(str::to_owned),
-                )
-            {
-                self.emit_session_snapshot(snapshot);
-            }
+        let edit_entries = edits
+            .cloned()
+            .map(crate::draft_edits::schema_metadata_edit_entries);
+        let (status, error) =
+            self.stage_result(relative_path, status, error, edit_entries.as_deref());
+        if let Ok(snapshot) = self
+            .app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .update_batch_operation_progress(
+                self.session_id,
+                &self.operation_id,
+                current,
+                total,
+                Some(relative_path.to_owned()),
+                Some(&status),
+                error.clone(),
+            )
+        {
+            self.emit_session_snapshot(snapshot);
         }
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
@@ -547,36 +598,38 @@ impl<'a> BatchProgressEmitter<'a> {
                 current,
                 total,
                 relative_path,
-                status,
-                error,
-                edits: edits
-                    .cloned()
-                    .map(crate::draft_edits::schema_metadata_edit_entries),
+                status: &status,
+                error: error.as_deref(),
+                edits: edit_entries,
             },
         );
     }
 
     /// Emit `${prefix}_progress_batch` using the scanner-style `results` envelope.
     pub fn progress_metadata_batch(&self, results: &[BatchMetadataProgress]) {
-        if let Some(session_id) = self.active_session_id() {
-            let state = self.app.state::<crate::session::MediaLibrarySessionState>();
-            let mut latest = None;
-            for result in results {
-                if let Ok(snapshot) = state.update_batch_operation_progress(
-                    session_id,
-                    self.prefix,
-                    result.current,
-                    result.total,
-                    Some(result.relative_path.clone()),
-                    Some(&result.status),
-                    result.error.clone(),
-                ) {
-                    latest = Some(snapshot);
-                }
+        let state = self.app.state::<crate::session::MediaLibrarySessionState>();
+        let mut latest = None;
+        for result in results {
+            let (status, error) = self.stage_result(
+                &result.relative_path,
+                &result.status,
+                result.error.as_deref(),
+                result.edits.as_deref(),
+            );
+            if let Ok(snapshot) = state.update_batch_operation_progress(
+                self.session_id,
+                &self.operation_id,
+                result.current,
+                result.total,
+                Some(result.relative_path.clone()),
+                Some(&status),
+                error,
+            ) {
+                latest = Some(snapshot);
             }
-            if let Some(snapshot) = latest {
-                self.emit_session_snapshot(snapshot);
-            }
+        }
+        if let Some(snapshot) = latest {
+            self.emit_session_snapshot(snapshot);
         }
         #[derive(Clone, Serialize)]
         struct Payload<'a> {
@@ -598,31 +651,40 @@ impl<'a> BatchProgressEmitter<'a> {
         failed: &[BatchFailureRow],
         summary: &S,
     ) {
-        if let Some(session_id) = self.active_session_id() {
-            let failures = failed
-                .iter()
-                .map(
-                    |failure| crate::session::MediaLibraryBatchOperationFailure {
-                        relative_path: failure.relative_path.clone(),
-                        kind: failure.kind.as_wire().to_owned(),
-                        detail: failure.detail.clone(),
-                    },
+        let mut failures = failed
+            .iter()
+            .map(
+                |failure| crate::session::MediaLibraryBatchOperationFailure {
+                    relative_path: failure.relative_path.clone(),
+                    kind: failure.kind.as_wire().to_owned(),
+                    detail: failure.detail.clone(),
+                },
+            )
+            .collect::<Vec<_>>();
+        failures.extend(self.staging_failures.lock().unwrap().clone());
+        let failed_paths = failures
+            .iter()
+            .map(|failure| failure.relative_path.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        let succeeded = succeeded
+            .iter()
+            .filter(|path| !failed_paths.contains(path.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if let Ok(mut summary_value) = serde_json::to_value(summary) {
+            reconcile_summary_counts(&mut summary_value, succeeded.len(), failed_paths.len());
+            if let Ok(snapshot) = self
+                .app
+                .state::<crate::session::MediaLibrarySessionState>()
+                .complete_batch_operation(
+                    self.session_id,
+                    &self.operation_id,
+                    succeeded.clone(),
+                    failures,
+                    summary_value,
                 )
-                .collect();
-            if let Ok(summary_value) = serde_json::to_value(summary) {
-                if let Ok(snapshot) = self
-                    .app
-                    .state::<crate::session::MediaLibrarySessionState>()
-                    .complete_batch_operation(
-                        session_id,
-                        self.prefix,
-                        succeeded.to_vec(),
-                        failures,
-                        summary_value,
-                    )
-                {
-                    self.emit_session_snapshot(snapshot);
-                }
+            {
+                self.emit_session_snapshot(snapshot);
             }
         }
         #[derive(Clone, Serialize)]
@@ -635,11 +697,68 @@ impl<'a> BatchProgressEmitter<'a> {
         let _ = self.app.emit(
             &format!("{}_complete", self.prefix),
             Payload {
-                succeeded,
+                succeeded: &succeeded,
                 failed,
                 usage_summary: summary,
             },
         );
+    }
+
+    fn stage_result(
+        &self,
+        relative_path: &str,
+        status: &str,
+        error: Option<&str>,
+        edits: Option<&[crate::draft_edits::SchemaMetadataEdit]>,
+    ) -> (String, Option<String>) {
+        let Some(edits) = edits.filter(|edits| !edits.is_empty()) else {
+            return (status.to_owned(), error.map(str::to_owned));
+        };
+        let Some(producer) = self.producer.as_ref() else {
+            return (status.to_owned(), error.map(str::to_owned));
+        };
+        match crate::stage_batch_generated_metadata_drafts(
+            self.app,
+            self.session_id,
+            &self.operation_id,
+            producer,
+            relative_path,
+            edits,
+        ) {
+            Ok(_) => (status.to_owned(), error.map(str::to_owned)),
+            Err(stage_error) => {
+                let failure = crate::session::MediaLibraryBatchOperationFailure {
+                    relative_path: relative_path.to_owned(),
+                    kind: "draft_stage_failed".into(),
+                    detail: stage_error.clone(),
+                };
+                let mut failures = self.staging_failures.lock().unwrap();
+                if !failures.contains(&failure) {
+                    failures.push(failure);
+                }
+                if status == "ok" {
+                    ("draft_stage_failed".into(), Some(stage_error))
+                } else {
+                    (status.to_owned(), error.map(str::to_owned))
+                }
+            }
+        }
+    }
+}
+
+fn reconcile_summary_counts(summary: &mut serde_json::Value, succeeded: usize, failed: usize) {
+    let Some(summary) = summary.as_object_mut() else {
+        return;
+    };
+    for key in ["nSucceeded", "n_succeeded"] {
+        if summary.contains_key(key) {
+            summary.insert(key.into(), serde_json::Value::from(succeeded));
+        }
+    }
+    for key in ["nFailed", "n_failed"] {
+        if summary.contains_key(key) {
+            summary.insert(key.into(), serde_json::Value::from(failed));
+        }
     }
 }
 

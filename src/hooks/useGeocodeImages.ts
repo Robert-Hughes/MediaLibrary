@@ -1,20 +1,16 @@
 /**
  * Drives the reverse-geocoding flow end-to-end.
  *
- * Thin adapter around `useBatchImageJob`. The geocode flow has no
- * estimate phase (no cost to compute) — the hook jumps straight to
- * `awaiting-confirm` with the items the caller passed, then on
- * `confirm` invokes `geocode_images_cmd` and lets the backend's
- * `geocode_*` events drive the rest of the state machine.
+ * Thin adapter around `useBatchImageJob`. Geocode has no cost estimate, but
+ * its prepare command creates a durable Rust operation and retains the items
+ * before the dialog reaches `awaiting-confirm`.
  */
 import { useMemo } from "react";
-import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 import type {
   GeocodeProgressState,
   GeocodeRequestItem,
   GeocodeSummary,
   MediaLibraryBatchOperation,
-  SchemaMetadataEdit,
 } from "../types";
 import {
   useBatchImageJob,
@@ -38,11 +34,8 @@ export interface GeocodeActions {
 }
 
 export interface UseGeocodeImagesOptions {
+  sessionId?: number;
   operation?: MediaLibraryBatchOperation;
-  onApplyEdits?: (
-    relativePath: string,
-    edits: SchemaMetadataEdit[],
-  ) => GeneratedDraftStageResult | Promise<GeneratedDraftStageResult>;
 }
 
 /**
@@ -94,20 +87,18 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
     [],
   );
 
-  const config = useMemo<
-    BatchJobConfig<GeocodeRequestItem[], null, GeocodeSummary>
-  >(
+  const config = useMemo<BatchJobConfig<GeocodeRequestItem[]>>(
     () => ({
-      eventPrefix: "geocode",
       commands: {
-        // No estimate command — see file-level comment.
+        estimate: "prepare_geocode_images_cmd",
         run: "geocode_images_cmd",
         cancel: "cancel_geocode_cmd",
       },
-      buildRunArgs: (folderPath, items) => ({ folderPath, items }),
+      buildEstimateArgs: (_folderPath, items) => ({ items }),
+      buildRunArgs: () => ({}),
+      buildRecoveryRunArgs: () => ({}),
       totalItems: (items) => items.length,
       relativePaths: (items) => items.map((item) => item.relPath),
-      parseSummaryPayload: (raw) => raw as GeocodeSummary,
     }),
     [],
   );
@@ -115,8 +106,8 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
   const job = useBatchImageJob<GeocodeRequestItem[], null, GeocodeSummary>(
     config,
     {
+      sessionId: options.sessionId,
       operation: options.operation,
-      onApplyEdits: options.onApplyEdits,
     },
   );
 

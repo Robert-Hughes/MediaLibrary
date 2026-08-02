@@ -271,6 +271,8 @@ describe("useMediaLibrary", () => {
         describe: {
           operation_id: "describe-1",
           kind: "describe",
+          requested_paths: ["recovered.jpg"],
+          request: ["recovered.jpg"],
           phase: "running",
           total: 1,
           current: 0,
@@ -626,7 +628,7 @@ describe("useMediaLibrary", () => {
       relativePath: "nature/sunset.jpg",
     });
   });
-  it("scan_error during an active scan resets state to idle", async () => {
+  it("projects an authoritative failed scan session", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -635,15 +637,27 @@ describe("useMediaLibrary", () => {
     });
     expect(result.current[0]).toMatchObject({ kind: "loaded", scanning: true });
 
-    await expectConsoleErrorMessages(["Scan error: not a directory"], () => {
-      act(() => {
-        mock.emitScanError("not a directory");
-      });
+    await expectConsoleErrorMessages(
+      ["Worker error (scan): not a directory"],
+      () => {
+        act(() => {
+          mock.emitScanError("not a directory");
+        });
+      },
+    );
+    expect(result.current[0]).toMatchObject({
+      kind: "loaded",
+      scanning: false,
+      applicationErrors: [
+        expect.objectContaining({
+          error_type: "scan",
+          error_message: "not a directory",
+        }),
+      ],
     });
-    expect(result.current[0].kind).toBe("idle");
   });
 
-  it("scan_error after files have loaded resets state to idle", async () => {
+  it("retains discovered files when Rust marks the scan failed", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -658,12 +672,19 @@ describe("useMediaLibrary", () => {
     });
     expect(result.current[0].kind).toBe("loaded");
 
-    await expectConsoleErrorMessages(["Scan error: disk read failed"], () => {
-      act(() => {
-        mock.emitScanError("disk read failed");
-      });
+    await expectConsoleErrorMessages(
+      ["Worker error (scan): disk read failed"],
+      () => {
+        act(() => {
+          mock.emitScanError("disk read failed");
+        });
+      },
+    );
+    expect(result.current[0]).toMatchObject({
+      kind: "loaded",
+      scanning: false,
+      files: [expect.objectContaining({ relative_path: "a.jpg" })],
     });
-    expect(result.current[0].kind).toBe("idle");
   });
 
   it("scan_error with a stale scan_id does not reset an in-progress scan", async () => {
@@ -2382,12 +2403,7 @@ describe("useMediaLibrary", () => {
     expect(moved).toBe(false);
     expect(
       Object.values(store.getMetadataFile("move-failure.jpg") ?? {}),
-    ).toEqual(
-      expect.arrayContaining([
-        { target: original, edit },
-        { target: collisionTarget, edit },
-      ]),
-    );
+    ).toEqual([{ target: original, edit }]);
 
     await act(async () => {
       moved = await result.current[1].replaceNewPropertyDraftTarget(
@@ -3331,141 +3347,16 @@ describe("useMediaLibrary", () => {
     if (value?.kind === "Real") expect(Object.is(value.value, -0)).toBe(true);
   });
 
-  it("routes reverse-geocode staging through Rust and cancels a staged creation on Delete", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
-    const schemaId: SchemaDefinitionId = {
-      table: "UserDefined::mlib",
-      tag_id: "ReverseGeocodeJSONv2",
-    };
-    mock.tagInfos.push({
-      id: schemaId,
-      group0: "XMP",
-      group: "XMP-mlib",
-      name: "ReverseGeocodeJSONv2",
-      writable: true,
-      kind: { kind: "Text" },
-      description: null,
-    });
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => result.current[1].openFolder());
-    act(() => mock.emitScanComplete());
-    await publishOccurrences(mock, "geo.jpg", []);
-
-    let staged;
-    await act(async () => {
-      staged = await result.current[1].applyGeneratedMetadataDraftBatch(
-        "geo.jpg",
-        { kind: "geocode" },
-        [
-          {
-            schema_id: schemaId,
-            edit: {
-              intent: "Set",
-              value: { kind: "Text", value: "generated" },
-            },
-          },
-        ],
-      );
-    });
-    expect(staged).toEqual({ kind: "success", changed: true });
-
-    let cancelled;
-    await act(async () => {
-      cancelled = await result.current[1].applyGeneratedMetadataDraftBatch(
-        "geo.jpg",
-        { kind: "geocode" },
-        [{ schema_id: schemaId, edit: { intent: "Delete", value: null } }],
-      );
-    });
-    expect(cancelled).toEqual({ kind: "success", changed: true });
-    expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "stage_media_library_session_geocode_drafts",
-      ),
-    ).toHaveLength(2);
-    expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "set_media_library_session_draft",
-      ),
-    ).toHaveLength(0);
-    const state = result.current[0];
-    if (state.kind !== "loaded") throw new Error("expected loaded state");
-    expect(
-      state.targetDraftEditsStore.getMetadataFile("geo.jpg"),
-    ).toBeUndefined();
-  });
-
-  it("routes normalise staging through Rust with the confirmed immutable group snapshot", async () => {
-    const mock = createMockTauriApi();
-    mock.pickFolderResolves("/files");
-    const descriptionId: SchemaDefinitionId = {
-      table: "XMP::dc",
-      tag_id: "description",
-    };
-    mock.tagInfos.push({
-      id: descriptionId,
-      group0: "XMP",
-      group: "XMP-dc",
-      name: "Description",
-      writable: true,
-      kind: { kind: "Text" },
-      description: null,
-    });
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => result.current[1].openFolder());
-    await act(async () => mock.emitScanComplete());
-    await publishOccurrences(mock, "normalise.jpg", []);
-    let staged;
-    await act(async () => {
-      staged = await result.current[1].applyGeneratedMetadataDraftBatch(
-        "normalise.jpg",
-        { kind: "normalise", enabledGroups: ["description"] },
-        [
-          {
-            schema_id: descriptionId,
-            edit: {
-              intent: "Set",
-              value: { kind: "Text", value: "canonical description" },
-            },
-          },
-        ],
-      );
-    });
-    expect(staged).toEqual({ kind: "success", changed: true });
-    const invocation = mock.invocations.find(
-      ({ cmd }) => cmd === "stage_media_library_session_normalise_drafts",
-    );
-    expect(invocation?.args?.enabledGroups).toEqual(["description"]);
-    expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "stage_media_library_session_normalise_drafts",
-      ),
-    ).toHaveLength(1);
-    expect(
-      mock.invocations.filter(
-        ({ cmd }) => cmd === "set_media_library_session_draft",
-      ),
-    ).toHaveLength(0);
-    const state = result.current[0];
-    if (state.kind !== "loaded") throw new Error("expected loaded state");
-    const entries = Object.values(
-      state.targetDraftEditsStore.getMetadataFile("normalise.jpg") ?? {},
-    );
-    expect(entries).toHaveLength(1);
-    expect(entries[0].target.schema_id).toEqual(descriptionId);
-  });
-
   it("blocks target mutation and apply after strict target-load failure", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/broken");
     mock.draftLoadFailuresByFolder["/broken"] = "malformed target-aware file";
-    const { result } = renderHook(() => useMediaLibrary(mock.api));
-    await act(async () => result.current[1].openFolder());
-    await act(async () => mock.emitScanComplete());
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    await act(async () => mock.emitScanComplete());
 
     let state = result.current[0];
     if (state.kind !== "loaded") return;
@@ -3585,7 +3476,7 @@ describe("useMediaLibrary", () => {
     });
     state = result.current[0];
     if (state.kind !== "loaded") return;
-    expect(state.targetDraftEdits["blocked.jpg"]).toBeDefined();
+    expect(state.targetDraftEdits["blocked.jpg"]).toBeUndefined();
     expect(state.targetVerifyOutcomes["blocked.jpg"]).toBeDefined();
     expect(
       mock.invocations.filter(
@@ -3635,6 +3526,9 @@ describe("useMediaLibrary", () => {
     consoleError.mockRestore();
   });
   it("reports strict target-aware load failure, preserves it, then switches safely", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
     mock.draftLoadFailuresByFolder["/files"] = "invalid schema version";
@@ -3678,6 +3572,11 @@ describe("useMediaLibrary", () => {
     expect(
       mock.targetDraftEditsByFolder["/files"]?.["new.jpg"],
     ).toBeUndefined();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Worker error (metadata-target-load):",
+      "invalid schema version",
+    );
+    consoleError.mockRestore();
   });
   it("uses the switched folder for target autosave and clears on close", async () => {
     const mock = createMockTauriApi();

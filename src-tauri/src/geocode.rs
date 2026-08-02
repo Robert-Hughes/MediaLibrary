@@ -41,7 +41,7 @@ use crate::{known_ids, tag_schema::SchemaDefinitionId};
 /// The frontend resolves draft-GPS-vs-metadata-GPS precedence (see
 /// plan §2) before sending; the backend trusts the lat/lon it
 /// receives and emits `no_gps` per-item failures for missing pairs.
-#[derive(Clone, Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeocodeRequestItem {
     pub rel_path: String,

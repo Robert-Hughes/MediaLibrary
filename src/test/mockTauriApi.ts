@@ -1,7 +1,6 @@
 ﻿import type { TauriApi } from "../useMediaLibrary";
 import type {
   FileInfo,
-  ScanErrorPayload,
   MetadataOccurrences,
   MetadataValue,
   MetadataTargetDraftEntry,
@@ -446,11 +445,27 @@ export function createMockTauriApi(): MockTauriApi {
         entries: [entry],
       });
     },
-    emitScanError: (message, scanId) =>
-      emit("scan_error", {
-        scan_id: scanId ?? mock.currentScanId,
-        message,
-      } satisfies ScanErrorPayload),
+    emitScanError: (message, scanId) => {
+      const sessionId = scanId ?? mock.currentScanId;
+      if (sessionId !== mock.currentScanId) return;
+      sessionSnapshot = {
+        ...sessionSnapshot,
+        revision: sessionSnapshot.revision + 1,
+        lifecycle: "failed",
+        discovery_running: false,
+        issues: [
+          ...sessionSnapshot.issues,
+          {
+            issue_id: sessionSnapshot.issues.length + 1,
+            severity: "error",
+            error_type: "scan",
+            error_message: message,
+            affected_files: [],
+          },
+        ],
+      };
+      emit("media_library_session_changed", { ...sessionSnapshot });
+    },
     emitWorkerError: (
       error_type,
       error_message,
@@ -594,6 +609,33 @@ export function createMockTauriApi(): MockTauriApi {
     },
   };
 
+  const stageGeneratedDrafts = (
+    relativePath: string,
+    edits: SchemaMetadataEdit[],
+    producer: Parameters<typeof planGeneratedTargetDraftBatch>[0]["producer"],
+    store: TargetDraftEditsStore,
+  ) => {
+    if (edits.length === 0) return;
+    const metadata = sessionSnapshot.metadata.find(
+      (entry) => entry.relative_path === relativePath,
+    );
+    if (!metadata || metadata.state.status !== "ready") {
+      throw new Error("Authoritative metadata is unavailable");
+    }
+    const plan = planGeneratedTargetDraftBatch({
+      producer,
+      fileName: relativePath,
+      edits,
+      occurrences: metadata.state.occurrences,
+      targetDrafts: store.getMetadataFile(relativePath),
+      writableSchemaDefinitions: mock.tagInfos,
+    });
+    for (const target of plan.deletes) store.deleteTarget(relativePath, target);
+    for (const entry of plan.upserts) {
+      store.setMetadataTarget(relativePath, entry.target, entry.edit);
+    }
+  };
+
   const api: TauriApi = {
     createChannel: (handler) => ({ onmessage: handler }),
     invoke: async (cmd, args) => {
@@ -616,6 +658,8 @@ export function createMockTauriApi(): MockTauriApi {
         });
       }
       if (cmd === "open_media_library_session") {
+        const draftLoadError =
+          mock.draftLoadFailuresByFolder[args?.folderPath as string];
         sessionSnapshot = {
           session_id: nextSessionId++,
           revision: sessionSnapshot.revision + 1,
@@ -623,19 +667,26 @@ export function createMockTauriApi(): MockTauriApi {
           folder: args?.folderPath as string,
           files: [],
           discovery_running: false,
-          issues: [],
+          issues: draftLoadError
+            ? [
+                {
+                  issue_id: 1,
+                  severity: "error",
+                  error_type: "metadata-target-load",
+                  error_message: draftLoadError,
+                  affected_files: [],
+                },
+              ]
+            : [],
           metadata: [],
           thumbnails: [],
           drafts: targetDraftsToWire(
             mock.targetDraftEditsByFolder[args?.folderPath as string] ?? {},
           ),
-          draft_persistence: mock.draftLoadFailuresByFolder[
-            args?.folderPath as string
-          ]
+          draft_persistence: draftLoadError
             ? {
                 status: "load-failed",
-                error:
-                  mock.draftLoadFailuresByFolder[args?.folderPath as string],
+                error: draftLoadError,
               }
             : { status: "ready" },
           apply_operation: null,
@@ -654,7 +705,6 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           lifecycle: "loaded",
           discovery_running: true,
-          issues: [],
           metadata: [],
           thumbnails: [],
         };
@@ -669,6 +719,30 @@ export function createMockTauriApi(): MockTauriApi {
           issues: sessionSnapshot.issues.filter(
             (issue) => issue.issue_id !== issueId,
           ),
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "record_media_library_session_issue") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          issues: [
+            ...sessionSnapshot.issues,
+            {
+              issue_id:
+                Math.max(
+                  0,
+                  ...sessionSnapshot.issues.map((issue) => issue.issue_id),
+                ) + 1,
+              severity: args?.severity as string,
+              error_type: args?.errorType as string,
+              error_message: args?.errorMessage as string,
+              affected_files: args?.affectedFiles as string[],
+            },
+          ],
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
@@ -865,9 +939,12 @@ export function createMockTauriApi(): MockTauriApi {
         return { ...sessionSnapshot };
       }
       if (cmd === "dismiss_media_library_session_batch_operation") {
-        const kind = args?.kind as string;
+        const operationId = args?.operationId as string;
         const batch_operations = { ...sessionSnapshot.batch_operations };
-        delete batch_operations[kind];
+        const kind = Object.entries(batch_operations).find(
+          ([, operation]) => operation?.operation_id === operationId,
+        )?.[0];
+        if (kind) delete batch_operations[kind];
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
@@ -1741,36 +1818,48 @@ export function createMockTauriApi(): MockTauriApi {
         return mock.perImageCosts[model] ?? 0.005;
       }
       if (cmd === "estimate_describe_cost_cmd") {
-        const folderPath = args?.folderPath as string;
+        const folderPath = sessionSnapshot.folder ?? "";
         const relPaths = (args?.relPaths as string[]) ?? [];
         mock.lastEstimateArgs = { folderPath, relPaths };
-        // Yield to the event loop before emitting events so the hook's
-        // useEffect has a chance to subscribe to them. Without this, the
-        // synchronous emit can happen before listen() resolves and the
-        // dialog never advances.
         const total = relPaths.length;
         await Promise.resolve();
-        emit("describe_estimate_started", { total });
-        for (let i = 0; i < total; i++) {
-          const tokens = mock.estimateTokenSchedule[i] ?? 1000;
-          emit("describe_estimate_progress", {
-            current: i + 1,
-            total,
-            relativePath: relPaths[i],
-            inputTokens: tokens,
-            expectedCostUsd: 0.001,
-          });
-        }
-        emit("describe_estimate_complete", mock.describeEstimateComplete);
+        const operationId = `describe-${sessionSnapshot.revision + 1}`;
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          batch_operations: {
+            ...sessionSnapshot.batch_operations,
+            describe: {
+              operation_id: operationId,
+              kind: "describe",
+              requested_paths: [...relPaths],
+              request: [...relPaths],
+              phase: "awaiting-confirm",
+              total,
+              current: total,
+              current_file: null,
+              cancelling: false,
+              failures: [],
+              succeeded: [],
+              estimate: structuredClone(mock.describeEstimateComplete),
+              summary: null,
+              error: null,
+            },
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return;
       }
       if (cmd === "describe_images_cmd") {
-        const folderPath = args?.folderPath as string;
-        const relPaths = (args?.relPaths as string[]) ?? [];
+        const operation = sessionSnapshot.batch_operations.describe;
+        if (!operation || operation.operation_id !== args?.operationId) {
+          throw new Error("stale describe operation");
+        }
+        const folderPath = sessionSnapshot.folder ?? "";
+        const relPaths = operation.requested_paths;
         mock.lastDescribeArgs = { folderPath, relPaths };
         const total = relPaths.length;
         await Promise.resolve();
-        emit("describe_started", { total });
         mock.beforeDescribeProgress?.();
         const succeeded: string[] = [];
         const failed: Array<{
@@ -1778,6 +1867,15 @@ export function createMockTauriApi(): MockTauriApi {
           kind: string;
           detail: string;
         }> = [];
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
         for (let i = 0; i < total; i++) {
           const rp = relPaths[i];
           const sched = mock.describeSchedule[i] ?? {
@@ -1785,37 +1883,100 @@ export function createMockTauriApi(): MockTauriApi {
             status: "ok",
           };
           const completedPath = sched.relativePath;
-          emit("describe_progress", {
-            current: i + 1,
-            total,
-            relativePath: completedPath,
-            status: sched.status,
-            error: sched.error ?? null,
-            edits: sched.status === "ok" ? (sched.edits ?? []) : undefined,
-          });
-          if (sched.status === "ok") succeeded.push(completedPath);
-          else
+          if (sched.status === "ok") {
+            try {
+              stageGeneratedDrafts(
+                completedPath,
+                sched.edits ?? [],
+                { kind: "describe" },
+                store,
+              );
+              succeeded.push(completedPath);
+            } catch (error) {
+              failed.push({
+                relativePath: completedPath,
+                kind: "draft_stage_failed",
+                detail: String(error),
+              });
+            }
+          } else {
             failed.push({
               relativePath: completedPath,
               kind: sched.status,
               detail: sched.error ?? "",
             });
+          }
         }
-        emit("describe_complete", {
-          succeeded,
-          failed,
-          usageSummary: mock.describeUsageSummary,
-        });
+        mock.targetDraftEditsByFolder[folderPath] = store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          batch_operations: {
+            ...sessionSnapshot.batch_operations,
+            describe: {
+              ...operation,
+              phase: "completed",
+              current: total,
+              succeeded,
+              failures: failed.map((failure) => ({
+                relative_path: failure.relativePath,
+                kind: failure.kind,
+                detail: failure.detail,
+              })),
+              summary: structuredClone(mock.describeUsageSummary),
+            },
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return;
       }
       if (cmd === "cancel_describe_cmd") {
         mock.cancelDescribeCalled = true;
         return;
       }
-      if (cmd === "geocode_images_cmd") {
-        const folderPath = args?.folderPath as string;
+      if (cmd === "prepare_geocode_images_cmd") {
         const items =
           (args?.items as Array<{
+            relPath: string;
+            lat: number | null;
+            lon: number | null;
+          }>) ?? [];
+        const operationId = `geocode-${sessionSnapshot.revision + 1}`;
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          batch_operations: {
+            ...sessionSnapshot.batch_operations,
+            geocode: {
+              operation_id: operationId,
+              kind: "geocode",
+              requested_paths: items.map((item) => item.relPath),
+              request: structuredClone(items),
+              phase: "awaiting-confirm",
+              total: items.length,
+              current: 0,
+              current_file: null,
+              cancelling: false,
+              failures: [],
+              succeeded: [],
+              estimate: null,
+              summary: null,
+              error: null,
+            },
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return;
+      }
+      if (cmd === "geocode_images_cmd") {
+        const operation = sessionSnapshot.batch_operations.geocode;
+        if (!operation || operation.operation_id !== args?.operationId) {
+          throw new Error("stale geocode operation");
+        }
+        const folderPath = sessionSnapshot.folder ?? "";
+        const items =
+          (operation.request as Array<{
             relPath: string;
             lat: number | null;
             lon: number | null;
@@ -1823,40 +1984,78 @@ export function createMockTauriApi(): MockTauriApi {
         mock.lastGeocodeArgs = { folderPath, items };
         const total = items.length;
         await Promise.resolve();
-        emit("geocode_started", { total });
         const succeeded: string[] = [];
         const failed: Array<{
           relativePath: string;
           kind: string;
           detail: string;
         }> = [];
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
         for (let i = 0; i < total; i++) {
           const rp = items[i].relPath;
           const sched = mock.geocodeSchedule[i] ?? {
             relativePath: rp,
             status: "ok",
           };
-          emit("geocode_progress", {
-            current: i + 1,
-            total,
-            relativePath: rp,
-            status: sched.status,
-            error: sched.error ?? null,
-            edits: sched.status === "ok" ? (sched.edits ?? []) : undefined,
-          });
-          if (sched.status === "ok") succeeded.push(rp);
-          else
+          if (sched.status === "ok") {
+            try {
+              stageGeneratedDrafts(
+                rp,
+                sched.edits ?? [],
+                { kind: "geocode" },
+                store,
+              );
+              succeeded.push(rp);
+            } catch (error) {
+              failed.push({
+                relativePath: rp,
+                kind: "draft_stage_failed",
+                detail: String(error),
+              });
+            }
+          } else {
             failed.push({
               relativePath: rp,
               kind: sched.status,
               detail: sched.error ?? "",
             });
+          }
         }
-        emit("geocode_complete", {
-          succeeded,
-          failed,
-          usageSummary: mock.geocodeSummary,
-        });
+        mock.targetDraftEditsByFolder[folderPath] = store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          batch_operations: {
+            ...sessionSnapshot.batch_operations,
+            geocode: {
+              ...operation,
+              phase: "completed",
+              total,
+              current: total,
+              current_file: null,
+              cancelling: false,
+              failures: failed.map((failure) => ({
+                relative_path: failure.relativePath,
+                kind: failure.kind,
+                detail: failure.detail,
+              })),
+              succeeded,
+              estimate: null,
+              summary: structuredClone(mock.geocodeSummary),
+              error: null,
+            },
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return;
       }
       if (cmd === "cancel_geocode_cmd") {
@@ -1889,7 +2088,7 @@ export function createMockTauriApi(): MockTauriApi {
           nConflict: 0,
           nOverwrites: 0,
         };
-        emit("normalise_estimate_complete", {
+        const estimate = {
           nImagesWithAiB: 0,
           nImagesWithAiC: 0,
           nImagesWithAiG: 0,
@@ -1922,13 +2121,42 @@ export function createMockTauriApi(): MockTauriApi {
           maxOutPerCallG: 250,
           locationCachePrefixTokens: 1306,
           locationCachePartitions: 8,
-        });
+        };
+        const operationId = `normalise-${sessionSnapshot.revision + 1}`;
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          batch_operations: {
+            ...sessionSnapshot.batch_operations,
+            normalise: {
+              operation_id: operationId,
+              kind: "normalise",
+              requested_paths: items.map((item) => item.relPath),
+              request: structuredClone(items),
+              phase: "awaiting-confirm",
+              total,
+              current: total,
+              current_file: null,
+              cancelling: false,
+              failures: [],
+              succeeded: [],
+              estimate,
+              summary: null,
+              error: null,
+            },
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return;
       }
       if (cmd === "normalise_metadata_cmd") {
-        const folderPath = args?.folderPath as string;
+        const operation = sessionSnapshot.batch_operations.normalise;
+        if (!operation || operation.operation_id !== args?.operationId) {
+          throw new Error("stale normalise operation");
+        }
+        const folderPath = sessionSnapshot.folder ?? "";
         const items =
-          (args?.items as Array<{
+          (operation.request as Array<{
             relPath: string;
             groupInputs: Record<string, unknown>;
           }>) ?? [];
@@ -1944,44 +2172,87 @@ export function createMockTauriApi(): MockTauriApi {
           kind: string;
           detail: string;
         }> = [];
-        const results: Array<{
-          current: number;
-          total: number;
-          relativePath: string;
-          status: string;
-          error: string | null;
-          edits?: SchemaMetadataEdit[];
-        }> = [];
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
         for (let i = 0; i < total; i++) {
           const rp = items[i].relPath;
           const sched = mock.normaliseSchedule[i] ?? {
             relativePath: rp,
             status: "ok",
           };
-          results.push({
-            current: i + 1,
-            total,
-            relativePath: rp,
-            status: sched.status,
-            error: sched.error ?? null,
-            edits: sched.status === "ok" ? (sched.edits ?? []) : undefined,
-          });
-          if (sched.status === "ok") succeeded.push(rp);
-          else
+          if (sched.status === "ok") {
+            try {
+              const metadata = sessionSnapshot.metadata.find(
+                (entry) => entry.relative_path === rp,
+              );
+              if (!metadata || metadata.state.status !== "ready") {
+                throw new Error("Authoritative metadata is unavailable");
+              }
+              const plan = planGeneratedTargetDraftBatch({
+                producer: {
+                  kind: "normalise",
+                  enabledGroups:
+                    enabledGroups as import("../types").NormaliseGroup[],
+                },
+                fileName: rp,
+                edits: sched.edits ?? [],
+                occurrences: metadata.state.occurrences,
+                targetDrafts: store.getMetadataFile(rp),
+                writableSchemaDefinitions: mock.tagInfos,
+              });
+              for (const target of plan.deletes) store.deleteTarget(rp, target);
+              for (const entry of plan.upserts) {
+                store.setMetadataTarget(rp, entry.target, entry.edit);
+              }
+              succeeded.push(rp);
+            } catch (error) {
+              failed.push({
+                relativePath: rp,
+                kind: "draft_stage_failed",
+                detail: String(error),
+              });
+            }
+          } else {
             failed.push({
               relativePath: rp,
               kind: sched.status,
               detail: sched.error ?? "",
             });
+          }
         }
-        if (results.length > 0) {
-          emit("normalise_progress_batch", { results });
-        }
-        emit("normalise_complete", {
-          succeeded,
-          failed,
-          usageSummary: mock.normaliseSummary,
-        });
+        mock.targetDraftEditsByFolder[folderPath] = store.getAllMetadata();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(store.getAllMetadata()),
+          batch_operations: {
+            ...sessionSnapshot.batch_operations,
+            normalise: {
+              ...operation,
+              phase: "completed",
+              current: total,
+              succeeded,
+              failures: failed.map((failure) => ({
+                relative_path: failure.relativePath,
+                kind: failure.kind,
+                detail: failure.detail,
+              })),
+              summary: {
+                ...mock.normaliseSummary,
+                nSucceeded: succeeded.length,
+                nFailed: failed.length,
+              },
+            },
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return;
       }
       if (cmd === "cancel_normalise_cmd") {

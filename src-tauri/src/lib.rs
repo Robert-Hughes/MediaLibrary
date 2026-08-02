@@ -188,12 +188,6 @@ struct ScanCompletePayload {
 }
 
 #[derive(Clone, Serialize)]
-struct ScanErrorPayload {
-    scan_id: u64,
-    message: String,
-}
-
-#[derive(Clone, Serialize)]
 struct ThumbnailResult {
     relative_path: String,
     thumbnail: Option<String>,
@@ -322,6 +316,27 @@ fn dismiss_media_library_session_issue(
 }
 
 #[tauri::command]
+fn record_media_library_session_issue(
+    session_id: u64,
+    severity: String,
+    error_type: String,
+    error_message: String,
+    affected_files: Vec<String>,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.add_issue(
+        session_id,
+        severity,
+        error_type,
+        error_message,
+        affected_files,
+    )?;
+    emit_session_snapshot(&app, &snapshot)?;
+    Ok(snapshot)
+}
+
+#[tauri::command]
 fn open_media_library_session(
     folder_path: String,
     app: AppHandle,
@@ -404,14 +419,29 @@ fn start_scan(
     {
         return Err("The requested scan does not match the active media-library session".into());
     }
-    let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
+    let fail_start = |error: String| -> Result<(), String> {
+        let failed = session_state.fail_session(scan_id, "scan", error)?;
+        emit_session_snapshot(&app, &failed)
+    };
+    let root = std::path::PathBuf::from(&folder_path);
+    if !root.is_dir() {
+        return fail_start(format!("{} is not a directory", folder_path));
+    }
+    let app_data_dir = match commands::shared::app_data_dir(&app) {
+        Ok(path) => path,
+        Err(error) => return fail_start(error),
+    };
+    let app_settings = match settings::load_settings(&app_data_dir) {
+        Ok(settings) => settings,
+        Err(error) => return fail_start(error),
+    };
     let configured_metadata_workers = usize::from(app_settings.metadata_scan_concurrency);
     let configured_thumbnail_workers = usize::from(app_settings.thumbnail_concurrency);
     let metadata_batch_size = usize::from(app_settings.metadata_scan_batch_size);
 
     if !scan_state.wait_until_finished(Duration::from_secs(1)) {
         log::error!("[start_scan] Previous scan did not finish in time");
-        return Err("A scan is already in progress and could not be stopped".into());
+        return fail_start("A scan is already in progress and could not be stopped".into());
     }
     scan_state.mark_running();
 
@@ -428,20 +458,6 @@ fn start_scan(
     emit_session_snapshot(&app, &loaded)?;
 
     std::thread::spawn(move || {
-        let root = std::path::PathBuf::from(&folder_path);
-
-        if !root.is_dir() {
-            let _ = app_clone.emit(
-                "scan_error",
-                ScanErrorPayload {
-                    scan_id,
-                    message: format!("{} is not a directory", folder_path),
-                },
-            );
-            clear_running(&app_clone);
-            return;
-        }
-
         // In slow-mode (MEDIA_LIBRARY_SLOW_MODE=1) use a single worker per pool
         // so the artificial per-file delays in scanner.rs are clearly visible.
         let slow_mode = std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok();
@@ -2370,6 +2386,74 @@ fn plan_session_normalise_drafts(
     Ok((planned != current).then_some(planned))
 }
 
+pub(crate) fn stage_batch_generated_metadata_drafts(
+    app: &AppHandle,
+    session_id: u64,
+    operation_id: &str,
+    producer: &batch_job::GeneratedDraftProducer,
+    relative_path: &str,
+    edits: &[draft_edits::SchemaMetadataEdit],
+) -> Result<bool, String> {
+    if edits.is_empty() {
+        return Ok(false);
+    }
+    let session_state = app.state::<session::MediaLibrarySessionState>();
+    let repository_state = app.state::<draft_edits::DraftRepositoryState>();
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before generated drafts were saved".into());
+    }
+    let operation_is_current = snapshot
+        .batch_operations
+        .get(producer.kind())
+        .is_some_and(|operation| operation.operation_id == operation_id);
+    if !operation_is_current {
+        return Err("The generated-metadata batch operation identity changed".into());
+    }
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    let planned = match producer {
+        batch_job::GeneratedDraftProducer::Describe => {
+            plan_session_describe_drafts(&snapshot, relative_path, edits)?
+        }
+        batch_job::GeneratedDraftProducer::Geocode => {
+            plan_session_geocode_drafts(&snapshot, relative_path, edits)?
+        }
+        batch_job::GeneratedDraftProducer::Normalise { enabled_groups } => {
+            plan_session_normalise_drafts(&snapshot, relative_path, edits, enabled_groups)?
+        }
+    };
+    let Some(planned) = planned else {
+        return Ok(false);
+    };
+    let folder = snapshot
+        .folder
+        .as_deref()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    if let Err(error) = persist_exact_session_draft_row(
+        app,
+        &repository_state,
+        folder,
+        relative_path.to_owned(),
+        planned.clone(),
+    ) {
+        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+            let _ = emit_session_snapshot(app, &failed);
+        }
+        return Err(error);
+    }
+    let committed =
+        session_state.commit_draft_row(session_id, relative_path.to_owned(), planned)?;
+    emit_session_snapshot(app, &committed)?;
+    Ok(true)
+}
+
 #[tauri::command]
 fn stage_media_library_session_describe_drafts(
     session_id: u64,
@@ -2690,15 +2774,12 @@ fn dismiss_media_library_session_apply(
 }
 #[tauri::command]
 fn dismiss_media_library_session_batch_operation(
-    kind: String,
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let session_id = session_state
-        .snapshot()
-        .session_id
-        .ok_or_else(|| "No active media-library session".to_string())?;
-    let snapshot = session_state.dismiss_batch_operation(session_id, &kind)?;
+    let snapshot = session_state.dismiss_batch_operation(session_id, &operation_id)?;
     emit_session_snapshot(&app, &snapshot)?;
     Ok(snapshot)
 }
@@ -3482,6 +3563,7 @@ pub fn run() {
             get_media_library_session_snapshot,
             get_media_library_thumbnails,
             dismiss_media_library_session_issue,
+            record_media_library_session_issue,
             open_media_library_session,
             close_media_library_session,
             start_scan,
@@ -3523,6 +3605,7 @@ pub fn run() {
             commands::describe::estimate_describe_cost_cmd,
             commands::describe::describe_images_cmd,
             commands::describe::cancel_describe_cmd,
+            commands::geocode::prepare_geocode_images_cmd,
             commands::geocode::geocode_images_cmd,
             commands::geocode::cancel_geocode_cmd,
             commands::normalise::normalise_metadata_cmd,
