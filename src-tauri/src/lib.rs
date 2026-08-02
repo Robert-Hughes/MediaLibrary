@@ -183,11 +183,6 @@ impl Default for ActiveQueues {
 
 /// Emitted when the directory walk is complete (no payload needed).
 #[derive(Clone, Serialize)]
-struct ScanCompletePayload {
-    scan_id: u64,
-}
-
-#[derive(Clone, Serialize)]
 struct ThumbnailResult {
     relative_path: String,
     thumbnail: Option<String>,
@@ -385,16 +380,15 @@ fn close_media_library_session(
 /// Three concurrent phases, all starting as soon as files are discovered:
 ///
 ///  Phase 1 â€” streaming file discovery (single thread):
-///    Walks the directory tree. For each image file found, emits `file_found`
-///    immediately so the frontend can add it to the list. Also feeds the file
-///    into the image metadata queue and thumbnail queue right away.
-///    Emits `scan_complete` (no payload) when the walk finishes.
+///    Walks the directory tree. Discovered files are committed to the Rust
+///    session in bounded batches before a revisioned delta is emitted. The
+///    authoritative session snapshot records when discovery has finished.
 ///
 ///  Phase 2 â€” Image Metadata (thread pool, starts alongside phase 1):
-///    Reads EXIF data per file and emits `file_metadata_ready`.
+///    Reads EXIF data per file and commits revisioned metadata deltas.
 ///
 ///  Phase 3 â€” thumbnail generation (thread pool, starts alongside phase 1):
-///    Generates thumbnails and emits `thumbnail_ready`.
+///    Generates thumbnails and commits revisioned thumbnail deltas.
 ///    Supports priority reordering via `prioritize_queues`.
 fn effective_scan_concurrency(
     configured_metadata: u16,
@@ -758,8 +752,6 @@ fn start_scan(
         {
             let _ = emit_session_snapshot(&app_clone, &snapshot);
         }
-        let _ = app_clone.emit("scan_complete", ScanCompletePayload { scan_id });
-
         // Clear running flag immediately so a new scan can start.
         // Workers can continue processing in the background.
         clear_running(&app_clone);
@@ -1070,6 +1062,26 @@ fn persist_exact_session_draft_row(
     )
 }
 
+fn ensure_session_draft_mutation_allowed(
+    snapshot: &session::MediaLibrarySessionSnapshot,
+) -> Result<(), String> {
+    if !matches!(
+        snapshot.draft_persistence,
+        session::MediaLibrarySessionDraftPersistenceState::Ready
+    ) {
+        return Err("Draft persistence is not ready".into());
+    }
+    if snapshot.apply_operation.as_ref().is_some_and(|operation| {
+        matches!(
+            operation.state,
+            session::MediaLibraryApplyOperationState::Running
+        )
+    }) {
+        return Err("Drafts cannot be changed while metadata apply is running".into());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn set_media_library_session_draft(
     session_id: u64,
@@ -1086,12 +1098,7 @@ fn set_media_library_session_draft(
     {
         return Err("The media-library session changed before the draft was saved".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     validate_exact_session_draft_target(&snapshot, &relative_path, &target)?;
     let mut entries = snapshot
         .drafts
@@ -1141,12 +1148,7 @@ fn discard_media_library_session_draft(
     {
         return Err("The media-library session changed before the draft was discarded".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let slot = target.slot();
     let mut entries = snapshot
         .drafts
@@ -1208,12 +1210,7 @@ fn resolve_media_library_session_verification_outcome(
     }
 
     let persisted_entries = if discard_draft {
-        if !matches!(
-            snapshot.draft_persistence,
-            session::MediaLibrarySessionDraftPersistenceState::Ready
-        ) {
-            return Err("Draft persistence is not ready".into());
-        }
+        ensure_session_draft_mutation_allowed(&snapshot)?;
         let slot = current_target.slot();
         let mut entries = snapshot
             .drafts
@@ -1301,12 +1298,7 @@ fn discard_media_library_session_drafts(
     {
         return Err("The media-library session changed before the drafts were discarded".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let current_entries = snapshot
         .drafts
         .get(&relative_path)
@@ -1405,12 +1397,7 @@ fn replace_media_library_session_new_property_draft(
     {
         return Err("The media-library session changed before the draft was moved".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     validate_exact_session_draft_target(&snapshot, &relative_path, &replacement_target)?;
     let current_entries = snapshot
         .drafts
@@ -1523,12 +1510,7 @@ fn remove_media_library_session_metadata_targets(
     {
         return Err("The media-library session changed before metadata was removed".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     for target in &targets {
         validate_exact_session_draft_target(&snapshot, &relative_path, target)?;
     }
@@ -1625,12 +1607,7 @@ fn remove_media_library_session_metadata_field_from_files(
     {
         return Err("The media-library session changed before metadata was removed".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     if relative_paths.is_empty() {
         return Err("At least one selected file is required".into());
     }
@@ -1719,12 +1696,7 @@ fn remove_media_library_session_metadata_fields(
     {
         return Err("The media-library session changed before metadata was removed".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     if schema_ids.is_empty() {
         return Err("At least one exact metadata schema is required".into());
     }
@@ -1864,12 +1836,7 @@ fn stage_media_library_session_gps_drafts(
     {
         return Err("The media-library session changed before the GPS drafts were saved".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let Some(planned) = plan_session_gps_drafts(&snapshot, &relative_path, &entries)? else {
         return Ok(snapshot);
     };
@@ -2420,12 +2387,7 @@ pub(crate) fn stage_batch_generated_metadata_drafts(
     if !operation_is_current {
         return Err("The generated-metadata batch operation identity changed".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let planned = match producer {
         batch_job::GeneratedDraftProducer::Describe => {
             plan_session_describe_drafts(&snapshot, relative_path, edits)?
@@ -2479,12 +2441,7 @@ fn stage_media_library_session_describe_drafts(
             "The media-library session changed before description drafts were saved".into(),
         );
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let Some(planned) = plan_session_describe_drafts(&snapshot, &relative_path, &edits)? else {
         return Ok(snapshot);
     };
@@ -2526,12 +2483,7 @@ fn stage_media_library_session_geocode_drafts(
             "The media-library session changed before reverse-geocode drafts were saved".into(),
         );
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let Some(planned) = plan_session_geocode_drafts(&snapshot, &relative_path, &edits)? else {
         return Ok(snapshot);
     };
@@ -2571,12 +2523,7 @@ fn stage_media_library_session_normalise_drafts(
     {
         return Err("The media-library session changed before normalise drafts were saved".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let Some(planned) =
         plan_session_normalise_drafts(&snapshot, &relative_path, &edits, &enabled_groups)?
     else {
@@ -2643,12 +2590,7 @@ fn stage_media_library_session_bulk_drafts(
     {
         return Err("The media-library session changed before the bulk edit was staged".into());
     }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
+    ensure_session_draft_mutation_allowed(&snapshot)?;
     let plan = bulk_metadata::plan_bulk_metadata_drafts(&snapshot, &relative_paths, &request)?;
     if plan.rows.is_empty() {
         return Ok(snapshot);
@@ -2679,16 +2621,6 @@ fn stage_media_library_session_bulk_drafts(
     let committed = session_state.commit_draft_rows(session_id, plan.rows)?;
     emit_session_snapshot(&app, &committed)?;
     Ok(committed)
-}
-
-#[tauri::command]
-fn load_metadata_draft_edits(
-    folder_path: String,
-    app: AppHandle,
-    repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<draft_edits::MetadataTargetDraftsByFile, String> {
-    let app_data_dir = commands::shared::app_data_dir(&app)?;
-    draft_repository::load_metadata_draft_edits(&app_data_dir, &folder_path, &repository_state)
 }
 
 /// Production occurrence-aware metadata apply.
@@ -2800,6 +2732,31 @@ fn clear_running(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_mutations_are_rejected_while_apply_is_running() {
+        let state = session::MediaLibrarySessionState::new();
+        let opening = state.begin_open("C:/photos".into());
+        let session_id = opening.session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(Default::default()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+
+        assert!(ensure_session_draft_mutation_allowed(&state.snapshot()).is_ok());
+        state
+            .begin_apply_operation(session_id, "apply-1".into(), None)
+            .unwrap();
+        assert_eq!(
+            ensure_session_draft_mutation_allowed(&state.snapshot()).unwrap_err(),
+            "Drafts cannot be changed while metadata apply is running"
+        );
+
+        state
+            .fail_apply_operation(session_id, "apply-1", "stopped".into())
+            .unwrap();
+        assert!(ensure_session_draft_mutation_allowed(&state.snapshot()).is_ok());
+    }
 
     #[test]
     fn normalise_schema_allowlist_uses_the_confirmed_group_snapshot() {
@@ -3274,7 +3231,7 @@ mod tests {
 
     #[test]
     fn mark_finished_keeps_cancellation_flag_so_late_stop_scan_can_signal_workers() {
-        // After scan_complete the workers may still be draining for several seconds.
+        // After discovery completes the workers may still be draining for several seconds.
         // A stop_scan arriving in that window must still be able to flip the
         // cancellation flag so the workers exit promptly.
         let state = ScanState::new();
@@ -3593,7 +3550,6 @@ pub fn run() {
             stage_media_library_session_normalise_drafts,
             preview_media_library_session_bulk_drafts,
             stage_media_library_session_bulk_drafts,
-            load_metadata_draft_edits,
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
             dismiss_media_library_session_apply_operation,
