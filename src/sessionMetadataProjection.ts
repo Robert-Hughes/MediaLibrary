@@ -3,7 +3,7 @@ import type {
   MediaLibrarySessionFileMetadata,
   MetadataProgressStore,
 } from "./types";
-import { normalizeMetadataOccurrencesFromTauri } from "./utils/scanEvents";
+import { normalizeMetadataOccurrences } from "./utils/scanEvents";
 
 export interface SessionMetadataProjectionStores {
   occurrences: FileMetadataOccurrencesStore;
@@ -32,7 +32,7 @@ export function projectSessionMetadata(
     if (entry.state.status === "ready") {
       stores.occurrences.set(
         entry.relative_path,
-        normalizeMetadataOccurrencesFromTauri(entry.state.occurrences),
+        normalizeMetadataOccurrences(entry.state.occurrences),
       );
       acceptedReady += 1;
     } else {

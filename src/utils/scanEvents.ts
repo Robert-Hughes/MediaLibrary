@@ -4,47 +4,22 @@
  * Kept free of React + Tauri so the hook stays a thin orchestrator and
  * these bits can be unit-tested without a render harness.
  */
-import type { MetadataOccurrence, MetadataOccurrences } from "../types";
+import type { MetadataOccurrences } from "../types";
 import {
   compareMetadataOccurrenceIds,
   metadataOccurrenceIdToken,
 } from "./metadataOccurrenceId";
-import {
-  isMetadataOccurrence,
-  metadataOccurrenceSchemaIdentityError,
-} from "./metadataWireGuards";
 
-export function normalizeMetadataOccurrencesFromTauri(
-  raw: unknown,
+export function normalizeMetadataOccurrences(
+  raw: MetadataOccurrences,
 ): MetadataOccurrences {
-  if (!Array.isArray(raw)) return [];
-
-  const occurrences: MetadataOccurrence[] = [];
+  const occurrences: MetadataOccurrences[number][] = [];
   const seen = new Set<string>();
-  let dropped = 0;
   for (const value of raw) {
-    const schemaIdentityError = metadataOccurrenceSchemaIdentityError(value);
-    if (schemaIdentityError !== null) {
-      console.error(
-        `[metadata] Rejected occurrence payload: ${schemaIdentityError}`,
-      );
-      return [];
-    }
-    if (!isMetadataOccurrence(value)) {
-      dropped += 1;
-      continue;
-    }
     const token = metadataOccurrenceIdToken(value.id);
-    if (seen.has(token)) {
-      dropped += 1;
-      continue;
-    }
+    if (seen.has(token)) continue;
     seen.add(token);
     occurrences.push(value);
-  }
-
-  if (dropped > 0) {
-    console.warn(`[metadata] Dropped ${dropped} invalid occurrence value(s)`);
   }
   occurrences.sort((a, b) => compareMetadataOccurrenceIds(a.id, b.id));
   return occurrences;

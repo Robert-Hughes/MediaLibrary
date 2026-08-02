@@ -10,11 +10,6 @@ import {
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
 } from "./utils/metadataDraftTarget";
-import {
-  isMetadataTargetDraftEntry,
-  isMetadataDraftTarget,
-  isRecord,
-} from "./utils/metadataWireGuards";
 import { hasOwnStringKey, recordFromEntries } from "./utils/stringRecord";
 import { compareUnicodeScalarStrings } from "./utils/unicodeOrdering";
 import { wireStructuralEqual } from "./utils/wireStructuralEquality";
@@ -145,35 +140,6 @@ export function targetDraftsFromWire(
   return recordFromEntries(draftEntries);
 }
 
-export function targetDraftsFromUnknownWire(
-  raw: unknown,
-): TargetDraftEditsByFile {
-  if (!isRecord(raw)) {
-    throw new Error(
-      "Invalid target-aware draft wire payload: expected an object",
-    );
-  }
-
-  const wireEntries: Array<readonly [string, MetadataTargetDraftEntry[]]> = [];
-  for (const [path, value] of Object.entries(raw)) {
-    if (!Array.isArray(value)) {
-      throw new Error(
-        `Invalid target-aware draft wire payload for '${path}': expected an array`,
-      );
-    }
-    for (const [index, entry] of value.entries()) {
-      if (!isMetadataTargetDraftEntry(entry)) {
-        throw new Error(
-          `Invalid target-aware draft entry for '${path}' at array index ${index}`,
-        );
-      }
-    }
-    wireEntries.push([path, value]);
-  }
-
-  return targetDraftsFromWire(recordFromEntries(wireEntries));
-}
-
 /** Deterministic target-aware wire conversion ordered exactly by Rust slot order. */
 export function targetDraftsToWire(
   drafts: TargetDraftEditsByFile,
@@ -276,13 +242,6 @@ export class TargetDraftEditsStore {
         );
       }
       seenPaths.add(path);
-      for (const [index, entry] of persistedEntries.entries()) {
-        if (!isMetadataTargetDraftEntry(entry)) {
-          throw new Error(
-            `Invalid target-aware draft entry for '${path}' at array index ${index}`,
-          );
-        }
-      }
       const candidateSnapshot = targetDraftsFromWire(
         recordFromEntries([[path, Array.from(persistedEntries)]]),
       );
@@ -434,23 +393,6 @@ export class TargetDraftEditsStore {
     mutations: readonly ExactTargetMutationBatchItem[],
   ): boolean {
     if (mutations.length === 0) return false;
-
-    for (const mutation of mutations) {
-      for (const [index, entry] of mutation.upserts.entries()) {
-        if (!isMetadataTargetDraftEntry(entry)) {
-          throw new Error(
-            `Invalid exact target upsert for '${mutation.path}' at index ${index}`,
-          );
-        }
-      }
-      for (const [index, target] of mutation.deletes.entries()) {
-        if (!isMetadataDraftTarget(target)) {
-          throw new Error(
-            `Invalid exact target deletion for '${mutation.path}' at index ${index}`,
-          );
-        }
-      }
-    }
 
     const cloned = mutations.map((mutation) => ({
       path: mutation.path,
