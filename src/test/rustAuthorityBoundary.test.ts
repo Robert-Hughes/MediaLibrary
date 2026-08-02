@@ -56,6 +56,15 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).not.toContain("scheduleBatchedFlush");
     expect(useMediaLibrary).not.toContain("fileBufferRef");
     expect(useMediaLibrary).not.toContain("batchTimerRef");
+    expect(rustLib).not.toContain('emit("scan_complete"');
+  });
+
+  it("does not expose direct draft persistence outside the session boundary", () => {
+    expect(rustLib).not.toContain("fn load_metadata_draft_edits(");
+    expect(rustLib).not.toContain("            load_metadata_draft_edits,");
+    expect(rustLib).toContain(
+      "ensure_session_draft_mutation_allowed(&snapshot)?",
+    );
   });
 
   it("does not retain a frontend apply state controller", () => {
