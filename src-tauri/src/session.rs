@@ -1,3 +1,4 @@
+use crate::apply_edits::MetadataTargetOutcome;
 use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
 use crate::metadata_occurrence::MetadataOccurrences;
 use crate::scanner::{FileInfo, FileMetadata};
@@ -41,6 +42,7 @@ pub struct MediaLibrarySessionSnapshot {
     pub drafts: MetadataTargetDraftsByFile,
     pub draft_persistence: MediaLibrarySessionDraftPersistenceState,
     pub apply_operation: Option<MediaLibraryApplyOperation>,
+    pub verification_outcomes: HashMap<String, Vec<MetadataTargetOutcome>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -197,6 +199,7 @@ impl MediaLibrarySessionState {
                 drafts: MetadataTargetDraftsByFile::new(),
                 draft_persistence: MediaLibrarySessionDraftPersistenceState::Loading,
                 apply_operation: None,
+                verification_outcomes: HashMap::new(),
             }),
             thumbnail_cache: Mutex::new(HashMap::new()),
             superseded_scan_metadata: Mutex::new(BTreeSet::new()),
@@ -251,10 +254,6 @@ impl MediaLibrarySessionState {
         {
             return Err("The media-library session changed during apply".into());
         }
-        let operation = snapshot
-            .apply_operation
-            .as_mut()
-            .ok_or_else(|| "No metadata apply operation is active".to_string())?;
         let message_operation_id = match message {
             crate::apply_batch::MetadataApplyStreamMessage::Started { operation_id, .. }
             | crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
@@ -264,11 +263,18 @@ impl MediaLibrarySessionState {
                 operation_id
             }
         };
-        if operation.operation_id != *message_operation_id {
+        if snapshot
+            .apply_operation
+            .as_ref()
+            .map(|operation| operation.operation_id.as_str())
+            != Some(message_operation_id.as_str())
+        {
             return Err("The metadata apply operation identity changed".into());
         }
+
         match message {
             crate::apply_batch::MetadataApplyStreamMessage::Started { total, .. } => {
+                let operation = snapshot.apply_operation.as_mut().unwrap();
                 operation.total = Some(*total);
             }
             crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
@@ -277,19 +283,79 @@ impl MediaLibrarySessionState {
                 results,
                 ..
             } => {
-                operation.current = *current;
-                operation.total = Some(*total);
-                operation.current_file = results.last().map(|result| result.relative_path.clone());
-                operation.file_failure_count += results
-                    .iter()
-                    .filter(|result| result.error.is_some())
-                    .count();
-                operation.warning_count += results
-                    .iter()
-                    .filter(|result| result.warning.is_some())
-                    .count();
+                {
+                    let operation = snapshot.apply_operation.as_mut().unwrap();
+                    operation.current = *current;
+                    operation.total = Some(*total);
+                    operation.current_file =
+                        results.last().map(|result| result.relative_path.clone());
+                    operation.file_failure_count += results
+                        .iter()
+                        .filter(|result| result.error.is_some())
+                        .count();
+                    operation.warning_count += results
+                        .iter()
+                        .filter(|result| result.warning.is_some())
+                        .count();
+                }
+                for result in results {
+                    if let Some(metadata) = &result.fresh_file_metadata {
+                        if let Some(entry) = snapshot
+                            .metadata
+                            .iter_mut()
+                            .find(|entry| entry.relative_path == result.relative_path)
+                        {
+                            entry.state = MediaLibrarySessionMetadataState::Ready {
+                                occurrences: metadata.occurrences.clone(),
+                            };
+                        }
+                    }
+                    if let Some(entries) = &result.persisted_draft_entries {
+                        if entries.is_empty() {
+                            snapshot.drafts.remove(&result.relative_path);
+                        } else {
+                            snapshot
+                                .drafts
+                                .insert(result.relative_path.clone(), entries.clone());
+                        }
+                    }
+                    if result.target_outcomes.is_empty() {
+                        snapshot.verification_outcomes.remove(&result.relative_path);
+                    } else {
+                        snapshot
+                            .verification_outcomes
+                            .insert(result.relative_path.clone(), result.target_outcomes.clone());
+                    }
+                    for (severity, error_type, message) in [
+                        result
+                            .error
+                            .as_ref()
+                            .map(|message| ("error", "metadata-apply-file", message)),
+                        result
+                            .warning
+                            .as_ref()
+                            .map(|message| ("warning", "metadata-apply-warning", message)),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        snapshot.issues.push(MediaLibrarySessionIssue {
+                            issue_id: self.next_issue_id.fetch_add(1, Ordering::Relaxed),
+                            severity: severity.to_owned(),
+                            error_type: error_type.to_owned(),
+                            error_message: message.clone(),
+                            affected_files: vec![result.relative_path.clone()],
+                        });
+                    }
+                }
+                const MAX_SESSION_ISSUES: usize = 100;
+                if snapshot.issues.len() > MAX_SESSION_ISSUES {
+                    let excess = snapshot.issues.len() - MAX_SESSION_ISSUES;
+                    snapshot.issues.drain(0..excess);
+                }
             }
             crate::apply_batch::MetadataApplyStreamMessage::Complete { summary, .. } => {
+                let operation = snapshot.apply_operation.as_mut().unwrap();
                 operation.current = summary.completed;
                 operation.total = Some(summary.selected);
                 operation.current_file = None;
@@ -360,6 +426,71 @@ impl MediaLibrarySessionState {
             return Ok(snapshot.clone());
         }
         snapshot.apply_operation = None;
+        snapshot.verification_outcomes.clear();
+        snapshot.revision += 1;
+        Ok(snapshot.clone())
+    }
+
+    pub fn resolve_verification_outcome(
+        &self,
+        session_id: u64,
+        relative_path: &str,
+        current_target: &crate::metadata_draft_target::MetadataDraftTarget,
+        persisted_entries: Option<Vec<MetadataTargetDraftEntry>>,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err(
+                "The media-library session changed before verification was resolved".into(),
+            );
+        }
+        let outcomes = snapshot
+            .verification_outcomes
+            .get_mut(relative_path)
+            .ok_or_else(|| "The verification outcome is no longer pending".to_string())?;
+        let previous_len = outcomes.len();
+        outcomes.retain(|outcome| {
+            let target = match &outcome.draft_reconciliation {
+                crate::apply_edits::MetadataDraftReconciliation::Replace { target } => target,
+                _ => &outcome.target,
+            };
+            target != current_target
+        });
+        if outcomes.len() == previous_len {
+            return Err("The verification outcome is no longer pending".into());
+        }
+        if outcomes.is_empty() {
+            snapshot.verification_outcomes.remove(relative_path);
+        }
+        if let Some(entries) = persisted_entries {
+            if entries.is_empty() {
+                snapshot.drafts.remove(relative_path);
+            } else {
+                snapshot.drafts.insert(relative_path.to_owned(), entries);
+            }
+        }
+        snapshot.revision += 1;
+        Ok(snapshot.clone())
+    }
+
+    pub fn dismiss_all_verification_outcomes(
+        &self,
+        session_id: u64,
+    ) -> Result<MediaLibrarySessionSnapshot, String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err(
+                "The media-library session changed before verification was dismissed".into(),
+            );
+        }
+        if snapshot.verification_outcomes.is_empty() {
+            return Ok(snapshot.clone());
+        }
+        snapshot.verification_outcomes.clear();
         snapshot.revision += 1;
         Ok(snapshot.clone())
     }
@@ -379,6 +510,7 @@ impl MediaLibrarySessionState {
         snapshot.drafts.clear();
         snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::Loading;
         snapshot.apply_operation = None;
+        snapshot.verification_outcomes.clear();
         self.superseded_scan_metadata.lock().unwrap().clear();
         self.thumbnail_cache.lock().unwrap().clear();
         snapshot.clone()

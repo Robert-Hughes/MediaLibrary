@@ -263,6 +263,7 @@ export function createMockTauriApi(): MockTauriApi {
     drafts: {},
     draft_persistence: { status: "ready" },
     apply_operation: null,
+    verification_outcomes: {},
   };
   let recoverySnapshot = { ...sessionSnapshot };
   let nextThumbnailKey = 1;
@@ -626,6 +627,7 @@ export function createMockTauriApi(): MockTauriApi {
               }
             : { status: "ready" },
           apply_operation: null,
+          verification_outcomes: {},
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
@@ -677,6 +679,7 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: {},
           draft_persistence: { status: "ready" },
           apply_operation: null,
+          verification_outcomes: {},
         };
         return { ...sessionSnapshot };
       }
@@ -787,6 +790,63 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "resolve_media_library_session_verification_outcome") {
+        const sessionId = args?.sessionId as number;
+        if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const relativePath = args?.relativePath as string;
+        const currentTarget = args?.currentTarget as MetadataDraftTarget;
+        const discardDraft = args?.discardDraft as boolean;
+        const outcomes =
+          sessionSnapshot.verification_outcomes[relativePath] ?? [];
+        const remainingOutcomes = outcomes.filter((outcome) => {
+          const target =
+            outcome.draft_reconciliation.kind === "Replace"
+              ? outcome.draft_reconciliation.target
+              : outcome.target;
+          return JSON.stringify(target) !== JSON.stringify(currentTarget);
+        });
+        if (
+          outcomes.length > 0 &&
+          remainingOutcomes.length === outcomes.length
+        ) {
+          throw new Error("The verification outcome is no longer pending");
+        }
+        let drafts = targetDraftsFromWire(
+          sessionSnapshot.drafts as Record<string, MetadataTargetDraftEntry[]>,
+        );
+        if (discardDraft) {
+          const store = new TargetDraftEditsStore();
+          store.resetMetadata(drafts);
+          store.deleteTarget(relativePath, currentTarget);
+          drafts = store.getAllMetadata();
+          mock.targetDraftEditsByFolder[sessionSnapshot.folder ?? ""] = drafts;
+        }
+        const verification_outcomes = {
+          ...sessionSnapshot.verification_outcomes,
+        };
+        if (remainingOutcomes.length === 0) {
+          delete verification_outcomes[relativePath];
+        } else {
+          verification_outcomes[relativePath] = remainingOutcomes;
+        }
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          drafts: targetDraftsToWire(drafts),
+          verification_outcomes,
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "dismiss_media_library_session_verification_outcomes") {
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          verification_outcomes: {},
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
@@ -1417,6 +1477,41 @@ export function createMockTauriApi(): MockTauriApi {
           const terminalFallback =
             mock.targetApplyFinalResultsByPath[relative_path];
           const effectiveResult = terminalFallback ?? progressResult;
+          const nextDrafts = {
+            ...(sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >),
+          };
+          if (effectiveResult.persisted_draft_entries !== null) {
+            if (effectiveResult.persisted_draft_entries.length === 0) {
+              delete nextDrafts[relative_path];
+            } else {
+              nextDrafts[relative_path] = structuredClone(
+                effectiveResult.persisted_draft_entries,
+              );
+            }
+          }
+          const nextVerification = {
+            ...sessionSnapshot.verification_outcomes,
+          };
+          const pendingOutcomes = effectiveResult.target_outcomes.filter(
+            (outcome) => outcome.draft_reconciliation.kind !== "Clear",
+          );
+          if (pendingOutcomes.length === 0) {
+            delete nextVerification[relative_path];
+          } else {
+            nextVerification[relative_path] = structuredClone(pendingOutcomes);
+          }
+          sessionSnapshot = {
+            ...sessionSnapshot,
+            revision: sessionSnapshot.revision + 1,
+            drafts: nextDrafts,
+            verification_outcomes: nextVerification,
+          };
+          mock.targetDraftEditsByFolder[folder] =
+            targetDraftsFromWire(nextDrafts);
+          emit("media_library_session_changed", { ...sessionSnapshot });
           if (effectiveResult.fresh_file_metadata !== null) {
             mock.emitFileMetadataReady(
               relative_path,

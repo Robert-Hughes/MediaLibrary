@@ -1,4 +1,4 @@
-import { renderHook, act } from "@testing-library/react";
+﻿import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useMediaLibrary } from "../useMediaLibrary";
 import { createMockTauriApi, type MockTauriApi } from "./mockTauriApi";
@@ -227,6 +227,7 @@ describe("useMediaLibrary", () => {
       drafts: {},
       draft_persistence: { status: "ready" },
       apply_operation: null,
+      verification_outcomes: {},
     });
     mock.setThumbnailPayload("recovered-thumb", "recovered-thumbnail-data");
     const { result } = renderHook(() => useMediaLibrary(mock.api));
@@ -947,7 +948,7 @@ describe("useMediaLibrary", () => {
   it("sortConfig persists across scan_complete (App applies sort once scanning ends)", async () => {
     // We assert at the hook level that scanning flips false on scan_complete
     // and sortConfig is preserved.  App.tsx skips sortFiles while scanning
-    // is true and runs it once when scanning becomes false — the test in
+    // is true and runs it once when scanning becomes false â€” the test in
     // column-sorting verifies the FileList side of that contract.
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
@@ -1116,7 +1117,7 @@ describe("useMediaLibrary", () => {
       await result.current[1].openFolder();
     });
 
-    // Get past the loading→loaded transition so we're in a state with timers.
+    // Get past the loadingâ†’loaded transition so we're in a state with timers.
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
@@ -1138,7 +1139,7 @@ describe("useMediaLibrary", () => {
     });
     expect(result.current[0].kind).toBe("idle");
 
-    // Advance well past any timer interval — nothing should happen.
+    // Advance well past any timer interval â€” nothing should happen.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
@@ -1183,7 +1184,7 @@ describe("useMediaLibrary", () => {
 
     const oldScanId = mock.currentScanId;
 
-    // Start a new scan via openRecent — clears file list and gets a new scan_id
+    // Start a new scan via openRecent â€” clears file list and gets a new scan_id
     mock.invocations.length = 0;
     await act(async () => {
       await result.current[1].openRecent("/files/second");
@@ -2823,7 +2824,8 @@ describe("useMediaLibrary", () => {
     ).toBeDefined();
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "discard_media_library_session_draft",
+        ({ cmd }) =>
+          cmd === "resolve_media_library_session_verification_outcome",
       ),
     ).toHaveLength(1);
     await settleAutosaves();
@@ -2858,7 +2860,7 @@ describe("useMediaLibrary", () => {
       ],
     ).toBeDefined();
     expect(current.targetVerifyOutcomes["replace.jpg"]).toBeUndefined();
-    expect(mock.invocations).toHaveLength(0);
+    expect(mock.invocations).toHaveLength(1);
 
     act(() => targetVerificationStore.replaceFile("replace.jpg", [entry]));
     act(() =>
@@ -2870,9 +2872,10 @@ describe("useMediaLibrary", () => {
     await settleAutosaves();
     expect(
       mock.invocations.filter(
-        ({ cmd }) => cmd === "discard_media_library_session_draft",
+        ({ cmd }) =>
+          cmd === "resolve_media_library_session_verification_outcome",
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
   });
 
   it("production target-aware apply installs authoritative replacement verification and surfaces diagnostics once", async () => {
