@@ -8,7 +8,6 @@ import type {
   AppState,
   ScanErrorPayload,
   ApplicationErrorPayload,
-  ApplyEditsFileIssue,
   FileInfo,
   SortConfig,
   VisibleColumn,
@@ -34,7 +33,8 @@ import {
   targetDraftsFromWire,
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
-import { TargetApplyController } from "./targetApplyController";
+import { runTargetApplyCommand } from "./targetApplyCommand";
+import { cancelTargetApply } from "./targetApplyTauri";
 import type { MetadataDraftTarget } from "./types";
 import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
 import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
@@ -231,18 +231,12 @@ export function useMediaLibrary(
   const targetVerifyOutcomesStoreRef = useRef<TargetVerifyOutcomesStore>(
     new TargetVerifyOutcomesStore(),
   );
-  const targetApplyControllerRef = useRef<TargetApplyController | null>(null);
   const apiRef = useRef(api);
   apiRef.current = api;
   const activeFolderRef = useRef<string | null>(null);
   const targetLoadErrorRef = useRef<ApplicationErrorPayload | null>(null);
   const targetDraftPersistenceRef = useRef<TargetDraftPersistenceState>(
     TARGET_DRAFT_NOT_LOADED_STATE,
-  );
-  const applyActiveRef = useRef(false);
-  const applyIssuesRef = useRef<ApplyEditsFileIssue[]>([]);
-  const activeApplyPromiseRef = useRef<Promise<MetadataApplyResult> | null>(
-    null,
   );
 
   const loadedStateFromProjection = useCallback(
@@ -429,9 +423,8 @@ export function useMediaLibrary(
               batchOperations: snapshot.batch_operations ?? {},
               applying: projectApplyOperation(snapshot.apply_operation)
                 .applying,
-              applyCompletion:
-                projectApplyOperation(snapshot.apply_operation).completion ??
-                previous.applyCompletion,
+              applyCompletion: projectApplyOperation(snapshot.apply_operation)
+                .completion,
               applicationErrors: mergeSessionIssues(
                 previous.applicationErrors,
                 snapshot.session_id!,
@@ -468,8 +461,7 @@ export function useMediaLibrary(
               snapshot.apply_operation,
             );
             next.applying = projectedApply.applying;
-            next.applyCompletion =
-              projectedApply.completion ?? previous.applyCompletion;
+            next.applyCompletion = projectedApply.completion;
           } else {
             next.applicationErrors = mergeSessionIssues(
               next.applicationErrors,
@@ -527,12 +519,6 @@ export function useMediaLibrary(
     [pushApplicationIssue],
   );
 
-  const pushApplicationWarning = useCallback(
-    (errorType: string, warning: unknown, affectedFiles: string[] = []) =>
-      pushApplicationIssue("warning", errorType, warning, affectedFiles),
-    [pushApplicationIssue],
-  );
-
   useEffect(() => {
     targetDraftEditsStoreRef.current.setCurrentValueResolver((path, target) =>
       currentValueForMetadataDraftTarget(
@@ -547,90 +533,15 @@ export function useMediaLibrary(
   // with the async listener setup.  Re-created at the start of each setup().
   const listenersReadyRef = useRef<Promise<void>>(Promise.resolve());
 
-  // stores keep stable identity for the complete hook lifetime.
-  useEffect(() => {
-    let controller = targetApplyControllerRef.current;
-    if (controller === null) {
-      controller = new TargetApplyController(
-        {
-          api: {
-            invoke: (command, args) => apiRef.current.invoke(command, args),
-            createChannel: (handler) => apiRef.current.createChannel(handler),
-          },
-        },
-        {
-          onProgressBatch: (_payload, _applications) => {},
-          onProtocolError: ({ error }) =>
-            pushApplicationError("metadata-target-protocol", error),
-          onProgressApplicationError: ({ error }) =>
-            pushApplicationError("metadata-target-progress", error),
-          onFileError: (relativePath, error) => {
-            applyIssuesRef.current.push({
-              relativePath,
-              severity: "error",
-              message: error,
-            });
-            pushApplicationError("metadata-target-file", error, [relativePath]);
-          },
-          onFileWarning: (relativePath, warning) => {
-            applyIssuesRef.current.push({
-              relativePath,
-              severity: "warning",
-              message: warning,
-            });
-            pushApplicationWarning("metadata-target-warning", warning, [
-              relativePath,
-            ]);
-          },
-        },
-      );
-      targetApplyControllerRef.current = controller;
-    }
-    const unsubscribe = controller.subscribe((targetApplying) => {
-      setAppState((prev) => {
-        if (prev.kind !== "loaded") return prev;
-        let applying = prev.applying;
-        if (applyActiveRef.current && targetApplying.status === "running") {
-          applying = {
-            total: targetApplying.total ?? 0,
-            current: targetApplying.current,
-            currentFile: targetApplying.currentFile,
-            failureCount:
-              targetApplying.protocolErrorCount +
-              targetApplying.progressApplicationErrorCount +
-              targetApplying.fileFailureCount,
-            cancelling: targetApplying.cancelling,
-          };
-        }
-        if (prev.applying === applying) return prev;
-        return { ...prev, applying };
-      });
-    });
-    return () => {
-      unsubscribe();
-    };
-  }, [pushApplicationError, pushApplicationWarning]);
-
-  const cancelActiveApplyAndWait = useCallback(async () => {
-    if (!applyActiveRef.current) return;
-    await targetApplyControllerRef.current?.cancel().catch(() => {});
-    await activeApplyPromiseRef.current?.catch(() => {});
-  }, []);
-
   const startScan = useCallback(
     async (folder: string) => {
       // Invalidate work from the previous folder/scan before any asynchronous
       // shutdown or setup step can yield.
       scanLifecycleGenerationRef.current += 1;
       // Wait for event listeners to be registered before starting the scan so
-      // file_found / scan_complete events are never missed.  The latch is a
-      // plain Promise (no setTimeout) so it works correctly with vi.useFakeTimers().
+      // Wait for session listeners before opening so no authoritative deltas
+      // can arrive before the projection is ready.
       await listenersReadyRef.current;
-
-      // Finish cancellation before
-      // clearing stable stores so late controller events cannot cross folders.
-      await cancelActiveApplyAndWait();
-
       const session = (await api.invoke("open_media_library_session", {
         folderPath: folder,
       })) as MediaLibrarySessionSnapshot;
@@ -678,7 +589,7 @@ export function useMediaLibrary(
       await api.invoke("start_scan", { scanId, folderPath: folder });
       pushRecentFolder(folder);
     },
-    [api, cancelActiveApplyAndWait, pushRecentFolder],
+    [api, pushRecentFolder],
   );
 
   useEffect(() => {
@@ -846,17 +757,9 @@ export function useMediaLibrary(
     scanLifecycleGenerationRef.current += 1;
     activeScanIdRef.current = -1;
     activeFolderRef.current = null;
-    targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
-    targetVerifyOutcomesStoreRef.current.clear();
-    void cancelActiveApplyAndWait().finally(() => {
-      // A final authoritative event may race with the initial clear; repeat it
-      // after cancellation settles so closed-folder state remains empty.
-      targetDraftEditsStoreRef.current.resetMetadata({});
-      targetVerifyOutcomesStoreRef.current.clear();
-    });
-
     targetDraftEditsStoreRef.current.resetMetadata({});
     targetVerifyOutcomesStoreRef.current.clear();
+    fileMetadataOccurrencesStoreRef.current.clear();
     fileMetadataOccurrencesStoreRef.current.clear();
 
     setAppState({ kind: "idle" });
@@ -866,7 +769,7 @@ export function useMediaLibrary(
         console.error("Failed to close media-library session", error),
       );
     api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
-  }, [api, cancelActiveApplyAndWait]);
+  }, [api]);
 
   const prioritizeQueues = useCallback(
     (visiblePaths: string[]) => {
@@ -2106,118 +2009,66 @@ export function useMediaLibrary(
     [api, pushApplicationError],
   );
   const applyDraftEdits = useCallback(
-    (fileRelativePath?: string | string[]): Promise<MetadataApplyResult> => {
-      const run = async (): Promise<MetadataApplyResult> => {
-        const current = stateRef.current;
-        if (current.kind !== "loaded") {
-          return emptyMetadataApplyResult();
-        }
-        if (applyActiveRef.current) {
-          throw new Error("A metadata apply operation is already running");
-        }
-        const applyAll = fileRelativePath === undefined;
-        const requestedPaths: string[] | undefined =
-          fileRelativePath === undefined
-            ? undefined
-            : [
-                ...new Set(
-                  Array.isArray(fileRelativePath)
-                    ? fileRelativePath
-                    : [fileRelativePath],
-                ),
-              ];
-        if (!requireTargetDraftPersistenceReady(requestedPaths ?? [])) {
-          throw new Error(TARGET_DRAFT_LOAD_BLOCKED_MESSAGE);
-        }
-        const targetPaths = requestedPaths?.filter(
-          (path) => current.targetDraftEdits[path] !== undefined,
-        );
-        const targetCount = applyAll
+    async (
+      fileRelativePath?: string | string[],
+    ): Promise<MetadataApplyResult> => {
+      const current = stateRef.current;
+      if (current.kind !== "loaded") return emptyMetadataApplyResult();
+
+      const requestedPaths: string[] | undefined =
+        fileRelativePath === undefined
+          ? undefined
+          : [
+              ...new Set(
+                Array.isArray(fileRelativePath)
+                  ? fileRelativePath
+                  : [fileRelativePath],
+              ),
+            ];
+      if (!requireTargetDraftPersistenceReady(requestedPaths ?? [])) {
+        throw new Error(TARGET_DRAFT_LOAD_BLOCKED_MESSAGE);
+      }
+      const targetPaths = requestedPaths?.filter(
+        (path) => current.targetDraftEdits[path] !== undefined,
+      );
+      const targetCount =
+        requestedPaths === undefined
           ? Object.keys(current.targetDraftEdits).length
           : (targetPaths?.length ?? 0);
-        if (targetCount === 0) {
-          return emptyMetadataApplyResult();
-        }
-        const controller = targetApplyControllerRef.current;
-        if (!controller) throw new Error("Target-aware apply is not ready");
-        applyActiveRef.current = true;
-        applyIssuesRef.current = [];
-        setAppState((prev) =>
-          prev.kind === "loaded" ? { ...prev, applyCompletion: null } : prev,
-        );
+      if (targetCount === 0) return emptyMetadataApplyResult();
 
-        try {
-          setAppState((prev) =>
-            prev.kind === "loaded"
-              ? {
-                  ...prev,
-                  applying: {
-                    total: targetCount,
-                    current: 0,
-                    currentFile: null,
-                    failureCount: 0,
-                    cancelling: false,
-                  },
-                }
-              : prev,
-          );
-          const result = await controller.run(current.folder, targetPaths);
-          setAppState((prev) =>
-            prev.kind === "loaded"
-              ? {
-                  ...prev,
-                  applyCompletion: {
-                    summary: result.commandResult.summary,
-                    issues: [...applyIssuesRef.current],
-                  },
-                }
-              : prev,
-          );
-          return result.commandResult;
-        } catch (error) {
-          pushApplicationError("metadata-apply", error, requestedPaths ?? []);
-          throw error;
-        } finally {
-          applyActiveRef.current = false;
-          setAppState((prev) =>
-            prev.kind === "loaded" ? { ...prev, applying: null } : prev,
-          );
-        }
-      };
-      const promise = run();
-      activeApplyPromiseRef.current = promise;
-      void promise.then(
-        () => {
-          if (activeApplyPromiseRef.current === promise) {
-            activeApplyPromiseRef.current = null;
-          }
-        },
-        () => {
-          if (activeApplyPromiseRef.current === promise) {
-            activeApplyPromiseRef.current = null;
-          }
-        },
+      setAppState((previous) =>
+        previous.kind === "loaded"
+          ? { ...previous, applyCompletion: null }
+          : previous,
       );
-      return promise;
+      try {
+        return await runTargetApplyCommand(api, current.folder, targetPaths, {
+          onProtocolError: (error) =>
+            pushApplicationError("metadata-target-protocol", error),
+          onMessageError: (error) =>
+            pushApplicationError("metadata-target-progress", error),
+        });
+      } catch (error) {
+        pushApplicationError("metadata-apply", error, requestedPaths ?? []);
+        throw error;
+      }
     },
-    [pushApplicationError, requireTargetDraftPersistenceReady],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
-
   const dismissApplyCompletion = useCallback(() => {
-    setAppState((prev) =>
-      prev.kind === "loaded" ? { ...prev, applyCompletion: null } : prev,
-    );
-  }, []);
+    void api
+      .invoke("dismiss_media_library_session_apply_operation")
+      .catch((error) =>
+        pushApplicationError("metadata-target-dismiss-apply", error),
+      );
+  }, [api, pushApplicationError]);
 
   const cancelApplyEdits = useCallback(() => {
-    void targetApplyControllerRef.current
-      ?.cancel()
-      .catch((error) => pushApplicationError("metadata-target-cancel", error));
-    setAppState((prev) => {
-      if (prev.kind !== "loaded" || !prev.applying) return prev;
-      return { ...prev, applying: { ...prev.applying, cancelling: true } };
-    });
-  }, [pushApplicationError]);
+    void cancelTargetApply(api).catch((error) =>
+      pushApplicationError("metadata-target-cancel", error),
+    );
+  }, [api, pushApplicationError]);
 
   const mediaLibraryActions = useMemo(
     () => ({

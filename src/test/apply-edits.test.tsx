@@ -302,13 +302,14 @@ describe("target-aware progress and results", () => {
     expect(screen.getByText(/ExifTool warning message/)).toBeVisible();
     expect(screen.getByTestId("status-bar-apply-all-btn")).toBeVisible();
     expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("[application-error:metadata-target-file]"),
-      expect.objectContaining({ affectedFiles: ["failed.jpg"] }),
+      "Worker error (metadata-apply-file):",
+      "File write error",
     );
-    expect(consoleWarn).toHaveBeenCalledWith(
-      expect.stringContaining("[application-warning:metadata-target-warning]"),
-      expect.objectContaining({ affectedFiles: ["warning.jpg"] }),
+    expect(consoleError).toHaveBeenCalledWith(
+      "Worker error (metadata-apply-warning):",
+      "ExifTool warning message",
     );
+    expect(consoleWarn).not.toHaveBeenCalled();
     consoleError.mockRestore();
     consoleWarn.mockRestore();
   });

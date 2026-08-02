@@ -38,4 +38,14 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).not.toContain("fileBufferRef");
     expect(useMediaLibrary).not.toContain("batchTimerRef");
   });
+
+  it("does not retain a frontend apply state controller", () => {
+    expect(productionSources).not.toHaveProperty("../targetApplyController.ts");
+    expect(useMediaLibrary).toBeDefined();
+    expect(useMediaLibrary).toContain("runTargetApplyCommand");
+    expect(useMediaLibrary).toContain("cancelTargetApply");
+    expect(useMediaLibrary).not.toContain("TargetApplyController");
+    expect(useMediaLibrary).not.toContain("applyActiveRef");
+    expect(useMediaLibrary).not.toContain("activeApplyPromiseRef");
+  });
 });

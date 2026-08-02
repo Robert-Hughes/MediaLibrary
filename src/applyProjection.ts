@@ -48,7 +48,11 @@ export function projectApplyOperation(
       applying: null,
       completion: {
         summary: operation.summary,
-        issues: [],
+        issues: operation.issues.map((issue) => ({
+          relativePath: issue.relative_path,
+          severity: issue.severity === "warning" ? "warning" : "error",
+          message: issue.message,
+        })),
       },
     };
   }

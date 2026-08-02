@@ -250,6 +250,7 @@ describe("useMediaLibrary", () => {
         cancelling: false,
         file_failure_count: 0,
         warning_count: 0,
+        issues: [],
         summary: null,
       },
       verification_outcomes: {},
@@ -3034,13 +3035,13 @@ describe("useMediaLibrary", () => {
     expect(
       state.applicationErrors.filter(
         ({ error_type, severity }) =>
-          error_type === "metadata-target-file" && severity === "error",
+          error_type === "metadata-apply-file" && severity === "error",
       ),
     ).toHaveLength(1);
     expect(
       state.applicationErrors.filter(
         ({ error_type, severity }) =>
-          error_type === "metadata-target-warning" && severity === "warning",
+          error_type === "metadata-apply-warning" && severity === "warning",
       ),
     ).toHaveLength(1);
     expect(
@@ -3048,13 +3049,14 @@ describe("useMediaLibrary", () => {
         ?.affected_files,
     ).toEqual([path]);
     expect(consoleError).toHaveBeenCalledWith(
-      expect.stringContaining("[application-error:metadata-target-file]"),
-      expect.objectContaining({ affectedFiles: [path] }),
+      "Worker error (metadata-apply-file):",
+      "semantic write failure",
     );
-    expect(consoleWarn).toHaveBeenCalledWith(
-      expect.stringContaining("[application-warning:metadata-target-warning]"),
-      expect.objectContaining({ affectedFiles: [path] }),
+    expect(consoleError).toHaveBeenCalledWith(
+      "Worker error (metadata-apply-warning):",
+      "file metadata was partially refreshed",
     );
+    expect(consoleWarn).not.toHaveBeenCalled();
     consoleError.mockRestore();
     consoleWarn.mockRestore();
   });
