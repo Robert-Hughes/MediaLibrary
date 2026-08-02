@@ -2,16 +2,16 @@
 
 ## Status
 
-This document records the intended architecture and migration plan for making the Rust backend authoritative for application and domain state while keeping the frontend as a thin presentation layer.
+The migration described here is complete. Rust is authoritative for the media-library session and domain state; the frontend retains only ephemeral UI state and disposable rendering projections. The phase plan remains below as an implementation history and as a checklist for preserving the boundary.
 
-It is a durable implementation reference, not a description of the current architecture. Production migration must proceed one complete vertical slice at a time in small, atomic, test-passing commits. Do not build a parallel Rust implementation first and defer frontend adoption until later.
+The production boundary is enforced by Rust session tests, frontend remount/recovery tests, generated wire types, and source-level architectural regression tests. Future changes must continue to follow the vertical-slice and atomic-commit principles in this document.
 
-## Motivation
+## Historical Motivation
 
-The current application divides authority across Rust and TypeScript:
+Before this migration, authority was divided across Rust and TypeScript:
 
-- Rust owns scanning, worker queues, metadata writes, draft persistence, verification during apply, and long-running backend jobs.
-- The frontend assembles and owns the effective application session: files, thumbnail and metadata status, scan progress, drafts, dirty persistence state, operation projections, verification outcomes, errors, and stale-result reconciliation.
+- Rust owned scanning, worker queues, metadata writes, draft persistence, verification during apply, and long-running backend jobs.
+- The frontend assembled and owned the effective application session: files, thumbnail and metadata status, scan progress, drafts, dirty persistence state, operation projections, verification outcomes, errors, and stale-result reconciliation.
 
 This creates two interacting state machines. Significant frontend code exists to keep them aligned across folder changes, cancellation, late events, autosave, apply readback, and frontend lifecycle changes.
 
@@ -436,6 +436,17 @@ Add focused boundary tests or source-level regression checks only where they pro
 - Authoritative wire types remain Rust-generated.
 
 Avoid tests that merely assert wording in this document.
+
+## Completion Record
+
+All seven migration phases and all 24 slices are implemented in production.
+
+- The Rust session snapshot retains lifecycle, files, discovery state, issues, metadata occurrences, thumbnail cache identities, exact-target drafts, persistence state, apply state and diagnostics, verification outcomes, and generated batch operations.
+- Revisioned events update disposable frontend projections; session changes or revision gaps trigger snapshot recovery rather than heuristic repair.
+- Metadata planning, draft mutation and persistence, apply reconciliation, verification resolution, and generated-workflow staging are Rust commands.
+- `useMediaLibrary` subscribes, projects, dispatches commands, and owns UI-only state; obsolete autosave, scan-buffer and apply-controller state machines have been removed.
+- Mount/recovery tests reconstruct representative scan, metadata, thumbnail, draft, apply, verification, issue, and batch-operation state from Rust alone.
+- Architectural tests prevent removed frontend authorities and legacy mutation paths from returning, while authoritative wire types remain generated from Rust.
 
 ## Per-Slice Review Checklist
 

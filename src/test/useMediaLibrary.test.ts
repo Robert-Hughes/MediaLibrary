@@ -253,7 +253,20 @@ describe("useMediaLibrary", () => {
         issues: [],
         summary: null,
       },
-      verification_outcomes: {},
+      verification_outcomes: {
+        "recovered.jpg": [
+          {
+            target: draft.target,
+            draft_reconciliation: { kind: "Keep" },
+            display_name: "RecoveredField",
+            kind: "Mismatch",
+            sent: draft.edit.value,
+            before: null,
+            observed: { kind: "Text", value: "observed" },
+            message: "Recovered verification outcome",
+          },
+        ],
+      },
       batch_operations: {
         describe: {
           operation_id: "describe-1",
@@ -313,6 +326,14 @@ describe("useMediaLibrary", () => {
         metadataDraftTargetSlotToken(draft.target)
       ],
     ).toEqual(draft);
+    expect(
+      Object.values(recovered.targetVerifyOutcomes["recovered.jpg"]),
+    ).toEqual([
+      expect.objectContaining({
+        displayName: "RecoveredField",
+        message: "Recovered verification outcome",
+      }),
+    ]);
     expect(
       mock.invocations.some(
         ({ cmd }) => cmd === "get_media_library_thumbnails",

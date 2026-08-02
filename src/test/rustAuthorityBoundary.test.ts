@@ -5,6 +5,11 @@ const productionSources = import.meta.glob<string>("../*.ts", {
   import: "default",
   eager: true,
 });
+const generatedSources = import.meta.glob<string>("../types/generated/*.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
 const useMediaLibrary = productionSources["../useMediaLibrary.ts"];
 
 describe("Rust-authoritative application boundary", () => {
@@ -17,6 +22,7 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).not.toContain("setMetadataDraftBatch");
     expect(useMediaLibrary).not.toContain("mergeBatchEdits");
   });
+
   it("projects verification outcomes from Rust snapshots without local reconciliation", () => {
     expect(useMediaLibrary).toBeDefined();
     expect(useMediaLibrary).toContain("snapshot.verification_outcomes");
@@ -47,5 +53,13 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).not.toContain("TargetApplyController");
     expect(useMediaLibrary).not.toContain("applyActiveRef");
     expect(useMediaLibrary).not.toContain("activeApplyPromiseRef");
+    expect(useMediaLibrary).not.toContain("onFileError:");
+    expect(useMediaLibrary).not.toContain("onFileWarning:");
+    expect(useMediaLibrary).toContain(
+      '"dismiss_media_library_session_apply_operation"',
+    );
+    expect(
+      generatedSources["../types/generated/MediaLibraryApplyOperation.ts"],
+    ).toContain("issues: Array<MediaLibraryApplyIssue>");
   });
 });
