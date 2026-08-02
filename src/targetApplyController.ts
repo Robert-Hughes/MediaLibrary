@@ -27,7 +27,7 @@ type ProgressBatchMessage = Extract<
 
 export interface TargetApplyControllerDependencies {
   api: TargetApplyTauriApi;
-  stores: TargetApplyResultStores;
+  stores?: TargetApplyResultStores;
 }
 
 export interface TargetApplyControllerProtocolError {
@@ -262,15 +262,21 @@ export class TargetApplyController {
     ): boolean => {
       presentDiagnostics(results);
       let applications: TargetApplyFileApplication[];
-      try {
-        applications = applyTargetApplyFileResults(
-          results,
-          this.dependencies.stores,
-        );
-      } catch (error) {
-        recordApplicationError(error, results);
-        if (allowRetry && retry === null) retry = { message, results };
-        return false;
+      const stores = this.dependencies.stores;
+      if (stores === undefined) {
+        applications = results.map((result) => ({
+          relativePath: result.relative_path,
+          draftsChanged: false,
+          occurrencesChanged: false,
+        }));
+      } else {
+        try {
+          applications = applyTargetApplyFileResults(results, stores);
+        } catch (error) {
+          recordApplicationError(error, results);
+          if (allowRetry && retry === null) retry = { message, results };
+          return false;
+        }
       }
       application.draftsChanged += applications.filter(
         (item) => item.draftsChanged,

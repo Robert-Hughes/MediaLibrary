@@ -51,6 +51,7 @@ import type { MetadataDraftTarget } from "./types";
 import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
 import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
 import { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
+import { targetVerifyOutcomesFromBackend } from "./targetVerifyOutcomes";
 import {
   currentValueForMetadataDraftTarget,
   existingOccurrenceTargetFromOccurrence,
@@ -468,6 +469,19 @@ export function useMediaLibrary(
           })),
         );
       }
+      const verificationPaths = new Set([
+        ...Object.keys(targetVerifyOutcomesStoreRef.current.getAll()),
+        ...Object.keys(snapshot.verification_outcomes),
+      ]);
+      targetVerifyOutcomesStoreRef.current.replaceFiles(
+        [...verificationPaths].map((path) => ({
+          path,
+          outcomes: targetVerifyOutcomesFromBackend(
+            path,
+            snapshot.verification_outcomes[path] ?? [],
+          ),
+        })),
+      );
       targetDraftPersistenceRef.current = snapshot.draft_persistence;
       targetLoadErrorRef.current =
         snapshot.draft_persistence.status === "load-failed"
@@ -710,11 +724,6 @@ export function useMediaLibrary(
           api: {
             invoke: (command, args) => apiRef.current.invoke(command, args),
             createChannel: (handler) => apiRef.current.createChannel(handler),
-          },
-          stores: {
-            drafts: targetDraftEditsStoreRef.current,
-            occurrences: fileMetadataOccurrencesStoreRef.current,
-            verification: targetVerifyOutcomesStoreRef.current,
           },
         },
         {
@@ -1363,69 +1372,72 @@ export function useMediaLibrary(
     },
     [],
   );
-  const removeTargetDraftAndOutcome = useCallback(
-    async (relativePath: string, currentTarget: MetadataDraftTarget) => {
+
+  const resolveTargetVerifyOutcome = useCallback(
+    async (
+      relativePath: string,
+      currentTarget: MetadataDraftTarget,
+      discardDraft: boolean,
+    ): Promise<void> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return;
-      if (!targetOutcomeExists(relativePath, currentTarget)) return;
-      const slot = metadataDraftTargetSlotToken(currentTarget);
-      const persisted =
-        targetDraftEditsStoreRef.current.getMetadataFile(relativePath)?.[slot];
-      if (
-        persisted === undefined ||
-        !metadataDraftTargetEquals(persisted.target, currentTarget)
-      ) {
-        return;
-      }
       try {
-        await api.invoke("discard_media_library_session_draft", {
-          sessionId: activeScanIdRef.current,
-          relativePath,
-          target: structuredClone(currentTarget),
-        });
-        targetVerifyOutcomesStoreRef.current.deleteOutcome(
-          relativePath,
-          currentTarget,
-        );
+        const snapshot = (await api.invoke(
+          "resolve_media_library_session_verification_outcome",
+          {
+            sessionId: activeScanIdRef.current,
+            relativePath,
+            currentTarget: structuredClone(currentTarget),
+            discardDraft,
+          },
+        )) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
       } catch (error) {
-        pushApplicationError("metadata-target-discard", error, [relativePath]);
+        pushApplicationError("metadata-target-verification-resolve", error, [
+          relativePath,
+        ]);
       }
     },
     [
       api,
+      applySessionSnapshot,
       pushApplicationError,
       requireTargetDraftPersistenceReady,
-      targetOutcomeExists,
     ],
   );
 
   const acceptTargetVerifyOutcome = useCallback(
     (relativePath: string, currentTarget: MetadataDraftTarget) => {
-      void removeTargetDraftAndOutcome(relativePath, currentTarget);
+      void resolveTargetVerifyOutcome(relativePath, currentTarget, true);
     },
-    [removeTargetDraftAndOutcome],
+    [resolveTargetVerifyOutcome],
   );
 
   const keepTargetDraftAndDismissOutcome = useCallback(
     (relativePath: string, currentTarget: MetadataDraftTarget) => {
-      if (!requireTargetDraftPersistenceReady([relativePath])) return;
-      targetVerifyOutcomesStoreRef.current.deleteOutcome(
-        relativePath,
-        currentTarget,
-      );
+      void resolveTargetVerifyOutcome(relativePath, currentTarget, false);
     },
-    [requireTargetDraftPersistenceReady],
+    [resolveTargetVerifyOutcome],
   );
 
   const discardTargetDraftAndOutcome = useCallback(
     (relativePath: string, currentTarget: MetadataDraftTarget) => {
-      removeTargetDraftAndOutcome(relativePath, currentTarget);
+      void resolveTargetVerifyOutcome(relativePath, currentTarget, true);
     },
-    [removeTargetDraftAndOutcome],
+    [resolveTargetVerifyOutcome],
   );
 
   const dismissAllTargetVerifyOutcomes = useCallback(() => {
-    targetVerifyOutcomesStoreRef.current.clear();
-  }, []);
+    void api
+      .invoke("dismiss_media_library_session_verification_outcomes", {
+        sessionId: activeScanIdRef.current,
+      })
+      .then((snapshot) =>
+        applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
+      )
+      .catch((error) =>
+        pushApplicationError("metadata-target-verification-dismiss", error),
+      );
+  }, [api, applySessionSnapshot, pushApplicationError]);
 
   const dismissError = useCallback(
     (index: number) => {

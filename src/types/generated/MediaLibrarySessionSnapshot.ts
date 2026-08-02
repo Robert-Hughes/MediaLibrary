@@ -7,5 +7,6 @@ import type { MediaLibrarySessionFileThumbnail } from "./MediaLibrarySessionFile
 import type { MediaLibrarySessionIssue } from "./MediaLibrarySessionIssue";
 import type { MediaLibrarySessionLifecycle } from "./MediaLibrarySessionLifecycle";
 import type { MetadataTargetDraftEntry } from "./MetadataTargetDraftEntry";
+import type { MetadataTargetOutcome } from "./MetadataTargetOutcome";
 
-export type MediaLibrarySessionSnapshot = { session_id: number | null, revision: number, lifecycle: MediaLibrarySessionLifecycle, folder: string | null, files: Array<FileInfo>, discovery_running: boolean, issues: Array<MediaLibrarySessionIssue>, metadata: Array<MediaLibrarySessionFileMetadata>, thumbnails: Array<MediaLibrarySessionFileThumbnail>, drafts: { [key in string]?: Array<MetadataTargetDraftEntry> }, draft_persistence: MediaLibrarySessionDraftPersistenceState, apply_operation: MediaLibraryApplyOperation | null, };
+export type MediaLibrarySessionSnapshot = { session_id: number | null, revision: number, lifecycle: MediaLibrarySessionLifecycle, folder: string | null, files: Array<FileInfo>, discovery_running: boolean, issues: Array<MediaLibrarySessionIssue>, metadata: Array<MediaLibrarySessionFileMetadata>, thumbnails: Array<MediaLibrarySessionFileThumbnail>, drafts: { [key in string]?: Array<MetadataTargetDraftEntry> }, draft_persistence: MediaLibrarySessionDraftPersistenceState, apply_operation: MediaLibraryApplyOperation | null, verification_outcomes: { [key in string]?: Array<MetadataTargetOutcome> }, };

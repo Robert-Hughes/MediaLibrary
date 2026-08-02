@@ -482,21 +482,6 @@ struct TauriApplyEvents {
 
 impl ApplyEvents for TauriApplyEvents {
     fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
-        if let MetadataApplyStreamMessage::ProgressBatch { results, .. } = message {
-            let metadata: Vec<_> = results
-                .iter()
-                .filter_map(|result| result.fresh_file_metadata.clone())
-                .collect();
-            if !metadata.is_empty() {
-                let delta = self
-                    .app
-                    .state::<crate::session::MediaLibrarySessionState>()
-                    .commit_post_write_metadata_results(self.session_id, metadata)?;
-                self.app
-                    .emit(crate::session::SESSION_METADATA_CHANGED_EVENT, delta)
-                    .map_err(|error| error.to_string())?;
-            }
-        }
         let snapshot = self
             .app
             .state::<crate::session::MediaLibrarySessionState>()
@@ -509,6 +494,7 @@ impl ApplyEvents for TauriApplyEvents {
             .map_err(|error| error.to_string())
     }
 }
+
 #[derive(Debug, Clone, Copy)]
 pub struct MetadataApplyLimits {
     pub batch_size: usize,

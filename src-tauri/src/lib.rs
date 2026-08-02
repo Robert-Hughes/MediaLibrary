@@ -1150,6 +1150,99 @@ fn discard_media_library_session_draft(
     emit_session_snapshot(&app, &committed)?;
     Ok(committed)
 }
+
+#[tauri::command]
+fn resolve_media_library_session_verification_outcome(
+    session_id: u64,
+    relative_path: String,
+    current_target: metadata_draft_target::MetadataDraftTarget,
+    discard_draft: bool,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+    repository_state: State<'_, draft_edits::DraftRepositoryState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.snapshot();
+    if snapshot.session_id != Some(session_id)
+        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+    {
+        return Err("The media-library session changed before verification was resolved".into());
+    }
+    let pending = snapshot
+        .verification_outcomes
+        .get(&relative_path)
+        .is_some_and(|outcomes| {
+            outcomes.iter().any(|outcome| {
+                let target = match &outcome.draft_reconciliation {
+                    apply_edits::MetadataDraftReconciliation::Replace { target } => target,
+                    _ => &outcome.target,
+                };
+                target == &current_target
+            })
+        });
+    if !pending {
+        return Err("The verification outcome is no longer pending".into());
+    }
+
+    let persisted_entries = if discard_draft {
+        if !matches!(
+            snapshot.draft_persistence,
+            session::MediaLibrarySessionDraftPersistenceState::Ready
+        ) {
+            return Err("Draft persistence is not ready".into());
+        }
+        let slot = current_target.slot();
+        let mut entries = snapshot
+            .drafts
+            .get(&relative_path)
+            .cloned()
+            .unwrap_or_default();
+        let previous_len = entries.len();
+        entries.retain(|entry| entry.target.slot() != slot);
+        if entries.len() == previous_len {
+            return Err("The verification draft is no longer pending".into());
+        }
+        let folder = snapshot
+            .folder
+            .as_deref()
+            .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+        if let Err(error) = persist_exact_session_draft_row(
+            &app,
+            &repository_state,
+            folder,
+            relative_path.clone(),
+            entries.clone(),
+        ) {
+            if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
+                let _ = emit_session_snapshot(&app, &failed);
+            }
+            return Err(error);
+        }
+        Some(entries)
+    } else {
+        None
+    };
+
+    let committed = session_state.resolve_verification_outcome(
+        session_id,
+        &relative_path,
+        &current_target,
+        persisted_entries,
+    )?;
+    emit_session_snapshot(&app, &committed)?;
+    Ok(committed)
+}
+
+#[tauri::command]
+fn dismiss_media_library_session_verification_outcomes(
+    session_id: u64,
+    app: AppHandle,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<session::MediaLibrarySessionSnapshot, String> {
+    let snapshot = session_state.dismiss_all_verification_outcomes(session_id)?;
+    emit_session_snapshot(&app, &snapshot)?;
+    Ok(snapshot)
+}
+
 fn discard_exact_session_draft_targets(
     entries: &[draft_edits::MetadataTargetDraftEntry],
     targets: &[metadata_draft_target::MetadataDraftTarget],
@@ -3047,6 +3140,7 @@ mod tests {
             drafts: Default::default(),
             draft_persistence: session::MediaLibrarySessionDraftPersistenceState::Ready,
             apply_operation: None,
+            verification_outcomes: Default::default(),
         };
 
         let planned =
@@ -3458,6 +3552,8 @@ pub fn run() {
             set_media_library_session_draft,
             discard_media_library_session_draft,
             discard_media_library_session_drafts,
+            resolve_media_library_session_verification_outcome,
+            dismiss_media_library_session_verification_outcomes,
             replace_media_library_session_new_property_draft,
             remove_media_library_session_metadata_targets,
             remove_media_library_session_metadata_field_from_files,
