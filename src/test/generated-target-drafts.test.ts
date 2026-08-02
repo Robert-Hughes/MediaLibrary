@@ -4,7 +4,7 @@ import {
   GeneratedTargetDraftPlanError,
   planGeneratedTargetDraftBatch,
   type GeneratedMetadataProducer,
-} from "../generatedTargetDrafts";
+} from "./backendGeneratedTargetDraftPlanner";
 import {
   KNOWN_METADATA_IDS as ID,
   knownMetadataWriteTarget,

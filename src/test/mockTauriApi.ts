@@ -18,11 +18,9 @@ import {
   targetDraftsToWire,
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
-import {
-  planBulkMetadataDraftBatch,
-  type BulkMetadataDraftRequest,
-} from "../bulkMetadataDrafts";
-import { planGeneratedTargetDraftBatch } from "../generatedTargetDrafts";
+import type { BulkMetadataDraftRequest } from "../bulkMetadataDrafts";
+import { planBulkMetadataDraftBatch } from "./backendBulkMetadataDraftPlanner";
+import { planGeneratedTargetDraftBatch } from "./backendGeneratedTargetDraftPlanner";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
