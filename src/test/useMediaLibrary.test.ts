@@ -3323,7 +3323,7 @@ describe("useMediaLibrary", () => {
     let staged = false;
     await act(async () => {
       staged = await result.current[1].applyGpsTargetDraftBatch("gps.jpg", [
-        entry,
+        { schema_id: structuredClone(id), edit: structuredClone(entry.edit) },
       ]);
     });
     expect(staged).toBe(true);

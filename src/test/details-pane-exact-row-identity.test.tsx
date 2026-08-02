@@ -248,6 +248,9 @@ function renderPane(options: {
   targetDraftPersistence?: Parameters<
     typeof DetailsPane
   >[0]["targetDraftPersistence"];
+  onPreviewGpsTargetDraftBatch?: Parameters<
+    typeof DetailsPane
+  >[0]["onPreviewGpsTargetDraftBatch"];
 }) {
   const callbacks = {
     onSetExistingOccurrenceDraft: vi.fn(),
@@ -266,6 +269,7 @@ function renderPane(options: {
       targetDraftEdits={next.targetDraftEdits}
       targetDraftPersistence={next.targetDraftPersistence}
       {...callbacks}
+      onPreviewGpsTargetDraftBatch={next.onPreviewGpsTargetDraftBatch}
     />
   );
   const rendered = render(pane(options));
@@ -1029,7 +1033,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     },
   );
 
-  it("routes individual GPS edits only through the target-aware GPS callback", async () => {
+  it("routes an individual GPS edit through its exact occurrence callback", async () => {
     const gpsInfo: TagInfo = {
       id: GPS_IDS.latitude,
       group: "GPS",
@@ -1075,18 +1079,12 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       target: { value: "52" },
     });
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
-    expect(view.onApplyGpsTargetDraftBatch).toHaveBeenCalledWith([
-      expect.objectContaining({
-        target: expect.objectContaining({
-          kind: "ExistingOccurrence",
-          schema_id: GPS_IDS.latitude,
-          occurrence_id: gpsOccurrence.id,
-          write_target: gpsOccurrence.write_target,
-        }),
-      }),
-    ]);
+    expect(view.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
+      exactTarget(gpsOccurrence),
+      { intent: "Set", value: { kind: "Real", value: 52 } },
+    );
     expect(view.onRemoveMetadataTargets).not.toHaveBeenCalled();
-    expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
   });
 
   it("moves a New Property destination without reopening the value editor", async () => {
@@ -1240,7 +1238,7 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
     expect(await screen.findByTestId("gps-editor-overlay")).toBeInTheDocument();
   });
 
-  it("shows stale GPS row editing as disabled before the editor opens", () => {
+  it("defers stale grouped GPS validation to the Rust preview", async () => {
     const occurrence = gpsExistingOccurrence();
     const staleTarget = exactTarget(occurrence);
     staleTarget.write_target.group1 = "StaleGPS";
@@ -1249,31 +1247,35 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       intent: "Set",
       value: { kind: "Real", value: 52 },
     });
+    const preview = vi.fn(async () => null);
     renderPane({
       occurrences: [occurrence],
       targetDraftEdits: store.getMetadataFile(file.relative_path),
+      onPreviewGpsTargetDraftBatch: preview,
     });
 
     fireEvent.contextMenu(rowForOccurrence(occurrence));
     const editGps = screen.getByRole("button", { name: "Edit GPS…" });
-    expect(editGps).toBeDisabled();
-    expect(editGps).toHaveAttribute(
-      "title",
-      expect.stringMatching(/different complete target snapshot/i),
-    );
+    expect(editGps).toBeEnabled();
+    fireEvent.click(editGps);
+    await waitFor(() => expect(preview).toHaveBeenCalled());
+    expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
   });
 
-  it("shows duplicate-ID GPS row editing as disabled", () => {
+  it("defers duplicate-schema GPS validation to the Rust preview", async () => {
     const occurrence = gpsExistingOccurrence();
-    renderPane({ occurrences: [occurrence, structuredClone(occurrence)] });
+    const preview = vi.fn(async () => null);
+    renderPane({
+      occurrences: [occurrence, structuredClone(occurrence)],
+      onPreviewGpsTargetDraftBatch: preview,
+    });
 
     fireEvent.contextMenu(existingOccurrenceRows()[0]);
     const editGps = screen.getByRole("button", { name: "Edit GPS…" });
-    expect(editGps).toBeDisabled();
-    expect(editGps).toHaveAttribute(
-      "title",
-      expect.stringMatching(/occurrence ID is duplicated/i),
-    );
+    expect(editGps).toBeEnabled();
+    fireEvent.click(editGps);
+    await waitFor(() => expect(preview).toHaveBeenCalled());
+    expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
   });
 
   it("keeps a custom GPS New Property editor open when async staging fails", async () => {
@@ -1527,7 +1529,7 @@ describe("DetailsPane exact workflow strengthening", () => {
     const secondRow = rowForOccurrence(second);
     fireEvent.contextMenu(secondRow);
     expect(screen.getByRole("button", { name: "Edit…" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit GPS…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Edit GPS…" })).toBeEnabled();
 
     fireEvent.click(screen.getByRole("button", { name: "Edit…" }));
     expect(screen.getByTestId("numeric-editor-input")).toHaveValue(52.5);
@@ -1537,16 +1539,11 @@ describe("DetailsPane exact workflow strengthening", () => {
     fireEvent.click(screen.getByTestId("numeric-editor-save"));
 
     await waitFor(() =>
-      expect(view.onApplyGpsTargetDraftBatch).toHaveBeenCalledWith([
-        {
-          target: exactTarget(second),
-          edit: { intent: "Set", value: { kind: "Real", value: 53.25 } },
-        },
-      ]),
+      expect(view.onSetExistingOccurrenceDraft).toHaveBeenCalledWith(
+        exactTarget(second),
+        { intent: "Set", value: { kind: "Real", value: 53.25 } },
+      ),
     );
-    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalledWith([
-      expect.objectContaining({ target: exactTarget(first) }),
-    ]);
-    expect(view.onSetExistingOccurrenceDraft).not.toHaveBeenCalled();
+    expect(view.onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
   });
 });

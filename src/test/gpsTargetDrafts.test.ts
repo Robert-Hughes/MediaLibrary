@@ -3,7 +3,7 @@ import {
   GpsTargetDraftPlanError,
   planGpsTargetDraftBatch,
   validateGpsTargetDraftEntries,
-} from "../gpsTargetDrafts";
+} from "./backendGpsTargetDraftPlanner";
 import { GPS_IDS, knownMetadataWriteTarget } from "../metadata/knownIds";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {

@@ -4,26 +4,26 @@ import type {
   MetadataDraftTarget,
   MetadataTargetDraftEntry,
   SchemaDefinitionId,
-} from "./types";
-import type { TargetDraftCollection } from "./targetDraftEdits";
-import { gpsMemberGroup, type GpsTagGroup } from "./metadata/tag_overrides";
-import { knownMetadataWriteTarget } from "./metadata/knownIds";
-import { schemaDefinitionIdToken } from "./utils/schemaDefinitionId";
+} from "../types";
+import type { TargetDraftCollection } from "../targetDraftEdits";
+import { gpsMemberGroup, type GpsTagGroup } from "../metadata/tag_overrides";
+import { knownMetadataWriteTarget } from "../metadata/knownIds";
+import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import {
   buildSchemaOccurrenceResolutionIndex,
   findDuplicateMetadataOccurrenceId,
   resolveExactMetadataOccurrence,
   resolutionForSchema,
-} from "./utils/metadataOccurrences";
+} from "../utils/metadataOccurrences";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
-} from "./utils/metadataDraftTarget";
+} from "../utils/metadataDraftTarget";
 import {
   metadataWriteSelectorsEqual,
   validateFamily1Group,
-} from "./utils/metadataWriteTarget";
+} from "../utils/metadataWriteTarget";
 
 export interface MetadataTargetDraftMutation {
   target: MetadataDraftTarget;

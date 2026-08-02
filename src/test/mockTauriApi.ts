@@ -21,6 +21,7 @@ import {
 import type { BulkMetadataDraftRequest } from "../bulkMetadataDrafts";
 import { planBulkMetadataDraftBatch } from "./backendBulkMetadataDraftPlanner";
 import { planGeneratedTargetDraftBatch } from "./backendGeneratedTargetDraftPlanner";
+import { planGpsTargetDraftBatch } from "./backendGpsTargetDraftPlanner";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
@@ -1061,11 +1062,14 @@ export function createMockTauriApi(): MockTauriApi {
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
       }
-      if (cmd === "stage_media_library_session_gps_drafts") {
+      if (
+        cmd === "preview_media_library_session_gps_drafts" ||
+        cmd === "stage_media_library_session_gps_drafts"
+      ) {
         const sessionId = args?.sessionId as number;
         if (sessionId !== mock.currentScanId) throw new Error("stale session");
         const relativePath = args?.relativePath as string;
-        const entries = args?.entries as MetadataTargetDraftEntry[];
+        const edits = args?.edits as SchemaMetadataEdit[];
         const store = new TargetDraftEditsStore();
         store.resetMetadata(
           targetDraftsFromWire(
@@ -1075,6 +1079,22 @@ export function createMockTauriApi(): MockTauriApi {
             >,
           ),
         );
+        const metadata = sessionSnapshot.metadata.find(
+          (entry) => entry.relative_path === relativePath,
+        );
+        if (metadata?.state.status !== "ready") {
+          throw new Error(
+            "Authoritative metadata occurrences are still loading",
+          );
+        }
+        const entries = planGpsTargetDraftBatch(
+          edits.map(({ schema_id: id, edit }) => ({ id, edit })),
+          metadata.state.occurrences,
+          store.getMetadataFile(relativePath),
+        ).map(({ target, edit }) => ({ target, edit }));
+        if (cmd === "preview_media_library_session_gps_drafts") {
+          return entries;
+        }
         for (const entry of entries) {
           store.setMetadataTarget(relativePath, entry.target, entry.edit);
         }

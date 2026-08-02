@@ -28,7 +28,7 @@ import {
   TargetDraftEditsStore,
   type TargetDraftCollection,
 } from "../targetDraftEdits";
-import { planGpsTargetDraftBatch } from "../gpsTargetDrafts";
+import { planGpsTargetDraftBatch } from "./backendGpsTargetDraftPlanner";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import {
   formatMetadataValue,
@@ -49,6 +49,7 @@ import type {
   MetadataDraftTarget,
   MetadataOccurrence,
   MetadataTargetDraftEntry,
+  SchemaMetadataEdit,
   FileInfo,
   SchemaDefinitionId,
   TagKind,
@@ -1551,11 +1552,11 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
   }
 
-  function expectZeroSouthWestEdits(edits: MetadataTargetDraftEntry[]) {
+  function expectZeroSouthWestEdits(edits: SchemaMetadataEdit[]) {
     const editFor = (id: SchemaDefinitionId) =>
       edits.find(
         (entry) =>
-          schemaDefinitionIdToken(entry.target.schema_id) ===
+          schemaDefinitionIdToken(entry.schema_id) ===
           schemaDefinitionIdToken(id),
       )?.edit;
 
@@ -1628,7 +1629,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(screen.queryByRole("button", { name: "Edit GPS…" })).toBeNull();
   });
 
-  it("does not show ordinary mutation actions for a read-only GPS row", () => {
+  it("defers grouped editing of a read-only GPS row to the Rust preview", async () => {
     const occurrences = occurrencesFromMetadataCollection(
       mockMetadata({ "GPS:GPSLatitude": 51.5 }),
     );
@@ -1641,11 +1642,13 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       writable: false,
     };
 
+    const onPreviewGpsTargetDraftBatch = vi.fn(async () => null);
     render(
       <DetailsPane
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
+        onPreviewGpsTargetDraftBatch={onPreviewGpsTargetDraftBatch}
         file={file}
         occurrences={occurrences}
       />,
@@ -1664,11 +1667,11 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     ).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
     const editGps = screen.getByRole("button", { name: "Edit GPS…" });
-    expect(editGps).toBeDisabled();
-    expect(editGps.getAttribute("title")?.toLowerCase()).toMatch(
-      /read-only|not writable/,
-    );
+    expect(editGps).toBeEnabled();
     fireEvent.click(editGps);
+    await waitFor(() =>
+      expect(onPreviewGpsTargetDraftBatch).toHaveBeenCalled(),
+    );
     expect(screen.queryByTestId("gps-editor-lat-input")).toBeNull();
   });
   it("generic Edit uses semantic GPS latitude instead of the degree-formatted row", async () => {
@@ -1743,7 +1746,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
     const onRemoveMetadataTargets = vi.fn();
     const onApplyGpsTargetDraftBatch = vi.fn(
-      (_entries: MetadataTargetDraftEntry[]) => true,
+      (_entries: SchemaMetadataEdit[]) => true,
     );
     render(
       <DetailsPane
@@ -1806,7 +1809,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     );
     const onRemoveMetadataTargets = vi.fn();
     const onApplyGpsTargetDraftBatch = vi.fn(
-      (_entries: MetadataTargetDraftEntry[]) => true,
+      (_entries: SchemaMetadataEdit[]) => true,
     );
     render(
       <DetailsPane
@@ -1835,7 +1838,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expectZeroSouthWestEdits(onApplyGpsTargetDraftBatch.mock.calls[0][0]);
   });
 
-  it("keeps ordinary GPS row editing enabled while grouped GPS capture is blocked", () => {
+  it("keeps ordinary GPS row editing enabled while Rust rejects grouped capture", async () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5,
       "GPS:GPSLatitudeRef": "N",
@@ -1862,6 +1865,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         },
       ]),
     );
+    const onPreviewGpsTargetDraftBatch = vi.fn(async () => null);
     render(
       <DetailsPane
         file={file}
@@ -1870,6 +1874,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
+        onPreviewGpsTargetDraftBatch={onPreviewGpsTargetDraftBatch}
       />,
     );
 
@@ -1877,10 +1882,12 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(screen.getByRole("button", { name: "Edit…" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Remove" })).toBeEnabled();
     const rowEditGps = screen.getByRole("button", { name: "Edit GPS…" });
-    expect(rowEditGps).toBeDisabled();
-    expect(rowEditGps.getAttribute("title")).toContain(
-      "Several staged New Property destinations",
+    expect(rowEditGps).toBeEnabled();
+    fireEvent.click(rowEditGps);
+    await waitFor(() =>
+      expect(onPreviewGpsTargetDraftBatch).toHaveBeenCalled(),
     );
+    expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
   });
 
   it("keeps ordinary GPS row actions available when the grouped callback is absent", () => {
@@ -1933,7 +1940,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       },
     };
     const onApplyGpsTargetDraftBatch = vi.fn(
-      (_entries: MetadataTargetDraftEntry[]) => true,
+      (_entries: SchemaMetadataEdit[]) => true,
     );
     render(
       <DetailsPane
@@ -1953,20 +1960,13 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
 
     expect(onApplyGpsTargetDraftBatch).toHaveBeenCalledOnce();
     const altitudeEntries = onApplyGpsTargetDraftBatch.mock.calls[0][0].filter(
-      (entry) => schemaDefinitionIdEquals(entry.target.schema_id, altitudeId),
+      (entry) => schemaDefinitionIdEquals(entry.schema_id, altitudeId),
     );
     expect(altitudeEntries).toHaveLength(1);
-    expect(altitudeEntries[0].target.write_target.group1).toBe("CustomGPS");
-    expect(
-      onApplyGpsTargetDraftBatch.mock.calls[0][0].some(
-        (entry) =>
-          schemaDefinitionIdEquals(entry.target.schema_id, altitudeId) &&
-          entry.target.write_target.group1 === "GPS",
-      ),
-    ).toBe(false);
+    expect(altitudeEntries[0].edit).toEqual(altitudeEdit);
   });
 
-  it("keeps the grouped editor open and saves nothing when a captured selector changes", async () => {
+  it("submits semantic GPS edits after authoritative selectors change", async () => {
     const metadata = mockMetadata({
       "GPS:GPSLatitude": 51.5,
       "GPS:GPSLatitudeRef": "N",
@@ -2003,11 +2003,10 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     rendered.rerender(<DetailsPane {...props} occurrences={changed} />);
     fireEvent.click(screen.getByTestId("gps-editor-save"));
 
-    expect(onApplyGpsTargetDraftBatch).not.toHaveBeenCalled();
-    expect(screen.getByTestId("gps-editor-overlay")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent(
-      /captured GPS occurrence target no longer matches authoritative state.*nothing was saved/i,
+    await waitFor(() =>
+      expect(onApplyGpsTargetDraftBatch).toHaveBeenCalledOnce(),
     );
+    expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
   });
 
   // Stateful wrapper harness to simulate real DetailsPane parent
@@ -2033,11 +2032,24 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
           occurrences={occurrences}
           targetDraftEdits={drafts}
           onRemoveMetadataTargets={vi.fn()}
-          onApplyGpsTargetDraftBatch={(entries: MetadataTargetDraftEntry[]) => {
+          onSetExistingOccurrenceDraft={(target, edit) => {
             const store = new TargetDraftEditsStore();
             if (Object.keys(drafts).length > 0) {
               store.resetMetadata({ [file.relative_path]: drafts });
             }
+            store.setMetadataBatch(file.relative_path, [{ target, edit }]);
+            setDrafts(store.getMetadataFile(file.relative_path) ?? {});
+          }}
+          onApplyGpsTargetDraftBatch={(semanticEdits: SchemaMetadataEdit[]) => {
+            const store = new TargetDraftEditsStore();
+            if (Object.keys(drafts).length > 0) {
+              store.resetMetadata({ [file.relative_path]: drafts });
+            }
+            const entries = planGpsTargetDraftBatch(
+              semanticEdits.map(({ schema_id: id, edit }) => ({ id, edit })),
+              occurrences,
+              drafts,
+            ).map(({ target, edit }) => ({ target, edit }));
             store.setMetadataBatch(file.relative_path, entries);
             setDrafts(store.getMetadataFile(file.relative_path) ?? {});
             return true;

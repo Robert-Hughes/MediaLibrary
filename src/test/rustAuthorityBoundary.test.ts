@@ -67,6 +67,18 @@ describe("Rust-authoritative application boundary", () => {
     );
   });
 
+  it("keeps exact GPS target planning behind the Rust session boundary", () => {
+    expect(productionSources).not.toHaveProperty("../gpsTargetDrafts.ts");
+    expect(useMediaLibrary).toContain(
+      '"preview_media_library_session_gps_drafts"',
+    );
+    expect(useMediaLibrary).toContain(
+      '"stage_media_library_session_gps_drafts"',
+    );
+    expect(rustLib).toContain("fn plan_session_gps_drafts(");
+    expect(rustLib).toContain("edits: &[draft_edits::SchemaMetadataEdit]");
+  });
+
   it("does not retain a frontend apply state controller", () => {
     expect(productionSources).not.toHaveProperty("../targetApplyController.ts");
     expect(useMediaLibrary).toBeDefined();
