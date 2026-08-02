@@ -6,14 +6,12 @@ import {
 } from "./types";
 import type {
   AppState,
-  ScanErrorPayload,
   ApplicationErrorPayload,
   FileInfo,
   SortConfig,
   VisibleColumn,
   MetadataApplyResult,
   MetadataDraftEdit,
-  SchemaMetadataEdit,
   SchemaDefinitionId,
   TargetDraftPersistenceState,
   MetadataTargetDraftEntry,
@@ -25,7 +23,6 @@ import type {
   MediaLibrarySessionMetadataChanged,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
-import { MAX_APPLICATION_ERRORS } from "./utils/scanEvents";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 import { useWritableSchemaDefinitions } from "./hooks/useWritableSchemaDefinitions";
 import {
@@ -36,7 +33,6 @@ import {
 import { runTargetApplyCommand } from "./targetApplyCommand";
 import { cancelTargetApply } from "./targetApplyTauri";
 import type { MetadataDraftTarget } from "./types";
-import { frontendNow, logSlowFrontendOperation } from "./frontendPerformance";
 import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
 import { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 import { targetVerifyOutcomesFromBackend } from "./targetVerifyOutcomes";
@@ -51,10 +47,6 @@ import { validateFamily1Group } from "./utils/metadataWriteTarget";
 import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSafety";
 import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
-import type {
-  GeneratedDraftStageResult,
-  GeneratedMetadataProducer,
-} from "./generatedTargetDrafts";
 import type {
   BulkMetadataDraftPlan,
   BulkMetadataDraftRequest,
@@ -117,18 +109,6 @@ export interface MediaLibraryActions {
   dismissError: (index: number) => void;
   canOpenBulkMetadataEditor: (relativePaths: string[]) => boolean;
   canStageGeneratedMetadata: (relativePaths: string[]) => boolean;
-  applyGeneratedMetadataDraftBatch: (
-    relativePath: string,
-    producer: GeneratedMetadataProducer,
-    edits: SchemaMetadataEdit[],
-  ) => Promise<GeneratedDraftStageResult>;
-  applyGeneratedMetadataDraftBatches: (
-    items: readonly {
-      relativePath: string;
-      producer: GeneratedMetadataProducer;
-      edits: SchemaMetadataEdit[];
-    }[],
-  ) => Promise<GeneratedDraftStageResult[]>;
   previewBulkMetadataDraftBatch: (
     relativePaths: string[],
     request: BulkMetadataDraftRequest,
@@ -221,6 +201,7 @@ export function useMediaLibrary(
   const sessionRevisionRef = useRef<number>(-1);
   const sessionFilePathsRef = useRef<Set<string>>(new Set());
   const seenSessionIssueIdsRef = useRef<Set<number>>(new Set());
+  const locallyLoggedIssueKeysRef = useRef<Set<string>>(new Set());
   // Monotonic frontend lifecycle identity. Unlike scan_id, this also changes
   // immediately when replacing or closing a scan and cannot collide when the
   // same folder is reopened within one clock tick.
@@ -234,13 +215,13 @@ export function useMediaLibrary(
   const apiRef = useRef(api);
   apiRef.current = api;
   const activeFolderRef = useRef<string | null>(null);
-  const targetLoadErrorRef = useRef<ApplicationErrorPayload | null>(null);
   const targetDraftPersistenceRef = useRef<TargetDraftPersistenceState>(
     TARGET_DRAFT_NOT_LOADED_STATE,
   );
 
   const loadedStateFromProjection = useCallback(
     (
+      sessionId: number,
       folder: string,
       files: FileInfo[],
       scanning: boolean,
@@ -258,6 +239,7 @@ export function useMediaLibrary(
       const columns = presentation ?? loadColumnConfig();
       return {
         kind: "loaded",
+        sessionId,
         folder,
         files,
         thumbnails: thumbnailStoreRef.current,
@@ -270,9 +252,7 @@ export function useMediaLibrary(
         columnWidths: columns.columnWidths,
         sortConfig: columns.sortConfig,
         metadataVersion: 0,
-        applicationErrors: targetLoadErrorRef.current
-          ? [targetLoadErrorRef.current]
-          : [],
+        applicationErrors: [],
         targetDraftEdits: targetDraftEditsStoreRef.current.getAllMetadata(),
         targetDraftEditsStore: targetDraftEditsStoreRef.current,
         targetDraftPersistence: targetDraftPersistenceRef.current,
@@ -339,17 +319,6 @@ export function useMediaLibrary(
         })),
       );
       targetDraftPersistenceRef.current = snapshot.draft_persistence;
-      targetLoadErrorRef.current =
-        snapshot.draft_persistence.status === "load-failed"
-          ? {
-              issue_id: null,
-              scan_id: snapshot.session_id,
-              severity: "error",
-              error_type: "metadata-target-load",
-              error_message: snapshot.draft_persistence.error,
-              affected_files: [],
-            }
-          : null;
       if (snapshot.lifecycle === "opening") {
         if (isRecovery) {
           const { visibleColumns, sortConfig, columnWidths } =
@@ -364,7 +333,7 @@ export function useMediaLibrary(
         }
         return;
       }
-      if (snapshot.lifecycle === "loaded") {
+      if (snapshot.lifecycle === "loaded" || snapshot.lifecycle === "failed") {
         const nextFilePaths = new Set(
           snapshot.files.map((file) => file.relative_path),
         );
@@ -405,6 +374,12 @@ export function useMediaLibrary(
         for (const issue of snapshot.issues) {
           if (seenSessionIssueIdsRef.current.has(issue.issue_id)) continue;
           seenSessionIssueIdsRef.current.add(issue.issue_id);
+          const issueKey = JSON.stringify([
+            issue.error_type,
+            issue.error_message,
+            issue.affected_files,
+          ]);
+          if (locallyLoggedIssueKeysRef.current.delete(issueKey)) continue;
           console.error(
             `Worker error (${issue.error_type}):`,
             issue.error_message,
@@ -442,6 +417,7 @@ export function useMediaLibrary(
                 }
               : undefined;
           const next = loadedStateFromProjection(
+            snapshot.session_id!,
             snapshot.folder!,
             snapshot.files,
             snapshot.discovery_running,
@@ -494,21 +470,22 @@ export function useMediaLibrary(
         error,
         affectedFiles,
       );
-      const payload: ApplicationErrorPayload = {
-        issue_id: null,
-        scan_id: activeScanIdRef.current,
-        severity,
-        error_type: errorType,
-        error_message: errorMessage,
-        affected_files: affectedFiles,
-      };
-      setAppState((prev) => {
-        if (prev.kind !== "loaded") return prev;
-        const applicationErrors = [...prev.applicationErrors, payload].slice(
-          -MAX_APPLICATION_ERRORS,
+      const sessionId = activeScanIdRef.current;
+      if (sessionId < 0) return;
+      locallyLoggedIssueKeysRef.current.add(
+        JSON.stringify([errorType, errorMessage, affectedFiles]),
+      );
+      void apiRef.current
+        .invoke("record_media_library_session_issue", {
+          sessionId,
+          severity,
+          errorType,
+          errorMessage,
+          affectedFiles,
+        })
+        .catch((invokeError) =>
+          console.error("Failed to record application issue", invokeError),
         );
-        return { ...prev, applicationErrors };
-      });
     },
     [],
   );
@@ -562,17 +539,6 @@ export function useMediaLibrary(
         ),
       );
       targetDraftPersistenceRef.current = session.draft_persistence;
-      targetLoadErrorRef.current =
-        session.draft_persistence.status === "load-failed"
-          ? {
-              issue_id: null,
-              scan_id: scanId,
-              severity: "error",
-              error_type: "metadata-target-load",
-              error_message: session.draft_persistence.error,
-              affected_files: [],
-            }
-          : null;
       targetVerifyOutcomesStoreRef.current.clear();
       const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
       setAppState({
@@ -635,11 +601,17 @@ export function useMediaLibrary(
           setAppState((previous) => {
             if (previous.kind === "idle" || files.length === 0) return previous;
             if (previous.kind === "loading") {
-              return loadedStateFromProjection(previous.folder, files, true, {
-                visibleColumns: previous.visibleColumns,
-                columnWidths: previous.columnWidths,
-                sortConfig: previous.sortConfig,
-              });
+              return loadedStateFromProjection(
+                session_id,
+                previous.folder,
+                files,
+                true,
+                {
+                  visibleColumns: previous.visibleColumns,
+                  columnWidths: previous.columnWidths,
+                  sortConfig: previous.sortConfig,
+                },
+              );
             }
             const nextFiles = [...previous.files, ...files];
             metadataProgressStoreRef.current.setTotal(nextFiles.length);
@@ -708,20 +680,11 @@ export function useMediaLibrary(
         },
       );
 
-      const unlistenError = await api.listen("scan_error", (raw) => {
-        if (cancelled) return;
-        const payload = raw as ScanErrorPayload;
-        if (payload.scan_id !== activeScanIdRef.current) return;
-        console.error("Scan error:", payload.message);
-        setAppState({ kind: "idle" });
-      });
-
       unlisteners.push(
         unlistenSession,
         unlistenFound,
         unlistenMetadata,
         unlistenThumbnail,
-        unlistenError,
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
@@ -1071,14 +1034,7 @@ export function useMediaLibrary(
         void api.invoke("dismiss_media_library_session_issue", {
           issueId: current.issue_id,
         });
-        return;
       }
-      setAppState((prev) => {
-        if (prev.kind !== "loaded") return prev;
-        const newErrors = [...prev.applicationErrors];
-        newErrors.splice(index, 1);
-        return { ...prev, applicationErrors: newErrors };
-      });
     },
     [api, appState],
   );
@@ -1144,94 +1100,6 @@ export function useMediaLibrary(
       requireAuthoritativeMetadataReady,
       writableSchemaDefinitions,
     ],
-  );
-  const applyGeneratedMetadataDraftBatches = useCallback(
-    async (
-      items: readonly {
-        relativePath: string;
-        producer: GeneratedMetadataProducer;
-        edits: SchemaMetadataEdit[];
-      }[],
-    ): Promise<GeneratedDraftStageResult[]> => {
-      if (items.length === 0) return [];
-      const results: GeneratedDraftStageResult[] = items.map(() => ({
-        kind: "success",
-        changed: false,
-      }));
-      const activeItems = items
-        .map((item, resultIndex) => ({ item, resultIndex }))
-        .filter(({ item }) => item.edits.length > 0);
-      if (activeItems.length === 0) return results;
-      const startedAt = frontendNow();
-      const paths = activeItems.map(({ item }) => item.relativePath);
-      if (!requireTargetDraftPersistenceReady(paths)) {
-        const persistence = targetDraftPersistenceRef.current;
-        const failure: GeneratedDraftStageResult = {
-          kind: "failure",
-          reason:
-            persistence.status === "load-failed"
-              ? `${TARGET_DRAFT_LOAD_BLOCKED_MESSAGE}${"error" in persistence ? ` Load error: ${persistence.error}` : ""}`
-              : TARGET_DRAFT_LOAD_BLOCKED_MESSAGE,
-        };
-        for (const { resultIndex } of activeItems) {
-          results[resultIndex] = failure;
-        }
-        return results;
-      }
-      for (const active of activeItems) {
-        const { relativePath, producer, edits } = active.item;
-        const command =
-          producer.kind === "describe"
-            ? "stage_media_library_session_describe_drafts"
-            : producer.kind === "geocode"
-              ? "stage_media_library_session_geocode_drafts"
-              : "stage_media_library_session_normalise_drafts";
-        try {
-          const previousRevision = sessionRevisionRef.current;
-          const snapshot = (await api.invoke(command, {
-            sessionId: activeScanIdRef.current,
-            relativePath,
-            edits,
-            ...(producer.kind === "normalise"
-              ? { enabledGroups: producer.enabledGroups }
-              : {}),
-          })) as MediaLibrarySessionSnapshot;
-          applySessionSnapshot(snapshot);
-          results[active.resultIndex] = {
-            kind: "success",
-            changed: snapshot.revision > previousRevision,
-          };
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          logApplicationIssue(
-            "error",
-            "metadata-target-generated-stage",
-            error,
-            [relativePath],
-          );
-          results[active.resultIndex] = { kind: "failure", reason };
-        }
-      }
-      logSlowFrontendOperation("draft-store-batch", startedAt, {
-        files: activeItems.length,
-      });
-      return results;
-    },
-    [api, applySessionSnapshot, requireTargetDraftPersistenceReady],
-  );
-
-  const applyGeneratedMetadataDraftBatch = useCallback(
-    async (
-      relativePath: string,
-      producer: GeneratedMetadataProducer,
-      edits: SchemaMetadataEdit[],
-    ): Promise<GeneratedDraftStageResult> =>
-      (
-        await applyGeneratedMetadataDraftBatches([
-          { relativePath, producer, edits },
-        ])
-      )[0] ?? { kind: "success", changed: false },
-    [applyGeneratedMetadataDraftBatches],
   );
   const previewBulkMetadataDraftBatch = useCallback(
     async (
@@ -2088,8 +1956,6 @@ export function useMediaLibrary(
       dismissError,
       canOpenBulkMetadataEditor,
       canStageGeneratedMetadata,
-      applyGeneratedMetadataDraftBatch,
-      applyGeneratedMetadataDraftBatches,
       previewBulkMetadataDraftBatch,
       stageBulkMetadataDraftBatch,
       removeMetadataTargets,
@@ -2127,8 +1993,6 @@ export function useMediaLibrary(
       dismissError,
       canOpenBulkMetadataEditor,
       canStageGeneratedMetadata,
-      applyGeneratedMetadataDraftBatch,
-      applyGeneratedMetadataDraftBatches,
       previewBulkMetadataDraftBatch,
       stageBulkMetadataDraftBatch,
       removeMetadataTargets,

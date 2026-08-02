@@ -13,15 +13,11 @@
  * lifecycle without copy-paste.
  */
 import { useMemo } from "react";
-import type { UnlistenFn } from "@tauri-apps/api/event";
-import { listen } from "@tauri-apps/api/event";
-import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 import type {
   DescribeEstimate,
   DescribeProgressState,
   DescribeUsageSummary,
   MediaLibraryBatchOperation,
-  SchemaMetadataEdit,
 } from "../types";
 import {
   useBatchImageJob,
@@ -41,21 +37,8 @@ export interface DescribeActions {
 }
 
 export interface UseDescribeImagesOptions {
+  sessionId?: number;
   operation?: MediaLibraryBatchOperation;
-  /**
-   * Invoked for each image whose describe call succeeded, with the typed
-   * draft edits the backend produced for it. The caller is responsible
-   * for merging these into the in-memory draft store (which then
-   * persists via the semantic metadata-draft pipeline).
-   *
-   * Keeping persistence in the caller — rather than the backend writing
-   * directly to the persisted target-draft file — means the UI re-renders immediately
-   * and there is exactly one writer to the typed-draft store.
-   */
-  onApplyEdits?: (
-    relativePath: string,
-    edits: SchemaMetadataEdit[],
-  ) => GeneratedDraftStageResult | Promise<GeneratedDraftStageResult>;
 }
 
 /**
@@ -89,76 +72,18 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
 } {
   // Build the adapter config once. `useMemo` is enough — the config has
   // no closed-over state, just constants and pure parsers.
-  const config = useMemo<
-    BatchJobConfig<string[], DescribeEstimate, DescribeUsageSummary>
-  >(
+  const config = useMemo<BatchJobConfig<string[]>>(
     () => ({
-      eventPrefix: "describe",
       commands: {
         estimate: "estimate_describe_cost_cmd",
         run: "describe_images_cmd",
         cancel: "cancel_describe_cmd",
       },
       buildEstimateArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
-      buildRunArgs: (folderPath, relPaths) => ({ folderPath, relPaths }),
+      buildRunArgs: () => ({}),
+      buildRecoveryRunArgs: () => ({}),
       totalItems: (relPaths) => relPaths.length,
       relativePaths: (relPaths) => [...relPaths],
-      parseEstimatePayload: (raw) => raw as DescribeEstimate,
-      parseSummaryPayload: (raw) => raw as DescribeUsageSummary,
-      subscribeExtras: async (setState) => {
-        // Describe-only: the estimate phase emits its own progress
-        // events because the generic loop's `${prefix}_progress` is
-        // reserved for the main run.
-        const unlisteners: UnlistenFn[] = [];
-
-        unlisteners.push(
-          await listen<{ total: number }>("describe_estimate_started", (e) => {
-            setState((s) => ({
-              ...s,
-              phase: "estimating",
-              total: e.payload.total,
-              current: 0,
-            }));
-          }),
-        );
-        unlisteners.push(
-          await listen<{
-            current: number;
-            total: number;
-            relativePath: string;
-          }>("describe_estimate_progress", (e) => {
-            setState((s) => ({
-              ...s,
-              phase: "estimating",
-              current: e.payload.current,
-              total: e.payload.total,
-              currentFile: e.payload.relativePath,
-            }));
-          }),
-        );
-        unlisteners.push(
-          await listen<{ relativePath: string; message: string }>(
-            "describe_estimate_error",
-            (e) => {
-              setState((s) => ({
-                ...s,
-                estimateError: `${e.payload.relativePath}: ${e.payload.message}`,
-              }));
-            },
-          ),
-        );
-        unlisteners.push(
-          await listen<DescribeEstimate>("describe_estimate_complete", (e) => {
-            setState((s) => ({
-              ...s,
-              phase: "awaiting-confirm",
-              currentFile: null,
-              estimate: e.payload,
-            }));
-          }),
-        );
-        return unlisteners;
-      },
     }),
     [],
   );
@@ -168,8 +93,8 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
     DescribeEstimate,
     DescribeUsageSummary
   >(config, {
+    sessionId: options.sessionId,
     operation: options.operation,
-    onApplyEdits: options.onApplyEdits,
   });
 
   return {

@@ -16,12 +16,9 @@ export function projectSessionIssues(
 }
 
 export function mergeSessionIssues(
-  current: readonly ApplicationErrorPayload[],
+  _current: readonly ApplicationErrorPayload[],
   sessionId: number,
   issues: readonly MediaLibrarySessionIssue[],
 ): ApplicationErrorPayload[] {
-  const localIssues = current.filter((issue) => issue.issue_id == null);
-  return [...localIssues, ...projectSessionIssues(sessionId, issues)].slice(
-    -MAX_APPLICATION_ERRORS,
-  );
+  return projectSessionIssues(sessionId, issues).slice(-MAX_APPLICATION_ERRORS);
 }

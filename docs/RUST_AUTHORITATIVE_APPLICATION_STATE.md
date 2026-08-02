@@ -444,6 +444,9 @@ All seven migration phases and all 24 slices are implemented in production.
 - The Rust session snapshot retains lifecycle, files, discovery state, issues, metadata occurrences, thumbnail cache identities, exact-target drafts, persistence state, apply state and diagnostics, verification outcomes, and generated batch operations.
 - Revisioned events update disposable frontend projections; session changes or revision gaps trigger snapshot recovery rather than heuristic repair.
 - Metadata planning, draft mutation and persistence, apply reconciliation, verification resolution, and generated-workflow staging are Rust commands.
+- Scan-start failures are committed as a Rust-owned `failed` lifecycle with stable issue identities, so reload cannot reconstruct a false loaded session.
+- Generated batch jobs retain their session ID, operation ID, requested paths, and confirmation request in Rust. Describe, geocode, and normalise resume only that exact operation, and Rust stages generated drafts before committing final success and failure summaries.
+- Application issues are recorded in the Rust session with stable IDs; the frontend does not create unrecoverable anonymous issue rows.
 - `useMediaLibrary` subscribes, projects, dispatches commands, and owns UI-only state; obsolete autosave, scan-buffer and apply-controller state machines have been removed.
 - Mount/recovery tests reconstruct representative scan, metadata, thumbnail, draft, apply, verification, issue, and batch-operation state from Rust alone.
 - Architectural tests prevent removed frontend authorities and legacy mutation paths from returning, while authoritative wire types remain generated from Rust.

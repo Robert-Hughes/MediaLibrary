@@ -2,4 +2,4 @@
 import type { MediaLibraryBatchOperationFailure } from "./MediaLibraryBatchOperationFailure";
 import type { MediaLibraryBatchOperationPhase } from "./MediaLibraryBatchOperationPhase";
 
-export type MediaLibraryBatchOperation = { operation_id: string, kind: string, phase: MediaLibraryBatchOperationPhase, total: number, current: number, current_file: string | null, cancelling: boolean, failures: Array<MediaLibraryBatchOperationFailure>, succeeded: Array<string>, estimate: unknown | null, summary: unknown | null, error: string | null, };
+export type MediaLibraryBatchOperation = { operation_id: string, kind: string, requested_paths: Array<string>, request: unknown | null, phase: MediaLibraryBatchOperationPhase, total: number, current: number, current_file: string | null, cancelling: boolean, failures: Array<MediaLibraryBatchOperationFailure>, succeeded: Array<string>, estimate: unknown | null, summary: unknown | null, error: string | null, };

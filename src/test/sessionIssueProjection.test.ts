@@ -16,15 +16,6 @@ const backendIssue: MediaLibrarySessionIssue = {
   affected_files: ["a.jpg"],
 };
 
-const localIssue: ApplicationErrorPayload = {
-  issue_id: null,
-  scan_id: 3,
-  severity: "error",
-  error_type: "local",
-  error_message: "local",
-  affected_files: [],
-};
-
 describe("session issue projection", () => {
   it("projects backend issues with the active session identity", () => {
     expect(projectSessionIssues(42, [backendIssue])).toEqual([
@@ -32,16 +23,16 @@ describe("session issue projection", () => {
     ]);
   });
 
-  it("preserves local issues while replacing prior backend issues", () => {
+  it("replaces the projection entirely from backend issues", () => {
     const previousBackend: ApplicationErrorPayload = {
-      ...localIssue,
       issue_id: 1,
+      scan_id: 3,
+      severity: "error",
       error_type: "old-backend",
+      error_message: "old",
+      affected_files: [],
     };
-    expect(
-      mergeSessionIssues([previousBackend, localIssue], 42, [backendIssue]),
-    ).toEqual([
-      localIssue,
+    expect(mergeSessionIssues([previousBackend], 42, [backendIssue])).toEqual([
       { ...backendIssue, severity: "warning", scan_id: 42 },
     ]);
   });

@@ -11,6 +11,14 @@ const generatedSources = import.meta.glob<string>("../types/generated/*.ts", {
   eager: true,
 });
 const useMediaLibrary = productionSources["../useMediaLibrary.ts"];
+const useBatchImageJob = import.meta.glob<string>(
+  "../hooks/useBatchImageJob.ts",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+)["../hooks/useBatchImageJob.ts"];
 
 describe("Rust-authoritative application boundary", () => {
   it("does not retain the removed frontend draft autosave authority", () => {
@@ -61,5 +69,37 @@ describe("Rust-authoritative application boundary", () => {
     expect(
       generatedSources["../types/generated/MediaLibraryApplyOperation.ts"],
     ).toContain("issues: Array<MediaLibraryApplyIssue>");
+  });
+
+  it("projects batch jobs from Rust snapshots without consuming worker events", () => {
+    expect(useBatchImageJob).toBeDefined();
+    expect(useBatchImageJob).toContain("operation.operation_id");
+    expect(useBatchImageJob).toContain("operation.requested_paths");
+    expect(useBatchImageJob).not.toContain("api.listen(");
+    expect(useBatchImageJob).not.toContain("onApplyEdits");
+    expect(useBatchImageJob).not.toContain("frontendStagingFailures");
+    expect(useMediaLibrary).not.toContain(
+      '"stage_media_library_session_describe_drafts"',
+    );
+    expect(useMediaLibrary).not.toContain(
+      '"stage_media_library_session_geocode_drafts"',
+    );
+    expect(useMediaLibrary).not.toContain(
+      '"stage_media_library_session_normalise_drafts"',
+    );
+  });
+
+  it("requires recoverable Rust identities for session issues and batch work", () => {
+    expect(useMediaLibrary).toContain('"record_media_library_session_issue"');
+    expect(useMediaLibrary).not.toContain("issue_id: null");
+    expect(
+      generatedSources["../types/generated/MediaLibraryBatchOperation.ts"],
+    ).toContain("requested_paths: Array<string>");
+    expect(
+      generatedSources["../types/generated/MediaLibraryBatchOperation.ts"],
+    ).toContain("request: unknown | null");
+    expect(
+      generatedSources["../types/generated/MediaLibrarySessionLifecycle.ts"],
+    ).toContain('"failed"');
   });
 });

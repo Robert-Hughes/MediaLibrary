@@ -10,10 +10,7 @@
  * See `docs/NORMALISE_METADATA_PLAN.md` §7, §9.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { GeneratedDraftStageResult } from "../generatedTargetDrafts";
 import type {
-  SchemaMetadataEdit,
   NormaliseEstimate,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -68,21 +65,8 @@ export interface NormaliseActions {
 }
 
 export interface UseNormaliseMetadataOptions {
+  sessionId?: number;
   operation?: MediaLibraryBatchOperation;
-  onApplyEdits?: (
-    relativePath: string,
-    edits: SchemaMetadataEdit[],
-    confirmedEnabledGroups: readonly NormaliseGroup[],
-  ) => GeneratedDraftStageResult | Promise<GeneratedDraftStageResult>;
-  onApplyEditsBatch?: (
-    items: readonly {
-      relativePath: string;
-      edits: SchemaMetadataEdit[];
-    }[],
-    confirmedEnabledGroups: readonly NormaliseGroup[],
-  ) =>
-    | readonly GeneratedDraftStageResult[]
-    | Promise<readonly GeneratedDraftStageResult[]>;
 }
 
 interface StartArgs {
@@ -141,12 +125,8 @@ export function useNormaliseMetadata(
     [],
   );
 
-  const config = useMemo<
-    BatchJobConfig<StartArgs, NormaliseEstimate, NormaliseSummary>
-  >(
+  const config = useMemo<BatchJobConfig<StartArgs>>(
     () => ({
-      eventPrefix: "normalise",
-      batchedProgress: true,
       commands: {
         estimate: "estimate_normalise_cost_cmd",
         run: "normalise_metadata_cmd",
@@ -157,93 +137,14 @@ export function useNormaliseMetadata(
         items: stash.items,
         enabledGroups: stash.enabledGroups,
       }),
-      buildRunArgs: (folderPath) => ({
-        folderPath,
-        items: stash.items,
+      buildRunArgs: () => ({
+        enabledGroups: stash.confirmedEnabledGroups,
+      }),
+      buildRecoveryRunArgs: () => ({
         enabledGroups: stash.confirmedEnabledGroups,
       }),
       totalItems: (args) => args.items.length,
       relativePaths: (args) => args.items.map((item) => item.relPath),
-      parseEstimatePayload: (raw) => raw as NormaliseEstimate,
-      parseSummaryPayload: (raw) => raw as NormaliseSummary,
-      reconcileSummaryPayload: (summary, outcome) => ({
-        ...summary,
-        nSucceeded: outcome.succeeded.length,
-        nFailed: new Set(
-          outcome.failures.map((failure) => failure.relativePath),
-        ).size,
-      }),
-      subscribeExtras: async (setState) => {
-        const unlisteners: UnlistenFn[] = [];
-        unlisteners.push(
-          await listen<{ total: number }>("normalise_estimate_started", (e) => {
-            setState((s) => ({
-              ...s,
-              phase: "estimating",
-              total: e.payload.total,
-              current: 0,
-            }));
-          }),
-        );
-        unlisteners.push(
-          await listen<{
-            current: number;
-            total: number;
-            relativePath: string;
-          }>("normalise_estimate_progress", (e) => {
-            setState((s) => ({
-              ...s,
-              phase: "estimating",
-              current: e.payload.current,
-              total: e.payload.total,
-              currentFile: e.payload.relativePath,
-            }));
-          }),
-        );
-        unlisteners.push(
-          await listen<{ relativePath: string; message: string }>(
-            "normalise_estimate_error",
-            (e) => {
-              setState((s) => ({
-                ...s,
-                estimateError: `${e.payload.relativePath}: ${e.payload.message}`,
-              }));
-            },
-          ),
-        );
-        unlisteners.push(
-          await listen<NormaliseEstimate>(
-            "normalise_estimate_complete",
-            (e) => {
-              const est = e.payload;
-              // Drop groups that have nothing to do on any image from the
-              // user's selection. The confirm-table renders these rows as
-              // disabled+unchecked, so keeping them in `enabledGroups`
-              // would silently smuggle them to the run cmd and produce a
-              // post-run summary mentioning groups the user thought they
-              // had unticked.
-              const filtered = stash.enabledGroups.filter((g) => {
-                const c = est.perGroupOutcomes[g];
-                if (!c) return false;
-                return (
-                  c.nNormalisedDeterministic + c.nNormalisedAi + c.nConflict > 0
-                );
-              });
-              if (filtered.length !== stash.enabledGroups.length) {
-                stash.enabledGroups = filtered;
-                setEnabledGroupsState(filtered);
-              }
-              setState((s) => ({
-                ...s,
-                phase: "awaiting-confirm",
-                currentFile: null,
-                estimate: est,
-              }));
-            },
-          ),
-        );
-        return unlisteners;
-      },
     }),
     [stash],
   );
@@ -251,24 +152,37 @@ export function useNormaliseMetadata(
   const job = useBatchImageJob<StartArgs, NormaliseEstimate, NormaliseSummary>(
     config,
     {
+      sessionId: options.sessionId,
       operation: options.operation,
-      onApplyEdits: options.onApplyEdits
-        ? (relativePath, edits) =>
-            options.onApplyEdits!(
-              relativePath,
-              edits,
-              structuredClone(stash.confirmedEnabledGroups),
-            )
-        : undefined,
-      onApplyEditsBatch: options.onApplyEditsBatch
-        ? (items) =>
-            options.onApplyEditsBatch!(
-              items,
-              structuredClone(stash.confirmedEnabledGroups),
-            )
-        : undefined,
     },
   );
+
+  useEffect(() => {
+    const estimate = job.state.estimate;
+    if (!estimate) return;
+    const candidates =
+      stash.enabledGroups.length > 0
+        ? stash.enabledGroups
+        : (Object.keys(estimate.perGroupOutcomes) as NormaliseGroup[]);
+    const filtered = candidates.filter((group) => {
+      const counts = estimate.perGroupOutcomes[group];
+      return (
+        counts !== undefined &&
+        counts.nNormalisedDeterministic +
+          counts.nNormalisedAi +
+          counts.nConflict >
+          0
+      );
+    });
+    if (
+      filtered.length === stash.enabledGroups.length &&
+      filtered.every((group, index) => group === stash.enabledGroups[index])
+    ) {
+      return;
+    }
+    stash.enabledGroups = filtered;
+    setEnabledGroupsState(filtered);
+  }, [job.state.estimate, stash]);
 
   const setEnabledGroups = (groups: NormaliseGroup[]) => {
     stash.enabledGroups = groups;

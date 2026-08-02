@@ -390,6 +390,7 @@ fn count_overwrites_for_group(
 /// predicted vs upper-bound cost. Plan §7.
 #[tauri::command]
 pub async fn estimate_normalise_cost_cmd(
+    session_id: u64,
     folder_path: String,
     items: Vec<normalise::NormaliseRequestItem>,
     enabled_groups: Vec<normalise::NormaliseGroup>,
@@ -402,7 +403,16 @@ pub async fn estimate_normalise_cost_cmd(
 
     let total = items.len();
     log::info!("[normalise] estimate starting total={}", total);
-    let emitter = batch_job::BatchProgressEmitter::new(&app, "normalise");
+    let requested_paths = items.iter().map(|item| item.rel_path.clone()).collect();
+    let emitter = batch_job::BatchProgressEmitter::begin(
+        &app,
+        "normalise",
+        session_id,
+        crate::session::MediaLibraryBatchOperationPhase::Estimating,
+        requested_paths,
+        Some(serde_json::to_value(&items).map_err(|error| error.to_string())?),
+        None,
+    )?;
     emitter.estimate_started(total);
     let _ = app.emit(
         "normalise_estimate_started",
@@ -469,6 +479,7 @@ pub async fn estimate_normalise_cost_cmd(
     for (index, item) in items.iter().enumerate() {
         if cancel_flag.load(Ordering::Relaxed) {
             normalise_state.clear();
+            emitter.fail("Cancelled by user");
             return Err("Cancelled by user".into());
         }
         let current = index + 1;
@@ -553,7 +564,9 @@ pub async fn estimate_normalise_cost_cmd(
                                         message: e.clone(),
                                     },
                                 );
-                                format!("{}: {}", item.rel_path, e)
+                                let error = format!("{}: {}", item.rel_path, e);
+                                emitter.fail(error.clone());
+                                error
                             })?
                     }
                 };
@@ -576,7 +589,9 @@ pub async fn estimate_normalise_cost_cmd(
                                         message: e.clone(),
                                     },
                                 );
-                                format!("{}: {}", item.rel_path, e)
+                                let error = format!("{}: {}", item.rel_path, e);
+                                emitter.fail(error.clone());
+                                error
                             })?
                     }
                 };
@@ -601,7 +616,9 @@ pub async fn estimate_normalise_cost_cmd(
                                         message: e.clone(),
                                     },
                                 );
-                                format!("{}: {}", item.rel_path, e)
+                                let error = format!("{}: {}", item.rel_path, e);
+                                emitter.fail(error.clone());
+                                error
                             })?
                     }
                 };
@@ -665,13 +682,19 @@ pub async fn estimate_normalise_cost_cmd(
                 title_input_tokens,
                 n_images_with_ai_b,
                 n_images_with_ai_c,
-            )?;
+            )
+            .inspect_err(|error| {
+                emitter.fail(error.clone());
+            })?;
         let (location_predicted, location_upper) =
             openai_normalise::estimate_location_cost_from_tokens(
                 location_model,
                 location_input_tokens,
                 n_images_with_ai_g,
-            )?;
+            )
+            .inspect_err(|error| {
+                emitter.fail(error.clone());
+            })?;
         (
             metadata_predicted + location_predicted,
             metadata_upper + location_upper,
@@ -741,15 +764,52 @@ pub async fn estimate_normalise_cost_cmd(
 /// Normalise metadata for a batch of images.
 #[tauri::command]
 pub async fn normalise_metadata_cmd(
-    folder_path: String,
-    items: Vec<normalise::NormaliseRequestItem>,
+    session_id: u64,
+    operation_id: String,
     enabled_groups: Vec<normalise::NormaliseGroup>,
     app: AppHandle,
     normalise_state: State<'_, normalise::NormaliseState>,
 ) -> Result<(), String> {
-    let _ = folder_path; // resolution happens client-side
+    let snapshot = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .snapshot();
+    if snapshot.session_id != Some(session_id) {
+        return Err("The media-library session changed before normalisation started".into());
+    }
+    let operation = snapshot
+        .batch_operations
+        .get("normalise")
+        .filter(|operation| operation.operation_id == operation_id)
+        .ok_or_else(|| "The normalise operation identity changed".to_string())?;
+    let total = operation.total;
+    let emitter = batch_job::BatchProgressEmitter::resume(
+        &app,
+        "normalise",
+        session_id,
+        operation_id,
+        total,
+        batch_job::GeneratedDraftProducer::Normalise {
+            enabled_groups: enabled_groups.clone(),
+        },
+    )?;
+    let retained_request = operation
+        .request
+        .clone()
+        .ok_or_else(|| "The normalise operation has no retained request".to_string())
+        .inspect_err(|error| {
+            emitter.fail(error.clone());
+        })?;
+    let items: Vec<normalise::NormaliseRequestItem> = serde_json::from_value(retained_request)
+        .map_err(|error| format!("The retained normalise request is invalid: {error}"))
+        .inspect_err(|error| {
+            emitter.fail(error.clone());
+        })?;
+    if items.len() != total {
+        let error = "The retained normalise request count changed".to_string();
+        emitter.fail(error.clone());
+        return Err(error);
+    }
     let cancel_flag = normalise_state.install();
-    let total = items.len();
 
     let settings = app_data_dir(&app)
         .ok()
@@ -791,7 +851,6 @@ pub async fn normalise_metadata_cmd(
         None
     };
 
-    let emitter = batch_job::BatchProgressEmitter::new(&app, "normalise");
     emitter.started(total);
 
     let mut succeeded: Vec<String> = Vec::new();
@@ -1053,19 +1112,15 @@ pub async fn normalise_metadata_cmd(
 
 #[tauri::command]
 pub fn cancel_normalise_cmd(
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     normalise_state: State<'_, normalise::NormaliseState>,
 ) -> Result<(), String> {
-    if let Some(session_id) = app
+    let snapshot = app
         .state::<crate::session::MediaLibrarySessionState>()
-        .snapshot()
-        .session_id
-    {
-        let snapshot = app
-            .state::<crate::session::MediaLibrarySessionState>()
-            .request_batch_operation_cancellation(session_id, "normalise")?;
-        let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
-    }
+        .request_batch_operation_cancellation(session_id, &operation_id)?;
+    let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
     normalise_state.signal_cancel();
     Ok(())
 }
