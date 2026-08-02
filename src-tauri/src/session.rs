@@ -1736,10 +1736,13 @@ mod tests {
     #[test]
     fn frontend_production_uses_typed_rust_authority_boundaries() {
         let frontend = include_str!("../../src/useMediaLibrary.ts");
+        let metadata_actions = include_str!("../../src/hooks/useMetadataSessionActions.ts");
         assert!(!frontend.contains("mutate_media_library_session_draft_rows"));
         assert!(!frontend.contains("save_metadata_draft_rows"));
-        assert!(frontend.contains("set_media_library_session_draft"));
-        assert!(frontend.contains("discard_media_library_session_drafts"));
+        assert!(!metadata_actions.contains("mutate_media_library_session_draft_rows"));
+        assert!(!metadata_actions.contains("save_metadata_draft_rows"));
+        assert!(metadata_actions.contains("set_media_library_session_draft"));
+        assert!(metadata_actions.contains("discard_media_library_session_drafts"));
     }
 
     #[test]
