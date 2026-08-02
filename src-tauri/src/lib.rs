@@ -1023,7 +1023,10 @@ fn validate_exact_session_draft_target(
                 .validate_existing_occurrence(occurrence)
                 .map_err(|error| error.to_string())
         }
-        metadata_draft_target::MetadataDraftTarget::NewProperty { schema_id, .. } => {
+        metadata_draft_target::MetadataDraftTarget::NewProperty {
+            schema_id,
+            write_target,
+        } => {
             let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
             let info = registry
                 .lookup(schema_id)
@@ -1031,15 +1034,66 @@ fn validate_exact_session_draft_target(
             target
                 .validate_new_property(info)
                 .map_err(|error| error.to_string())?;
-            if occurrences
-                .0
-                .iter()
-                .any(|occurrence| &occurrence.schema_id == schema_id)
+            for occurrence in &occurrences.0 {
+                if occurrence
+                    .observed_selector
+                    .as_ref()
+                    .is_some_and(|selector| {
+                        selector.group1 == write_target.group1
+                            && selector.group7 == write_target.group7
+                            && selector.tag_name == write_target.tag_name
+                    })
+                    || occurrence.write_target.as_ref() == Some(write_target)
+                {
+                    return Err(
+                        "The complete ExifTool destination is already present in the file".into(),
+                    );
+                }
+                if occurrence.observed_selector.is_none() && &occurrence.schema_id == schema_id {
+                    return Err(
+                        "A same-schema occurrence has no safely identifiable destination".into(),
+                    );
+                }
+            }
+            if snapshot
+                .drafts
+                .get(relative_path)
+                .into_iter()
+                .flatten()
+                .any(|entry| {
+                    entry.target != *target && entry.target.write_target() == Some(write_target)
+                })
             {
-                return Err("The selected metadata property already exists".into());
+                return Err(
+                    "Another pending draft already uses the intended complete selector".into(),
+                );
             }
             Ok(())
         }
+    }
+}
+
+fn ensure_session_target_has_no_pending_verification(
+    snapshot: &session::MediaLibrarySessionSnapshot,
+    relative_path: &str,
+    target: &metadata_draft_target::MetadataDraftTarget,
+) -> Result<(), String> {
+    let pending = snapshot
+        .verification_outcomes
+        .get(relative_path)
+        .into_iter()
+        .flatten()
+        .any(|outcome| {
+            let current = match &outcome.draft_reconciliation {
+                apply_edits::MetadataDraftReconciliation::Replace { target } => target,
+                _ => &outcome.target,
+            };
+            current == target
+        });
+    if pending {
+        Err("Resolve the verification outcome for this destination before editing it".into())
+    } else {
+        Ok(())
     }
 }
 
@@ -1099,6 +1153,9 @@ fn set_media_library_session_draft(
         return Err("The media-library session changed before the draft was saved".into());
     }
     ensure_session_draft_mutation_allowed(&snapshot)?;
+    if target.is_new_property() {
+        ensure_session_target_has_no_pending_verification(&snapshot, &relative_path, &target)?;
+    }
     validate_exact_session_draft_target(&snapshot, &relative_path, &target)?;
     let mut entries = snapshot
         .drafts
@@ -1398,6 +1455,7 @@ fn replace_media_library_session_new_property_draft(
         return Err("The media-library session changed before the draft was moved".into());
     }
     ensure_session_draft_mutation_allowed(&snapshot)?;
+    ensure_session_target_has_no_pending_verification(&snapshot, &relative_path, &original_target)?;
     validate_exact_session_draft_target(&snapshot, &relative_path, &replacement_target)?;
     let current_entries = snapshot
         .drafts
@@ -3050,6 +3108,101 @@ mod tests {
             observed_selector: None,
             write_target: Some(write_target),
         }
+    }
+
+    fn command_target_snapshot(
+        occurrences: Vec<metadata_occurrence::MetadataOccurrence>,
+        drafts: Vec<draft_edits::MetadataTargetDraftEntry>,
+    ) -> session::MediaLibrarySessionSnapshot {
+        session::MediaLibrarySessionSnapshot {
+            session_id: Some(7),
+            revision: 1,
+            lifecycle: session::MediaLibrarySessionLifecycle::Loaded,
+            folder: Some("/files".to_owned()),
+            files: Vec::new(),
+            discovery_running: false,
+            issues: Vec::new(),
+            metadata: vec![session::MediaLibrarySessionFileMetadata {
+                relative_path: "target.jpg".to_owned(),
+                state: session::MediaLibrarySessionMetadataState::Ready {
+                    occurrences: metadata_occurrence::MetadataOccurrences(occurrences),
+                },
+            }],
+            thumbnails: Vec::new(),
+            drafts: if drafts.is_empty() {
+                Default::default()
+            } else {
+                std::collections::HashMap::from([("target.jpg".to_owned(), drafts)])
+            },
+            draft_persistence: session::MediaLibrarySessionDraftPersistenceState::Ready,
+            apply_operation: None,
+            verification_outcomes: Default::default(),
+            batch_operations: Default::default(),
+        }
+    }
+
+    #[test]
+    fn new_property_validation_uses_authoritative_destination_occupancy() {
+        let schema = tag_schema::SchemaDefinitionId {
+            table: "GPS::Main".to_owned(),
+            tag_id: "2".to_owned(),
+            index: None,
+        };
+        let registry = tag_schema::get_registry().unwrap();
+        let info = registry.lookup(&schema).unwrap().clone();
+        let target = metadata_draft_target::MetadataDraftTarget::from_new_property(&info).unwrap();
+        let write_target = target.write_target().unwrap().clone();
+        let occurrence = |group1: &str| metadata_occurrence::MetadataOccurrence {
+            id: metadata_occurrence::MetadataOccurrenceId {
+                document: None,
+                path: format!("JPEG-APP1-{group1}"),
+                runtime_tag_id: "2".to_owned(),
+                tag_id_scope: metadata_occurrence::RuntimeTagIdScope {
+                    table: schema.table.clone(),
+                    tag_id: schema.tag_id.clone(),
+                    index: None,
+                },
+                copy: 0,
+            },
+            schema_id: schema.clone(),
+            value: metadata_value::MetadataValue::Real(1.0),
+            tag_info: Some(info.clone()),
+            observed_selector: Some(metadata_occurrence::MetadataObservedSelector {
+                group1: group1.to_owned(),
+                group7: write_target.group7.clone(),
+                tag_name: write_target.tag_name.clone(),
+            }),
+            write_target: Some(metadata_occurrence::MetadataWriteTarget {
+                group1: group1.to_owned(),
+                group7: write_target.group7.clone(),
+                tag_name: write_target.tag_name.clone(),
+            }),
+        };
+        let distinct = occurrence("CustomGPS");
+        let distinct_snapshot = command_target_snapshot(vec![distinct], Vec::new());
+        validate_exact_session_draft_target(&distinct_snapshot, "target.jpg", &target).unwrap();
+
+        let occupied = occurrence(&write_target.group1);
+        let occupied_snapshot = command_target_snapshot(vec![occupied], Vec::new());
+        assert!(
+            validate_exact_session_draft_target(&occupied_snapshot, "target.jpg", &target)
+                .unwrap_err()
+                .contains("already present")
+        );
+
+        let pending = draft_edits::MetadataTargetDraftEntry {
+            target: metadata_draft_target::MetadataDraftTarget::NewProperty {
+                schema_id: command_target_schema(),
+                write_target,
+            },
+            edit: command_target_edit(metadata_value::MetadataValue::Null),
+        };
+        let pending_snapshot = command_target_snapshot(Vec::new(), vec![pending]);
+        assert!(
+            validate_exact_session_draft_target(&pending_snapshot, "target.jpg", &target)
+                .unwrap_err()
+                .contains("pending draft")
+        );
     }
 
     #[test]

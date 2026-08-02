@@ -17,7 +17,6 @@ import type {
   TargetDraftPersistenceState,
   MetadataTargetDraftEntry,
   MetadataRemovalPreview,
-  TagInfo,
   RecycleFilesResult,
   MediaLibrarySessionSnapshot,
   MediaLibrarySessionFilesAdded,
@@ -28,12 +27,10 @@ import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 import { useWritableSchemaDefinitions } from "./hooks/useWritableSchemaDefinitions";
 import {
-  metadataTargetDraftEntryEqualsExact,
   targetDraftsFromWire,
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
 import type { MetadataDraftTarget } from "./types";
-import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
 import { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
 import { targetVerifyOutcomesFromBackend } from "./targetVerifyOutcomes";
 import {
@@ -41,11 +38,7 @@ import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,
   metadataDraftTargetSlotToken,
-  newPropertyDraftTarget,
 } from "./utils/metadataDraftTarget";
-import { validateFamily1Group } from "./utils/metadataWriteTarget";
-import { classifyNewPropertyDestination } from "./utils/newPropertyDestinationSafety";
-import { tagInfoSupportsMetadataWrite } from "./utils/metadataWriteSupport";
 import { resolveExactMetadataOccurrence } from "./utils/metadataOccurrences";
 import type {
   BulkMetadataDraftPlan,
@@ -949,19 +942,6 @@ export function useMediaLibrary(
     },
     [pushApplicationError],
   );
-  const targetOutcomeExists = useCallback(
-    (relativePath: string, currentTarget: MetadataDraftTarget): boolean => {
-      const file = targetVerifyOutcomesStoreRef.current.getFile(relativePath);
-      const slot = metadataDraftTargetSlotToken(currentTarget);
-      const outcome = file?.[slot];
-      return (
-        outcome !== undefined &&
-        metadataDraftTargetEquals(outcome.currentTarget, currentTarget)
-      );
-    },
-    [],
-  );
-
   const resolveTargetVerifyOutcome = useCallback(
     async (
       relativePath: string,
@@ -1428,193 +1408,14 @@ export function useMediaLibrary(
       target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
       edit: MetadataDraftEdit,
     ): Promise<boolean> => {
-      const id = target.schema_id;
-      const openedFolder = activeFolderRef.current;
-      const openedLifecycleGeneration = scanLifecycleGenerationRef.current;
-      const lifecycleIsCurrent = () =>
-        activeFolderRef.current === openedFolder &&
-        scanLifecycleGenerationRef.current === openedLifecycleGeneration;
-      const targetSlot = metadataDraftTargetSlotToken(target);
-      const openedEntry = structuredClone(
-        targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath)?.[
-          targetSlot
-        ],
-      );
-
-      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
-      if (targetOutcomeExists(fileRelativePath, target)) {
-        pushApplicationError(
-          "metadata-target-new-property-edit-verification-pending",
-          "Resolve the verification outcome for this destination before editing it. Nothing was saved.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-
-      const validateAuthoritativeStateAndOwnership = (): boolean => {
-        if (openedEntry !== undefined) {
-          const currentEntry =
-            targetDraftEditsStoreRef.current.getMetadataFile(
-              fileRelativePath,
-            )?.[targetSlot];
-          if (
-            currentEntry === undefined ||
-            !metadataTargetDraftEntryEqualsExact(currentEntry, openedEntry)
-          ) {
-            pushApplicationError(
-              "metadata-target-new-property-edit-stale-target",
-              "This New Property draft changed or disappeared while the editor was open. Nothing was saved.",
-              [fileRelativePath],
-            );
-            return false;
-          }
-        }
-        const occurrenceState =
-          fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
-        if (!Array.isArray(occurrenceState)) {
-          pushApplicationError(
-            "metadata-target-new-property-occurrences-loading",
-            "Authoritative metadata occurrences are still loading. No new-property draft was staged.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        const destinationSafety = classifyNewPropertyDestination({
-          schemaId: id,
-          writeTarget: target.write_target,
-          occurrences: occurrenceState,
-          pendingTargets: Object.values(
-            targetDraftEditsStoreRef.current.getMetadataFile(
-              fileRelativePath,
-            ) ?? {},
-          ).map((entry) => entry.target),
-          ignoredPendingTarget: target,
-        });
-        if (destinationSafety.kind === "occupied") {
-          pushApplicationError(
-            "metadata-target-new-property-destination-occupied",
-            "The complete ExifTool destination is already present in the file. No new-property draft was staged.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        if (destinationSafety.kind === "unknown-same-schema") {
-          pushApplicationError(
-            "metadata-target-new-property-destination-unknown",
-            "A same-schema occurrence has no safely identifiable destination, so another destination cannot be created safely.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-
-        if (destinationSafety.kind === "pending-collision") {
-          pushApplicationError(
-            "metadata-target-new-property-selector-collision",
-            "Another pending draft already uses the intended complete selector. No new-property draft was staged.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-
-        return true;
-      };
-
-      if (!validateAuthoritativeStateAndOwnership()) return false;
-
-      let info: TagInfo | null;
       try {
-        info = (await apiRef.current.invoke("get_tag_info", {
-          id,
-        })) as TagInfo | null;
-      } catch (error) {
-        if (!lifecycleIsCurrent()) return false;
-        const detail = error instanceof Error ? error.message : String(error);
-        pushApplicationError(
-          "metadata-target-new-property-schema-lookup",
-          `The exact schema definition could not be resolved: ${detail}. No new-property draft was staged.`,
-          [fileRelativePath],
-        );
-        return false;
-      }
-
-      if (!lifecycleIsCurrent()) return false;
-
-      // The async schema lookup may race with mutable same-scan eligibility.
-      // Recheck every independent condition immediately before staging.
-      if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
-      if (targetOutcomeExists(fileRelativePath, target)) {
-        pushApplicationError(
-          "metadata-target-new-property-edit-verification-pending",
-          "Resolve the verification outcome for this destination before editing it. Nothing was saved.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-      if (!validateAuthoritativeStateAndOwnership()) return false;
-
-      if (!info || !schemaDefinitionIdEquals(info.id, id)) {
-        pushApplicationError(
-          "metadata-target-new-property-schema-missing",
-          "The exact schema definition could not be resolved. No new-property draft was staged.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-      if (!info.writable) {
-        pushApplicationError(
-          "metadata-target-new-property-read-only",
-          "This exact schema is read-only. No new-property draft was staged.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-      if (!tagInfoSupportsMetadataWrite(info, fileRelativePath, "Set")) {
-        pushApplicationError(
-          "metadata-target-new-property-unsupported-kind",
-          "Binary and Unknown schema kinds are not supported by the metadata write pipeline. No new-property draft was staged.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-
-      const targetResolution = newPropertyDraftTarget(info);
-      if (targetResolution.kind !== "available") {
-        pushApplicationError(
-          "metadata-target-new-property-ineligible",
-          "This exact schema is not eligible for a NewProperty target. No draft was staged.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-      if (
-        target.write_target.group7 !==
-          targetResolution.target.write_target.group7 ||
-        target.write_target.tag_name !==
-          targetResolution.target.write_target.tag_name
-      ) {
-        pushApplicationError(
-          "metadata-target-new-property-target-tampered",
-          "The schema-controlled family-7 group or tag name changed. No draft was staged.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-      const family1Error = validateFamily1Group(target.write_target.group1);
-      if (family1Error) {
-        pushApplicationError(
-          "metadata-target-new-property-invalid-destination",
-          `${family1Error} No draft was staged.`,
-          [fileRelativePath],
-        );
-        return false;
-      }
-      try {
-        await api.invoke("set_media_library_session_draft", {
+        const snapshot = (await api.invoke("set_media_library_session_draft", {
           sessionId: activeScanIdRef.current,
           relativePath: fileRelativePath,
-          target: structuredClone(target),
-          edit: structuredClone(edit),
-        });
+          target,
+          edit,
+        })) as MediaLibrarySessionSnapshot;
+        applySessionSnapshot(snapshot);
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-new-property-save", error, [
@@ -1623,13 +1424,9 @@ export function useMediaLibrary(
         return false;
       }
     },
-    [
-      api,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-      targetOutcomeExists,
-    ],
+    [api, applySessionSnapshot, pushApplicationError],
   );
+
   const replaceNewPropertyDraftTarget = useCallback(
     async (
       fileRelativePath: string,
@@ -1637,164 +1434,6 @@ export function useMediaLibrary(
       replacementTarget: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
       originalEdit: MetadataDraftEdit,
     ): Promise<boolean> => {
-      const openedFolder = activeFolderRef.current;
-      const openedLifecycleGeneration = scanLifecycleGenerationRef.current;
-      const lifecycleIsCurrent = () =>
-        activeFolderRef.current === openedFolder &&
-        scanLifecycleGenerationRef.current === openedLifecycleGeneration;
-
-      const validateCurrentState = (): boolean => {
-        if (!requireTargetDraftPersistenceReady([fileRelativePath]))
-          return false;
-        if (
-          !schemaDefinitionIdEquals(
-            originalTarget.schema_id,
-            replacementTarget.schema_id,
-          )
-        ) {
-          logApplicationIssue(
-            "error",
-            "metadata-target-new-property-move-schema-changed",
-            "Destination editing cannot change the draft's exact schema. Nothing was moved.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        const originalSlot = metadataDraftTargetSlotToken(originalTarget);
-        const persisted =
-          targetDraftEditsStoreRef.current.getMetadataFile(fileRelativePath)?.[
-            originalSlot
-          ];
-        if (
-          persisted === undefined ||
-          !metadataTargetDraftEntryEqualsExact(persisted, {
-            target: originalTarget,
-            edit: originalEdit,
-          })
-        ) {
-          pushApplicationError(
-            "metadata-target-new-property-move-stale-original",
-            "The original destination draft changed or disappeared while it was being edited. Nothing was moved.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        if (targetOutcomeExists(fileRelativePath, originalTarget)) {
-          pushApplicationError(
-            "metadata-target-new-property-move-verification-pending",
-            "Resolve the verification outcome for this destination before editing it. Nothing was moved.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-
-        const occurrenceState =
-          fileMetadataOccurrencesStoreRef.current.get(fileRelativePath);
-        if (!Array.isArray(occurrenceState)) {
-          pushApplicationError(
-            "metadata-target-new-property-move-occurrences-loading",
-            "Authoritative metadata occurrences are still loading. Nothing was moved.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        const destinationSafety = classifyNewPropertyDestination({
-          schemaId: replacementTarget.schema_id,
-          writeTarget: replacementTarget.write_target,
-          occurrences: occurrenceState,
-          pendingTargets: Object.values(
-            targetDraftEditsStoreRef.current.getMetadataFile(
-              fileRelativePath,
-            ) ?? {},
-          ).map((entry) => entry.target),
-          ignoredPendingTarget: originalTarget,
-        });
-        if (destinationSafety.kind === "occupied") {
-          pushApplicationError(
-            "metadata-target-new-property-move-destination-occupied",
-            "The replacement ExifTool destination is already present in the file. Nothing was moved.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        if (destinationSafety.kind === "unknown-same-schema") {
-          pushApplicationError(
-            "metadata-target-new-property-move-destination-unknown",
-            "A same-schema occurrence has no safely identifiable destination, so the draft cannot be moved safely.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        if (destinationSafety.kind === "pending-collision") {
-          pushApplicationError(
-            "metadata-target-new-property-move-selector-collision",
-            "Another pending draft already uses the replacement selector. Nothing was moved.",
-            [fileRelativePath],
-          );
-          return false;
-        }
-        return true;
-      };
-
-      if (!validateCurrentState()) return false;
-      if (metadataDraftTargetEquals(originalTarget, replacementTarget)) {
-        return true;
-      }
-
-      let info: TagInfo | null;
-      try {
-        info = (await apiRef.current.invoke("get_tag_info", {
-          id: replacementTarget.schema_id,
-        })) as TagInfo | null;
-      } catch (error) {
-        if (lifecycleIsCurrent()) {
-          pushApplicationError(
-            "metadata-target-new-property-move-schema-lookup",
-            error,
-            [fileRelativePath],
-          );
-        }
-        return false;
-      }
-      if (!lifecycleIsCurrent() || !validateCurrentState()) return false;
-      if (
-        !info ||
-        !schemaDefinitionIdEquals(info.id, replacementTarget.schema_id) ||
-        !tagInfoSupportsMetadataWrite(info, fileRelativePath, "Set")
-      ) {
-        pushApplicationError(
-          "metadata-target-new-property-move-schema-invalid",
-          "The replacement schema is unavailable or not writable. Nothing was moved.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-      const expected = newPropertyDraftTarget(info);
-      if (
-        expected.kind !== "available" ||
-        replacementTarget.write_target.group7 !==
-          expected.target.write_target.group7 ||
-        replacementTarget.write_target.tag_name !==
-          expected.target.write_target.tag_name
-      ) {
-        pushApplicationError(
-          "metadata-target-new-property-move-target-tampered",
-          "The schema-controlled family-7 group or tag name changed. Nothing was moved.",
-          [fileRelativePath],
-        );
-        return false;
-      }
-      const groupError = validateFamily1Group(
-        replacementTarget.write_target.group1,
-      );
-      if (groupError) {
-        pushApplicationError(
-          "metadata-target-new-property-move-invalid-destination",
-          `${groupError} Nothing was moved.`,
-          [fileRelativePath],
-        );
-        return false;
-      }
       try {
         const snapshot = (await api.invoke(
           "replace_media_library_session_new_property_draft",
@@ -1817,13 +1456,7 @@ export function useMediaLibrary(
         return false;
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-      targetOutcomeExists,
-    ],
+    [api, applySessionSnapshot, pushApplicationError],
   );
 
   const discardTargetPropertyDraft = useCallback(
