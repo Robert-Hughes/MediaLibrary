@@ -16,6 +16,14 @@ const utilitySources = import.meta.glob<string>("../utils/*.ts", {
   eager: true,
 });
 const useMediaLibrary = productionSources["../useMediaLibrary.ts"];
+const metadataSessionActions = import.meta.glob<string>(
+  "../hooks/useMetadataSessionActions.ts",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+)["../hooks/useMetadataSessionActions.ts"];
 const useBatchImageJob = import.meta.glob<string>(
   "../hooks/useBatchImageJob.ts",
   {
@@ -46,10 +54,10 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).toContain("snapshot.verification_outcomes");
     expect(useMediaLibrary).not.toContain(".pruneAgainstDrafts(");
     expect(useMediaLibrary).not.toContain("targetApplying:");
-    expect(useMediaLibrary).toContain(
+    expect(metadataSessionActions).toContain(
       '"resolve_media_library_session_verification_outcome"',
     );
-    expect(useMediaLibrary).toContain(
+    expect(metadataSessionActions).toContain(
       '"dismiss_media_library_session_verification_outcomes"',
     );
   });
@@ -74,10 +82,10 @@ describe("Rust-authoritative application boundary", () => {
 
   it("keeps exact GPS target planning behind the Rust session boundary", () => {
     expect(productionSources).not.toHaveProperty("../gpsTargetDrafts.ts");
-    expect(useMediaLibrary).toContain(
+    expect(metadataSessionActions).toContain(
       '"preview_media_library_session_gps_drafts"',
     );
-    expect(useMediaLibrary).toContain(
+    expect(metadataSessionActions).toContain(
       '"stage_media_library_session_gps_drafts"',
     );
     expect(rustLib).toContain("fn plan_session_gps_drafts(");
@@ -88,16 +96,20 @@ describe("Rust-authoritative application boundary", () => {
     expect(productionSources).not.toHaveProperty(
       "../metadataRemovalTargets.ts",
     );
-    expect(useMediaLibrary).toContain(
+    expect(metadataSessionActions).toContain(
       '"preview_media_library_session_metadata_target_removals"',
     );
     expect(rustLib).toContain("fn preview_exact_session_target_removals(");
   });
 
   it("leaves New Property command eligibility to Rust", () => {
-    expect(useMediaLibrary).not.toContain("classifyNewPropertyDestination");
-    expect(useMediaLibrary).not.toContain("tagInfoSupportsMetadataWrite");
-    expect(useMediaLibrary).not.toContain("validateFamily1Group");
+    expect(metadataSessionActions).not.toContain(
+      "classifyNewPropertyDestination",
+    );
+    expect(metadataSessionActions).not.toContain(
+      "tagInfoSupportsMetadataWrite",
+    );
+    expect(metadataSessionActions).not.toContain("validateFamily1Group");
     expect(rustLib).toContain("validate_new_property(info)");
     expect(rustLib).toContain(
       "Another pending draft already uses the intended complete selector",
@@ -119,17 +131,19 @@ describe("Rust-authoritative application boundary", () => {
     expect(productionSources).not.toHaveProperty("../targetApplyCommand.ts");
     expect(productionSources).not.toHaveProperty("../targetApplyTauri.ts");
     expect(useMediaLibrary).toBeDefined();
-    expect(useMediaLibrary).toContain('"apply_metadata_draft_edits_cmd"');
-    expect(useMediaLibrary).toContain('"cancel_apply_edits"');
-    expect(useMediaLibrary).not.toContain("createChannel");
-    expect(useMediaLibrary).not.toContain("TargetApplyController");
-    expect(useMediaLibrary).not.toContain("applyActiveRef");
-    expect(useMediaLibrary).not.toContain("activeApplyPromiseRef");
-    expect(useMediaLibrary).not.toContain("onFileError:");
-    expect(useMediaLibrary).not.toContain("onFileWarning:");
+    expect(metadataSessionActions).toContain(
+      '"apply_metadata_draft_edits_cmd"',
+    );
+    expect(metadataSessionActions).toContain('"cancel_apply_edits"');
+    expect(metadataSessionActions).not.toContain("createChannel");
+    expect(metadataSessionActions).not.toContain("TargetApplyController");
+    expect(metadataSessionActions).not.toContain("applyActiveRef");
+    expect(metadataSessionActions).not.toContain("activeApplyPromiseRef");
+    expect(metadataSessionActions).not.toContain("onFileError:");
+    expect(metadataSessionActions).not.toContain("onFileWarning:");
     expect(rustLib).toContain("begin_new_apply_operation");
     expect(rustLib).not.toContain("progress_channel:");
-    expect(useMediaLibrary).toContain(
+    expect(metadataSessionActions).toContain(
       '"dismiss_media_library_session_apply_operation"',
     );
     expect(rustLib).toContain(
@@ -141,6 +155,12 @@ describe("Rust-authoritative application boundary", () => {
     expect(
       generatedSources["../types/generated/MediaLibraryApplyOperation.ts"],
     ).toContain("issues: Array<MediaLibraryApplyIssue>");
+  });
+
+  it("keeps the main media-library hook focused on session projection", () => {
+    expect(useMediaLibrary).toContain("useMetadataSessionActions");
+    expect(useMediaLibrary).not.toContain('"set_media_library_session_draft"');
+    expect(useMediaLibrary).not.toContain('"apply_metadata_draft_edits_cmd"');
   });
 
   it("projects batch jobs from Rust snapshots without consuming worker events", () => {
