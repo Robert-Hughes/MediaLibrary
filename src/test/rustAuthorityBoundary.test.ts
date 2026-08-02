@@ -17,7 +17,6 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).not.toContain("setMetadataDraftBatch");
     expect(useMediaLibrary).not.toContain("mergeBatchEdits");
   });
-
   it("projects verification outcomes from Rust snapshots without local reconciliation", () => {
     expect(useMediaLibrary).toBeDefined();
     expect(useMediaLibrary).toContain("snapshot.verification_outcomes");
@@ -29,5 +28,14 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).toContain(
       '"dismiss_media_library_session_verification_outcomes"',
     );
+  });
+
+  it("consumes Rust-batched file deltas without legacy frontend scan buffering", () => {
+    expect(useMediaLibrary).toBeDefined();
+    expect(useMediaLibrary).toContain('"media_library_session_files_added"');
+    expect(useMediaLibrary).not.toContain('api.listen("scan_complete"');
+    expect(useMediaLibrary).not.toContain("scheduleBatchedFlush");
+    expect(useMediaLibrary).not.toContain("fileBufferRef");
+    expect(useMediaLibrary).not.toContain("batchTimerRef");
   });
 });

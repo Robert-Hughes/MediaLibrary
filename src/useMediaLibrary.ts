@@ -26,10 +26,7 @@ import type {
   MediaLibrarySessionMetadataChanged,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
-import {
-  MAX_APPLICATION_ERRORS,
-  scheduleBatchedFlush,
-} from "./utils/scanEvents";
+import { MAX_APPLICATION_ERRORS } from "./utils/scanEvents";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 import { useWritableSchemaDefinitions } from "./hooks/useWritableSchemaDefinitions";
 import {
@@ -550,14 +547,6 @@ export function useMediaLibrary(
   // with the async listener setup.  Re-created at the start of each setup().
   const listenersReadyRef = useRef<Promise<void>>(Promise.resolve());
 
-  // Per-stream buffer trio: events arrive faster than React state updates
-  // are useful, so each stream coalesces into batched flushes (see
-  // scheduleBatchedFlush). Refs (not state) because the buffers are
-  // imperative scratch space, not part of the render cycle.
-  const fileBufferRef = useRef<FileInfo[]>([]);
-  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isFirstFlushRef = useRef<boolean>(true);
-  // Construct the sole production target-aware controller after mount. Its dependency
   // stores keep stable identity for the complete hook lifetime.
   useEffect(() => {
     let controller = targetApplyControllerRef.current;
@@ -650,19 +639,8 @@ export function useMediaLibrary(
       }
       const scanId = session.session_id;
       console.debug(`[startScan] folder=${folder} sessionId=${scanId}`);
-
-      // The Rust session identity is also the scan identity used by streamed work.
+      sessionRevisionRef.current = session.revision;
       activeScanIdRef.current = scanId;
-
-      // Clear all buffers + timers from any previous scan.
-      fileBufferRef.current = [];
-      isFirstFlushRef.current = true;
-      for (const t of [batchTimerRef]) {
-        if (t.current) {
-          clearTimeout(t.current);
-          t.current = null;
-        }
-      }
 
       thumbnailStoreRef.current = new ThumbnailStore();
       fileMetadataOccurrencesStoreRef.current.clear();
@@ -707,42 +685,6 @@ export function useMediaLibrary(
     const unlisteners: Array<() => void> = [];
     let cancelled = false;
 
-    const flushBatch = () => {
-      const startedAt = frontendNow();
-      const batch = [...fileBufferRef.current];
-      fileBufferRef.current = [];
-      console.debug(
-        `[file_found] flushing ${batch.length} files (total buffer was ${batch.length})`,
-      );
-      for (const file of batch) {
-        sessionFilePathsRef.current.add(file.relative_path);
-      }
-
-      setAppState((prev) => {
-        if (prev.kind === "idle") return prev;
-
-        if (prev.kind === "loading") {
-          if (batch.length === 0) return prev;
-          return loadedStateFromProjection(prev.folder, batch, true, {
-            visibleColumns: prev.visibleColumns,
-            columnWidths: prev.columnWidths,
-            sortConfig: prev.sortConfig,
-          });
-        }
-
-        if (prev.kind === "loaded") {
-          if (batch.length === 0) return prev;
-          const newFiles = [...prev.files, ...batch];
-          metadataProgressStoreRef.current.setTotal(newFiles.length);
-          return { ...prev, files: newFiles };
-        }
-        return prev;
-      });
-      logSlowFrontendOperation("scan-file-flush", startedAt, {
-        items: batch.length,
-      });
-    };
-
     const setup = async () => {
       // Create a new pending latch for this setup cycle; startScan awaits it.
       let resolve!: () => void;
@@ -757,52 +699,47 @@ export function useMediaLibrary(
 
       const unlistenFound = await api.listen(
         "media_library_session_files_added",
-        (raw) => {
+        async (raw) => {
           if (cancelled) return;
           const { session_id, revision, files } =
             raw as MediaLibrarySessionFilesAdded;
           if (session_id !== activeScanIdRef.current) return;
           if (revision <= sessionRevisionRef.current) return;
+          if (revision !== sessionRevisionRef.current + 1) {
+            const snapshot = (await api.invoke(
+              "get_media_library_session_snapshot",
+            )) as MediaLibrarySessionSnapshot;
+            if (!cancelled) applySessionSnapshot(snapshot);
+            return;
+          }
           sessionRevisionRef.current = revision;
           console.debug(`[session-files] received ${files.length} files`);
 
           for (const file of files) {
+            sessionFilePathsRef.current.add(file.relative_path);
             thumbnailStoreRef.current.add(file.relative_path);
             fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
-            fileBufferRef.current.push(file);
           }
 
-          scheduleBatchedFlush(
-            fileBufferRef.current.length,
-            batchTimerRef,
-            isFirstFlushRef,
-            flushBatch,
-            100,
-          );
+          setAppState((previous) => {
+            if (previous.kind === "idle" || files.length === 0) return previous;
+            if (previous.kind === "loading") {
+              return loadedStateFromProjection(previous.folder, files, true, {
+                visibleColumns: previous.visibleColumns,
+                columnWidths: previous.columnWidths,
+                sortConfig: previous.sortConfig,
+              });
+            }
+            const nextFiles = [...previous.files, ...files];
+            metadataProgressStoreRef.current.setTotal(nextFiles.length);
+            return { ...previous, files: nextFiles };
+          });
         },
       );
-
-      const unlistenComplete = await api.listen("scan_complete", (raw) => {
-        if (cancelled) return;
-        const { scan_id } = raw as { scan_id: number };
-        if (scan_id !== activeScanIdRef.current) return;
-        console.debug(`[scan_complete] scan_id=${scan_id}`);
-
-        // Clear all batch timers and flush remaining batches
-        for (const t of [batchTimerRef]) {
-          if (t.current) {
-            clearTimeout(t.current);
-            t.current = null;
-          }
-        }
-
-        flushBatch();
-      });
 
       const unlistenMetadata = await api.listen(
         "media_library_session_metadata_changed",
         async (raw) => {
-          if (cancelled) return;
           const delta = raw as MediaLibrarySessionMetadataChanged;
           if (delta.session_id !== activeScanIdRef.current) return;
           if (delta.revision <= sessionRevisionRef.current) return;
@@ -871,7 +808,6 @@ export function useMediaLibrary(
       unlisteners.push(
         unlistenSession,
         unlistenFound,
-        unlistenComplete,
         unlistenMetadata,
         unlistenThumbnail,
         unlistenError,
@@ -906,7 +842,6 @@ export function useMediaLibrary(
     },
     [startScan],
   );
-
   const closeFolder = useCallback(() => {
     scanLifecycleGenerationRef.current += 1;
     activeScanIdRef.current = -1;
@@ -920,18 +855,6 @@ export function useMediaLibrary(
       targetVerifyOutcomesStoreRef.current.clear();
     });
 
-    // Cancel any pending batch flushes — they would still safely no-op against
-    // the idle state, but leaving timers running keeps closures alive past
-    // the scan they belong to and adds noise on next render.
-    for (const t of [batchTimerRef]) {
-      if (t.current) {
-        clearTimeout(t.current);
-        t.current = null;
-      }
-    }
-
-    // Drop any buffered events that haven't been flushed yet.
-    fileBufferRef.current = [];
     targetDraftEditsStoreRef.current.resetMetadata({});
     targetVerifyOutcomesStoreRef.current.clear();
     fileMetadataOccurrencesStoreRef.current.clear();
@@ -952,7 +875,6 @@ export function useMediaLibrary(
     },
     [api],
   );
-
   const selectFile = useCallback((relativePath: string | null) => {
     setAppState((prev) =>
       prev.kind === "loaded" ? { ...prev, selectedPath: relativePath } : prev,
