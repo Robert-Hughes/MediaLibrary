@@ -49,6 +49,17 @@ pub struct MetadataTargetDraftEntry {
     pub edit: MetadataDraftEdit,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MetadataRemovalPreview {
+    pub existing_fields_to_delete: usize,
+    pub staged_creations_to_cancel: usize,
+    pub no_op_targets: usize,
+    pub affected_count: usize,
+}
+
 pub type MetadataTargetDraftsByFile = HashMap<String, Vec<MetadataTargetDraftEntry>>;
 
 /// Schema-addressed generation output which the frontend resolves to exact

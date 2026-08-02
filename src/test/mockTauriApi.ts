@@ -22,6 +22,7 @@ import type { BulkMetadataDraftRequest } from "../bulkMetadataDrafts";
 import { planBulkMetadataDraftBatch } from "./backendBulkMetadataDraftPlanner";
 import { planGeneratedTargetDraftBatch } from "./backendGeneratedTargetDraftPlanner";
 import { planGpsTargetDraftBatch } from "./backendGpsTargetDraftPlanner";
+import { planMetadataTargetRemovals } from "./backendMetadataRemovalPlanner";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
@@ -1026,6 +1027,38 @@ export function createMockTauriApi(): MockTauriApi {
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
+      }
+      if (cmd === "preview_media_library_session_metadata_target_removals") {
+        const relativePath = args?.relativePath as string;
+        const targets = args?.targets as MetadataDraftTarget[];
+        const store = new TargetDraftEditsStore();
+        store.resetMetadata(
+          targetDraftsFromWire(
+            sessionSnapshot.drafts as Record<
+              string,
+              MetadataTargetDraftEntry[]
+            >,
+          ),
+        );
+        const metadata = sessionSnapshot.metadata.find(
+          (entry) => entry.relative_path === relativePath,
+        );
+        if (metadata?.state.status !== "ready") {
+          throw new Error("Authoritative metadata is unavailable");
+        }
+        const plan = planMetadataTargetRemovals({
+          targets,
+          occurrences: metadata.state.occurrences,
+          targetDrafts: store.getMetadataFile(relativePath),
+        });
+        const existingFieldsToDelete = plan.upserts.length;
+        const stagedCreationsToCancel = plan.deletes.length;
+        return {
+          existingFieldsToDelete,
+          stagedCreationsToCancel,
+          noOpTargets: plan.noops.length,
+          affectedCount: existingFieldsToDelete + stagedCreationsToCancel,
+        };
       }
       if (cmd === "remove_media_library_session_metadata_targets") {
         const sessionId = args?.sessionId as number;

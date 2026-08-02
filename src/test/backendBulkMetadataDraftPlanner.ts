@@ -41,7 +41,7 @@ import {
   validateFamily1Group,
 } from "../utils/metadataWriteTarget";
 import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
-import { planMetadataRemovalTargets } from "../metadataRemovalTargets";
+import { planMetadataRemovalTargets } from "./backendMetadataRemovalPlanner";
 
 export interface BulkMetadataFileState {
   relativePath: string;

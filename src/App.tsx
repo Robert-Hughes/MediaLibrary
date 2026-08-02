@@ -472,6 +472,9 @@ function LoadedView({
           targetDraftPersistence={state.targetDraftPersistence}
           onSetExistingOccurrenceDraft={actions.setExistingOccurrenceDraft}
           onRemoveMetadataTargets={actions.removeMetadataTargets}
+          onPreviewMetadataTargetRemovals={
+            actions.previewMetadataTargetRemovals
+          }
           onPreviewGpsTargetDraftBatch={actions.previewGpsTargetDraftBatch}
           onApplyGpsTargetDraftBatch={actions.applyGpsTargetDraftBatch}
           onSetNewPropertyDraft={actions.setNewPropertyDraft}

@@ -12,6 +12,7 @@ import { TargetDraftEditsStore } from "../targetDraftEdits";
 import type {
   MetadataApplyFileResult,
   MetadataOccurrence,
+  MetadataRemovalPreview,
   SchemaDefinitionId,
   TagInfo,
   TagKind,
@@ -3129,6 +3130,19 @@ describe("useMediaLibrary", () => {
       schema_id: structuredClone(ifd0.schema_id),
       write_target: structuredClone(ifd0.write_target!),
     };
+    let preview: MetadataRemovalPreview | null = null;
+    await act(async () => {
+      preview = await result.current[1].previewMetadataTargetRemovals(
+        "shared-schema.jpg",
+        [target],
+      );
+    });
+    expect(preview).toEqual({
+      existingFieldsToDelete: 1,
+      stagedCreationsToCancel: 0,
+      noOpTargets: 0,
+      affectedCount: 1,
+    });
     let removed = false;
     await act(async () => {
       removed = await result.current[1].removeMetadataTargets(
@@ -3149,6 +3163,12 @@ describe("useMediaLibrary", () => {
         edit: { intent: "Delete", value: null },
       },
     ]);
+    expect(
+      mock.invocations.filter(
+        ({ cmd }) =>
+          cmd === "preview_media_library_session_metadata_target_removals",
+      ),
+    ).toHaveLength(1);
     expect(
       mock.invocations.filter(
         ({ cmd }) => cmd === "remove_media_library_session_metadata_targets",

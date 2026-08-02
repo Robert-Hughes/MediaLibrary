@@ -33,6 +33,7 @@ export type { MetadataDraftReconciliation } from "./types/generated/MetadataDraf
 export type { MetadataTargetOutcome } from "./types/generated/MetadataTargetOutcome";
 export type { SchemaMetadataEdit } from "./types/generated/SchemaMetadataEdit";
 export type { MetadataTargetDraftEntry } from "./types/generated/MetadataTargetDraftEntry";
+export type { MetadataRemovalPreview } from "./types/generated/MetadataRemovalPreview";
 export type { MetadataDraftEdit } from "./types/generated/MetadataDraftEdit";
 export type { DateValue } from "./types/generated/DateValue";
 export type { TimeValue } from "./types/generated/TimeValue";

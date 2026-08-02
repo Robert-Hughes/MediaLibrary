@@ -79,6 +79,16 @@ describe("Rust-authoritative application boundary", () => {
     expect(rustLib).toContain("edits: &[draft_edits::SchemaMetadataEdit]");
   });
 
+  it("keeps metadata-removal planning behind the Rust session boundary", () => {
+    expect(productionSources).not.toHaveProperty(
+      "../metadataRemovalTargets.ts",
+    );
+    expect(useMediaLibrary).toContain(
+      '"preview_media_library_session_metadata_target_removals"',
+    );
+    expect(rustLib).toContain("fn preview_exact_session_target_removals(");
+  });
+
   it("does not retain a frontend apply state controller", () => {
     expect(productionSources).not.toHaveProperty("../targetApplyController.ts");
     expect(useMediaLibrary).toBeDefined();

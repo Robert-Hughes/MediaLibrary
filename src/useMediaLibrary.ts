@@ -16,6 +16,7 @@ import type {
   SchemaMetadataEdit,
   TargetDraftPersistenceState,
   MetadataTargetDraftEntry,
+  MetadataRemovalPreview,
   TagInfo,
   RecycleFilesResult,
   MediaLibrarySessionSnapshot,
@@ -125,6 +126,10 @@ export interface MediaLibraryActions {
     relativePath: string,
     targets: MetadataDraftTarget[],
   ) => Promise<boolean>;
+  previewMetadataTargetRemovals: (
+    relativePath: string,
+    targets: MetadataDraftTarget[],
+  ) => Promise<MetadataRemovalPreview | null>;
   removeMetadataFields: (
     relativePath: string,
     schemaIds: SchemaDefinitionId[],
@@ -1261,6 +1266,31 @@ export function useMediaLibrary(
     ],
   );
 
+  const previewMetadataTargetRemovals = useCallback(
+    async (
+      relativePath: string,
+      targets: MetadataDraftTarget[],
+    ): Promise<MetadataRemovalPreview | null> => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) return null;
+      try {
+        return (await api.invoke(
+          "preview_media_library_session_metadata_target_removals",
+          {
+            sessionId: activeScanIdRef.current,
+            relativePath,
+            targets,
+          },
+        )) as MetadataRemovalPreview;
+      } catch (error) {
+        pushApplicationError("metadata-target-remove-preview", error, [
+          relativePath,
+        ]);
+        return null;
+      }
+    },
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
+  );
+
   const removeMetadataFields = useCallback(
     async (
       relativePath: string,
@@ -2001,6 +2031,7 @@ export function useMediaLibrary(
       previewBulkMetadataDraftBatch,
       stageBulkMetadataDraftBatch,
       removeMetadataTargets,
+      previewMetadataTargetRemovals,
       removeMetadataFields,
       removeMetadataFieldFromFiles,
       applyGpsTargetDraftBatch,
@@ -2039,6 +2070,7 @@ export function useMediaLibrary(
       previewBulkMetadataDraftBatch,
       stageBulkMetadataDraftBatch,
       removeMetadataTargets,
+      previewMetadataTargetRemovals,
       removeMetadataFields,
       removeMetadataFieldFromFiles,
       applyGpsTargetDraftBatch,

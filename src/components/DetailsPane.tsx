@@ -7,6 +7,7 @@ import type {
   MetadataOccurrence,
   MetadataOccurrenceId,
   MetadataTargetDraftEntry,
+  MetadataRemovalPreview,
   SchemaMetadataEdit,
   TargetDraftPersistenceState,
 } from "../types";
@@ -53,7 +54,6 @@ import {
   newPropertyDraftTarget,
 } from "../utils/metadataDraftTarget";
 import { validateFamily1Group } from "../utils/metadataWriteTarget";
-import { planMetadataTargetRemovals } from "../metadataRemovalTargets";
 import {
   buildOccurrenceDetailsPresentation,
   type OccurrenceDetailsRow,
@@ -103,6 +103,9 @@ interface Props {
   onRemoveMetadataTargets?: (
     targets: MetadataDraftTarget[],
   ) => boolean | Promise<boolean>;
+  onPreviewMetadataTargetRemovals?: (
+    targets: MetadataDraftTarget[],
+  ) => Promise<MetadataRemovalPreview | null>;
   onPreviewGpsTargetDraftBatch?: (
     edits: SchemaMetadataEdit[],
   ) => Promise<MetadataTargetDraftEntry[] | null>;
@@ -301,10 +304,9 @@ function rowSchemaId(row: OccurrenceDetailsRow): SchemaDefinitionId {
 
 function DetailsGroupContextMenu({
   contextMenu,
-  occurrences,
-  targetDraftEdits,
   targetDraftPersistence,
   onEditGps,
+  onPreviewMetadataTargetRemovals,
   onRemoveMetadataTargets,
   onDiscardTargetDraftBatch,
   onBlocked,
@@ -316,10 +318,11 @@ function DetailsGroupContextMenu({
     group: string;
     rows: OccurrenceDetailsRow[];
   };
-  occurrences: FileMetadataOccurrencesState | undefined;
-  targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceState;
   onEditGps?: (group: GpsTagGroup) => void;
+  onPreviewMetadataTargetRemovals?: (
+    targets: MetadataDraftTarget[],
+  ) => Promise<MetadataRemovalPreview | null>;
   onRemoveMetadataTargets?: (
     targets: MetadataDraftTarget[],
   ) => boolean | Promise<boolean>;
@@ -355,55 +358,10 @@ function DetailsGroupContextMenu({
     return Array.from(byTarget.values());
   }, [contextMenu.rows]);
 
-  const removalPreview = useMemo<
-    | { blocked: string }
-    | {
-        affectedCount: number;
-        existingFieldsToDelete: number;
-        stagedCreationsToCancel: number;
-      }
-  >(() => {
-    if (targetDraftPersistence.status !== "ready") {
-      return {
-        blocked:
-          "Group removal is unavailable because target-aware draft persistence did not load safely.",
-      };
-    }
-    if (!Array.isArray(occurrences)) {
-      return {
-        blocked:
-          "Authoritative metadata occurrences are still loading. Retry after this file has finished loading.",
-      };
-    }
-    if (removalTargets.length === 0) {
-      return {
-        affectedCount: 0,
-        existingFieldsToDelete: 0,
-        stagedCreationsToCancel: 0,
-      };
-    }
-    try {
-      const plan = planMetadataTargetRemovals({
-        targets: removalTargets,
-        occurrences,
-        targetDrafts: targetDraftEdits,
-      });
-      return {
-        affectedCount: plan.upserts.length + plan.deletes.length,
-        existingFieldsToDelete: plan.upserts.length,
-        stagedCreationsToCancel: plan.deletes.length,
-      };
-    } catch (error) {
-      return {
-        blocked: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }, [
-    occurrences,
-    removalTargets,
-    targetDraftEdits,
-    targetDraftPersistence.status,
-  ]);
+  const removalBlocked =
+    targetDraftPersistence.status === "ready"
+      ? null
+      : "Group removal is unavailable because target-aware draft persistence did not load safely.";
 
   const gpsEditPreview = useMemo<null | { blocked?: string }>(() => {
     if (gpsGroup === null) return null;
@@ -412,13 +370,10 @@ function DetailsGroupContextMenu({
       callbackAvailable: onEditGps !== undefined,
     });
   }, [gpsGroup, onEditGps, targetDraftPersistence]);
-  const removeCount =
-    "affectedCount" in removalPreview ? removalPreview.affectedCount : 0;
+  const removeCount = removalTargets.length;
   const draftCount = targetDraftTargets.length;
   const showEditGps = gpsEditPreview !== null;
-  const showRemove =
-    removalTargets.length > 0 &&
-    (removeCount > 0 || "blocked" in removalPreview);
+  const showRemove = removalTargets.length > 0;
 
   useEffect(() => {
     if (!showEditGps && !showRemove && draftCount === 0) onClose();
@@ -426,15 +381,31 @@ function DetailsGroupContextMenu({
   if (!showEditGps && !showRemove && draftCount === 0) return null;
 
   const handleRemove = async () => {
-    if ("blocked" in removalPreview) {
-      onBlocked(removalPreview.blocked);
+    if (removalBlocked) {
+      onBlocked(removalBlocked);
+      onClose();
+      return;
+    }
+    const preview = onPreviewMetadataTargetRemovals
+      ? await onPreviewMetadataTargetRemovals(removalTargets)
+      : {
+          existingFieldsToDelete: removalTargets.filter(
+            (target) => target.kind === "ExistingOccurrence",
+          ).length,
+          stagedCreationsToCancel: removalTargets.filter(
+            (target) => target.kind === "NewProperty",
+          ).length,
+          noOpTargets: 0,
+          affectedCount: removalTargets.length,
+        };
+    if (preview === null || preview.affectedCount === 0) {
       onClose();
       return;
     }
     const confirmed = await confirmRemoveMetadataGroupFields({
       group,
-      existingFieldsToDelete: removalPreview.existingFieldsToDelete,
-      stagedCreationsToCancel: removalPreview.stagedCreationsToCancel,
+      existingFieldsToDelete: preview.existingFieldsToDelete,
+      stagedCreationsToCancel: preview.stagedCreationsToCancel,
     });
     if (confirmed) onRemoveMetadataTargets?.(removalTargets);
     onClose();
@@ -480,9 +451,8 @@ function DetailsGroupContextMenu({
           {
             label: formatRemoveGroupLabel(removeCount, group),
             onClick: handleRemove,
-            disabled: "blocked" in removalPreview,
-            title:
-              "blocked" in removalPreview ? removalPreview.blocked : undefined,
+            disabled: removalBlocked !== null,
+            title: removalBlocked ?? undefined,
           },
         ]
       : []),
@@ -514,6 +484,7 @@ export function DetailsPane({
   targetDraftPersistence = { status: "ready" },
   onSetExistingOccurrenceDraft,
   onRemoveMetadataTargets,
+  onPreviewMetadataTargetRemovals,
   onPreviewGpsTargetDraftBatch,
   onApplyGpsTargetDraftBatch,
   onSetNewPropertyDraft,
@@ -1436,12 +1407,11 @@ export function DetailsPane({
             group: groupContextMenu.group,
             rows: fullGroupForMenu.rows,
           }}
-          occurrences={occurrences}
-          targetDraftEdits={targetDraftEdits}
           targetDraftPersistence={targetDraftPersistence}
           onEditGps={
             onApplyGpsTargetDraftBatch ? openGroupedGpsEditor : undefined
           }
+          onPreviewMetadataTargetRemovals={onPreviewMetadataTargetRemovals}
           onRemoveMetadataTargets={onRemoveMetadataTargets}
           onDiscardTargetDraftBatch={onDiscardTargetDraftBatch}
           onBlocked={setEditDialogUnavailableMessage}

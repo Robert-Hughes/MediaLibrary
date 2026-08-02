@@ -4,7 +4,7 @@ import {
   planMetadataRemovalTargets,
   previewMetadataRemovalFiles,
   previewMetadataRemovalTargets,
-} from "../metadataRemovalTargets";
+} from "./backendMetadataRemovalPlanner";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import type {
   MetadataDraftEdit,
