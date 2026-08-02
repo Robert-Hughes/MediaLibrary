@@ -70,6 +70,8 @@ import {
   emptyMetadataApplyResult,
   projectApplyOperation,
 } from "./applyProjection";
+import { mergeSessionIssues } from "./sessionIssueProjection";
+
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
   errorType: string,
@@ -499,17 +501,6 @@ export function useMediaLibrary(
             !isRecovery &&
             snapshot.revision === previousRevision + 1;
           if (canApplyStatusOnly && previous.kind === "loaded") {
-            const localErrors = previous.applicationErrors.filter(
-              (error) => error.issue_id == null,
-            );
-            const backendErrors: ApplicationErrorPayload[] =
-              snapshot.issues.map((issue) => ({
-                ...issue,
-                severity: (issue.severity === "warning"
-                  ? "warning"
-                  : "error") as ApplicationErrorPayload["severity"],
-                scan_id: snapshot.session_id!,
-              }));
             return {
               ...previous,
               scanning: snapshot.discovery_running,
@@ -520,8 +511,10 @@ export function useMediaLibrary(
               applyCompletion:
                 projectApplyOperation(snapshot.apply_operation).completion ??
                 previous.applyCompletion,
-              applicationErrors: [...localErrors, ...backendErrors].slice(
-                -MAX_APPLICATION_ERRORS,
+              applicationErrors: mergeSessionIssues(
+                previous.applicationErrors,
+                snapshot.session_id!,
+                snapshot.issues,
               ),
             };
           }
@@ -542,22 +535,13 @@ export function useMediaLibrary(
           );
           next.batchOperations = snapshot.batch_operations ?? {};
           if (previous.kind === "loaded") {
-            next.galleryPath = previous.galleryPath;
             next.selectedPath = previous.selectedPath;
             next.metadataVersion = previous.metadataVersion;
-            const localErrors = previous.applicationErrors.filter(
-              (error) => error.issue_id == null,
-            );
-            const backendErrors: ApplicationErrorPayload[] =
-              snapshot.issues.map((issue) => ({
-                ...issue,
-                severity: (issue.severity === "warning"
-                  ? "warning"
-                  : "error") as ApplicationErrorPayload["severity"],
-                scan_id: snapshot.session_id!,
-              }));
-            next.applicationErrors = [...localErrors, ...backendErrors].slice(
-              -MAX_APPLICATION_ERRORS,
+            next.selectedPath = previous.selectedPath;
+            next.applicationErrors = mergeSessionIssues(
+              previous.applicationErrors,
+              snapshot.session_id!,
+              snapshot.issues,
             );
             const projectedApply = projectApplyOperation(
               snapshot.apply_operation,
@@ -566,20 +550,11 @@ export function useMediaLibrary(
             next.applyCompletion =
               projectedApply.completion ?? previous.applyCompletion;
           } else {
-            const backendErrors: ApplicationErrorPayload[] =
-              snapshot.issues.map((issue) => ({
-                ...issue,
-                severity: (issue.severity === "warning"
-                  ? "warning"
-                  : "error") as ApplicationErrorPayload["severity"],
-                scan_id: snapshot.session_id!,
-              }));
-            next.applicationErrors = [
-              ...next.applicationErrors.filter(
-                (error) => error.issue_id == null,
-              ),
-              ...backendErrors,
-            ].slice(-MAX_APPLICATION_ERRORS);
+            next.applicationErrors = mergeSessionIssues(
+              next.applicationErrors,
+              snapshot.session_id!,
+              snapshot.issues,
+            );
             const projectedApply = projectApplyOperation(
               snapshot.apply_operation,
             );
