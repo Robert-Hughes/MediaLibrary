@@ -185,6 +185,8 @@ export function useMediaLibrary(
   api: TauriApi,
 ): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
+  const appStateRef = useRef<AppState>(appState);
+  appStateRef.current = appState;
   const [recentFolders, pushRecentFolder] = useRecentFolders();
   const writableSchemaDefinitions = useWritableSchemaDefinitions(api.invoke);
 
@@ -273,6 +275,14 @@ export function useMediaLibrary(
         const hadActiveSession =
           activeScanIdRef.current !== -1 || activeFolderRef.current !== null;
         sessionFilePathsRef.current.clear();
+        thumbnailStoreRef.current.reset([]);
+        fileMetadataOccurrencesStoreRef.current.clear();
+        metadataProgressStoreRef.current.reset();
+        targetDraftEditsStoreRef.current.resetMetadata({});
+        targetVerifyOutcomesStoreRef.current.clear();
+        targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
+        seenSessionIssueIdsRef.current.clear();
+        locallyLoggedIssueKeysRef.current.clear();
         activeScanIdRef.current = -1;
         activeFolderRef.current = null;
         if (hadActiveSession) setAppState({ kind: "idle" });
@@ -388,6 +398,7 @@ export function useMediaLibrary(
         setAppState((previous) => {
           const canApplyStatusOnly =
             previous.kind === "loaded" &&
+            previous.sessionId === snapshot.session_id &&
             !isRecovery &&
             snapshot.revision === previousRevision + 1;
           if (canApplyStatusOnly && previous.kind === "loaded") {
@@ -525,29 +536,13 @@ export function useMediaLibrary(
       if (session.session_id === null || session.folder !== folder) {
         throw new Error("Rust opened an invalid media-library session");
       }
+      applySessionSnapshot(session);
+      if (session.lifecycle === "failed") return;
+      if (session.lifecycle !== "opening") {
+        throw new Error("Rust returned an invalid session lifecycle");
+      }
       const scanId = session.session_id;
       console.debug(`[startScan] folder=${folder} sessionId=${scanId}`);
-      sessionRevisionRef.current = session.revision;
-      activeScanIdRef.current = scanId;
-
-      thumbnailStoreRef.current = new ThumbnailStore();
-      fileMetadataOccurrencesStoreRef.current.clear();
-      activeFolderRef.current = folder;
-      targetDraftEditsStoreRef.current.resetMetadata(
-        targetDraftsFromWire(
-          session.drafts as Record<string, MetadataTargetDraftEntry[]>,
-        ),
-      );
-      targetDraftPersistenceRef.current = session.draft_persistence;
-      targetVerifyOutcomesStoreRef.current.clear();
-      const { visibleColumns, sortConfig, columnWidths } = loadColumnConfig();
-      setAppState({
-        kind: "loading",
-        folder,
-        visibleColumns,
-        columnWidths,
-        sortConfig,
-      });
       api
         .invoke("set_window_title", { title: `Media Library — ${folder}` })
         .catch(() => {});
@@ -555,7 +550,7 @@ export function useMediaLibrary(
       await api.invoke("start_scan", { scanId, folderPath: folder });
       pushRecentFolder(folder);
     },
-    [api, pushRecentFolder],
+    [api, applySessionSnapshot, pushRecentFolder],
   );
 
   useEffect(() => {
@@ -717,22 +712,24 @@ export function useMediaLibrary(
     [startScan],
   );
   const closeFolder = useCallback(() => {
-    scanLifecycleGenerationRef.current += 1;
-    activeScanIdRef.current = -1;
-    activeFolderRef.current = null;
-    targetDraftEditsStoreRef.current.resetMetadata({});
-    targetVerifyOutcomesStoreRef.current.clear();
-    fileMetadataOccurrencesStoreRef.current.clear();
-    fileMetadataOccurrencesStoreRef.current.clear();
-
-    setAppState({ kind: "idle" });
+    const sessionId = activeScanIdRef.current;
+    if (sessionId < 0) return;
     api
-      .invoke("close_media_library_session")
-      .catch((error) =>
-        console.error("Failed to close media-library session", error),
-      );
-    api.invoke("set_window_title", { title: "Media Library" }).catch(() => {});
-  }, [api]);
+      .invoke("close_media_library_session", { sessionId })
+      .then((snapshot) => {
+        applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot);
+        api
+          .invoke("set_window_title", { title: "Media Library" })
+          .catch(() => {});
+      })
+      .catch((error) => {
+        if (activeScanIdRef.current === sessionId) {
+          pushApplicationError("session-close", error);
+        } else {
+          console.error("Discarded stale session-close failure", error);
+        }
+      });
+  }, [api, applySessionSnapshot, pushApplicationError]);
 
   const prioritizeQueues = useCallback(
     (visiblePaths: string[]) => {
@@ -1911,12 +1908,18 @@ export function useMediaLibrary(
           : previous,
       );
       try {
-        return await runTargetApplyCommand(api, current.folder, targetPaths, {
-          onProtocolError: (error) =>
-            pushApplicationError("metadata-target-protocol", error),
-          onMessageError: (error) =>
-            pushApplicationError("metadata-target-progress", error),
-        });
+        return await runTargetApplyCommand(
+          api,
+          current.sessionId,
+          current.folder,
+          targetPaths,
+          {
+            onProtocolError: (error) =>
+              pushApplicationError("metadata-target-protocol", error),
+            onMessageError: (error) =>
+              pushApplicationError("metadata-target-progress", error),
+          },
+        );
       } catch (error) {
         pushApplicationError("metadata-apply", error, requestedPaths ?? []);
         throw error;
@@ -1925,17 +1928,29 @@ export function useMediaLibrary(
     [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
   const dismissApplyCompletion = useCallback(() => {
+    const current = appStateRef.current;
+    if (current.kind !== "loaded" || !current.applyCompletion) return;
     void api
-      .invoke("dismiss_media_library_session_apply_operation")
+      .invoke("dismiss_media_library_session_apply_operation", {
+        sessionId: current.sessionId,
+        operationId: current.applyCompletion.operationId,
+      })
+      .then((snapshot) =>
+        applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
+      )
       .catch((error) =>
         pushApplicationError("metadata-target-dismiss-apply", error),
       );
-  }, [api, pushApplicationError]);
+  }, [api, applySessionSnapshot, pushApplicationError]);
 
   const cancelApplyEdits = useCallback(() => {
-    void cancelTargetApply(api).catch((error) =>
-      pushApplicationError("metadata-target-cancel", error),
-    );
+    const current = appStateRef.current;
+    if (current.kind !== "loaded" || !current.applying) return;
+    void cancelTargetApply(
+      api,
+      current.sessionId,
+      current.applying.operationId,
+    ).catch((error) => pushApplicationError("metadata-target-cancel", error));
   }, [api, pushApplicationError]);
 
   const mediaLibraryActions = useMemo(

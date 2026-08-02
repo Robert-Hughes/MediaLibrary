@@ -67,6 +67,22 @@ function toGeocodeShape(
   };
 }
 
+function retainedGeocodeItems(
+  operation: MediaLibraryBatchOperation | undefined,
+): GeocodeRequestItem[] {
+  if (!Array.isArray(operation?.request)) return [];
+  return operation.request.filter(
+    (item): item is GeocodeRequestItem =>
+      typeof item === "object" &&
+      item !== null &&
+      typeof (item as { relPath?: unknown }).relPath === "string" &&
+      ((item as { lat?: unknown }).lat === null ||
+        typeof (item as { lat?: unknown }).lat === "number") &&
+      ((item as { lon?: unknown }).lon === null ||
+        typeof (item as { lon?: unknown }).lon === "number"),
+  );
+}
+
 export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
   open: boolean;
   state: GeocodeProgressState;
@@ -89,6 +105,7 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
 
   const config = useMemo<BatchJobConfig<GeocodeRequestItem[]>>(
     () => ({
+      operationKind: "geocode",
       commands: {
         estimate: "prepare_geocode_images_cmd",
         run: "geocode_images_cmd",
@@ -127,7 +144,12 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
 
   return {
     open: job.open,
-    state: toGeocodeShape(job.state, itemsRef.current),
+    state: toGeocodeShape(
+      job.state,
+      options.operation
+        ? retainedGeocodeItems(options.operation)
+        : itemsRef.current,
+    ),
     actions: wrappedActions,
   };
 }

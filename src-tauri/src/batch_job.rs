@@ -426,6 +426,18 @@ impl GeneratedDraftProducer {
     }
 }
 
+/// Commit a retained operation failure when confirmation cannot safely resume
+/// the worker. This keeps malformed or unavailable retained inputs recoverable
+/// even though no progress emitter could be constructed.
+pub fn fail_retained_operation(app: &AppHandle, session_id: u64, operation_id: &str, error: &str) {
+    if let Ok(snapshot) = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .fail_batch_operation(session_id, operation_id, error.to_owned())
+    {
+        let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+    }
+}
+
 impl<'a> BatchProgressEmitter<'a> {
     pub fn begin(
         app: &'a AppHandle,
@@ -464,11 +476,12 @@ impl<'a> BatchProgressEmitter<'a> {
         session_id: u64,
         operation_id: String,
         total: usize,
+        confirmed_request: Option<serde_json::Value>,
         producer: GeneratedDraftProducer,
     ) -> Result<Self, String> {
         let snapshot = app
             .state::<crate::session::MediaLibrarySessionState>()
-            .start_batch_operation(session_id, &operation_id, total)?;
+            .start_batch_operation(session_id, &operation_id, total, confirmed_request)?;
         app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
             .map_err(|error| error.to_string())?;
         Ok(Self {

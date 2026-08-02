@@ -350,7 +350,14 @@ fn open_media_library_session(
     let session_id = opening
         .session_id
         .ok_or_else(|| "Rust opened a session without an identity".to_string())?;
-    let app_data_dir = commands::shared::app_data_dir(&app)?;
+    let app_data_dir = match commands::shared::app_data_dir(&app) {
+        Ok(path) => path,
+        Err(error) => {
+            let failed = session_state.fail_session(session_id, "session-open", error)?;
+            emit_session_snapshot(&app, &failed)?;
+            return Ok(failed);
+        }
+    };
     let drafts =
         draft_repository::load_metadata_draft_edits(&app_data_dir, &folder_path, &repository_state);
     let snapshot = session_state.install_draft_load_result(session_id, drafts)?;
@@ -360,15 +367,16 @@ fn open_media_library_session(
 
 #[tauri::command]
 fn close_media_library_session(
+    session_id: u64,
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let closing = session_state.begin_close();
+    let closing = session_state.begin_close(session_id)?;
     emit_session_snapshot(&app, &closing)?;
     stop_scan_impl(&scan_state, &active_queues);
-    let idle = session_state.finish_close();
+    let idle = session_state.finish_close(session_id)?;
     emit_session_snapshot(&app, &idle)?;
     Ok(idle)
 }
@@ -2685,7 +2693,9 @@ fn load_metadata_draft_edits(
 
 /// Production occurrence-aware metadata apply.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn apply_metadata_draft_edits_cmd(
+    session_id: u64,
     folder_path: String,
     rel_paths: Option<Vec<String>>,
     operation_id: String,
@@ -2695,10 +2705,9 @@ async fn apply_metadata_draft_edits_cmd(
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<apply_batch::MetadataApplyResult, String> {
     let session_snapshot = session_state.snapshot();
-    let session_id = session_snapshot
-        .session_id
-        .ok_or_else(|| "No active media-library session".to_string())?;
-    if session_snapshot.folder.as_deref() != Some(folder_path.as_str()) {
+    if session_snapshot.session_id != Some(session_id)
+        || session_snapshot.folder.as_deref() != Some(folder_path.as_str())
+    {
         return Err("The media-library session changed before apply started".into());
     }
     let begun =
@@ -2716,23 +2725,24 @@ async fn apply_metadata_draft_edits_cmd(
     );
     let run_app = app.clone();
     let run_operation_id = operation_id.clone();
-    let result = apply_batch::run_apply_edits_command(&apply_state, move |cancel_flag| {
-        tauri::async_runtime::spawn_blocking(move || {
-            apply_batch::run_apply_metadata_draft_edits_blocking(
-                folder_path,
-                rel_paths,
-                run_operation_id,
-                progress_channel,
-                run_app,
-                cancel_flag,
-                apply_batch::MetadataApplyLimits {
-                    batch_size,
-                    write_concurrency,
-                },
-            )
+    let result =
+        apply_batch::run_apply_edits_command(&apply_state, &operation_id, move |cancel_flag| {
+            tauri::async_runtime::spawn_blocking(move || {
+                apply_batch::run_apply_metadata_draft_edits_blocking(
+                    folder_path,
+                    rel_paths,
+                    run_operation_id,
+                    progress_channel,
+                    run_app,
+                    cancel_flag,
+                    apply_batch::MetadataApplyLimits {
+                        batch_size,
+                        write_concurrency,
+                    },
+                )
+            })
         })
-    })
-    .await;
+        .await;
     if let Err(error) = &result {
         if let Ok(failed) =
             session_state.fail_apply_operation(session_id, &operation_id, error.clone())
@@ -2745,30 +2755,26 @@ async fn apply_metadata_draft_edits_cmd(
 
 #[tauri::command]
 fn cancel_apply_edits(
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     apply_state: State<'_, apply_batch::ApplyEditsState>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<(), String> {
-    let session_id = session_state
-        .snapshot()
-        .session_id
-        .ok_or_else(|| "No active media-library session".to_string())?;
-    let cancelling = session_state.request_apply_cancellation(session_id)?;
+    let cancelling = session_state.request_apply_cancellation(session_id, &operation_id)?;
     emit_session_snapshot(&app, &cancelling)?;
-    apply_state.signal_cancel();
+    apply_state.signal_cancel(&operation_id);
     Ok(())
 }
 
 #[tauri::command]
-fn dismiss_media_library_session_apply(
+fn dismiss_media_library_session_apply_operation(
+    session_id: u64,
+    operation_id: String,
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let session_id = session_state
-        .snapshot()
-        .session_id
-        .ok_or_else(|| "No active media-library session".to_string())?;
-    let snapshot = session_state.dismiss_apply_operation(session_id)?;
+    let snapshot = session_state.dismiss_apply_operation(session_id, &operation_id)?;
     emit_session_snapshot(&app, &snapshot)?;
     Ok(snapshot)
 }
@@ -3590,7 +3596,7 @@ pub fn run() {
             load_metadata_draft_edits,
             apply_metadata_draft_edits_cmd,
             cancel_apply_edits,
-            dismiss_media_library_session_apply,
+            dismiss_media_library_session_apply_operation,
             dismiss_media_library_session_batch_operation,
             get_tag_info,
             get_tag_infos,

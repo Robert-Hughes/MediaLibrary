@@ -34,6 +34,7 @@ export function projectApplyOperation(
   if (operation.state.status === "running") {
     return {
       applying: {
+        operationId: operation.operation_id,
         total: operation.total ?? 0,
         current: operation.current,
         currentFile: operation.current_file,
@@ -47,6 +48,7 @@ export function projectApplyOperation(
     return {
       applying: null,
       completion: {
+        operationId: operation.operation_id,
         summary: operation.summary,
         issues: operation.issues.map((issue) => ({
           relativePath: issue.relative_path,

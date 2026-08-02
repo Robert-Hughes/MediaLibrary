@@ -566,6 +566,7 @@ export type AppState =
     };
 
 export interface ApplyEditsInFlight {
+  operationId: string;
   total: number;
   current: number;
   /** File currently being processed (most recent progress event), if any. */
@@ -581,6 +582,7 @@ export interface ApplyEditsFileIssue {
 }
 
 export interface ApplyEditsCompletion {
+  operationId: string;
   summary: MetadataApplySummary;
   issues: ApplyEditsFileIssue[];
 }

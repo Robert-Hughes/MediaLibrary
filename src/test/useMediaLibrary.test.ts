@@ -1269,6 +1269,7 @@ describe("useMediaLibrary", () => {
       (c) => c.cmd === "close_media_library_session",
     );
     expect(closeCalls).toHaveLength(1);
+    expect(closeCalls[0]?.args).toEqual({ sessionId: 1 });
   });
 
   it("starting a new scan stops the old one and discards old events", async () => {

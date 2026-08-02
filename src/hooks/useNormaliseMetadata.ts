@@ -74,6 +74,46 @@ interface StartArgs {
   enabledGroups: NormaliseGroup[];
 }
 
+const NORMALISE_GROUPS = new Set<NormaliseGroup>([
+  "keywords",
+  "description",
+  "title",
+  "headline",
+  "creator",
+  "copyright",
+  "location",
+  "dates",
+  "iptc_utf8",
+]);
+
+function isNormaliseGroup(value: unknown): value is NormaliseGroup {
+  return (
+    typeof value === "string" && NORMALISE_GROUPS.has(value as NormaliseGroup)
+  );
+}
+
+function retainedNormaliseRequest(
+  operation: MediaLibraryBatchOperation | undefined,
+): StartArgs | null {
+  const request = operation?.request;
+  if (
+    typeof request !== "object" ||
+    request === null ||
+    Array.isArray(request)
+  ) {
+    return null;
+  }
+  const { items, enabledGroups } = request as {
+    items?: unknown;
+    enabledGroups?: unknown;
+  };
+  if (!Array.isArray(items) || !Array.isArray(enabledGroups)) return null;
+  return {
+    items: items as NormaliseRequestItem[],
+    enabledGroups: enabledGroups.filter(isNormaliseGroup),
+  };
+}
+
 function toNormaliseShape(
   s: BatchJobState<NormaliseEstimate, NormaliseSummary>,
   items: NormaliseRequestItem[],
@@ -127,6 +167,7 @@ export function useNormaliseMetadata(
 
   const config = useMemo<BatchJobConfig<StartArgs>>(
     () => ({
+      operationKind: "normalise",
       commands: {
         estimate: "estimate_normalise_cost_cmd",
         run: "normalise_metadata_cmd",
@@ -156,6 +197,17 @@ export function useNormaliseMetadata(
       operation: options.operation,
     },
   );
+
+  useEffect(() => {
+    const retained = retainedNormaliseRequest(options.operation);
+    if (!retained) return;
+    stash.items = retained.items;
+    stash.enabledGroups = retained.enabledGroups;
+    if (options.operation?.phase === "running") {
+      stash.confirmedEnabledGroups = retained.enabledGroups;
+    }
+    setEnabledGroupsState(retained.enabledGroups);
+  }, [options.operation, stash]);
 
   useEffect(() => {
     const estimate = job.state.estimate;

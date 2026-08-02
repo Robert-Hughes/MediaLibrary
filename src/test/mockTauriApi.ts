@@ -748,11 +748,15 @@ export function createMockTauriApi(): MockTauriApi {
         return { ...sessionSnapshot };
       }
       if (cmd === "close_media_library_session") {
+        if (args?.sessionId !== sessionSnapshot.session_id) {
+          throw new Error("stale media-library session close");
+        }
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           lifecycle: "closing",
         };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         sessionSnapshot = {
           session_id: null,
           revision: sessionSnapshot.revision + 1,
@@ -769,6 +773,7 @@ export function createMockTauriApi(): MockTauriApi {
           verification_outcomes: {},
           batch_operations: {},
         };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
       }
       if (cmd === "stop_scan") {
@@ -1545,6 +1550,9 @@ export function createMockTauriApi(): MockTauriApi {
         return mock.tagInfos;
       }
       if (cmd === "apply_metadata_draft_edits_cmd") {
+        if (args?.sessionId !== sessionSnapshot.session_id) {
+          throw new Error("stale media-library apply session");
+        }
         const folder = args?.folderPath as string;
         const explicitPaths = args?.relPaths as string[] | null;
         const relPaths =
@@ -1774,6 +1782,12 @@ export function createMockTauriApi(): MockTauriApi {
         };
       }
       if (cmd === "dismiss_media_library_session_apply_operation") {
+        if (
+          args?.sessionId !== sessionSnapshot.session_id ||
+          args?.operationId !== sessionSnapshot.apply_operation?.operation_id
+        ) {
+          throw new Error("stale media-library apply dismissal");
+        }
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
@@ -1783,6 +1797,12 @@ export function createMockTauriApi(): MockTauriApi {
         return { ...sessionSnapshot };
       }
       if (cmd === "cancel_apply_edits") {
+        if (
+          args?.sessionId !== sessionSnapshot.session_id ||
+          args?.operationId !== sessionSnapshot.apply_operation?.operation_id
+        ) {
+          throw new Error("stale media-library apply cancellation");
+        }
         mock.cancelTargetApplyCalled = true;
         if (
           sessionSnapshot.apply_operation !== null &&
@@ -2132,7 +2152,10 @@ export function createMockTauriApi(): MockTauriApi {
               operation_id: operationId,
               kind: "normalise",
               requested_paths: items.map((item) => item.relPath),
-              request: structuredClone(items),
+              request: {
+                items: structuredClone(items),
+                enabledGroups: structuredClone(enabledGroups),
+              },
               phase: "awaiting-confirm",
               total,
               current: total,
@@ -2155,12 +2178,19 @@ export function createMockTauriApi(): MockTauriApi {
           throw new Error("stale normalise operation");
         }
         const folderPath = sessionSnapshot.folder ?? "";
-        const items =
-          (operation.request as Array<{
+        const retainedRequest = operation.request as {
+          items: Array<{
             relPath: string;
             groupInputs: Record<string, unknown>;
-          }>) ?? [];
+          }>;
+          enabledGroups: string[];
+        };
+        const items = retainedRequest.items ?? [];
         const enabledGroups = (args?.enabledGroups as string[]) ?? [];
+        operation.request = {
+          items: structuredClone(items),
+          enabledGroups: structuredClone(enabledGroups),
+        };
         mock.lastNormaliseArgs = { folderPath, items, enabledGroups };
         const total = items.length;
         await Promise.resolve();

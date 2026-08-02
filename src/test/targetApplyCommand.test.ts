@@ -116,7 +116,7 @@ describe("runTargetApplyCommand", () => {
     const onFileError = vi.fn();
     const onFileWarning = vi.fn();
 
-    const result = await runTargetApplyCommand(api, "folder", undefined, {
+    const result = await runTargetApplyCommand(api, 7, "folder", undefined, {
       onProtocolError,
       onFileError,
       onFileWarning,
@@ -156,7 +156,7 @@ describe("runTargetApplyCommand", () => {
     };
     const onProtocolError = vi.fn();
 
-    await runTargetApplyCommand(api, "folder", ["a.jpg"], {
+    await runTargetApplyCommand(api, 7, "folder", ["a.jpg"], {
       onProtocolError,
     });
 

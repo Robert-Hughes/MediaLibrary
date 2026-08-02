@@ -62,6 +62,7 @@ function isExpectedComplete(raw: unknown, operationId: string): boolean {
  */
 export async function applyTargetDraftEdits(
   api: TargetApplyTauriApi,
+  sessionId: number,
   folderPath: string,
   relativePaths: readonly string[] | undefined,
   operationId: string,
@@ -125,6 +126,7 @@ export async function applyTargetDraftEdits(
 
   try {
     const raw = await api.invoke("apply_metadata_draft_edits_cmd", {
+      sessionId,
       folderPath,
       relPaths: relativePaths === undefined ? null : Array.from(relativePaths),
       operationId,
@@ -143,6 +145,8 @@ export async function applyTargetDraftEdits(
 
 export async function cancelTargetApply(
   api: Pick<TargetApplyTauriApi, "invoke">,
+  sessionId: number,
+  operationId: string,
 ): Promise<void> {
-  await api.invoke("cancel_apply_edits");
+  await api.invoke("cancel_apply_edits", { sessionId, operationId });
 }

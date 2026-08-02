@@ -26,7 +26,11 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import App from "../App";
 import { createMockTauriApi } from "./mockTauriApi";
 import { makeFile, mockGeneratedDraftEntries } from "./factories";
-import type { MetadataValue, NormaliseRequestItem } from "../types";
+import type {
+  MediaLibraryBatchOperation,
+  MetadataValue,
+  NormaliseRequestItem,
+} from "../types";
 import { useNormaliseMetadata } from "../hooks/useNormaliseMetadata";
 import { _setWritableSchemaDefinitionsCache } from "../hooks/useWritableSchemaDefinitions";
 
@@ -81,6 +85,37 @@ afterEach(() => {
 });
 
 describe("Metadata-normalisation flow", () => {
+  it("reconstructs retained items and confirmed groups after remount", async () => {
+    const item = {
+      relPath: "one.jpg",
+      groupInputs: {},
+    } as NormaliseRequestItem;
+    const operation: MediaLibraryBatchOperation = {
+      operation_id: "normalise-4",
+      kind: "normalise",
+      requested_paths: ["one.jpg"],
+      request: { items: [item], enabledGroups: ["title"] },
+      phase: "running",
+      total: 1,
+      current: 0,
+      current_file: null,
+      cancelling: false,
+      failures: [],
+      succeeded: [],
+      estimate: null,
+      summary: null,
+      error: null,
+    };
+
+    const { result } = renderHook(() =>
+      useNormaliseMetadata({ sessionId: 1, operation }),
+    );
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+    expect(result.current.state.items).toEqual([item]);
+    expect(result.current.state.enabledGroups).toEqual(["title"]);
+  });
+
   it("opens from paths before constructing normalise request items", async () => {
     const { result } = renderHook(() => useNormaliseMetadata());
     const buildItems = vi.fn(() => [

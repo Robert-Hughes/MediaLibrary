@@ -73,6 +73,7 @@ function presentDiagnostics(
  */
 export async function runTargetApplyCommand(
   api: TargetApplyTauriApi,
+  sessionId: number,
   folderPath: string,
   relativePaths: readonly string[] | undefined,
   callbacks: TargetApplyCommandCallbacks = {},
@@ -125,6 +126,7 @@ export async function runTargetApplyCommand(
 
   const result = await applyTargetDraftEdits(
     api,
+    sessionId,
     folderPath,
     relativePaths,
     operationId,

@@ -22,7 +22,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { BatchJobFailureKind, MediaLibraryBatchOperation } from "../types";
+import type {
+  BatchJobFailureKind,
+  MediaLibraryBatchOperation,
+  MediaLibrarySessionSnapshot,
+} from "../types";
 
 export type BatchJobPhase =
   "estimating" | "awaiting-confirm" | "running" | "done";
@@ -100,6 +104,8 @@ export interface BatchJobActions<StartArgs> {
  * `buildRecoveryRunArgs` supports confirming that operation after remount.
  */
 export interface BatchJobConfig<StartArgs> {
+  /** Key of the authoritative operation in the Rust session snapshot. */
+  operationKind: string;
   commands: {
     estimate?: string;
     run: string;
@@ -146,34 +152,81 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   const [open, setOpen] = useState(false);
   const [state, setState] =
     useState<BatchJobState<EstimatePayload, SummaryPayload>>(initialState);
+  const projectedOperationIdRef = useRef<string | null>(null);
+  const recoveredOperationIdRef = useRef<string | null>(null);
+  const recoveredSessionIdRef = useRef<number | undefined>(undefined);
+
+  const projectOperation = useCallback(
+    (operation: MediaLibraryBatchOperation) => {
+      const phase: BatchJobPhase =
+        operation.phase === "completed" || operation.phase === "failed"
+          ? "done"
+          : operation.phase;
+      projectedOperationIdRef.current = operation.operation_id;
+      setOpen(true);
+      setState((current) => ({
+        ...current,
+        phase,
+        total: operation.total,
+        current: operation.current,
+        currentFile: operation.current_file,
+        cancelling: operation.cancelling,
+        failures: operation.failures.map((failure) => ({
+          relativePath: failure.relative_path,
+          kind: failure.kind as BatchJobFailureKind,
+          detail: failure.detail,
+        })),
+        succeeded: [...operation.succeeded],
+        estimate: operation.estimate as EstimatePayload | null,
+        summary: operation.summary as SummaryPayload | null,
+        estimateError: operation.error,
+        relPaths: [...operation.requested_paths],
+      }));
+    },
+    [],
+  );
+
+  const recoverAuthoritativeOperation = useCallback(async () => {
+    try {
+      const snapshot = (await invoke(
+        "get_media_library_session_snapshot",
+      )) as MediaLibrarySessionSnapshot;
+      const operation = snapshot.batch_operations[config.operationKind];
+      if (operation) {
+        recoveredOperationIdRef.current = operation.operation_id;
+        recoveredSessionIdRef.current = options.sessionId;
+        projectOperation(operation);
+      } else {
+        projectedOperationIdRef.current = null;
+        recoveredOperationIdRef.current = null;
+        setOpen(false);
+        setState(initialState);
+      }
+    } catch (error) {
+      console.error("Failed to recover authoritative batch operation", error);
+      setOpen(false);
+      setState(initialState);
+    }
+  }, [config.operationKind, options.sessionId, projectOperation]);
 
   useEffect(() => {
     const operation = options.operation;
-    if (!operation) return;
-    const phase: BatchJobPhase =
-      operation.phase === "completed" || operation.phase === "failed"
-        ? "done"
-        : operation.phase;
-    setOpen(true);
-    setState((current) => ({
-      ...current,
-      phase,
-      total: operation.total,
-      current: operation.current,
-      currentFile: operation.current_file,
-      cancelling: operation.cancelling,
-      failures: operation.failures.map((failure) => ({
-        relativePath: failure.relative_path,
-        kind: failure.kind as BatchJobFailureKind,
-        detail: failure.detail,
-      })),
-      succeeded: [...operation.succeeded],
-      estimate: operation.estimate as EstimatePayload | null,
-      summary: operation.summary as SummaryPayload | null,
-      estimateError: operation.error,
-      relPaths: [...operation.requested_paths],
-    }));
-  }, [options.operation]);
+    if (operation) {
+      recoveredOperationIdRef.current = null;
+      recoveredSessionIdRef.current = undefined;
+      projectOperation(operation);
+    } else if (
+      projectedOperationIdRef.current !== null &&
+      (recoveredOperationIdRef.current !== projectedOperationIdRef.current ||
+        recoveredSessionIdRef.current !== options.sessionId)
+    ) {
+      projectedOperationIdRef.current = null;
+      recoveredOperationIdRef.current = null;
+      recoveredSessionIdRef.current = undefined;
+      setOpen(false);
+      setState(initialState);
+    }
+  }, [options.operation, options.sessionId, projectOperation]);
   // Track latest phase synchronously so `cancel` can decide whether to
   // close immediately without depending on setState batching order.
   const phaseRef = useRef<BatchJobPhase>("estimating");
@@ -211,22 +264,11 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           ...config.buildEstimateArgs(folderPath, startArgs),
           sessionId: options.sessionId,
         };
-        void invoke(estimateCmd, args).catch((e: unknown) => {
-          setState((s) => ({
-            ...s,
-            phase: "done",
-            estimateError: String(e),
-            failures: s.relPaths.map((rp) => ({
-              relativePath: rp,
-              kind: "preflight_failed",
-              detail: String(e),
-            })),
-          }));
-        });
+        void invoke(estimateCmd, args).catch(recoverAuthoritativeOperation);
       }
       setOpen(true);
     },
-    [config, options.sessionId],
+    [config, options.sessionId, recoverAuthoritativeOperation],
   );
 
   const confirm = useCallback(() => {
@@ -248,21 +290,13 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       ...(options.operation
         ? { operationId: options.operation.operation_id }
         : {}),
-    }).catch((e: unknown) => {
-      setState((curr) => ({
-        ...curr,
-        phase: "done",
-        failures: [
-          ...curr.failures,
-          {
-            relativePath: "(batch)",
-            kind: "command_failed",
-            detail: String(e),
-          },
-        ],
-      }));
-    });
-  }, [config, options.operation, options.sessionId]);
+    }).catch(recoverAuthoritativeOperation);
+  }, [
+    config,
+    options.operation,
+    options.sessionId,
+    recoverAuthoritativeOperation,
+  ]);
 
   const cancel = useCallback(() => {
     // In `estimating` or `awaiting-confirm` there is no backend run to
@@ -276,6 +310,9 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     // the user wants to see what landed before the dialog disappears.
     const operation = options.operation;
     if (!operation || options.sessionId === undefined) {
+      projectedOperationIdRef.current = null;
+      recoveredOperationIdRef.current = null;
+      recoveredSessionIdRef.current = undefined;
       setOpen(false);
       setState(initialState);
       return;
@@ -293,6 +330,9 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         sessionId: options.sessionId,
         operationId: operation.operation_id,
       });
+      projectedOperationIdRef.current = null;
+      recoveredOperationIdRef.current = null;
+      recoveredSessionIdRef.current = undefined;
       setOpen(false);
       setState(initialState);
     }
@@ -304,6 +344,9 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         operationId: options.operation.operation_id,
       });
     }
+    projectedOperationIdRef.current = null;
+    recoveredOperationIdRef.current = null;
+    recoveredSessionIdRef.current = undefined;
     setOpen(false);
     setState(initialState);
   }, [options.operation, options.sessionId]);

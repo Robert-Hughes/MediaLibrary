@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::batch_audit_log;
@@ -21,6 +21,13 @@ use crate::normalise;
 use crate::openai_describe;
 use crate::openai_normalise;
 use crate::settings::AiCostEstimateMode;
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NormaliseRetainedRequest {
+    items: Vec<normalise::NormaliseRequestItem>,
+    enabled_groups: Vec<normalise::NormaliseGroup>,
+}
 
 #[derive(Clone, Serialize)]
 struct NormaliseEstimateStartedPayload {
@@ -410,7 +417,13 @@ pub async fn estimate_normalise_cost_cmd(
         session_id,
         crate::session::MediaLibraryBatchOperationPhase::Estimating,
         requested_paths,
-        Some(serde_json::to_value(&items).map_err(|error| error.to_string())?),
+        Some(
+            serde_json::to_value(NormaliseRetainedRequest {
+                items: items.clone(),
+                enabled_groups,
+            })
+            .map_err(|error| error.to_string())?,
+        ),
         None,
     )?;
     emitter.estimate_started(total);
@@ -782,33 +795,45 @@ pub async fn normalise_metadata_cmd(
         .filter(|operation| operation.operation_id == operation_id)
         .ok_or_else(|| "The normalise operation identity changed".to_string())?;
     let total = operation.total;
+    let mut confirmed_request = operation
+        .request
+        .clone()
+        .ok_or_else(|| "The normalise operation has no retained request".to_string())
+        .inspect_err(|error| {
+            batch_job::fail_retained_operation(&app, session_id, &operation_id, error);
+        })?;
+    let request_object = confirmed_request
+        .as_object_mut()
+        .ok_or_else(|| "The retained normalise request is invalid".to_string())
+        .inspect_err(|error| {
+            batch_job::fail_retained_operation(&app, session_id, &operation_id, error);
+        })?;
+    let confirmed_groups = serde_json::to_value(&enabled_groups)
+        .map_err(|error| error.to_string())
+        .inspect_err(|error| {
+            batch_job::fail_retained_operation(&app, session_id, &operation_id, error);
+        })?;
+    request_object.insert("enabledGroups".into(), confirmed_groups);
     let emitter = batch_job::BatchProgressEmitter::resume(
         &app,
         "normalise",
         session_id,
         operation_id,
         total,
+        Some(confirmed_request.clone()),
         batch_job::GeneratedDraftProducer::Normalise {
             enabled_groups: enabled_groups.clone(),
         },
     )?;
-    let retained_request = operation
-        .request
-        .clone()
-        .ok_or_else(|| "The normalise operation has no retained request".to_string())
-        .inspect_err(|error| {
-            emitter.fail(error.clone());
-        })?;
-    let items: Vec<normalise::NormaliseRequestItem> = serde_json::from_value(retained_request)
+    let retained_request: NormaliseRetainedRequest = serde_json::from_value(confirmed_request)
         .map_err(|error| format!("The retained normalise request is invalid: {error}"))
-        .inspect_err(|error| {
-            emitter.fail(error.clone());
-        })?;
-    if items.len() != total {
+        .inspect_err(|error| emitter.fail(error.clone()))?;
+    if retained_request.items.len() != total {
         let error = "The retained normalise request count changed".to_string();
         emitter.fail(error.clone());
         return Err(error);
     }
+    let items = retained_request.items;
     let cancel_flag = normalise_state.install();
 
     let settings = app_data_dir(&app)
