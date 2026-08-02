@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::batch_audit_log;
 use crate::batch_job;
@@ -402,6 +402,8 @@ pub async fn estimate_normalise_cost_cmd(
 
     let total = items.len();
     log::info!("[normalise] estimate starting total={}", total);
+    let emitter = batch_job::BatchProgressEmitter::new(&app, "normalise");
+    emitter.estimate_started(total);
     let _ = app.emit(
         "normalise_estimate_started",
         NormaliseEstimateStartedPayload { total },
@@ -621,6 +623,7 @@ pub async fn estimate_normalise_cost_cmd(
             n_images_no_ai += 1;
         }
 
+        emitter.estimate_progress(current, total, &item.rel_path, None);
         let _ = app.emit(
             "normalise_estimate_progress",
             NormaliseEstimateProgressPayload {
@@ -704,34 +707,33 @@ pub async fn estimate_normalise_cost_cmd(
         n_images_with_ai_b, n_images_with_ai_c, n_images_with_ai_g, n_images_no_ai,
         total_input_tokens, predicted_cost, upper_bound,
     );
-    let _ = app.emit(
-        "normalise_estimate_complete",
-        NormaliseEstimateCompletePayload {
-            n_images_with_ai_b,
-            n_images_with_ai_c,
-            n_images_with_ai_g,
-            n_images_no_ai,
-            total_input_tokens,
-            predicted_cost_usd: predicted_cost,
-            upper_bound_cost_usd: upper_bound,
-            model: model_out,
-            location_model: location_model_out,
-            per_group_outcomes,
-            iptc_utf8_base_applicable_paths,
-            iptc_utf8_output_paths_by_group,
-            ai_token_breakdown: breakdown_out,
-            pricing: pricing_out,
-            location_pricing: location_pricing_out,
-            expected_out_per_call_b,
-            max_out_per_call_b,
-            expected_out_per_call_c,
-            max_out_per_call_c,
-            expected_out_per_call_g,
-            max_out_per_call_g,
-            location_cache_prefix_tokens: openai_normalise::LOCATION_CACHE_PREFIX_TOKENS,
-            location_cache_partitions: openai_normalise::LOCATION_CACHE_PARTITIONS,
-        },
-    );
+    let estimate = NormaliseEstimateCompletePayload {
+        n_images_with_ai_b,
+        n_images_with_ai_c,
+        n_images_with_ai_g,
+        n_images_no_ai,
+        total_input_tokens,
+        predicted_cost_usd: predicted_cost,
+        upper_bound_cost_usd: upper_bound,
+        model: model_out,
+        location_model: location_model_out,
+        per_group_outcomes,
+        iptc_utf8_base_applicable_paths,
+        iptc_utf8_output_paths_by_group,
+        ai_token_breakdown: breakdown_out,
+        pricing: pricing_out,
+        location_pricing: location_pricing_out,
+        expected_out_per_call_b,
+        max_out_per_call_b,
+        expected_out_per_call_c,
+        max_out_per_call_c,
+        expected_out_per_call_g,
+        max_out_per_call_g,
+        location_cache_prefix_tokens: openai_normalise::LOCATION_CACHE_PREFIX_TOKENS,
+        location_cache_partitions: openai_normalise::LOCATION_CACHE_PARTITIONS,
+    };
+    emitter.estimate_complete(&estimate);
+    let _ = app.emit("normalise_estimate_complete", estimate);
     normalise_state.clear();
     Ok(())
 }
@@ -1051,12 +1053,22 @@ pub async fn normalise_metadata_cmd(
 
 #[tauri::command]
 pub fn cancel_normalise_cmd(
+    app: AppHandle,
     normalise_state: State<'_, normalise::NormaliseState>,
 ) -> Result<(), String> {
+    if let Some(session_id) = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .snapshot()
+        .session_id
+    {
+        let snapshot = app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .request_batch_operation_cancellation(session_id, "normalise")?;
+        let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+    }
     normalise_state.signal_cancel();
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -20,6 +20,7 @@ import type {
   DescribeEstimate,
   DescribeProgressState,
   DescribeUsageSummary,
+  MediaLibraryBatchOperation,
   SchemaMetadataEdit,
 } from "../types";
 import {
@@ -40,6 +41,7 @@ export interface DescribeActions {
 }
 
 export interface UseDescribeImagesOptions {
+  operation?: MediaLibraryBatchOperation;
   /**
    * Invoked for each image whose describe call succeeded, with the typed
    * draft edits the backend produced for it. The caller is responsible
@@ -166,6 +168,7 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
     DescribeEstimate,
     DescribeUsageSummary
   >(config, {
+    operation: options.operation,
     onApplyEdits: options.onApplyEdits,
   });
 

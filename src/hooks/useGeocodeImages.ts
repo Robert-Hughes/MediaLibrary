@@ -13,6 +13,7 @@ import type {
   GeocodeProgressState,
   GeocodeRequestItem,
   GeocodeSummary,
+  MediaLibraryBatchOperation,
   SchemaMetadataEdit,
 } from "../types";
 import {
@@ -37,6 +38,7 @@ export interface GeocodeActions {
 }
 
 export interface UseGeocodeImagesOptions {
+  operation?: MediaLibraryBatchOperation;
   onApplyEdits?: (
     relativePath: string,
     edits: SchemaMetadataEdit[],
@@ -113,6 +115,7 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
   const job = useBatchImageJob<GeocodeRequestItem[], null, GeocodeSummary>(
     config,
     {
+      operation: options.operation,
       onApplyEdits: options.onApplyEdits,
     },
   );

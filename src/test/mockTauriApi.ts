@@ -264,6 +264,7 @@ export function createMockTauriApi(): MockTauriApi {
     draft_persistence: { status: "ready" },
     apply_operation: null,
     verification_outcomes: {},
+    batch_operations: {},
   };
   let recoverySnapshot = { ...sessionSnapshot };
   let nextThumbnailKey = 1;
@@ -628,6 +629,7 @@ export function createMockTauriApi(): MockTauriApi {
             : { status: "ready" },
           apply_operation: null,
           verification_outcomes: {},
+          batch_operations: {},
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
@@ -680,6 +682,7 @@ export function createMockTauriApi(): MockTauriApi {
           draft_persistence: { status: "ready" },
           apply_operation: null,
           verification_outcomes: {},
+          batch_operations: {},
         };
         return { ...sessionSnapshot };
       }
@@ -839,7 +842,6 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(drafts),
           verification_outcomes,
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
       }
       if (cmd === "dismiss_media_library_session_verification_outcomes") {
@@ -847,6 +849,18 @@ export function createMockTauriApi(): MockTauriApi {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           verification_outcomes: {},
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
+      if (cmd === "dismiss_media_library_session_batch_operation") {
+        const kind = args?.kind as string;
+        const batch_operations = { ...sessionSnapshot.batch_operations };
+        delete batch_operations[kind];
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          batch_operations,
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
