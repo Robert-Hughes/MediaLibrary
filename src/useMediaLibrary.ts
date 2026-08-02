@@ -22,9 +22,7 @@ import type {
   RecycleFilesResult,
   MediaLibrarySessionSnapshot,
   MediaLibrarySessionFilesAdded,
-  MediaLibrarySessionFileThumbnail,
   MediaLibrarySessionThumbnailsChanged,
-  MediaLibraryThumbnailPayload,
   MediaLibrarySessionMetadataChanged,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -70,6 +68,7 @@ import {
 } from "./applyProjection";
 import { mergeSessionIssues } from "./sessionIssueProjection";
 import { projectSessionMetadata } from "./sessionMetadataProjection";
+import { projectSessionThumbnails } from "./sessionThumbnailProjection";
 
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
@@ -293,44 +292,6 @@ export function useMediaLibrary(
     },
     [],
   );
-  const projectSessionThumbnails = useCallback(
-    async (
-      sessionId: number,
-      entries: MediaLibrarySessionFileThumbnail[],
-    ): Promise<void> => {
-      const ready = new Map<string, string>();
-      for (const entry of entries) {
-        thumbnailStoreRef.current.add(entry.relative_path);
-        if (entry.state.status === "loading") continue;
-        if (entry.state.status === "failed") {
-          thumbnailStoreRef.current.set(entry.relative_path, "failed");
-          continue;
-        }
-        thumbnailStoreRef.current.set(entry.relative_path, "loading");
-        ready.set(entry.state.cache_key, entry.relative_path);
-      }
-      if (ready.size === 0) return;
-      const payloads = (await api.invoke("get_media_library_thumbnails", {
-        sessionId,
-        cacheKeys: [...ready.keys()],
-      })) as MediaLibraryThumbnailPayload[];
-      if (activeScanIdRef.current !== sessionId) return;
-      const received = new Set<string>();
-      for (const payload of payloads) {
-        const relativePath = ready.get(payload.cache_key);
-        if (!relativePath) continue;
-        received.add(payload.cache_key);
-        thumbnailStoreRef.current.set(relativePath, payload.thumbnail);
-      }
-      for (const [cacheKey, relativePath] of ready) {
-        if (!received.has(cacheKey)) {
-          thumbnailStoreRef.current.set(relativePath, "failed");
-        }
-      }
-    },
-    [api],
-  );
-
   const applySessionSnapshot = useCallback(
     (snapshot: MediaLibrarySessionSnapshot) => {
       if (snapshot.lifecycle === "idle" && snapshot.revision === 0) return;
@@ -442,6 +403,12 @@ export function useMediaLibrary(
           void projectSessionThumbnails(
             snapshot.session_id,
             snapshot.thumbnails,
+            {
+              store: thumbnailStoreRef.current,
+              invoke: api.invoke,
+              isCurrentSession: (sessionId) =>
+                activeScanIdRef.current === sessionId,
+            },
           );
         }
         for (const issue of snapshot.issues) {
@@ -522,7 +489,7 @@ export function useMediaLibrary(
         });
       }
     },
-    [loadedStateFromProjection, projectSessionThumbnails],
+    [api, loadedStateFromProjection],
   );
 
   const pushApplicationIssue = useCallback(
@@ -884,7 +851,12 @@ export function useMediaLibrary(
             return;
           }
           sessionRevisionRef.current = delta.revision;
-          await projectSessionThumbnails(delta.session_id, delta.entries);
+          await projectSessionThumbnails(delta.session_id, delta.entries, {
+            store: thumbnailStoreRef.current,
+            invoke: api.invoke,
+            isCurrentSession: (sessionId) =>
+              activeScanIdRef.current === sessionId,
+          });
         },
       );
 
@@ -920,12 +892,7 @@ export function useMediaLibrary(
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [
-    api,
-    applySessionSnapshot,
-    loadedStateFromProjection,
-    projectSessionThumbnails,
-  ]);
+  }, [api, applySessionSnapshot, loadedStateFromProjection]);
 
   const openFolder = useCallback(async () => {
     const folder = (await api.invoke("pick_folder")) as string | null;
