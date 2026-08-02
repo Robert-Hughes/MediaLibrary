@@ -2790,22 +2790,22 @@ fn stage_media_library_session_bulk_drafts(
 #[allow(clippy::too_many_arguments)]
 async fn apply_metadata_draft_edits_cmd(
     session_id: u64,
-    folder_path: String,
     rel_paths: Option<Vec<String>>,
-    operation_id: String,
-    progress_channel: tauri::ipc::Channel<apply_batch::MetadataApplyStreamMessage>,
     app: AppHandle,
     apply_state: State<'_, apply_batch::ApplyEditsState>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<apply_batch::MetadataApplyResult, String> {
     let session_snapshot = session_state.snapshot();
-    if session_snapshot.session_id != Some(session_id)
-        || session_snapshot.folder.as_deref() != Some(folder_path.as_str())
-    {
+    if session_snapshot.session_id != Some(session_id) {
         return Err("The media-library session changed before apply started".into());
     }
-    let begun =
-        session_state.begin_apply_operation(session_id, operation_id.clone(), rel_paths.clone())?;
+    ensure_session_draft_mutation_allowed(&session_snapshot)?;
+    let folder_path = session_snapshot
+        .folder
+        .clone()
+        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    let (operation_id, begun) =
+        session_state.begin_new_apply_operation(session_id, rel_paths.clone())?;
     emit_session_snapshot(&app, &begun)?;
 
     let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
@@ -2826,7 +2826,6 @@ async fn apply_metadata_draft_edits_cmd(
                     folder_path,
                     rel_paths,
                     run_operation_id,
-                    progress_channel,
                     run_app,
                     cancel_flag,
                     apply_batch::MetadataApplyLimits {

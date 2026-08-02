@@ -32,8 +32,6 @@ import {
   targetDraftsFromWire,
   TargetDraftEditsStore,
 } from "./targetDraftEdits";
-import { runTargetApplyCommand } from "./targetApplyCommand";
-import { cancelTargetApply } from "./targetApplyTauri";
 import type { MetadataDraftTarget } from "./types";
 import { schemaDefinitionIdEquals } from "./utils/schemaDefinitionId";
 import { TargetVerifyOutcomesStore } from "./targetVerifyOutcomesStore";
@@ -89,9 +87,6 @@ export interface TauriApi {
     event: string,
     handler: (payload: unknown) => void,
   ) => Promise<() => void>;
-  createChannel: (handler: (payload: unknown) => void) => {
-    onmessage: (payload: unknown) => void;
-  };
 }
 
 export interface MediaLibraryActions {
@@ -1940,49 +1935,20 @@ export function useMediaLibrary(
       const requestedPaths: string[] | undefined =
         fileRelativePath === undefined
           ? undefined
-          : [
-              ...new Set(
-                Array.isArray(fileRelativePath)
-                  ? fileRelativePath
-                  : [fileRelativePath],
-              ),
-            ];
-      if (!requireTargetDraftPersistenceReady(requestedPaths ?? [])) {
-        throw new Error(TARGET_DRAFT_LOAD_BLOCKED_MESSAGE);
-      }
-      const targetPaths = requestedPaths?.filter(
-        (path) => current.targetDraftEdits[path] !== undefined,
-      );
-      const targetCount =
-        requestedPaths === undefined
-          ? Object.keys(current.targetDraftEdits).length
-          : (targetPaths?.length ?? 0);
-      if (targetCount === 0) return emptyMetadataApplyResult();
-
-      setAppState((previous) =>
-        previous.kind === "loaded"
-          ? { ...previous, applyCompletion: null }
-          : previous,
-      );
+          : Array.isArray(fileRelativePath)
+            ? fileRelativePath
+            : [fileRelativePath];
       try {
-        return await runTargetApplyCommand(
-          api,
-          current.sessionId,
-          current.folder,
-          targetPaths,
-          {
-            onProtocolError: (error) =>
-              pushApplicationError("metadata-target-protocol", error),
-            onMessageError: (error) =>
-              pushApplicationError("metadata-target-progress", error),
-          },
-        );
+        return (await api.invoke("apply_metadata_draft_edits_cmd", {
+          sessionId: current.sessionId,
+          relPaths: requestedPaths ?? null,
+        })) as MetadataApplyResult;
       } catch (error) {
         pushApplicationError("metadata-apply", error, requestedPaths ?? []);
         throw error;
       }
     },
-    [api, pushApplicationError, requireTargetDraftPersistenceReady],
+    [api, pushApplicationError],
   );
   const dismissApplyCompletion = useCallback(() => {
     const current = appStateRef.current;
@@ -2003,11 +1969,12 @@ export function useMediaLibrary(
   const cancelApplyEdits = useCallback(() => {
     const current = appStateRef.current;
     if (current.kind !== "loaded" || !current.applying) return;
-    void cancelTargetApply(
-      api,
-      current.sessionId,
-      current.applying.operationId,
-    ).catch((error) => pushApplicationError("metadata-target-cancel", error));
+    void api
+      .invoke("cancel_apply_edits", {
+        sessionId: current.sessionId,
+        operationId: current.applying.operationId,
+      })
+      .catch((error) => pushApplicationError("metadata-target-cancel", error));
   }, [api, pushApplicationError]);
 
   const mediaLibraryActions = useMemo(

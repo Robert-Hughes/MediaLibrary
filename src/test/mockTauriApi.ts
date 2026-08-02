@@ -637,7 +637,6 @@ export function createMockTauriApi(): MockTauriApi {
   };
 
   const api: TauriApi = {
-    createChannel: (handler) => ({ onmessage: handler }),
     invoke: async (cmd, args) => {
       mock.invocations.push({ cmd, args });
       if (cmd === "pick_folder") return nextFolder;
@@ -1604,15 +1603,17 @@ export function createMockTauriApi(): MockTauriApi {
         if (args?.sessionId !== sessionSnapshot.session_id) {
           throw new Error("stale media-library apply session");
         }
-        const folder = args?.folderPath as string;
+        if (sessionSnapshot.draft_persistence.status !== "ready") {
+          throw new Error(
+            "Target-aware drafts could not be loaded safely. Fix the folder's target-aware draft persistence file, then reopen the folder.",
+          );
+        }
+        const folder = sessionSnapshot.folder!;
         const explicitPaths = args?.relPaths as string[] | null;
         const relPaths =
           explicitPaths ??
           Object.keys(mock.targetDraftEditsByFolder[folder] ?? {});
-        const operationId = args?.operationId as string;
-        const channel = args?.progressChannel as {
-          onmessage: (payload: unknown) => void;
-        };
+        const operationId = `target-apply-${sessionSnapshot.revision + 1}`;
         await Promise.resolve();
         sessionSnapshot = {
           ...sessionSnapshot,
@@ -1632,14 +1633,8 @@ export function createMockTauriApi(): MockTauriApi {
           },
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
-        channel.onmessage({
-          kind: "started",
-          operation_id: operationId,
-          total: relPaths.length,
-        });
         const completedFiles: MetadataApplyFileResult[] = [];
         const undeliveredFiles: MetadataApplyFileResult[] = [];
-        let sequence = 0;
         for (const [index, relative_path] of relPaths.entries()) {
           if (mock.cancelTargetApplyCalled) break;
           const fallback: MetadataApplyFileResult = {
@@ -1759,15 +1754,6 @@ export function createMockTauriApi(): MockTauriApi {
           completedFiles.push(effectiveResult);
           if (terminalFallback) {
             undeliveredFiles.push(terminalFallback);
-          } else {
-            channel.onmessage({
-              kind: "progress_batch",
-              operation_id: operationId,
-              sequence: ++sequence,
-              current: index + 1,
-              total: relPaths.length,
-              results: [progressResult],
-            });
           }
           mock.applyProgressEvents.push({
             current: index + 1,
@@ -1821,11 +1807,6 @@ export function createMockTauriApi(): MockTauriApi {
           },
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
-        channel.onmessage({
-          kind: "complete",
-          operation_id: operationId,
-          summary,
-        });
         return {
           summary,
           undelivered_files: undeliveredFiles,
