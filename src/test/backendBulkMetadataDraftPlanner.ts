@@ -18,7 +18,7 @@ import type { GpsTagGroup } from "../metadata/tag_overrides";
 import {
   planGpsTargetDraftBatch,
   validateGpsTargetDraftEntries,
-} from "../gpsTargetDrafts";
+} from "./backendGpsTargetDraftPlanner";
 import {
   existingOccurrenceTargetFromOccurrence,
   metadataDraftTargetEquals,

@@ -13,6 +13,7 @@ import type {
   MetadataApplyResult,
   MetadataDraftEdit,
   SchemaDefinitionId,
+  SchemaMetadataEdit,
   TargetDraftPersistenceState,
   MetadataTargetDraftEntry,
   TagInfo,
@@ -134,8 +135,12 @@ export interface MediaLibraryActions {
   ) => Promise<boolean>;
   applyGpsTargetDraftBatch: (
     relativePath: string,
-    entries: MetadataTargetDraftEntry[],
+    edits: SchemaMetadataEdit[],
   ) => Promise<boolean>;
+  previewGpsTargetDraftBatch: (
+    relativePath: string,
+    edits: SchemaMetadataEdit[],
+  ) => Promise<MetadataTargetDraftEntry[] | null>;
   setExistingOccurrenceDraft: (
     fileRelativePath: string,
     target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }>,
@@ -1170,10 +1175,32 @@ export function useMediaLibrary(
     ],
   );
 
+  const previewGpsTargetDraftBatch = useCallback(
+    async (
+      relativePath: string,
+      edits: SchemaMetadataEdit[],
+    ): Promise<MetadataTargetDraftEntry[] | null> => {
+      if (!requireTargetDraftPersistenceReady([relativePath])) return null;
+      try {
+        return (await api.invoke("preview_media_library_session_gps_drafts", {
+          sessionId: activeScanIdRef.current,
+          relativePath,
+          edits,
+        })) as MetadataTargetDraftEntry[];
+      } catch (error) {
+        pushApplicationError("metadata-target-gps-preview", error, [
+          relativePath,
+        ]);
+        return null;
+      }
+    },
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
+  );
+
   const applyGpsTargetDraftBatch = useCallback(
     async (
       relativePath: string,
-      entries: MetadataTargetDraftEntry[],
+      edits: SchemaMetadataEdit[],
     ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
@@ -1182,7 +1209,7 @@ export function useMediaLibrary(
           {
             sessionId: activeScanIdRef.current,
             relativePath,
-            entries,
+            edits,
           },
         )) as MediaLibrarySessionSnapshot;
         applySessionSnapshot(snapshot);
@@ -1977,6 +2004,7 @@ export function useMediaLibrary(
       removeMetadataFields,
       removeMetadataFieldFromFiles,
       applyGpsTargetDraftBatch,
+      previewGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       replaceNewPropertyDraftTarget,
@@ -2014,6 +2042,7 @@ export function useMediaLibrary(
       removeMetadataFields,
       removeMetadataFieldFromFiles,
       applyGpsTargetDraftBatch,
+      previewGpsTargetDraftBatch,
       setExistingOccurrenceDraft,
       setNewPropertyDraft,
       replaceNewPropertyDraftTarget,

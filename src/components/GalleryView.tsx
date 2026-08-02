@@ -8,6 +8,7 @@ import type {
   FileMetadataOccurrencesStore,
   MetadataDraftTarget,
   MetadataTargetDraftEntry,
+  SchemaMetadataEdit,
   TargetDraftPersistenceState,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
@@ -96,10 +97,14 @@ interface Props {
     fileRelativePath: string,
     targets: MetadataDraftTarget[],
   ) => boolean | Promise<boolean>;
+  onPreviewGpsTargetDraftBatch?: (
+    fileRelativePath: string,
+    edits: SchemaMetadataEdit[],
+  ) => Promise<MetadataTargetDraftEntry[] | null>;
   onApplyGpsTargetDraftBatch?: (
     fileRelativePath: string,
-    entries: MetadataTargetDraftEntry[],
-  ) => boolean | Promise<boolean>;
+    edits: SchemaMetadataEdit[],
+  ) => Promise<boolean>;
   onSetNewPropertyDraft?: (
     fileRelativePath: string,
     target: Extract<MetadataDraftTarget, { kind: "NewProperty" }>,
@@ -145,6 +150,7 @@ export function GalleryView({
   targetDraftPersistence,
   onSetExistingOccurrenceDraft,
   onRemoveMetadataTargets,
+  onPreviewGpsTargetDraftBatch,
   onApplyGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onReplaceNewPropertyDraftTarget,
@@ -556,9 +562,13 @@ export function GalleryView({
               onRemoveMetadataTargets={(targets) =>
                 onRemoveMetadataTargets?.(file.relative_path, targets) ?? false
               }
+              onPreviewGpsTargetDraftBatch={(edits) =>
+                onPreviewGpsTargetDraftBatch?.(file.relative_path, edits) ??
+                Promise.resolve(null)
+              }
               onApplyGpsTargetDraftBatch={(entries) =>
                 onApplyGpsTargetDraftBatch?.(file.relative_path, entries) ??
-                false
+                Promise.resolve(false)
               }
               onSetNewPropertyDraft={(target, edit) =>
                 onSetNewPropertyDraft?.(file.relative_path, target, edit) ??

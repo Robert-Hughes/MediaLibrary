@@ -397,7 +397,7 @@ describe("DetailsPane GPS Map integration", () => {
     expect(labels()).toEqual(headingLabels);
   });
 
-  it("shows planner-blocked GPS editing without allowing the editor to open", () => {
+  it("defers planner-blocked GPS editing to the Rust preview", async () => {
     const occurrences = occurrencesFor(validGpsMetadata());
     const latitude = occurrences.find(
       (occurrence) => occurrence.tag_info?.name === "GPSLatitude",
@@ -406,11 +406,13 @@ describe("DetailsPane GPS Map integration", () => {
       ...structuredClone(latitude),
       id: { ...latitude.id, copy: 1 },
     });
+    const preview = vi.fn(async () => null);
 
     render(
       <DetailsPane
         file={file}
         occurrences={occurrences}
+        onPreviewGpsTargetDraftBatch={preview}
         onApplyGpsTargetDraftBatch={vi.fn(() => true)}
         onRemoveMetadataTargets={vi.fn()}
         onDiscardTargetDraftBatch={vi.fn()}
@@ -422,12 +424,9 @@ describe("DetailsPane GPS Map integration", () => {
       "button",
       { name: "Edit GPS…" },
     );
-    expect(edit).toBeDisabled();
-    expect(edit).toHaveAttribute(
-      "title",
-      expect.stringMatching(/Several authoritative occurrences/),
-    );
+    expect(edit).toBeEnabled();
     fireEvent.click(edit);
+    await waitFor(() => expect(preview).toHaveBeenCalled());
     expect(screen.queryByText("Edit GPS location")).toBeNull();
   });
 

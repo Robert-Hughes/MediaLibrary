@@ -7,6 +7,7 @@ import type {
   MetadataOccurrence,
   MetadataOccurrenceId,
   MetadataTargetDraftEntry,
+  SchemaMetadataEdit,
   TargetDraftPersistenceState,
 } from "../types";
 import {
@@ -52,10 +53,6 @@ import {
   newPropertyDraftTarget,
 } from "../utils/metadataDraftTarget";
 import { validateFamily1Group } from "../utils/metadataWriteTarget";
-import {
-  planGpsTargetDraftBatch,
-  validateGpsTargetDraftEntries,
-} from "../gpsTargetDrafts";
 import { planMetadataTargetRemovals } from "../metadataRemovalTargets";
 import {
   buildOccurrenceDetailsPresentation,
@@ -81,8 +78,6 @@ type EditDialogState =
   | {
       kind: "gps-group";
       group: GpsTagGroup;
-      openedTargets: Record<string, MetadataDraftTarget>;
-      openedDraftTargets: MetadataDraftTarget[];
     }
   | {
       kind: "new-property";
@@ -108,8 +103,11 @@ interface Props {
   onRemoveMetadataTargets?: (
     targets: MetadataDraftTarget[],
   ) => boolean | Promise<boolean>;
+  onPreviewGpsTargetDraftBatch?: (
+    edits: SchemaMetadataEdit[],
+  ) => Promise<MetadataTargetDraftEntry[] | null>;
   onApplyGpsTargetDraftBatch?: (
-    entries: MetadataTargetDraftEntry[],
+    edits: SchemaMetadataEdit[],
   ) => boolean | Promise<boolean>;
   onSetNewPropertyDraft?: (
     target: NewPropertyTarget,
@@ -272,19 +270,11 @@ function DetailsValueCell({
 }
 
 function groupedGpsEditingAvailability({
-  group,
-  occurrences,
-  targetDraftEdits,
   targetDraftPersistence,
   callbackAvailable,
-  expectedTarget,
 }: {
-  group: GpsTagGroup;
-  occurrences: FileMetadataOccurrencesState | undefined;
-  targetDraftEdits: TargetDraftCollection | undefined;
   targetDraftPersistence: TargetDraftPersistenceState;
   callbackAvailable: boolean;
-  expectedTarget?: MetadataDraftTarget;
 }): { blocked?: string } {
   if (targetDraftPersistence.status !== "ready")
     return {
@@ -296,35 +286,7 @@ function groupedGpsEditingAvailability({
       blocked:
         "Target-aware GPS editing is unavailable in this view. Nothing was saved.",
     };
-  try {
-    const planned = planGpsTargetDraftBatch(
-      gpsGroupIds(group).map((id) => ({
-        id,
-        edit: { intent: "Delete" as const, value: null },
-      })),
-      occurrences ?? "loading",
-      targetDraftEdits,
-    );
-    if (
-      expectedTarget !== undefined &&
-      !planned.some(({ target }) =>
-        metadataDraftTargetEquals(target, expectedTarget),
-      )
-    ) {
-      return {
-        blocked:
-          "The selected GPS draft destination is not the destination the grouped editor would edit. Nothing was saved.",
-      };
-    }
-    validateGpsTargetDraftEntries(
-      planned,
-      occurrences ?? "loading",
-      targetDraftEdits,
-    );
-    return {};
-  } catch (error) {
-    return { blocked: error instanceof Error ? error.message : String(error) };
-  }
+  return {};
 }
 
 function rowSchemaId(row: OccurrenceDetailsRow): SchemaDefinitionId {
@@ -446,19 +408,10 @@ function DetailsGroupContextMenu({
   const gpsEditPreview = useMemo<null | { blocked?: string }>(() => {
     if (gpsGroup === null) return null;
     return groupedGpsEditingAvailability({
-      group: gpsGroup,
-      occurrences,
-      targetDraftEdits,
       targetDraftPersistence,
       callbackAvailable: onEditGps !== undefined,
     });
-  }, [
-    gpsGroup,
-    occurrences,
-    onEditGps,
-    targetDraftEdits,
-    targetDraftPersistence,
-  ]);
+  }, [gpsGroup, onEditGps, targetDraftPersistence]);
   const removeCount =
     "affectedCount" in removalPreview ? removalPreview.affectedCount : 0;
   const draftCount = targetDraftTargets.length;
@@ -561,6 +514,7 @@ export function DetailsPane({
   targetDraftPersistence = { status: "ready" },
   onSetExistingOccurrenceDraft,
   onRemoveMetadataTargets,
+  onPreviewGpsTargetDraftBatch,
   onApplyGpsTargetDraftBatch,
   onSetNewPropertyDraft,
   onReplaceNewPropertyDraftTarget,
@@ -1032,7 +986,7 @@ export function DetailsPane({
     });
   };
 
-  const openGroupedGpsEditor = (group: GpsTagGroup) => {
+  const openGroupedGpsEditor = async (group: GpsTagGroup) => {
     if (!targetDraftsWritable) {
       setEditDialogUnavailableMessage(
         "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
@@ -1046,36 +1000,19 @@ export function DetailsPane({
       return;
     }
     try {
-      const planned = planGpsTargetDraftBatch(
-        gpsGroupIds(group).map((id) => ({
-          id,
-          edit: { intent: "Delete" as const, value: null },
-        })),
-        occurrences ?? "loading",
-        targetDraftEdits,
-      );
-      validateGpsTargetDraftEntries(
-        planned,
-        occurrences ?? "loading",
-        targetDraftEdits,
-      );
+      if (onPreviewGpsTargetDraftBatch) {
+        const preview = await onPreviewGpsTargetDraftBatch(
+          gpsGroupIds(group).map((schema_id) => ({
+            schema_id,
+            edit: { intent: "Delete" as const, value: null },
+          })),
+        );
+        if (preview === null) return;
+      }
       setEditDialogUnavailableMessage(null);
       setEditDialog({
         kind: "gps-group",
         group: structuredClone(group),
-        openedTargets: Object.fromEntries(
-          planned.map(({ id, target }) => [
-            schemaDefinitionIdToken(id),
-            structuredClone(target),
-          ]),
-        ),
-        openedDraftTargets: planned.flatMap(({ target }) => {
-          const slot = metadataDraftTargetSlotToken(target);
-          const current = targetDraftEdits?.[slot];
-          return current && metadataDraftTargetEquals(current.target, target)
-            ? [structuredClone(target)]
-            : [];
-        }),
       });
     } catch (error) {
       setEditDialogUnavailableMessage(
@@ -1086,38 +1023,6 @@ export function DetailsPane({
     }
   };
 
-  const revalidateGpsEditorTargets = (
-    entries: MetadataTargetDraftEntry[],
-    openedDraftTargets: MetadataDraftTarget[],
-  ): boolean => {
-    try {
-      for (const openedTarget of openedDraftTargets) {
-        const current =
-          targetDraftEdits?.[metadataDraftTargetSlotToken(openedTarget)];
-        if (
-          current === undefined ||
-          !metadataDraftTargetEquals(current.target, openedTarget)
-        ) {
-          throw new Error(
-            "A captured GPS draft target changed or disappeared while the editor was open. Nothing was saved.",
-          );
-        }
-      }
-      validateGpsTargetDraftEntries(
-        entries,
-        occurrences ?? "loading",
-        targetDraftEdits,
-      );
-      return true;
-    } catch (error) {
-      setEditDialogUnavailableMessage(
-        error instanceof Error
-          ? error.message
-          : "The GPS destinations became stale or unavailable. Nothing was saved.",
-      );
-      return false;
-    }
-  };
   const activeRowContext = rowContextMenu
     ? allOccurrenceRows.find((row) => row.key === rowContextMenu.rowKey)
     : undefined;
@@ -1479,15 +1384,8 @@ export function DetailsPane({
           gpsEditingUnavailableReason={(() => {
             if (activeRowGpsGroup === null) return undefined;
             return groupedGpsEditingAvailability({
-              group: activeRowGpsGroup,
-              occurrences,
-              targetDraftEdits,
               targetDraftPersistence,
               callbackAvailable: onApplyGpsTargetDraftBatch !== undefined,
-              expectedTarget:
-                activeRowContext.kind === "ExistingOccurrenceRow"
-                  ? undefined
-                  : activeRowContext.target,
             }).blocked;
           })()}
           onDiscard={
@@ -1563,27 +1461,15 @@ export function DetailsPane({
             effectiveGps={
               editDialog.kind === "gps-group" ? resolvedGps : undefined
             }
-            onSaveMetadataBatch={(edits) => {
+            onSaveMetadataBatch={async (edits) => {
               // Staged New Property editors use single mode and cannot emit a
-              // batch. Grouped GPS edits retain their exact-target planner.
+              // batch. Rust resolves grouped GPS edits to exact targets.
               if (editDialog.kind !== "gps-group") return;
-              const entries = edits.flatMap(({ id, edit }) => {
-                const target =
-                  editDialog.openedTargets[schemaDefinitionIdToken(id)];
-                return target
-                  ? [{ target: structuredClone(target), edit }]
-                  : [];
-              });
-              if (
-                entries.length !== edits.length ||
-                !revalidateGpsEditorTargets(
-                  entries,
-                  editDialog.openedDraftTargets,
-                )
-              ) {
-                return;
-              }
-              if (onApplyGpsTargetDraftBatch?.(entries)) {
+              const semanticEdits = edits.map(({ id: schema_id, edit }) => ({
+                schema_id,
+                edit,
+              }));
+              if (await onApplyGpsTargetDraftBatch?.(semanticEdits)) {
                 setEditDialog(null);
               } else {
                 setEditDialogUnavailableMessage(
@@ -1592,7 +1478,6 @@ export function DetailsPane({
               }
             }}
             onSaveMetadata={async (edit) => {
-              const propertyId = editDialogPropertyId!;
               // A staged New Property value edit always preserves its exact
               // stored target. GPS membership must not redirect it through the
               // GPS target planner.
@@ -1617,25 +1502,6 @@ export function DetailsPane({
                 } else {
                   setEditDialogUnavailableMessage(
                     "The New Property value could not be saved. The editor remains open and the destination was not changed.",
-                  );
-                }
-              } else if (gpsMemberGroup(propertyId) !== null) {
-                const openedTarget =
-                  editDialog.kind === "existing-occurrence"
-                    ? editDialog.openedTarget
-                    : undefined;
-                if (!openedTarget) return;
-                const entries = [
-                  { target: structuredClone(openedTarget), edit },
-                ];
-                if (!revalidateGpsEditorTargets(entries, [])) {
-                  return;
-                }
-                if (onApplyGpsTargetDraftBatch?.(entries)) {
-                  setEditDialog(null);
-                } else {
-                  setEditDialogUnavailableMessage(
-                    "The exact GPS edit could not be saved. Nothing was retargeted.",
                   );
                 }
               } else if (
