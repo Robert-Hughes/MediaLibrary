@@ -10,7 +10,7 @@ import type {
 import {
   BulkMetadataDraftPlanError,
   planBulkMetadataDraftBatch,
-} from "../bulkMetadataDrafts";
+} from "./backendBulkMetadataDraftPlanner";
 import { metadataEditCapabilities } from "../metadataEditCapabilities";
 import { mergeMetadataValueExactly } from "../metadataValueMerge";
 import { occurrenceFromSchemaValue } from "./occurrenceFixtures";
