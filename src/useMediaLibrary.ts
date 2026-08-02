@@ -25,13 +25,11 @@ import type {
   MediaLibrarySessionFileThumbnail,
   MediaLibrarySessionThumbnailsChanged,
   MediaLibraryThumbnailPayload,
-  MediaLibrarySessionFileMetadata,
   MediaLibrarySessionMetadataChanged,
 } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import {
   MAX_APPLICATION_ERRORS,
-  normalizeMetadataOccurrencesFromTauri,
   scheduleBatchedFlush,
 } from "./utils/scanEvents";
 import { useRecentFolders } from "./hooks/useRecentFolders";
@@ -71,6 +69,7 @@ import {
   projectApplyOperation,
 } from "./applyProjection";
 import { mergeSessionIssues } from "./sessionIssueProjection";
+import { projectSessionMetadata } from "./sessionMetadataProjection";
 
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
@@ -294,51 +293,6 @@ export function useMediaLibrary(
     },
     [],
   );
-
-  const projectSessionMetadata = useCallback(
-    (
-      entries: readonly MediaLibrarySessionFileMetadata[],
-      reset: boolean,
-    ): number => {
-      if (reset) {
-        fileMetadataOccurrencesStoreRef.current.clear();
-        metadataProgressStoreRef.current.reset();
-      }
-
-      let newlyCompleted = 0;
-      let acceptedReady = 0;
-      for (const entry of entries) {
-        const previous = fileMetadataOccurrencesStoreRef.current.has(
-          entry.relative_path,
-        )
-          ? fileMetadataOccurrencesStoreRef.current.get(entry.relative_path)
-          : undefined;
-        fileMetadataOccurrencesStoreRef.current.add(entry.relative_path);
-        if (entry.state.status === "loading") continue;
-
-        if (entry.state.status === "ready") {
-          fileMetadataOccurrencesStoreRef.current.set(
-            entry.relative_path,
-            normalizeMetadataOccurrencesFromTauri(entry.state.occurrences),
-          );
-          acceptedReady += 1;
-        } else {
-          fileMetadataOccurrencesStoreRef.current.setFailed(
-            entry.relative_path,
-            entry.state.error,
-          );
-        }
-        if (previous === undefined || previous === "loading")
-          newlyCompleted += 1;
-      }
-      if (newlyCompleted > 0) {
-        metadataProgressStoreRef.current.incrementReceived(newlyCompleted);
-      }
-      return acceptedReady;
-    },
-    [],
-  );
-
   const projectSessionThumbnails = useCallback(
     async (
       sessionId: number,
@@ -479,7 +433,10 @@ export function useMediaLibrary(
         sessionFilePathsRef.current = nextFilePaths;
         const rebuildMetadataProjection =
           isRecovery || snapshot.revision > previousRevision + 1;
-        projectSessionMetadata(snapshot.metadata, rebuildMetadataProjection);
+        projectSessionMetadata(snapshot.metadata, rebuildMetadataProjection, {
+          occurrences: fileMetadataOccurrencesStoreRef.current,
+          progress: metadataProgressStoreRef.current,
+        });
         metadataProgressStoreRef.current.setTotal(snapshot.files.length);
         if (rebuildMetadataProjection) {
           void projectSessionThumbnails(
@@ -565,11 +522,7 @@ export function useMediaLibrary(
         });
       }
     },
-    [
-      loadedStateFromProjection,
-      projectSessionMetadata,
-      projectSessionThumbnails,
-    ],
+    [loadedStateFromProjection, projectSessionThumbnails],
   );
 
   const pushApplicationIssue = useCallback(
@@ -894,7 +847,10 @@ export function useMediaLibrary(
             return;
           }
           sessionRevisionRef.current = delta.revision;
-          const acceptedReady = projectSessionMetadata(delta.entries, false);
+          const acceptedReady = projectSessionMetadata(delta.entries, false, {
+            occurrences: fileMetadataOccurrencesStoreRef.current,
+            progress: metadataProgressStoreRef.current,
+          });
           if (acceptedReady > 0) {
             setAppState((previous) => {
               if (
@@ -968,7 +924,6 @@ export function useMediaLibrary(
     api,
     applySessionSnapshot,
     loadedStateFromProjection,
-    projectSessionMetadata,
     projectSessionThumbnails,
   ]);
 
