@@ -27,11 +27,6 @@ import {
 } from "../utils/generatedMetadataDestination";
 import { metadataWriteSelectorsEqual } from "../utils/metadataWriteTarget";
 import {
-  isMetadataDraftEdit,
-  isRecord,
-  isSchemaDefinitionId,
-} from "../utils/metadataWireGuards";
-import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "../utils/schemaDefinitionId";
@@ -172,17 +167,7 @@ export function planGeneratedTargetDraftBatch(input: {
 
   const allowed = allowedSchemaTokens(input.producer);
   const seen = new Set<string>();
-  for (const [index, candidate] of input.edits.entries()) {
-    if (
-      !isRecord(candidate) ||
-      !isSchemaDefinitionId(candidate.schema_id) ||
-      !isMetadataDraftEdit(candidate.edit)
-    ) {
-      fail(
-        "invalid_entry",
-        `Generated metadata entry ${index + 1} is not a valid semantic edit entry.`,
-      );
-    }
+  for (const candidate of input.edits) {
     const token = schemaDefinitionIdToken(candidate.schema_id);
     if (seen.has(token)) {
       fail(

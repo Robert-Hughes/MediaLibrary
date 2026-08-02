@@ -11,7 +11,6 @@ import {
   metadataTargetDraftEntryEqualsExact,
   targetDraftCollectionEqualsExact,
   targetDraftsFromWire,
-  targetDraftsFromUnknownWire,
   targetDraftsToWire,
   validateTargetDraftCollection,
   type TargetDraftEditsByFile,
@@ -317,15 +316,6 @@ describe("target draft target-aware reserved-path wire conversion", () => {
       expect(hasOwn(outgoing, "ordinary/file.jpg")).toBe(true);
       expect(Object.getPrototypeOf(outgoing)).toBe(Object.prototype);
 
-      const unknown = targetDraftsFromUnknownWire(
-        JSON.parse(JSON.stringify(wire)),
-      );
-      expect(hasOwn(unknown, path)).toBe(true);
-      expect(
-        unknown[path][metadataDraftTargetSlotToken(reservedEntry.target)],
-      ).toEqual(reservedEntry);
-      expect(hasOwn(unknown, "ordinary/file.jpg")).toBe(true);
-      expect(Object.getPrototypeOf(unknown)).toBe(Object.prototype);
       expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(
         prototypeBefore,
       );
@@ -936,7 +926,7 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
     expect(resolver).not.toHaveBeenCalled();
   });
 
-  it("rejects duplicate and malformed entries atomically", () => {
+  it("rejects duplicate entries atomically", () => {
     const store = new TargetDraftEditsStore();
     store.replaceMetadataFile("kept.jpg", [entry(created())]);
     const before = store.getAllMetadata();
@@ -948,14 +938,6 @@ describe("TargetDraftEditsStore authoritative replacement", () => {
         entry(existing({ table: "Other" })),
       ]),
     ).toThrow(/Duplicate/);
-    expect(() =>
-      store.replaceMetadataFile("file.jpg", [
-        {
-          target: existing(),
-          edit: { intent: "Set", value: { kind: "Real", value: Number.NaN } },
-        } as MetadataTargetDraftEntry,
-      ]),
-    ).toThrow(/Invalid/);
     expect(store.getAllMetadata()).toBe(before);
     expect(listener).not.toHaveBeenCalled();
   });

@@ -10,6 +10,11 @@ const generatedSources = import.meta.glob<string>("../types/generated/*.ts", {
   import: "default",
   eager: true,
 });
+const utilitySources = import.meta.glob<string>("../utils/*.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
 const useMediaLibrary = productionSources["../useMediaLibrary.ts"];
 const useBatchImageJob = import.meta.glob<string>(
   "../hooks/useBatchImageJob.ts",
@@ -96,6 +101,16 @@ describe("Rust-authoritative application boundary", () => {
     expect(rustLib).toContain("validate_new_property(info)");
     expect(rustLib).toContain(
       "Another pending draft already uses the intended complete selector",
+    );
+  });
+
+  it("trusts generated Rust session payloads instead of re-declaring their wire schema", () => {
+    expect(utilitySources).not.toHaveProperty("../utils/metadataWireGuards.ts");
+    expect(productionSources["../targetDraftEdits.ts"]).not.toContain(
+      "FromUnknownWire",
+    );
+    expect(utilitySources["../utils/scanEvents.ts"]).toContain(
+      "raw: MetadataOccurrences",
     );
   });
 
