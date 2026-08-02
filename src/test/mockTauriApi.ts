@@ -1478,6 +1478,24 @@ export function createMockTauriApi(): MockTauriApi {
           onmessage: (payload: unknown) => void;
         };
         await Promise.resolve();
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          apply_operation: {
+            operation_id: operationId,
+            requested_paths: explicitPaths,
+            state: { status: "running" },
+            total: relPaths.length,
+            current: 0,
+            current_file: null,
+            cancelling: false,
+            file_failure_count: 0,
+            warning_count: 0,
+            issues: [],
+            summary: null,
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         channel.onmessage({
           kind: "started",
           operation_id: operationId,
@@ -1528,11 +1546,67 @@ export function createMockTauriApi(): MockTauriApi {
           } else {
             nextVerification[relative_path] = structuredClone(pendingOutcomes);
           }
+          const completedWithCurrent = [...completedFiles, effectiveResult];
+          const applyIssues = completedWithCurrent.flatMap((result) => [
+            ...(result.error === null
+              ? []
+              : [
+                  {
+                    relative_path: result.relative_path,
+                    severity: "error",
+                    message: result.error,
+                  },
+                ]),
+            ...(result.warning === null
+              ? []
+              : [
+                  {
+                    relative_path: result.relative_path,
+                    severity: "warning",
+                    message: result.warning,
+                  },
+                ]),
+          ]);
+          const nextSessionIssues = [...sessionSnapshot.issues];
+          for (const issue of applyIssues.slice(
+            sessionSnapshot.apply_operation?.issues.length ?? 0,
+          )) {
+            nextSessionIssues.push({
+              issue_id:
+                (nextSessionIssues[nextSessionIssues.length - 1]?.issue_id ??
+                  0) + 1,
+              severity: issue.severity,
+              error_type:
+                issue.severity === "warning"
+                  ? "metadata-apply-warning"
+                  : "metadata-apply-file",
+              error_message: issue.message,
+              affected_files: [issue.relative_path],
+            });
+          }
           sessionSnapshot = {
             ...sessionSnapshot,
             revision: sessionSnapshot.revision + 1,
             drafts: nextDrafts,
+            issues: nextSessionIssues,
             verification_outcomes: nextVerification,
+            apply_operation: {
+              operation_id: operationId,
+              requested_paths: explicitPaths,
+              state: { status: "running" },
+              total: relPaths.length,
+              current: index + 1,
+              current_file: relative_path,
+              cancelling: mock.cancelTargetApplyCalled,
+              file_failure_count: completedWithCurrent.filter(
+                (result) => !result.applied,
+              ).length,
+              warning_count: completedWithCurrent.filter(
+                (result) => result.warning !== null,
+              ).length,
+              issues: applyIssues,
+              summary: null,
+            },
           };
           mock.targetDraftEditsByFolder[folder] =
             targetDraftsFromWire(nextDrafts);
@@ -1593,6 +1667,24 @@ export function createMockTauriApi(): MockTauriApi {
           abort_reason: null,
           delivery_failure_count: undeliveredFiles.length,
         };
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          apply_operation: {
+            operation_id: operationId,
+            requested_paths: explicitPaths,
+            state: { status: "completed" },
+            total: relPaths.length,
+            current: summary.completed,
+            current_file: null,
+            cancelling: false,
+            file_failure_count: summary.failed,
+            warning_count: summary.warning_count,
+            issues: sessionSnapshot.apply_operation?.issues ?? [],
+            summary,
+          },
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
         channel.onmessage({
           kind: "complete",
           operation_id: operationId,
@@ -1604,8 +1696,31 @@ export function createMockTauriApi(): MockTauriApi {
           complete_delivery_failed: false,
         };
       }
+      if (cmd === "dismiss_media_library_session_apply_operation") {
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
+          apply_operation: null,
+        };
+        emit("media_library_session_changed", { ...sessionSnapshot });
+        return { ...sessionSnapshot };
+      }
       if (cmd === "cancel_apply_edits") {
         mock.cancelTargetApplyCalled = true;
+        if (
+          sessionSnapshot.apply_operation !== null &&
+          sessionSnapshot.apply_operation.state.status === "running"
+        ) {
+          sessionSnapshot = {
+            ...sessionSnapshot,
+            revision: sessionSnapshot.revision + 1,
+            apply_operation: {
+              ...sessionSnapshot.apply_operation,
+              cancelling: true,
+            },
+          };
+          emit("media_library_session_changed", { ...sessionSnapshot });
+        }
         return;
       }
       if (cmd === "preload_schema") {

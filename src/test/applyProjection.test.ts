@@ -18,6 +18,7 @@ function operation(
     cancelling: false,
     file_failure_count: 1,
     warning_count: 0,
+    issues: [],
     summary: null,
     ...overrides,
   };

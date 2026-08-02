@@ -59,6 +59,15 @@ pub enum MediaLibraryApplyOperationState {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibraryApplyIssue {
+    pub relative_path: String,
+    pub severity: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct MediaLibraryApplyOperation {
     pub operation_id: String,
     pub requested_paths: Option<Vec<String>>,
@@ -69,6 +78,7 @@ pub struct MediaLibraryApplyOperation {
     pub cancelling: bool,
     pub file_failure_count: usize,
     pub warning_count: usize,
+    pub issues: Vec<MediaLibraryApplyIssue>,
     pub summary: Option<crate::apply_batch::MetadataApplySummary>,
 }
 
@@ -484,6 +494,7 @@ impl MediaLibrarySessionState {
             cancelling: false,
             file_failure_count: 0,
             warning_count: 0,
+            issues: Vec::new(),
             summary: None,
         });
         Ok(snapshot.clone())
@@ -585,6 +596,13 @@ impl MediaLibrarySessionState {
                     .into_iter()
                     .flatten()
                     {
+                        snapshot.apply_operation.as_mut().unwrap().issues.push(
+                            MediaLibraryApplyIssue {
+                                relative_path: result.relative_path.clone(),
+                                severity: severity.to_owned(),
+                                message: message.clone(),
+                            },
+                        );
                         snapshot.issues.push(MediaLibrarySessionIssue {
                             issue_id: self.next_issue_id.fetch_add(1, Ordering::Relaxed),
                             severity: severity.to_owned(),
@@ -1449,6 +1467,48 @@ mod tests {
         let dismissed = state.dismiss_issue(issue_id);
         assert!(dismissed.issues.is_empty());
         assert!(dismissed.revision > with_issue.revision);
+    }
+
+    #[test]
+    fn apply_diagnostics_are_reconstructible_from_the_session_snapshot() {
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .begin_apply_operation(session_id, "apply-1".into(), None)
+            .unwrap();
+
+        let updated = state
+            .update_apply_operation(
+                session_id,
+                &crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
+                    operation_id: "apply-1".into(),
+                    sequence: 1,
+                    current: 1,
+                    total: 1,
+                    results: vec![crate::apply_batch::MetadataApplyFileResult {
+                        relative_path: "failed.jpg".into(),
+                        applied: false,
+                        error: Some("write failed".into()),
+                        warning: Some("metadata partially refreshed".into()),
+                        fresh_file_metadata: None,
+                        target_outcomes: Vec::new(),
+                        persisted_draft_entries: None,
+                    }],
+                },
+            )
+            .unwrap();
+
+        let operation = updated.apply_operation.as_ref().unwrap();
+        assert_eq!(operation.issues.len(), 2);
+        assert_eq!(operation.issues[0].relative_path, "failed.jpg");
+        assert_eq!(operation.issues[0].severity, "error");
+        assert_eq!(operation.issues[0].message, "write failed");
+        assert_eq!(operation.issues[1].severity, "warning");
+
+        let recovered = state.snapshot();
+        assert_eq!(recovered.apply_operation, updated.apply_operation);
     }
 
     #[test]
