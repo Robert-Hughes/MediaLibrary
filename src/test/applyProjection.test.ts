@@ -28,6 +28,7 @@ describe("apply projection", () => {
   it("projects active Rust apply state for the UI", () => {
     expect(projectApplyOperation(operation())).toEqual({
       applying: {
+        operationId: "apply-1",
         total: 2,
         current: 1,
         currentFile: "a.jpg",
@@ -44,7 +45,10 @@ describe("apply projection", () => {
       projectApplyOperation(
         operation({ state: { status: "completed" }, summary }),
       ),
-    ).toEqual({ applying: null, completion: { summary, issues: [] } });
+    ).toEqual({
+      applying: null,
+      completion: { operationId: "apply-1", summary, issues: [] },
+    });
     expect(
       projectApplyOperation(
         operation({ state: { status: "failed", error: "failed" } }),

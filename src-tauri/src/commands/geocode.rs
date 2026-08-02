@@ -53,13 +53,30 @@ pub async fn geocode_images_cmd(
         .get("geocode")
         .filter(|operation| operation.operation_id == operation_id)
         .ok_or_else(|| "The geocode operation identity changed".to_string())?;
+    let total = operation.total;
+    let emitter = batch_job::BatchProgressEmitter::resume(
+        &app,
+        "geocode",
+        session_id,
+        operation_id,
+        total,
+        None,
+        batch_job::GeneratedDraftProducer::Geocode,
+    )?;
     let items: Vec<GeocodeRequestItem> = serde_json::from_value(
         operation
             .request
             .clone()
-            .ok_or_else(|| "The geocode operation request is unavailable".to_string())?,
+            .ok_or_else(|| "The geocode operation request is unavailable".to_string())
+            .inspect_err(|error| emitter.fail(error.clone()))?,
     )
-    .map_err(|error| format!("The retained geocode request is invalid: {error}"))?;
+    .map_err(|error| format!("The retained geocode request is invalid: {error}"))
+    .inspect_err(|error| emitter.fail(error.clone()))?;
+    if items.len() != total {
+        let error = "The retained geocode request count changed".to_string();
+        emitter.fail(error.clone());
+        return Err(error);
+    }
     let cancel_flag = geocode_state.install();
     let client = geocode::GeocodeClient::new();
     let app_data = app_data_dir(&app).ok();
@@ -70,16 +87,7 @@ pub async fn geocode_images_cmd(
 
     log::info!("[geocode] starting total={}", items.len());
 
-    let sink = TauriGeocodeSink {
-        emitter: batch_job::BatchProgressEmitter::resume(
-            &app,
-            "geocode",
-            session_id,
-            operation_id,
-            items.len(),
-            batch_job::GeneratedDraftProducer::Geocode,
-        )?,
-    };
+    let sink = TauriGeocodeSink { emitter };
 
     let outcome =
         geocode::run_geocode_batch(&items, &client, &mut cache, &cancel_flag, &sink, |c| {

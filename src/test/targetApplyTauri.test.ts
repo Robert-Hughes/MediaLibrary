@@ -98,6 +98,7 @@ describe("target-aware apply command channel", () => {
 
     const result = await applyTargetDraftEdits(
       h.api,
+      7,
       "folder",
       paths,
       "operation",
@@ -108,6 +109,7 @@ describe("target-aware apply command channel", () => {
     expect(h.invoke).toHaveBeenCalledWith(
       "apply_metadata_draft_edits_cmd",
       expect.objectContaining({
+        sessionId: 7,
         folderPath: "folder",
         relPaths: ["file.jpg"],
         operationId: "operation",
@@ -144,7 +146,7 @@ describe("target-aware apply command channel", () => {
         }),
       });
     });
-    await applyTargetDraftEdits(h.api, "folder", undefined, "all", {});
+    await applyTargetDraftEdits(h.api, 7, "folder", undefined, "all", {});
     expect(h.invoke.mock.calls[0]?.[1]?.relPaths).toBeNull();
   });
 
@@ -153,6 +155,7 @@ describe("target-aware apply command channel", () => {
     await expect(
       applyTargetDraftEdits(
         h.api,
+        7,
         "folder",
         ["same.jpg", "same.jpg"],
         "duplicate",
@@ -179,7 +182,7 @@ describe("target-aware apply command channel", () => {
       });
       return terminal();
     });
-    await applyTargetDraftEdits(h.api, "folder", ["file.jpg"], "current", {
+    await applyTargetDraftEdits(h.api, 7, "folder", ["file.jpg"], "current", {
       onProtocolError,
     });
     expect(onProtocolError).not.toHaveBeenCalled();
@@ -203,7 +206,7 @@ describe("target-aware apply command channel", () => {
       return terminal();
     });
     await expect(
-      applyTargetDraftEdits(h.api, "folder", ["file.jpg"], "operation", {
+      applyTargetDraftEdits(h.api, 7, "folder", ["file.jpg"], "operation", {
         onMessage: () => {
           throw failure;
         },
@@ -227,7 +230,7 @@ describe("target-aware apply command channel", () => {
       });
       return terminal();
     });
-    await applyTargetDraftEdits(h.api, "folder", ["file.jpg"], "operation", {
+    await applyTargetDraftEdits(h.api, 7, "folder", ["file.jpg"], "operation", {
       onMessage,
     });
     onMessage.mockClear();
@@ -244,7 +247,10 @@ describe("target-aware apply command channel", () => {
 
   it("uses the exact cancellation command", async () => {
     const h = harness();
-    await cancelTargetApply(h.api);
-    expect(h.invoke).toHaveBeenCalledWith("cancel_apply_edits");
+    await cancelTargetApply(h.api, 7, "operation");
+    expect(h.invoke).toHaveBeenCalledWith("cancel_apply_edits", {
+      sessionId: 7,
+      operationId: "operation",
+    });
   });
 });

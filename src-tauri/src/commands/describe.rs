@@ -372,22 +372,7 @@ pub async fn estimate_describe_cost_cmd(
     let folder_path = snapshot
         .folder
         .ok_or_else(|| "The active media-library session has no folder".to_string())?;
-    let cancel_flag = describe_state.install();
-    let s = settings::load_settings(&app_data_dir(&app)?)?;
-    if s.openai_api_key.trim().is_empty() {
-        describe_state.clear();
-        return Err("OpenAI API key is not configured. Open Settings to enter your key.".into());
-    }
-    openai_describe::pricing_for(&s.openai_model)
-        .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))?;
-
     let total = rel_paths.len();
-    log::info!(
-        "[describe] estimate starting model={} mode={:?} total={}",
-        s.openai_model,
-        s.ai_cost_estimate_mode,
-        total
-    );
     let emitter = batch_job::BatchProgressEmitter::begin(
         &app,
         "describe",
@@ -397,6 +382,26 @@ pub async fn estimate_describe_cost_cmd(
         Some(serde_json::to_value(&rel_paths).map_err(|error| error.to_string())?),
         None,
     )?;
+    let settings_dir = app_data_dir(&app).inspect_err(|error| emitter.fail(error.clone()))?;
+    let s =
+        settings::load_settings(&settings_dir).inspect_err(|error| emitter.fail(error.clone()))?;
+    if s.openai_api_key.trim().is_empty() {
+        describe_state.clear();
+        let error = "OpenAI API key is not configured. Open Settings to enter your key.";
+        emitter.fail(error);
+        return Err(error.into());
+    }
+    openai_describe::pricing_for(&s.openai_model)
+        .ok_or_else(|| format!("no pricing entry for model {}", s.openai_model))
+        .inspect_err(|error| emitter.fail(error.clone()))?;
+    let cancel_flag = describe_state.install();
+
+    log::info!(
+        "[describe] estimate starting model={} mode={:?} total={}",
+        s.openai_model,
+        s.ai_cost_estimate_mode,
+        total
+    );
     emitter.estimate_started(total);
     let _ = app.emit(
         "describe_estimate_started",
@@ -592,6 +597,7 @@ pub async fn describe_images_cmd(
         session_id,
         operation_id,
         total,
+        None,
         batch_job::GeneratedDraftProducer::Describe,
     )?;
     let (http, s) = make_openai_http(&app).inspect_err(|error| {

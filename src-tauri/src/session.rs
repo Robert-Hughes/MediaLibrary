@@ -326,6 +326,7 @@ impl MediaLibrarySessionState {
         session_id: u64,
         operation_id: &str,
         total: usize,
+        confirmed_request: Option<serde_json::Value>,
     ) -> Result<MediaLibrarySessionSnapshot, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
@@ -347,6 +348,9 @@ impl MediaLibrarySessionState {
         operation.succeeded.clear();
         operation.summary = None;
         operation.error = None;
+        if let Some(request) = confirmed_request {
+            operation.request = Some(request);
+        }
         snapshot.revision += 1;
         Ok(snapshot.clone())
     }
@@ -726,6 +730,7 @@ impl MediaLibrarySessionState {
     pub fn request_apply_cancellation(
         &self,
         session_id: u64,
+        operation_id: &str,
     ) -> Result<MediaLibrarySessionSnapshot, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
@@ -737,6 +742,9 @@ impl MediaLibrarySessionState {
             .apply_operation
             .as_mut()
             .ok_or_else(|| "No metadata apply operation is active".to_string())?;
+        if operation.operation_id != operation_id {
+            return Err("The metadata apply operation identity changed".into());
+        }
         if !matches!(operation.state, MediaLibraryApplyOperationState::Running) {
             return Ok(snapshot.clone());
         }
@@ -771,13 +779,17 @@ impl MediaLibrarySessionState {
     pub fn dismiss_apply_operation(
         &self,
         session_id: u64,
+        operation_id: &str,
     ) -> Result<MediaLibrarySessionSnapshot, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id) {
             return Err("The media-library session changed before apply was dismissed".into());
         }
-        if snapshot.apply_operation.is_none() {
+        let Some(operation) = snapshot.apply_operation.as_ref() else {
             return Ok(snapshot.clone());
+        };
+        if operation.operation_id != operation_id {
+            return Err("The metadata apply operation identity changed".into());
         }
         snapshot.apply_operation = None;
         snapshot.revision += 1;
@@ -1340,20 +1352,24 @@ impl MediaLibrarySessionState {
         snapshot.clone()
     }
 
-    pub fn begin_close(&self) -> MediaLibrarySessionSnapshot {
+    pub fn begin_close(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
-        if snapshot.lifecycle == MediaLibrarySessionLifecycle::Idle {
-            return snapshot.clone();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle == MediaLibrarySessionLifecycle::Idle
+        {
+            return Err("The media-library session changed before close started".into());
         }
         snapshot.revision += 1;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Closing;
-        snapshot.clone()
+        Ok(snapshot.clone())
     }
 
-    pub fn finish_close(&self) -> MediaLibrarySessionSnapshot {
+    pub fn finish_close(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
-        if snapshot.lifecycle == MediaLibrarySessionLifecycle::Idle {
-            return snapshot.clone();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Closing
+        {
+            return Err("The media-library session changed before close completed".into());
         }
         snapshot.revision += 1;
         snapshot.session_id = None;
@@ -1371,7 +1387,7 @@ impl MediaLibrarySessionState {
         snapshot.batch_operations.clear();
         self.thumbnail_cache.lock().unwrap().clear();
         self.superseded_scan_metadata.lock().unwrap().clear();
-        snapshot.clone()
+        Ok(snapshot.clone())
     }
 }
 
@@ -1443,11 +1459,11 @@ mod tests {
         assert_eq!(completed.revision, 5);
         assert!(!completed.discovery_running);
 
-        let closing = state.begin_close();
+        let closing = state.begin_close(1).unwrap();
         assert_eq!(closing.revision, 6);
         assert_eq!(closing.lifecycle, MediaLibrarySessionLifecycle::Closing);
 
-        let idle = state.finish_close();
+        let idle = state.finish_close(1).unwrap();
         assert_eq!(idle.revision, 7);
         assert_eq!(idle.lifecycle, MediaLibrarySessionLifecycle::Idle);
         assert_eq!(idle.session_id, None);
@@ -1466,6 +1482,19 @@ mod tests {
         assert!(state
             .mark_loaded(second.session_id.unwrap(), "C:/second")
             .is_ok());
+    }
+
+    #[test]
+    fn stale_close_cannot_replace_a_newer_session() {
+        let state = MediaLibrarySessionState::new();
+        let first = state.begin_open("C:/first".into());
+        let first_id = first.session_id.unwrap();
+        let second = state.begin_open("C:/second".into());
+        let second_id = second.session_id.unwrap();
+
+        assert!(state.begin_close(first_id).is_err());
+        assert_eq!(state.snapshot().session_id, Some(second_id));
+        assert_eq!(state.snapshot().folder.as_deref(), Some("C:/second"));
     }
     #[test]
     fn stale_file_batches_are_rejected_without_mutating_the_snapshot() {
@@ -1647,6 +1676,30 @@ mod tests {
     }
 
     #[test]
+    fn stale_apply_commands_cannot_mutate_the_current_operation() {
+        let state = MediaLibrarySessionState::new();
+        let opening = state.begin_open("C:/photos".into());
+        let session_id = opening.session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .begin_apply_operation(session_id, "apply-current".into(), None)
+            .unwrap();
+
+        assert!(state
+            .request_apply_cancellation(session_id, "apply-stale")
+            .is_err());
+        assert!(state
+            .dismiss_apply_operation(session_id, "apply-stale")
+            .is_err());
+        let operation = state.snapshot().apply_operation.unwrap();
+        assert_eq!(operation.operation_id, "apply-current");
+        assert!(!operation.cancelling);
+    }
+
+    #[test]
     fn frontend_production_uses_typed_rust_authority_boundaries() {
         let frontend = include_str!("../../src/useMediaLibrary.ts");
         assert!(!frontend.contains("mutate_media_library_session_draft_rows"));
@@ -1757,7 +1810,7 @@ mod tests {
             )
             .unwrap();
         let running = state
-            .start_batch_operation(session_id, &operation_id, 1)
+            .start_batch_operation(session_id, &operation_id, 1, None)
             .unwrap();
 
         assert_eq!(
@@ -1768,6 +1821,8 @@ mod tests {
             running.batch_operations["normalise"].estimate,
             awaiting.batch_operations["normalise"].estimate
         );
-        assert!(state.start_batch_operation(session_id, "stale", 1).is_err());
+        assert!(state
+            .start_batch_operation(session_id, "stale", 1, None)
+            .is_err());
     }
 }

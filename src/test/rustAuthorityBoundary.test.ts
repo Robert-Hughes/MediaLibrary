@@ -19,6 +19,11 @@ const useBatchImageJob = import.meta.glob<string>(
     eager: true,
   },
 )["../hooks/useBatchImageJob.ts"];
+const rustLib = import.meta.glob<string>("../../src-tauri/src/lib.rs", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})["../../src-tauri/src/lib.rs"];
 
 describe("Rust-authoritative application boundary", () => {
   it("does not retain the removed frontend draft autosave authority", () => {
@@ -66,6 +71,12 @@ describe("Rust-authoritative application boundary", () => {
     expect(useMediaLibrary).toContain(
       '"dismiss_media_library_session_apply_operation"',
     );
+    expect(rustLib).toContain(
+      "fn dismiss_media_library_session_apply_operation(",
+    );
+    expect(rustLib).toContain("dismiss_media_library_session_apply_operation,");
+    expect(rustLib).toContain("session_id: u64");
+    expect(rustLib).toContain("operation_id: String");
     expect(
       generatedSources["../types/generated/MediaLibraryApplyOperation.ts"],
     ).toContain("issues: Array<MediaLibraryApplyIssue>");

@@ -103,7 +103,7 @@ pub enum MetadataApplyStreamMessage {
 
 /// Cancellation state for the sole metadata apply command.
 pub struct ApplyEditsState {
-    cancelled: Mutex<Option<Arc<AtomicBool>>>,
+    active: Mutex<Option<(String, Arc<AtomicBool>)>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,37 +120,43 @@ impl std::error::Error for ApplyEditsBusyError {}
 impl ApplyEditsState {
     pub fn new() -> Self {
         Self {
-            cancelled: Mutex::new(None),
+            active: Mutex::new(None),
         }
     }
 
-    pub fn try_install(&self) -> Result<Arc<AtomicBool>, ApplyEditsBusyError> {
-        let mut installed = self.cancelled.lock().unwrap();
+    pub fn try_install(&self, operation_id: &str) -> Result<Arc<AtomicBool>, ApplyEditsBusyError> {
+        let mut installed = self.active.lock().unwrap();
         if installed.is_some() {
             return Err(ApplyEditsBusyError);
         }
 
         let flag = Arc::new(AtomicBool::new(false));
-        *installed = Some(flag.clone());
+        *installed = Some((operation_id.to_owned(), flag.clone()));
         Ok(flag)
     }
 
     pub fn clear(&self) {
-        *self.cancelled.lock().unwrap() = None;
+        *self.active.lock().unwrap() = None;
     }
 
     pub fn clear_if_mine(&self, flag: &Arc<AtomicBool>) {
-        let mut installed = self.cancelled.lock().unwrap();
+        let mut installed = self.active.lock().unwrap();
         if installed
             .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(current, flag))
+            .is_some_and(|(_, current)| Arc::ptr_eq(current, flag))
         {
             *installed = None;
         }
     }
 
-    pub fn signal_cancel(&self) -> bool {
-        if let Some(flag) = self.cancelled.lock().unwrap().as_ref() {
+    pub fn signal_cancel(&self, operation_id: &str) -> bool {
+        if let Some((_, flag)) = self
+            .active
+            .lock()
+            .unwrap()
+            .as_ref()
+            .filter(|(active_id, _)| active_id == operation_id)
+        {
             flag.store(true, Ordering::Relaxed);
             true
         } else {
@@ -167,6 +173,7 @@ impl Default for ApplyEditsState {
 
 pub(crate) async fn run_apply_edits_command<T, StartWorker, WorkerFuture, WorkerJoinError>(
     state: &ApplyEditsState,
+    operation_id: &str,
     start_worker: StartWorker,
 ) -> Result<T, String>
 where
@@ -174,7 +181,9 @@ where
     WorkerFuture: Future<Output = Result<Result<T, String>, WorkerJoinError>>,
     WorkerJoinError: std::fmt::Display,
 {
-    let cancel_flag = state.try_install().map_err(|error| error.to_string())?;
+    let cancel_flag = state
+        .try_install(operation_id)
+        .map_err(|error| error.to_string())?;
     let result = match start_worker(cancel_flag.clone()).await {
         Ok(result) => result,
         Err(error) => Err(format!("Target-aware apply edits worker failed: {error}")),
@@ -1447,24 +1456,33 @@ mod tests {
     fn target_state_acquisition_is_exclusive_and_ownership_aware() {
         let state = ApplyEditsState::new();
 
-        let active = state.try_install().expect("first acquisition must succeed");
-        assert_eq!(state.try_install().unwrap_err(), ApplyEditsBusyError);
+        let active = state
+            .try_install("apply-1")
+            .expect("first acquisition must succeed");
+        assert_eq!(
+            state.try_install("apply-2").unwrap_err(),
+            ApplyEditsBusyError
+        );
 
-        assert!(state.signal_cancel());
+        assert!(!state.signal_cancel("apply-stale"));
+        assert!(state.signal_cancel("apply-1"));
         assert!(active.load(Ordering::Relaxed));
 
         let unrelated = Arc::new(AtomicBool::new(false));
         state.clear_if_mine(&unrelated);
-        assert_eq!(state.try_install().unwrap_err(), ApplyEditsBusyError);
+        assert_eq!(
+            state.try_install("apply-2").unwrap_err(),
+            ApplyEditsBusyError
+        );
 
         state.clear_if_mine(&active);
         let reacquired = state
-            .try_install()
+            .try_install("apply-2")
             .expect("clearing the active flag must permit reacquisition");
         assert!(!reacquired.load(Ordering::Relaxed));
 
         state.clear();
-        assert!(state.try_install().is_ok());
+        assert!(state.try_install("apply-3").is_ok());
     }
 
     #[test]
@@ -1488,11 +1506,11 @@ mod tests {
     #[tokio::test]
     async fn busy_command_starts_no_worker_events_or_persistence_work() {
         let state = ApplyEditsState::new();
-        let active = state.try_install().unwrap();
+        let active = state.try_install("active").unwrap();
         let effects = Arc::new(Mutex::new(AdmissionEffects::default()));
         let effects_for_worker = effects.clone();
 
-        let result = run_apply_edits_command(&state, move |_| {
+        let result = run_apply_edits_command(&state, "rejected", move |_| {
             let mut effects = effects_for_worker.lock().unwrap();
             effects.workers += 1;
             effects.loads += 1;
@@ -1516,7 +1534,7 @@ mod tests {
     #[tokio::test]
     async fn command_lifecycle_releases_after_completion_and_worker_error() {
         let state = ApplyEditsState::new();
-        let completed = run_apply_edits_command(&state, |_| {
+        let completed = run_apply_edits_command(&state, "completed", |_| {
             std::future::ready::<Result<Result<&'static str, String>, &'static str>>(Ok(Ok(
                 "completed",
             )))
@@ -1524,7 +1542,7 @@ mod tests {
         .await;
         assert_eq!(completed, Ok("completed"));
 
-        let worker_error = run_apply_edits_command(&state, |_| {
+        let worker_error = run_apply_edits_command(&state, "worker-error", |_| {
             std::future::ready::<Result<Result<(), String>, &'static str>>(Ok(Err(
                 "worker failed".into()
             )))
@@ -1533,7 +1551,7 @@ mod tests {
         assert_eq!(worker_error, Err("worker failed".into()));
 
         let reacquired = state
-            .try_install()
+            .try_install("reacquired")
             .expect("worker error must release command state");
         state.clear_if_mine(&reacquired);
     }
@@ -1541,7 +1559,7 @@ mod tests {
     #[tokio::test]
     async fn command_lifecycle_releases_after_worker_panic_join_failure() {
         let state = ApplyEditsState::new();
-        let result = run_apply_edits_command(&state, |_| {
+        let result = run_apply_edits_command(&state, "panic", |_| {
             tokio::task::spawn_blocking(|| -> Result<(), String> {
                 panic!("simulated target-aware worker panic")
             })
@@ -1552,7 +1570,7 @@ mod tests {
             .unwrap_err()
             .starts_with("Target-aware apply edits worker failed:"));
         let reacquired = state
-            .try_install()
+            .try_install("reacquired")
             .expect("join failure must release command state");
         state.clear_if_mine(&reacquired);
     }
@@ -1654,11 +1672,12 @@ mod tests {
     #[test]
     fn cancellation_is_observed_only_at_file_boundaries() {
         let state = ApplyEditsState::new();
-        let current = state.try_install().unwrap();
-        assert!(state.signal_cancel());
+        let current = state.try_install("current").unwrap();
+        assert!(!state.signal_cancel("stale"));
+        assert!(state.signal_cancel("current"));
         assert!(current.load(Ordering::Relaxed));
         state.clear_if_mine(&current);
-        assert!(!state.signal_cancel());
+        assert!(!state.signal_cancel("current"));
 
         let first_target = new_target("1");
         let second_target = new_target("2");

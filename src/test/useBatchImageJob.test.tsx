@@ -12,6 +12,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 const config: BatchJobConfig<string[]> = {
+  operationKind: "describe",
   commands: {
     estimate: "estimate_cmd",
     run: "run_cmd",
@@ -58,6 +59,35 @@ describe("useBatchImageJob Rust projection", () => {
       relPaths: ["a.jpg"],
       sessionId: 12,
     });
+  });
+
+  it("recovers a rejected command from the Rust session instead of inventing a failure", async () => {
+    invokeMock.mockImplementation(async (command: unknown) => {
+      if (command === "estimate_cmd") throw new Error("missing API key");
+      if (command === "get_media_library_session_snapshot") {
+        return {
+          batch_operations: {
+            describe: operation({
+              phase: "failed",
+              error: "missing API key",
+            }),
+          },
+        };
+      }
+      return undefined;
+    });
+    const { result } = renderHook(() =>
+      useBatchImageJob(config, { sessionId: 12 }),
+    );
+
+    act(() => result.current.actions.start("/folder", ["a.jpg"]));
+
+    await waitFor(() => expect(result.current.state.phase).toBe("done"));
+    expect(result.current.state.estimateError).toBe("missing API key");
+    expect(result.current.state.failures).toEqual([]);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "get_media_library_session_snapshot",
+    );
   });
 
   it("reconstructs all durable lifecycle state from one Rust operation", async () => {

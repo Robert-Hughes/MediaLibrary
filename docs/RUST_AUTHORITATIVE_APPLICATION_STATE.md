@@ -446,6 +446,8 @@ All seven migration phases and all 24 slices are implemented in production.
 - Metadata planning, draft mutation and persistence, apply reconciliation, verification resolution, and generated-workflow staging are Rust commands.
 - Scan-start failures are committed as a Rust-owned `failed` lifecycle with stable issue identities, so reload cannot reconstruct a false loaded session.
 - Generated batch jobs retain their session ID, operation ID, requested paths, and confirmation request in Rust. Describe, geocode, and normalise resume only that exact operation, and Rust stages generated drafts before committing final success and failure summaries.
+- Close, apply, cancellation, dismissal, and batch-confirmation commands carry the exact Rust session and operation identities they target. Rejected or delayed commands cannot mutate replacement state, and the frontend changes lifecycle state only from accepted snapshots.
+- Batch preflight and retained-request failures are committed to the Rust operation before the command rejects. Remount recovery uses the retained typed request rather than reconstructing generated-job inputs from frontend memory.
 - Application issues are recorded in the Rust session with stable IDs; the frontend does not create unrecoverable anonymous issue rows.
 - `useMediaLibrary` subscribes, projects, dispatches commands, and owns UI-only state; obsolete autosave, scan-buffer and apply-controller state machines have been removed.
 - Mount/recovery tests reconstruct representative scan, metadata, thumbnail, draft, apply, verification, issue, and batch-operation state from Rust alone.

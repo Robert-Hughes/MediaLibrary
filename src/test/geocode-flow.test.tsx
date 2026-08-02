@@ -11,6 +11,7 @@ import {
   act,
   waitFor,
   fireEvent,
+  renderHook,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
@@ -22,10 +23,12 @@ import type {
   MetadataOccurrence,
   MetadataValue,
   SchemaDefinitionId,
+  MediaLibraryBatchOperation,
 } from "../types";
 import { GPS_IDS, KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
+import { useGeocodeImages } from "../hooks/useGeocodeImages";
 
 let mockApiInstance: ReturnType<typeof createMockTauriApi>;
 
@@ -204,6 +207,33 @@ afterEach(() => {
 });
 
 describe("Reverse-geocoding flow", () => {
+  it("reconstructs retained request items after remount", async () => {
+    const items = [{ relPath: "one.jpg", lat: 51, lon: 0 }];
+    const operation: MediaLibraryBatchOperation = {
+      operation_id: "geocode-3",
+      kind: "geocode",
+      requested_paths: ["one.jpg"],
+      request: items,
+      phase: "awaiting-confirm",
+      total: 1,
+      current: 0,
+      current_file: null,
+      cancelling: false,
+      failures: [],
+      succeeded: [],
+      estimate: null,
+      summary: null,
+      error: null,
+    };
+
+    const { result } = renderHook(() =>
+      useGeocodeImages({ sessionId: 1, operation }),
+    );
+
+    await waitFor(() => expect(result.current.open).toBe(true));
+    expect(result.current.state.items).toEqual(items);
+  });
+
   it("walks straight to awaiting-confirm (no estimate phase) and shows the warning copy", async () => {
     // Pin the two evidence targets and Normalize guidance.
     const { user } = await openFolderAndSelectFile("test.jpg", {

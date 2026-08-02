@@ -74,6 +74,7 @@ export function useDescribeImages(options: UseDescribeImagesOptions = {}): {
   // no closed-over state, just constants and pure parsers.
   const config = useMemo<BatchJobConfig<string[]>>(
     () => ({
+      operationKind: "describe",
       commands: {
         estimate: "estimate_describe_cost_cmd",
         run: "describe_images_cmd",
