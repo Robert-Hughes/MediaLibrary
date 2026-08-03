@@ -1033,7 +1033,7 @@ describe("useMediaLibrary", () => {
   it("sortConfig persists across scan_complete (App applies sort once scanning ends)", async () => {
     // We assert at the hook level that scanning flips false on scan_complete
     // and sortConfig is preserved.  App.tsx skips sortFiles while scanning
-    // is true and runs it once when scanning becomes false â€” the test in
+    // is true and runs it once when scanning becomes false — the test in
     // column-sorting verifies the FileList side of that contract.
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
@@ -1202,7 +1202,7 @@ describe("useMediaLibrary", () => {
       await result.current[1].openFolder();
     });
 
-    // Get past the loadingâ†’loaded transition so we're in a state with timers.
+    // Get past the loading→loaded transition so we're in a state with timers.
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
@@ -1224,7 +1224,7 @@ describe("useMediaLibrary", () => {
     });
     expect(result.current[0].kind).toBe("idle");
 
-    // Advance well past any timer interval â€” nothing should happen.
+    // Advance well past any timer interval — nothing should happen.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
@@ -1270,7 +1270,7 @@ describe("useMediaLibrary", () => {
 
     const oldScanId = mock.currentScanId;
 
-    // Start a new scan via openRecent â€” clears file list and gets a new scan_id
+    // Start a new scan via openRecent — clears file list and gets a new scan_id
     mock.invocations.length = 0;
     await act(async () => {
       await result.current[1].openRecent("/files/second");

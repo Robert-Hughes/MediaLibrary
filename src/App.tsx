@@ -1,4 +1,4 @@
-﻿import {
+import {
   useState,
   useEffect,
   useRef,
@@ -97,7 +97,7 @@ function LoadedView({
 }) {
   // Subscribe to metadata progress so sorting unblocks once metadata loading
   // completes, not just when the directory walk finishes.  Keeps re-renders
-  // here cheap â€” getRemaining() returns a number and the store batches
+  // here cheap — getRemaining() returns a number and the store batches
   // notifications via queueMicrotask.
   const metadataProgress = state.metadataProgress;
   const metadataRemaining = useSyncExternalStore(
@@ -111,10 +111,10 @@ function LoadedView({
     metadataRemaining,
   );
 
-  // We show files in arrival order whenever sorting is suspended â€” both
+  // We show files in arrival order whenever sorting is suspended — both
   // during the directory walk and (for image-metadata sorts) while ExifTool
   // is still streaming results.  Without this gate, an active image-column
-  // sort would re-run on every metadata batch (~50â€“125 full sorts per scan).
+  // sort would re-run on every metadata batch (~50–125 full sorts per scan).
   const sortedFiles = useMemo(
     () =>
       sortingDisabled
@@ -164,7 +164,7 @@ function LoadedView({
   // Ctrl/Cmd+F focuses the relevant search box.  When the gallery's
   // details pane is visible its in-pane search is the right target;
   // otherwise the main list-view search box.  Both inputs use stable
-  // ids so a DOM lookup is enough â€” no need to thread refs through the
+  // ids so a DOM lookup is enough — no need to thread refs through the
   // component tree.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -335,7 +335,7 @@ function LoadedView({
    * the geocode_images_cmd expects. The frontend owns the
    * "drafts win over metadata" precedence so the backend never has
    * to read the typed-draft store. See docs/REVERSE_GEOCODE_PLAN.md
-   * Â§2. Items with no GPS are still included with `lat`/`lon` null â€”
+   * §2. Items with no GPS are still included with `lat`/`lon` null —
    * the backend surfaces them as `no_gps` failures so the user sees
    * the breakdown in the done panel rather than silently dropping
    * them at the call site.
@@ -604,7 +604,7 @@ export default function App() {
   // Overwrite counts computed at flow-start time and shown as an inline
   // notice in each dialog's awaiting-confirm panel. Stored at App level
   // so the dialogs (which render at App scope) can read them. We never
-  // need to clear these explicitly â€” the next `start` overwrites them
+  // need to clear these explicitly — the next `start` overwrites them
   // and the dialog only consults them while it's open.
   const [describeOverwrite, setDescribeOverwrite] = useState<
     OverwriteCount | undefined
@@ -715,7 +715,7 @@ export default function App() {
         >
           <div className="dialog-content" style={{ width: 360 }}>
             <div className="dialog-header">
-              <span className="dialog-title">Loading schemaâ€¦</span>
+              <span className="dialog-title">Loading schema…</span>
             </div>
             <div className="dialog-body">
               <div className="dialog-hint">

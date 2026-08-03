@@ -1,4 +1,4 @@
-﻿import type { TauriApi } from "../useMediaLibrary";
+import type { TauriApi } from "../useMediaLibrary";
 import type {
   FileInfo,
   MetadataOccurrences,
@@ -189,7 +189,7 @@ export interface MockTauriApi {
     estimateMode?: "heuristic" | "exact";
   };
 
-  // â”€â”€ Reverse-geocoding mock state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Reverse-geocoding mock state ─────────────────────────────────────
   /** Records the most recent geocode_images_cmd arguments. */
   lastGeocodeArgs: {
     folderPath: string;
@@ -212,7 +212,7 @@ export interface MockTauriApi {
     nFailed: number;
   };
 
-  // â”€â”€ Metadata-normalisation mock state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Metadata-normalisation mock state ────────────────────────────────
   /** Most recent normalise_metadata_cmd args. */
   lastNormaliseArgs: {
     folderPath: string;
