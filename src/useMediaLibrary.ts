@@ -195,7 +195,6 @@ export function useMediaLibrary(
   const activeApplyOperationIdRef = useRef<string | null>(null);
   const sessionFilePathsRef = useRef<Set<string>>(new Set());
   const seenSessionIssueIdsRef = useRef<Set<number>>(new Set());
-  const locallyLoggedIssueKeysRef = useRef<Set<string>>(new Set());
   // Monotonic frontend lifecycle identity. Unlike scan_id, this also changes
   // immediately when replacing or closing a scan and cannot collide when the
   // same folder is reopened within one clock tick.
@@ -283,7 +282,6 @@ export function useMediaLibrary(
         targetVerifyOutcomesStoreRef.current.clear();
         targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
         seenSessionIssueIdsRef.current.clear();
-        locallyLoggedIssueKeysRef.current.clear();
         activeApplyOperationIdRef.current = null;
         activeScanIdRef.current = -1;
         activeFolderRef.current = null;
@@ -388,12 +386,6 @@ export function useMediaLibrary(
         for (const issue of snapshot.issues) {
           if (seenSessionIssueIdsRef.current.has(issue.issue_id)) continue;
           seenSessionIssueIdsRef.current.add(issue.issue_id);
-          const issueKey = JSON.stringify([
-            issue.error_type,
-            issue.error_message,
-            issue.affected_files,
-          ]);
-          if (locallyLoggedIssueKeysRef.current.delete(issueKey)) continue;
           console.error(
             `Worker error (${issue.error_type}):`,
             issue.error_message,
@@ -480,17 +472,12 @@ export function useMediaLibrary(
       error: unknown,
       affectedFiles: string[] = [],
     ) => {
-      const errorMessage = logApplicationIssue(
-        severity,
-        errorType,
-        error,
-        affectedFiles,
-      );
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const sessionId = activeScanIdRef.current;
-      if (sessionId < 0) return;
-      locallyLoggedIssueKeysRef.current.add(
-        JSON.stringify([errorType, errorMessage, affectedFiles]),
-      );
+      if (sessionId < 0) {
+        logApplicationIssue(severity, errorType, error, affectedFiles);
+        return;
+      }
       void apiRef.current
         .invoke("record_media_library_session_issue", {
           sessionId,
@@ -499,9 +486,14 @@ export function useMediaLibrary(
           errorMessage,
           affectedFiles,
         })
-        .catch((invokeError) =>
-          console.error("Failed to record application issue", invokeError),
-        );
+        .then((raw) => {
+          const delta = raw as MediaLibrarySessionIssueAdded;
+          seenSessionIssueIdsRef.current.add(delta.issue.issue_id);
+        })
+        .catch((invokeError) => {
+          logApplicationIssue(severity, errorType, error, affectedFiles);
+          console.error("Failed to record application issue", invokeError);
+        });
     },
     [],
   );
