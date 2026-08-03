@@ -363,17 +363,15 @@ describe("useMediaLibrary", () => {
     await act(async () => {
       await result.current[1].openFolder();
     });
-    act(() => {
+    await act(async () => {
       mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
-    });
-    act(() => {
       mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
-    });
-    act(() => {
       mock.emitFileFound(makeFile({ relative_path: "c.jpg" }));
+      for (let index = 0; index < 20; index += 1) await Promise.resolve();
     });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(150);
+      for (let index = 0; index < 5; index += 1) await Promise.resolve();
     });
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.files).toHaveLength(3);
@@ -593,11 +591,13 @@ describe("useMediaLibrary", () => {
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "nature/sunset.jpg" }));
     });
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     await act(async () => {
       await result.current[1].showInExplorer(0);
     });
-
     const explorerCalls = mock.invocations.filter(
       (c) => c.cmd === "show_in_explorer",
     );

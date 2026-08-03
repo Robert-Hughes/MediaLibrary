@@ -174,6 +174,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     const unlisteners: UnlistenFn[] = [];
     let mounted = true;
     let progressQueue = Promise.resolve();
+    let pendingProgress: BatchJobProgress[] = [];
+    let progressFlushScheduled = false;
 
     const safeSetState = (
       updater: (
@@ -196,23 +198,35 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       safeSetState((state) => {
         const failures = [...state.failures];
         const succeeded = [...state.succeeded];
+        const succeededPaths = new Set(succeeded);
+        const failureKeys = new Set(
+          failures.map((failure) =>
+            JSON.stringify([
+              failure.relativePath,
+              failure.kind,
+              failure.detail,
+            ]),
+          ),
+        );
         for (const item of items) {
           if (item.status === "ok") {
-            if (!succeeded.includes(item.relativePath)) {
+            if (!succeededPaths.has(item.relativePath)) {
+              succeededPaths.add(item.relativePath);
               succeeded.push(item.relativePath);
             }
-          } else if (
-            !failures.some(
-              (failure) =>
-                failure.relativePath === item.relativePath &&
-                failure.kind === item.status &&
-                failure.detail === (item.error ?? ""),
-            )
-          ) {
+          } else {
+            const detail = item.error ?? "";
+            const failureKey = JSON.stringify([
+              item.relativePath,
+              item.status,
+              detail,
+            ]);
+            if (failureKeys.has(failureKey)) continue;
+            failureKeys.add(failureKey);
             failures.push({
               relativePath: item.relativePath,
               kind: item.status as BatchJobFailureKind,
-              detail: item.error ?? "",
+              detail,
             });
           }
         }
@@ -227,6 +241,24 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           succeeded,
         };
       });
+    };
+    const queueProgress = (items: readonly BatchJobProgress[]) => {
+      if (items.length === 0) return;
+      pendingProgress.push(...items);
+      if (progressFlushScheduled) return;
+      progressFlushScheduled = true;
+      progressQueue = progressQueue.then(
+        () =>
+          new Promise<void>((resolve) => {
+            queueMicrotask(() => {
+              progressFlushScheduled = false;
+              const batch = pendingProgress;
+              pendingProgress = [];
+              applyProgress(batch);
+              resolve();
+            });
+          }),
+      );
     };
 
     void (async () => {
@@ -244,12 +276,12 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         await subscribe<{ results: BatchJobProgress[] }>(
           `${prefix}_progress_batch`,
           ({ results }) => {
-            progressQueue = progressQueue.then(() => applyProgress(results));
+            queueProgress(results);
           },
         );
       } else {
         await subscribe<BatchJobProgress>(`${prefix}_progress`, (progress) => {
-          progressQueue = progressQueue.then(() => applyProgress([progress]));
+          queueProgress([progress]);
         });
       }
       await subscribe<{
