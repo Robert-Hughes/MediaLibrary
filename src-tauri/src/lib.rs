@@ -216,12 +216,22 @@ async fn pick_folder(app: AppHandle) -> Option<String> {
         .map(|p| p.to_string())
 }
 
+pub(crate) fn emit_frontend_event<S: Serialize + Clone>(
+    app: &AppHandle,
+    event: &str,
+    payload: S,
+) -> Result<(), String> {
+    app.emit(event, payload).map_err(|error| {
+        log::error!("[frontend-event] failed to emit event={event}: {error}");
+        error.to_string()
+    })
+}
+
 fn emit_session_snapshot(
     app: &AppHandle,
     snapshot: &session::MediaLibrarySessionSnapshot,
 ) -> Result<(), String> {
-    app.emit(session::SESSION_CHANGED_EVENT, snapshot.clone())
-        .map_err(|error| error.to_string())
+    emit_frontend_event(app, session::SESSION_CHANGED_EVENT, snapshot.clone())
 }
 
 fn commit_session_metadata(app: &AppHandle, session_id: u64, results: Vec<scanner::FileMetadata>) {
@@ -233,9 +243,7 @@ fn commit_session_metadata(app: &AppHandle, session_id: u64, results: Vec<scanne
             if delta.entries.is_empty() {
                 return;
             }
-            if let Err(error) = app.emit("media_library_session_metadata_changed", delta) {
-                log::error!("[session-metadata] failed to emit delta: {error}");
-            }
+            let _ = emit_frontend_event(app, session::SESSION_METADATA_CHANGED_EVENT, delta);
         }
         Err(error) => log::debug!("[session-metadata] discarded stale results: {error}"),
     }
@@ -254,9 +262,7 @@ fn commit_session_thumbnails(app: &AppHandle, session_id: u64, results: Vec<Thum
             if delta.entries.is_empty() {
                 return;
             }
-            if let Err(error) = app.emit(session::SESSION_THUMBNAILS_CHANGED_EVENT, delta) {
-                log::error!("[session-thumbnails] failed to emit delta: {error}");
-            }
+            let _ = emit_frontend_event(app, session::SESSION_THUMBNAILS_CHANGED_EVENT, delta);
         }
         Err(error) => log::debug!("[session-thumbnails] discarded stale results: {error}"),
     }
@@ -287,9 +293,7 @@ fn record_session_issue(
         affected_files,
     ) {
         Ok(delta) => {
-            if let Err(error) = app.emit(session::SESSION_ISSUE_ADDED_EVENT, delta) {
-                log::error!("[session-issue] failed to emit delta: {error}");
-            }
+            let _ = emit_frontend_event(app, session::SESSION_ISSUE_ADDED_EVENT, delta);
         }
         Err(error) => log::debug!("[session-issue] discarded stale issue: {error}"),
     }
@@ -338,8 +342,7 @@ fn record_media_library_session_issue(
         error_message,
         affected_files,
     )?;
-    app.emit(session::SESSION_ISSUE_ADDED_EVENT, &delta)
-        .map_err(|error| error.to_string())?;
+    emit_frontend_event(&app, session::SESSION_ISSUE_ADDED_EVENT, &delta)?;
     Ok(delta)
 }
 
@@ -720,7 +723,11 @@ fn start_scan(
                         .add_files(scan_id, batch)
                     {
                         Ok(delta) => {
-                            let _ = app_flush.emit(session::SESSION_FILES_ADDED_EVENT, delta);
+                            let _ = emit_frontend_event(
+                                &app_flush,
+                                session::SESSION_FILES_ADDED_EVENT,
+                                delta,
+                            );
                         }
                         Err(error) => {
                             log::debug!("[file-discovery] discarded stale batch: {error}")
@@ -742,7 +749,11 @@ fn start_scan(
                             .add_files(scan_id, batch)
                         {
                             Ok(delta) => {
-                                let _ = app_flush.emit(session::SESSION_FILES_ADDED_EVENT, delta);
+                                let _ = emit_frontend_event(
+                                    &app_flush,
+                                    session::SESSION_FILES_ADDED_EVENT,
+                                    delta,
+                                );
                             }
                             Err(error) => {
                                 log::debug!("[file-discovery] discarded stale final batch: {error}")
