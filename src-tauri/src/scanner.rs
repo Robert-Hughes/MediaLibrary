@@ -13,6 +13,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use walkdir::WalkDir;
 
+mod media;
+mod thumbnail;
+
+use media::media_kind_from_extension;
+pub use media::{placeholder_thumbnail, MediaKind};
+#[cfg(test)]
+use thumbnail::extract_exif_thumbnail;
+pub use thumbnail::thumbnail_for;
+
 use crate::metadata_occurrence::{
     family7_group_from_runtime_tag_id, MetadataObservedSelector, MetadataOccurrence,
     MetadataOccurrenceId, MetadataOccurrences, MetadataSelectorKey, MetadataWriteTarget,
@@ -31,43 +40,6 @@ pub(crate) fn find_exiftool() -> &'static str {
         "exiftool.exe"
     } else {
         "exiftool"
-    }
-}
-
-/// Broad media category assigned during folder discovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(test, derive(ts_rs::TS))]
-#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub enum MediaKind {
-    Image,
-    Audio,
-    Video,
-}
-
-const AUDIO_PLACEHOLDER_THUMBNAIL: &str = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABAAEADASIAAhEBAxEB/8QAGQAAAwEBAQAAAAAAAAAAAAAAAAcIBQMG/8QANRAAAQMDAwIDAwsFAAAAAAAAAQIDBAAFEQYSIQcTIjFBFFGzCBUWIzI2N3WBg5FWYZSx0v/EABQBAQAAAAAAAAAAAAAAAAAAAAD/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCj6KKKAooooCisi96msli3i8XaFDcS0Xu068kOKRzylH2leRAwDkjApe6i66abgIUmztSrs/tCklKSw1ndgpKljcCBzwkjyGfPANmilzoDqja9RWuXMvMu12ZxMktMxn5iAvthCDuJVjOVFfIAHGPQksKO81JjtPx3UOsOpC23G1BSVpIyCCOCCPWg6UUUUHietE2Vb+ml4lW+S/Fkt9nY8w4ULTl5AOFDkcEj9al36Z6o/qS9f57v/VU113/Cq+fsfHbpF9C9N2rVGrZcK+xfaozcFbyUdxaMLDjYBykg+Sj/ADQLqvZWLplq+8yO2zZJUVCVJSt2an2dKQo/a8eCoDBJ2gke7kZrGxWC02CP2bNbosJBSlCiy2EqcCRhO9XmojJ5JJ5PvrUoIf1ZYJWl9QSrPcHGHJMbZvUwolB3IChgkA+Sh6VYPT/7h6b/ACyN8JNTL13/ABVvn7HwG6prp/8AcPTf5ZG+Emg365yHmo0d1+Q6hphpJW444oJShIGSSTwAB610qUeuOsZmoNWTLWlxaLVbH1MtsY27nU+FbisE5OdwB9E+gJVkHD1ivVru/SrUPzTcoU7tez9z2Z9DuzL6MZ2k4zg/waWPyZPv5P8Ayxz4rVKOnR8mm2T2tVSri7BlIt71vcQ3KU0oNLV3W+AvGCfCrjPofdQUfU0dceos+4X2Zp+0SVxrXDUph9TKlJVJXjatK/I7ASpO3yOCTnw4pepR646Omaf1ZMuiW1rtVzfU82/ndtdV4ltqwBg53ED1T6khWAW1Wh0xmMTunmnXYq+42mC0yTgjxtpCFjn3KSofpxUd2i2zLxco9vtkdcmZIVsbaR5k/wCgAMkk8AAk8VZmgrB9F9IWyzlzuORmvrFBWQXFEqXtOB4dyjjIzjGaDfqaOuPTqfb77M1BaIy5NrmKU++llKlKjLxuWpfmdhIUrd5DJBx4c0vRQRHpPS921VckQ7NEW6SoJceIIaYBz4nFYwkYB/ucYAJ4qxdI2JjTWm7fZ4p3NxWgkrwRvWTla8EnGVFRxnjOBWvRQFc5DLUmO6xIaQ6w6kocbcSFJWkjBBB4II9K6UUGfarLa7R3fmm2woPdx3PZmENb8ZxnaBnGT/JrQoooP//Z";
-const VIDEO_PLACEHOLDER_THUMBNAIL: &str = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABAAEADASIAAhEBAxEB/8QAGQABAQEBAQEAAAAAAAAAAAAABwAIBgUD/8QAPxAAAQIEAwEJDgUFAAAAAAAAAQIDAAQFEQYSIQcIEyIxNkFRdbMVFhcYMlRWZpOUpdLT40ZSgYTDFDNhcpL/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8A0fFFHC432oYfwfUkU+fM1NThTncalEJWWQbWz5lAAkG4GptqbAi4d1FBF4fML+YVr2LX1IvD5hfzCtexa+pALsUEXh8wv5hWvYtfUi8PmF/MK17Fr6kAuxQc4V2wYaxHWmaYyJ2TmH9GlTiEIQtfMgFKjwjzXtfi4yAUaAozpudqNTsRT+JJ2vyTFTmUbzZc4nftXC4VqIVcFRKRwjrx66m+i4A9yv8Aif8Aa/zQC73mYX9G6L7g18sfNOEsJKmFsJw/QS+hKVqbEkzmSlRISSMtwCUqsefKeiOjjNm6MnZqn7R6bNU+ZflZlumIyPMOFC03ceBsoajQkfrAOneZhf0bovuDXyxd5mF/Rui+4NfLBFgjbv8A2pTF8r0J/r5VP+outv8A6USn/ACIdJCdlahKImqfMsTUs5fI8w4FoVY2NlDQ6gj9IAT3ROGaJS8JU+dpdJkpKZE8lnPLMpazIU2skEJsDqhPHxa24zdZwO87M4Kw+/MOrdfdp8utxxxRUpai2kkknUknng93TfIOQ6zb7J2O+2f8g8N9WS3ZJgPfgD3K/wCJ/wBr/ND5Gf8AcsvNJmMSMKdQH1pl1pbKhmUlJcCiBxkAqTc82YdMBoCMybpvl5IdWN9q7Gm489dGpzlaTV3JJhdTQ0GUTK05ltoGbRJPk+Wq9rXvrewgM6YI2I1irb1NYic7kySrK3mwVMLTwTbLxIuCocLUEapjQmG8NUfDUoZeh09iTbV5ZQCVr1JGZZupVsxtcm17CPXigCLdN8g5DrNvsnY77Z/yDw31ZLdkmD3dOPNJwVTWFOoD66glaWyoZlJS24FEDjIBUm55sw6YQtn/ACDw31ZLdkmA9+CrH+xqnYorRqchPdyZh65mUpl98Q6v84GZOVR1v08ehuSqxQAH4vPrP8P+7F4vPrP8P+7D5FAAfi8+s/w/7sXi8+s/w/7sPkUANYV2E06lVpmdq9S7rS7PCTKqld6QpfMV8NWZI/Lz6XuLgssUUB//2Q==";
-
-/// Return the built-in thumbnail for a non-image media kind.
-pub fn placeholder_thumbnail(media_kind: MediaKind) -> Option<&'static str> {
-    match media_kind {
-        MediaKind::Image => None,
-        MediaKind::Audio => Some(AUDIO_PLACEHOLDER_THUMBNAIL),
-        MediaKind::Video => Some(VIDEO_PLACEHOLDER_THUMBNAIL),
-    }
-}
-/// An unsupported extension returns `None` and is omitted from the scan.
-fn media_kind_from_extension(extension: &str) -> Option<MediaKind> {
-    match extension {
-        // Images
-        "jpg" | "jpeg" | "png" | "gif" | "bmp" | "webp" | "tiff" | "tif" => Some(MediaKind::Image),
-        // Audio
-        "mp3" | "flac" | "m4a" | "m4b" | "aac" | "wav" | "aiff" | "ogg" | "opus" | "wma"
-        | "ape" => Some(MediaKind::Audio),
-        // Video
-        "mp4" | "mov" | "m4v" | "3gp" | "3g2" | "avi" | "mkv" | "webm" | "mpg" | "mpeg" | "m2v"
-        | "mts" | "m2ts" | "ts" | "wmv" => Some(MediaKind::Video),
-        _ => None,
     }
 }
 
@@ -1718,152 +1690,6 @@ fn parse_exiftool_batch_json(
         });
     }
     results
-}
-
-/// Generate a base64-encoded JPEG thumbnail for the image at `path`.
-///
-/// Strategy:
-/// 1. Try to extract an embedded EXIF thumbnail. If its largest dimension
-///    is >= 160 px, use it as-is (fast path, ~10-50 ms).
-/// 2. Otherwise, full-decode the image and resize so the largest dimension
-///    is 160 px (slow path, ~100-500 ms release, 2-4 s debug).
-pub fn thumbnail_for(path: &Path) -> Option<String> {
-    // TEMPORARY: simulate slow thumbnail generation for load testing.
-    #[cfg(not(test))]
-    if std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok() {
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-    }
-
-    // Try fast path: extract embedded thumbnail from EXIF
-    if let Some(thumb) = extract_exif_thumbnail(path) {
-        return Some(thumb);
-    }
-
-    // Fall back to full decode
-    full_decode_thumbnail(path)
-}
-
-/// Try to extract an embedded EXIF thumbnail (very fast).
-///
-/// Returns `Some` only when the embedded thumbnail's largest dimension is
-/// >= 160 px — in that case we return it as-is without re-encoding.
-fn extract_exif_thumbnail(path: &Path) -> Option<String> {
-    use std::fs::File;
-    use std::io::{BufReader, Read};
-
-    let file = File::open(path).ok()?;
-    let mut reader = BufReader::new(file);
-
-    // Parse EXIF data
-    let exif_reader = exif::Reader::new();
-    let exif = match exif_reader.read_from_container(&mut reader) {
-        Ok(e) => e,
-        Err(_) => return None,
-    };
-    let orientation = crate::image_orientation::orientation_from_exif(&exif, exif::In::THUMBNAIL)
-        .or_else(|| crate::image_orientation::orientation_from_exif(&exif, exif::In::PRIMARY))
-        .unwrap_or(1);
-
-    // Look for thumbnail in EXIF data
-    let offset_field = exif.get_field(exif::Tag::JPEGInterchangeFormat, exif::In::THUMBNAIL)?;
-    let length_field =
-        exif.get_field(exif::Tag::JPEGInterchangeFormatLength, exif::In::THUMBNAIL)?;
-
-    if let (exif::Value::Long(offsets), exif::Value::Long(lengths)) =
-        (&offset_field.value, &length_field.value)
-    {
-        if let (Some(&offset), Some(&length)) = (offsets.first(), lengths.first()) {
-            // Re-open file to read the entire file and find TIFF header
-            let mut file = File::open(path).ok()?;
-            let mut file_data = Vec::new();
-            file.read_to_end(&mut file_data).ok()?;
-
-            // Find the TIFF header in the JPEG file
-            // JPEG structure: FF D8 (SOI) ... FF E1 XX XX "Exif\0\0" [TIFF header starts here]
-            let tiff_offset = find_tiff_offset(&file_data)?;
-
-            // The thumbnail offset is relative to the TIFF header
-            let absolute_offset = tiff_offset + offset as usize;
-
-            if absolute_offset + length as usize > file_data.len() {
-                return None;
-            }
-
-            let thumbnail_bytes = &file_data[absolute_offset..absolute_offset + length as usize];
-
-            // Check if it's a valid JPEG (starts with 0xFF 0xD8)
-            if thumbnail_bytes.len() > 2 && thumbnail_bytes[0] == 0xFF && thumbnail_bytes[1] == 0xD8
-            {
-                // Decode just enough to check dimensions
-                if let Ok(img) = image::load_from_memory(thumbnail_bytes) {
-                    let largest = img.width().max(img.height());
-                    if largest >= 160 {
-                        if orientation == 1 {
-                            // Embedded thumbnail is already display-oriented,
-                            // so preserve the fast byte-for-byte path.
-                            return Some(base64::Engine::encode(
-                                &base64::engine::general_purpose::STANDARD,
-                                thumbnail_bytes,
-                            ));
-                        }
-
-                        // IFD1 orientation lives outside the embedded JPEG.
-                        // Once extracted, browsers cannot see it, so normalize
-                        // the pixels and emit a self-contained thumbnail.
-                        let oriented = crate::image_orientation::apply(img, orientation);
-                        return encode_thumbnail_jpeg(&oriented);
-                    }
-                    // Embedded thumbnail is too small; fall through to full decode
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Find the offset of the TIFF header within a JPEG file.
-/// JPEG structure: FF D8 (SOI) ... FF E1 XX XX "Exif\0\0" [TIFF header]
-fn find_tiff_offset(data: &[u8]) -> Option<usize> {
-    // Look for EXIF marker: FF E1
-    for i in 0..data.len().saturating_sub(10) {
-        if data[i] == 0xFF && data[i + 1] == 0xE1 {
-            // Check for "Exif\0\0" identifier
-            if i + 10 < data.len()
-                && data[i + 4] == b'E'
-                && data[i + 5] == b'x'
-                && data[i + 6] == b'i'
-                && data[i + 7] == b'f'
-                && data[i + 8] == 0
-                && data[i + 9] == 0
-            {
-                // TIFF header starts right after "Exif\0\0"
-                return Some(i + 10);
-            }
-        }
-    }
-    None
-}
-
-fn encode_thumbnail_jpeg(img: &image::DynamicImage) -> Option<String> {
-    let mut buf = Vec::new();
-    img.write_to(
-        &mut std::io::Cursor::new(&mut buf),
-        image::ImageFormat::Jpeg,
-    )
-    .ok()?;
-    Some(base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &buf,
-    ))
-}
-
-fn full_decode_thumbnail(path: &Path) -> Option<String> {
-    let orientation = crate::image_orientation::primary_orientation(path).unwrap_or(1);
-    let img = image::open(path).ok()?;
-    let img = crate::image_orientation::apply(img, orientation);
-    let thumb = img.thumbnail(160, 160);
-    encode_thumbnail_jpeg(&thumb)
 }
 
 #[cfg(test)]
