@@ -170,6 +170,11 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   const listenersReadyRef = useRef(false);
   const succeededPathsRef = useRef(new Set<string>());
   const failureKeysRef = useRef(new Set<string>());
+  const resetLocalOperationState = useCallback(() => {
+    succeededPathsRef.current.clear();
+    failureKeysRef.current.clear();
+    setState(initialState);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -431,14 +436,19 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         projectedOperationIdRef.current = null;
         recoveredOperationIdRef.current = null;
         setOpen(false);
-        setState(initialState);
+        resetLocalOperationState();
       }
     } catch (error) {
       console.error("Failed to recover authoritative batch operation", error);
       setOpen(false);
-      setState(initialState);
+      resetLocalOperationState();
     }
-  }, [config.operationKind, options.sessionId, projectOperation]);
+  }, [
+    config.operationKind,
+    options.sessionId,
+    projectOperation,
+    resetLocalOperationState,
+  ]);
 
   useEffect(() => {
     const operation = options.operation;
@@ -455,9 +465,14 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       recoveredOperationIdRef.current = null;
       recoveredSessionIdRef.current = undefined;
       setOpen(false);
-      setState(initialState);
+      resetLocalOperationState();
     }
-  }, [options.operation, options.sessionId, projectOperation]);
+  }, [
+    options.operation,
+    options.sessionId,
+    projectOperation,
+    resetLocalOperationState,
+  ]);
   // Track latest phase synchronously so `cancel` can decide whether to
   // close immediately without depending on setState batching order.
   const phaseRef = useRef<BatchJobPhase>("estimating");
@@ -549,7 +564,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       recoveredOperationIdRef.current = null;
       recoveredSessionIdRef.current = undefined;
       setOpen(false);
-      setState(initialState);
+      resetLocalOperationState();
       return;
     }
     void invoke(config.commands.cancel, {
@@ -569,9 +584,14 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       recoveredOperationIdRef.current = null;
       recoveredSessionIdRef.current = undefined;
       setOpen(false);
-      setState(initialState);
+      resetLocalOperationState();
     }
-  }, [config.commands.cancel, options.operation, options.sessionId]);
+  }, [
+    config.commands.cancel,
+    options.operation,
+    options.sessionId,
+    resetLocalOperationState,
+  ]);
   const close = useCallback(() => {
     if (options.operation) {
       void invoke("dismiss_media_library_session_batch_operation", {
@@ -583,8 +603,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     recoveredOperationIdRef.current = null;
     recoveredSessionIdRef.current = undefined;
     setOpen(false);
-    setState(initialState);
-  }, [options.operation, options.sessionId]);
+    resetLocalOperationState();
+  }, [options.operation, options.sessionId, resetLocalOperationState]);
 
   return { open, state, actions: { start, confirm, cancel, close } };
 }

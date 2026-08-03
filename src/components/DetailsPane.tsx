@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   MetadataDraftEdit,
   FileInfo,
@@ -521,6 +521,8 @@ export function DetailsPane({
   const [editDialog, setEditDialog] = useState<EditDialogState | null>(null);
   const [editDialogUnavailableMessage, setEditDialogUnavailableMessage] =
     useState<string | null>(null);
+  const [gpsSavePending, setGpsSavePending] = useState(false);
+  const gpsSaveGenerationRef = useRef(0);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
   // for that key.  null when no flow is active or we're still on stage 1.
@@ -959,6 +961,8 @@ export function DetailsPane({
   };
 
   const showGroupedGpsEditor = (group: GpsTagGroup) => {
+    gpsSaveGenerationRef.current += 1;
+    setGpsSavePending(false);
     setEditDialogUnavailableMessage(null);
     setEditDialog({
       kind: "gps-group",
@@ -1438,16 +1442,20 @@ export function DetailsPane({
             effectiveGps={
               editDialog.kind === "gps-group" ? resolvedGps : undefined
             }
+            forceReadOnly={gpsSavePending}
             onSaveMetadataBatch={(edits) => {
-              // Staged New Property editors use single mode and cannot emit a
-              // batch. Rust resolves grouped GPS edits to exact targets.
-              if (editDialog.kind !== "gps-group") return;
+              if (editDialog.kind !== "gps-group" || gpsSavePending) return;
+              const saveGeneration = ++gpsSaveGenerationRef.current;
+              setGpsSavePending(true);
               const semanticEdits = edits.map(({ id: schema_id, edit }) => ({
                 schema_id,
                 edit,
               }));
-              const applyResult = onApplyGpsTargetDraftBatch?.(semanticEdits);
+              const isCurrentSave = () =>
+                gpsSaveGenerationRef.current === saveGeneration;
               const handleResult = (saved: boolean | undefined) => {
+                if (!isCurrentSave()) return;
+                setGpsSavePending(false);
                 if (saved) {
                   setEditDialog(null);
                 } else {
@@ -1456,16 +1464,18 @@ export function DetailsPane({
                   );
                 }
               };
+              const handleError = (error: unknown) => {
+                if (!isCurrentSave()) return;
+                setGpsSavePending(false);
+                setEditDialogUnavailableMessage(
+                  error instanceof Error
+                    ? error.message
+                    : "The target-aware GPS batch could not be saved. The editor remains open and nothing was retargeted.",
+                );
+              };
+              const applyResult = onApplyGpsTargetDraftBatch?.(semanticEdits);
               if (isPromiseLike<boolean>(applyResult)) {
-                void Promise.resolve(applyResult)
-                  .then(handleResult)
-                  .catch((error) => {
-                    setEditDialogUnavailableMessage(
-                      error instanceof Error
-                        ? error.message
-                        : "The target-aware GPS batch could not be saved. The editor remains open and nothing was retargeted.",
-                    );
-                  });
+                void Promise.resolve(applyResult).then(handleResult).catch(handleError);
               } else {
                 handleResult(applyResult);
               }
@@ -1505,7 +1515,11 @@ export function DetailsPane({
                 setEditDialog(null);
               }
             }}
-            onCancel={() => setEditDialog(null)}
+            onCancel={() => {
+              if (gpsSavePending) return;
+              gpsSaveGenerationRef.current += 1;
+              setEditDialog(null);
+            }}
           />
         )}
 
