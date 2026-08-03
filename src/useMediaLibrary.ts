@@ -365,6 +365,11 @@ export function useMediaLibrary(
         sessionFilePathsRef.current = nextFilePaths;
         const rebuildMetadataProjection =
           isRecovery || snapshot.revision > previousRevision + 1;
+        if (rebuildMetadataProjection) {
+          console.info(
+            `[session-revision] kind=metadata-projection-rebuild reason=${isRecovery ? "session-recovery" : "snapshot-jump"} session_id=${sessionId} previous_revision=${previousRevision} snapshot_revision=${snapshot.revision} files=${snapshot.files.length} metadata_entries=${snapshot.metadata.length}`,
+          );
+        }
         projectSessionMetadata(snapshot.metadata, rebuildMetadataProjection, {
           occurrences: fileMetadataOccurrencesStoreRef.current,
           progress: metadataProgressStoreRef.current,
@@ -561,6 +566,15 @@ export function useMediaLibrary(
       },
       isCancelled: () => cancelled,
       onError: (error) => pushApplicationError("session-delta", error),
+      onDiagnostic: (diagnostic) => {
+        const recovered =
+          diagnostic.recoveredRevision === undefined
+            ? ""
+            : ` recovered_revision=${diagnostic.recoveredRevision}`;
+        console.info(
+          `[session-revision] kind=${diagnostic.kind} source=${diagnostic.source} session_id=${diagnostic.sessionId} current_revision=${diagnostic.currentRevision} expected_revision=${diagnostic.expectedRevision} received_revision=${diagnostic.receivedRevision}${recovered} queued_items=${diagnostic.queuedItems}`,
+        );
+      },
     });
 
     let rejectListenersReady: (error: unknown) => void = () => {};
@@ -578,6 +592,7 @@ export function useMediaLibrary(
           void deltaCoordinator.enqueueSnapshot(
             (raw as MediaLibrarySessionSnapshot).revision,
             () => applySessionSnapshot(raw as MediaLibrarySessionSnapshot),
+            "media_library_session_changed",
           );
         },
       );
@@ -673,6 +688,7 @@ export function useMediaLibrary(
           void deltaCoordinator.enqueue({
             sessionId: session_id,
             revision,
+            source: "media_library_session_files_added",
             apply: () => {
               console.debug(`[session-files] received ${files.length} files`);
               for (const file of files) {
@@ -712,6 +728,7 @@ export function useMediaLibrary(
           void deltaCoordinator.enqueue({
             sessionId: delta.session_id,
             revision: delta.revision,
+            source: "media_library_session_metadata_changed",
             apply: () => {
               const acceptedReady = projectSessionMetadata(
                 delta.entries,
@@ -747,6 +764,7 @@ export function useMediaLibrary(
           void deltaCoordinator.enqueue({
             sessionId: delta.session_id,
             revision: delta.revision,
+            source: "media_library_session_issue_added",
             apply: () => {
               if (delta.metadata.length > 0) {
                 projectSessionMetadata(delta.metadata, false, {
@@ -777,6 +795,7 @@ export function useMediaLibrary(
           void deltaCoordinator.enqueue({
             sessionId: delta.session_id,
             revision: delta.revision,
+            source: "media_library_session_thumbnails_changed",
             apply: () =>
               projectSessionThumbnails(delta.session_id, delta.entries, {
                 store: thumbnailStoreRef.current,
@@ -802,8 +821,10 @@ export function useMediaLibrary(
         "get_media_library_session_snapshot",
       )) as MediaLibrarySessionSnapshot;
       if (!cancelled) {
-        await deltaCoordinator.enqueueSnapshot(initialSession.revision, () =>
-          applySessionSnapshot(initialSession),
+        await deltaCoordinator.enqueueSnapshot(
+          initialSession.revision,
+          () => applySessionSnapshot(initialSession),
+          "initial_snapshot",
         );
       }
 

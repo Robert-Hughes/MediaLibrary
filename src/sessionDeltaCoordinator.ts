@@ -3,7 +3,19 @@ import { isPromiseLike } from "./utils/promiseLike";
 export interface SessionDelta {
   sessionId: number;
   revision: number;
+  source?: string;
   apply: () => void | Promise<void>;
+}
+
+export interface SessionRevisionDiagnostic {
+  kind: "delta-gap" | "gap-recovery-complete" | "snapshot-jump";
+  source: string;
+  sessionId: number;
+  currentRevision: number;
+  receivedRevision: number;
+  expectedRevision: number;
+  recoveredRevision?: number;
+  queuedItems: number;
 }
 
 export interface SessionDeltaCoordinatorOptions {
@@ -13,6 +25,7 @@ export interface SessionDeltaCoordinatorOptions {
   refreshSnapshot: () => Promise<void>;
   isCancelled: () => boolean;
   onError: (error: unknown) => void;
+  onDiagnostic?: (diagnostic: SessionRevisionDiagnostic) => void;
 }
 
 export interface SessionDeltaCoordinator {
@@ -20,13 +33,18 @@ export interface SessionDeltaCoordinator {
   enqueueSnapshot: (
     revision: number,
     apply: () => void | Promise<void>,
+    source?: string,
   ) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
 interface QueuedDelta {
   delta?: SessionDelta;
-  snapshot?: { revision: number; apply: () => void | Promise<void> };
+  snapshot?: {
+    revision: number;
+    source: string;
+    apply: () => void | Promise<void>;
+  };
   resolve: () => void;
   reject: (error: unknown) => void;
 }
@@ -84,8 +102,30 @@ export function createSessionDeltaCoordinator(
     if (delta.revision <= options.getCurrentRevision()) return;
 
     if (delta.revision !== options.getCurrentRevision() + 1) {
+      const currentRevision = options.getCurrentRevision();
+      const source = delta.source ?? "unknown";
+      options.onDiagnostic?.({
+        kind: "delta-gap",
+        source,
+        sessionId: delta.sessionId,
+        currentRevision,
+        receivedRevision: delta.revision,
+        expectedRevision: currentRevision + 1,
+        queuedItems: queue.length,
+      });
       return refresh()
         .then(() => {
+          const recoveredRevision = options.getCurrentRevision();
+          options.onDiagnostic?.({
+            kind: "gap-recovery-complete",
+            source,
+            sessionId: delta.sessionId,
+            currentRevision,
+            receivedRevision: delta.revision,
+            expectedRevision: currentRevision + 1,
+            recoveredRevision,
+            queuedItems: queue.length,
+          });
           if (options.isCancelled()) return;
           if (delta.sessionId !== options.getActiveSessionId()) return;
           if (delta.revision <= options.getCurrentRevision()) return;
@@ -112,6 +152,18 @@ export function createSessionDeltaCoordinator(
           if (item.snapshot.revision <= options.getCurrentRevision()) {
             result = undefined;
           } else {
+            const currentRevision = options.getCurrentRevision();
+            if (item.snapshot.revision > currentRevision + 1) {
+              options.onDiagnostic?.({
+                kind: "snapshot-jump",
+                source: item.snapshot.source,
+                sessionId: options.getActiveSessionId(),
+                currentRevision,
+                receivedRevision: item.snapshot.revision,
+                expectedRevision: currentRevision + 1,
+                queuedItems: queue.length,
+              });
+            }
             result = item.snapshot.apply();
           }
         } else {
@@ -142,9 +194,9 @@ export function createSessionDeltaCoordinator(
         queue.push({ delta, resolve, reject });
         drain();
       }),
-    enqueueSnapshot: (revision, apply) =>
+    enqueueSnapshot: (revision, apply, source = "unknown") =>
       new Promise<void>((resolve, reject) => {
-        queue.push({ snapshot: { revision, apply }, resolve, reject });
+        queue.push({ snapshot: { revision, source, apply }, resolve, reject });
         drain();
       }),
     refresh,

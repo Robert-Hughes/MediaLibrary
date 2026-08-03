@@ -154,6 +154,85 @@ describe("createSessionDeltaCoordinator", () => {
     expect(onError).toHaveBeenCalledWith(refreshError);
   });
 
+  it("reports the exact delta gap and the revision installed by recovery", async () => {
+    let revision = 6;
+    const diagnostics = vi.fn();
+    const coordinator = createSessionDeltaCoordinator({
+      getActiveSessionId: () => 4,
+      getCurrentRevision: () => revision,
+      setCurrentRevision: (next) => {
+        revision = next;
+      },
+      refreshSnapshot: vi.fn(async () => {
+        revision = 9;
+      }),
+      isCancelled: () => false,
+      onError: vi.fn(),
+      onDiagnostic: diagnostics,
+    });
+
+    await coordinator.enqueue({
+      sessionId: 4,
+      revision: 8,
+      source: "metadata",
+      apply: vi.fn(),
+    });
+
+    expect(diagnostics).toHaveBeenNthCalledWith(1, {
+      kind: "delta-gap",
+      source: "metadata",
+      sessionId: 4,
+      currentRevision: 6,
+      expectedRevision: 7,
+      receivedRevision: 8,
+      queuedItems: 0,
+    });
+    expect(diagnostics).toHaveBeenNthCalledWith(2, {
+      kind: "gap-recovery-complete",
+      source: "metadata",
+      sessionId: 4,
+      currentRevision: 6,
+      expectedRevision: 7,
+      receivedRevision: 8,
+      recoveredRevision: 9,
+      queuedItems: 0,
+    });
+  });
+
+  it("reports an authoritative snapshot that jumps revisions", async () => {
+    let revision = 3;
+    const diagnostics = vi.fn();
+    const coordinator = createSessionDeltaCoordinator({
+      getActiveSessionId: () => 2,
+      getCurrentRevision: () => revision,
+      setCurrentRevision: (next) => {
+        revision = next;
+      },
+      refreshSnapshot: vi.fn(async () => {}),
+      isCancelled: () => false,
+      onError: vi.fn(),
+      onDiagnostic: diagnostics,
+    });
+
+    await coordinator.enqueueSnapshot(
+      7,
+      () => {
+        revision = 7;
+      },
+      "session-changed",
+    );
+
+    expect(diagnostics).toHaveBeenCalledWith({
+      kind: "snapshot-jump",
+      source: "session-changed",
+      sessionId: 2,
+      currentRevision: 3,
+      expectedRevision: 4,
+      receivedRevision: 7,
+      queuedItems: 0,
+    });
+  });
+
   it("serialises a newer full snapshot behind asynchronous delta projection", async () => {
     let revision = 0;
     let releaseDelta!: () => void;
