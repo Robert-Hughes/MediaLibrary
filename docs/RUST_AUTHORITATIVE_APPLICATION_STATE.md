@@ -105,6 +105,16 @@ progress and estimate progress update authoritative state without advancing the 
 or emitting an event; the frontend tracks them through the unversioned `${prefix}_progress`
 projection events and phase-boundary snapshots.
 
+Projection events (``{prefix}_estimate_started``, ``{prefix}_estimate_progress``,
+``{prefix}_estimate_complete``, ``{prefix}_started``, ``{prefix}_progress``,
+``{prefix}_progress_batch``, ``{prefix}_complete``) travel through the *same* ordered
+session-event channel as revisioned notifications, as an unversioned ``Projection``
+variant. They are pushed in program order after the session mutation they describe
+(e.g. the completion projection after the completion snapshot), so a projection can never
+be delivered ahead of the snapshot it follows. The frontend still routes them to the
+batch-job dialog listeners rather than the revision coordinator; the shared channel
+only guarantees cross-stream delivery order.
+
 The protocol should support bounded batches so streaming scans and progress updates remain responsive without excessive IPC traffic.
 
 ### Concurrency and locking

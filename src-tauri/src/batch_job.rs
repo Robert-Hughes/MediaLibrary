@@ -490,6 +490,20 @@ impl<'a> BatchProgressEmitter<'a> {
         &self.operation_id
     }
 
+    /// Route a disposable projection event through the session's ordered
+    /// channel so it is delivered after the snapshot/mutation it follows,
+    /// never ahead of it. The batch-job projection stream (`describe_*`,
+    /// `geocode_*`, `normalise_*`) and the revisioned session events share
+    /// one FIFO queue, which makes cross-stream ordering deterministic.
+    fn emit(&self, event: String, payload: impl Serialize) {
+        let Ok(payload) = serde_json::to_value(payload) else {
+            return;
+        };
+        self.app
+            .state::<crate::session::MediaLibrarySessionState>()
+            .push_frontend_projection(event, payload);
+    }
+
     /// Emit a disposable frontend-projection event scoped to this retained
     /// Rust operation. The session and operation identities are inserted into
     /// every object payload so late events cannot update a replacement run.
@@ -506,7 +520,7 @@ impl<'a> BatchProgressEmitter<'a> {
             serde_json::Value::String(self.operation_id.clone()),
         );
         let event = format!("{}_{}", self.prefix, suffix);
-        let _ = crate::emit_frontend_event(self.app, &event, payload);
+        self.emit(event, payload);
     }
 
     pub fn fail(&self, error: impl Into<String>) {
@@ -516,7 +530,22 @@ impl<'a> BatchProgressEmitter<'a> {
             .fail_batch_operation(self.session_id, &self.operation_id, error.into());
     }
     pub fn estimate_started(&self, total: usize) {
-        let _ = total;
+        #[derive(Clone, Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Payload<'a> {
+            session_id: u64,
+            operation_id: &'a str,
+            total: usize,
+        }
+        let event = format!("{}_estimate_started", self.prefix);
+        self.emit(
+            event,
+            Payload {
+                session_id: self.session_id,
+                operation_id: &self.operation_id,
+                total,
+            },
+        );
     }
 
     pub fn estimate_progress(
@@ -551,15 +580,15 @@ impl<'a> BatchProgressEmitter<'a> {
 
     pub fn started(&self, total: usize) {
         #[derive(Clone, Serialize)]
+        #[serde(rename_all = "camelCase")]
         struct Payload<'a> {
             session_id: u64,
             operation_id: &'a str,
             total: usize,
         }
         let event = format!("{}_started", self.prefix);
-        let _ = crate::emit_frontend_event(
-            self.app,
-            &event,
+        self.emit(
+            event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,
@@ -609,9 +638,8 @@ impl<'a> BatchProgressEmitter<'a> {
             edits: Option<Vec<crate::draft_edits::SchemaMetadataEdit>>,
         }
         let event = format!("{}_progress", self.prefix);
-        let _ = crate::emit_frontend_event(
-            self.app,
-            &event,
+        self.emit(
+            event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,
@@ -652,9 +680,8 @@ impl<'a> BatchProgressEmitter<'a> {
             results: &'a [BatchMetadataProgress],
         }
         let event = format!("{}_progress_batch", self.prefix);
-        let _ = crate::emit_frontend_event(
-            self.app,
-            &event,
+        self.emit(
+            event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,
@@ -716,9 +743,8 @@ impl<'a> BatchProgressEmitter<'a> {
             usage_summary: &'a S,
         }
         let event = format!("{}_complete", self.prefix);
-        let _ = crate::emit_frontend_event(
-            self.app,
-            &event,
+        self.emit(
+            event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,

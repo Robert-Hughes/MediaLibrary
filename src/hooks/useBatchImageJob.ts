@@ -32,6 +32,18 @@ import type {
 export type BatchJobPhase =
   "estimating" | "awaiting-confirm" | "running" | "done";
 
+/**
+ * Forward-progress order of the shared phase machine. Session snapshots lag
+ * the direct projection events (`*_estimate_complete`, `*_started`, …), so a
+ * snapshot carrying an earlier phase must never regress an open dialog.
+ */
+const PHASE_RANK: Record<BatchJobPhase, number> = {
+  estimating: 0,
+  "awaiting-confirm": 1,
+  running: 2,
+  done: 3,
+};
+
 export type { BatchJobFailureKind } from "../types";
 
 export interface BatchJobFailure {
@@ -438,24 +450,34 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         ),
       );
       setOpen(true);
-      setState((current) => ({
-        ...current,
-        phase,
-        total: operation.total,
-        current: operation.current,
-        currentFile: operation.current_file,
-        cancelling: operation.cancelling,
-        failures: operation.failures.map((failure) => ({
-          relativePath: failure.relative_path,
-          kind: failure.kind as BatchJobFailureKind,
-          detail: failure.detail,
-        })),
-        succeeded: [...operation.succeeded],
-        estimate: operation.estimate as EstimatePayload | null,
-        summary: operation.summary as SummaryPayload | null,
-        estimateError: operation.error,
-        relPaths: [...operation.requested_paths],
-      }));
+      setState((current) => {
+        // The snapshot channel drains asynchronously while the direct
+        // projection events are emitted synchronously by the command thread.
+        // Under scan load the Estimating begin snapshot can therefore reach
+        // the webview after `describe_estimate_complete` already advanced the
+        // dialog to awaiting-confirm. Never regress an open dialog to an
+        // earlier phase for the same run — forward progress is driven by the
+        // projection events, and recovery paths handle genuinely stale state.
+        if (PHASE_RANK[phase] < PHASE_RANK[current.phase]) return current;
+        return {
+          ...current,
+          phase,
+          total: operation.total,
+          current: operation.current,
+          currentFile: operation.current_file,
+          cancelling: operation.cancelling,
+          failures: operation.failures.map((failure) => ({
+            relativePath: failure.relative_path,
+            kind: failure.kind as BatchJobFailureKind,
+            detail: failure.detail,
+          })),
+          succeeded: [...operation.succeeded],
+          estimate: operation.estimate as EstimatePayload | null,
+          summary: operation.summary as SummaryPayload | null,
+          estimateError: operation.error,
+          relPaths: [...operation.requested_paths],
+        };
+      });
     },
     [],
   );

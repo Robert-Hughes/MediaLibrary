@@ -20,11 +20,6 @@ use crate::openai_describe;
 use crate::settings::{self, AiCostEstimateMode};
 
 #[derive(Clone, Serialize)]
-struct DescribeEstimateStartedPayload {
-    total: usize,
-}
-
-#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DescribeEstimateProgressPayload {
     current: usize,
@@ -403,11 +398,6 @@ pub async fn estimate_describe_cost_cmd(
         total
     );
     emitter.estimate_started(total);
-    let _ = crate::emit_frontend_event(
-        &app,
-        "describe_estimate_started",
-        DescribeEstimateStartedPayload { total },
-    );
 
     if s.ai_cost_estimate_mode == AiCostEstimateMode::Heuristic {
         let total_input_tokens = openai_describe::heuristic_describe_input_tokens(total);

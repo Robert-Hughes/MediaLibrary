@@ -2,7 +2,7 @@
 
 mod events;
 mod model;
-pub use events::{drain_session_events, SessionEvent};
+pub use events::{drain_session_events, ProjectionEvent, SessionEvent};
 pub use model::*;
 
 use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
@@ -86,6 +86,23 @@ impl MediaLibrarySessionState {
     fn notify(&self, event: SessionEvent) {
         if let Some(sender) = &self.notifier {
             let _ = sender.send(event);
+        }
+    }
+
+    /// Queue a disposable, unversioned frontend projection event on the same
+    /// ordered channel as revisioned session events. Callers must push in
+    /// program order after the session mutation the event describes (the
+    /// mutation already queued its notification while holding the snapshot
+    /// lock), so the projection can never be delivered ahead of the snapshot
+    /// it follows. Does not take the snapshot lock — projections are not
+    /// revisioned and carry no session state. No-op when no channel is
+    /// installed (unit tests).
+    pub(crate) fn push_frontend_projection(&self, event: String, payload: serde_json::Value) {
+        if let Some(sender) = &self.notifier {
+            let _ = sender.send(SessionEvent::Projection(Box::new(ProjectionEvent {
+                event,
+                payload,
+            })));
         }
     }
 
@@ -1503,7 +1520,7 @@ mod tests {
         state.finish_discovery(session_id).unwrap();
 
         let events: Vec<SessionEvent> = receiver.try_iter().collect();
-        let names: Vec<&'static str> = events.iter().map(SessionEvent::event_name).collect();
+        let names: Vec<&str> = events.iter().map(SessionEvent::event_name).collect();
         assert_eq!(
             names,
             vec![
@@ -1517,6 +1534,43 @@ mod tests {
         );
         let revisions: Vec<u64> = events.iter().map(SessionEvent::revision).collect();
         assert_eq!(revisions, vec![1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn projection_events_share_the_ordered_channel() {
+        let (notifier, receiver) = std::sync::mpsc::channel();
+        let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
+        let receiver = state.take_event_receiver().unwrap();
+
+        state.push_frontend_projection(
+            "describe_estimate_complete".into(),
+            serde_json::json!({ "total": 1 }),
+        );
+        state.push_frontend_projection(
+            "describe_progress_batch".into(),
+            serde_json::json!({ "results": [] }),
+        );
+
+        let mut events: Vec<SessionEvent> = receiver.try_iter().collect();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].event_name(), "describe_estimate_complete");
+        assert_eq!(events[1].event_name(), "describe_progress_batch");
+        // Projections are unversioned: they must not advance the revision
+        // sequence or trigger the coordinator's gap detection.
+        assert_eq!(events[0].revision(), 0);
+        assert_eq!(events[1].revision(), 0);
+        assert_eq!(
+            events.remove(0).into_payload(),
+            serde_json::json!({ "total": 1 })
+        );
+    }
+
+    #[test]
+    fn projection_events_are_dropped_without_a_channel() {
+        let state = MediaLibrarySessionState::new();
+        // Must not panic and must not require a drain thread in unit tests.
+        state
+            .push_frontend_projection("describe_started".into(), serde_json::json!({ "total": 1 }));
     }
 
     #[test]
