@@ -205,4 +205,41 @@ describe("useBatchImageJob Rust projection", () => {
       { sessionId: 12, operationId: "describe-7" },
     );
   });
+
+  it("ignores progress from a stale session or replacement operation", async () => {
+    const activeOperation = operation();
+    const { result } = renderHook(() =>
+      useBatchImageJob(config, { sessionId: 12, operation: activeOperation }),
+    );
+    await waitFor(() =>
+      expect(eventListeners.has("describe_progress")).toBe(true),
+    );
+    act(() => {
+      eventListeners.get("describe_progress")?.({
+        payload: {
+          sessionId: 13,
+          operationId: "describe-7",
+          current: 1,
+          total: 2,
+          relativePath: "wrong-session.jpg",
+          status: "ok",
+        },
+      });
+      eventListeners.get("describe_progress")?.({
+        payload: {
+          sessionId: 12,
+          operationId: "describe-previous",
+          current: 1,
+          total: 2,
+          relativePath: "wrong-operation.jpg",
+          status: "ok",
+        },
+      });
+    });
+
+    await Promise.resolve();
+    expect(result.current.state.current).toBe(2);
+    expect(result.current.state.currentFile).toBeNull();
+    expect(result.current.state.succeeded).toEqual([]);
+  });
 });

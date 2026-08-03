@@ -435,28 +435,17 @@ export function useMediaLibrary(
           if (previous.kind === "loaded") {
             next.selectedPath = previous.selectedPath;
             next.metadataVersion = previous.metadataVersion;
-            next.applicationErrors = mergeSessionIssues(
-              previous.applicationErrors,
-              sessionId!,
-              snapshot.issues,
-            );
-            const projectedApply = projectApplyOperation(
-              snapshot.apply_operation,
-            );
-            next.applying = projectedApply.applying;
-            next.applyCompletion = projectedApply.completion;
-          } else {
-            next.applicationErrors = mergeSessionIssues(
-              next.applicationErrors,
-              sessionId!,
-              snapshot.issues,
-            );
-            const projectedApply = projectApplyOperation(
-              snapshot.apply_operation,
-            );
-            next.applying = projectedApply.applying;
-            next.applyCompletion = projectedApply.completion;
           }
+          next.applicationErrors = mergeSessionIssues(
+            previous.kind === "loaded"
+              ? previous.applicationErrors
+              : next.applicationErrors,
+            sessionId,
+            snapshot.issues,
+          );
+          const projectedApply = projectApplyOperation(snapshot.apply_operation);
+          next.applying = projectedApply.applying;
+          next.applyCompletion = projectedApply.completion;
           return next;
         });
         return thumbnailProjection;
