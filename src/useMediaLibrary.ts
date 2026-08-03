@@ -270,7 +270,8 @@ export function useMediaLibrary(
       }
       const previousRevision = sessionRevisionRef.current;
       sessionRevisionRef.current = snapshot.revision;
-      activeApplyOperationIdRef.current = snapshot.apply_operation?.operation_id ?? null;
+      activeApplyOperationIdRef.current =
+        snapshot.apply_operation?.operation_id ?? null;
       if (snapshot.lifecycle === "idle") {
         const hadActiveSession =
           activeScanIdRef.current !== -1 || activeFolderRef.current !== null;
@@ -443,7 +444,9 @@ export function useMediaLibrary(
             sessionId,
             snapshot.issues,
           );
-          const projectedApply = projectApplyOperation(snapshot.apply_operation);
+          const projectedApply = projectApplyOperation(
+            snapshot.apply_operation,
+          );
           next.applying = projectedApply.applying;
           next.applyCompletion = projectedApply.completion;
           return next;
@@ -461,7 +464,8 @@ export function useMediaLibrary(
       error: unknown,
       affectedFiles: string[] = [],
     ) => {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       const sessionId = activeScanIdRef.current;
       if (sessionId < 0) {
         logApplicationIssue(severity, errorType, error, affectedFiles);

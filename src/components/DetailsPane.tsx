@@ -1486,7 +1486,9 @@ export function DetailsPane({
               };
               const applyResult = onApplyGpsTargetDraftBatch?.(semanticEdits);
               if (isPromiseLike<boolean>(applyResult)) {
-                void Promise.resolve(applyResult).then(handleResult).catch(handleError);
+                void Promise.resolve(applyResult)
+                  .then(handleResult)
+                  .catch(handleError);
               } else {
                 handleResult(applyResult);
               }
