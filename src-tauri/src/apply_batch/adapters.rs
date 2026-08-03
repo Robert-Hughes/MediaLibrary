@@ -61,7 +61,7 @@ impl SingleFileApply for RealSingleFileApply {
     }
 }
 
-fn read_metadata_for_jobs(
+pub(super) fn read_metadata_for_jobs(
     folder_path: &str,
     relative_paths: &[String],
 ) -> HashMap<String, Result<scanner::FileMetadata, String>> {
@@ -100,7 +100,7 @@ fn read_metadata_for_jobs(
     by_path
 }
 
-fn apply_real_metadata_batch(
+pub(super) fn apply_real_metadata_batch(
     folder_path: &str,
     jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
     write_concurrency: usize,
