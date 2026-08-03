@@ -1869,8 +1869,12 @@ pub(super) fn cancel_apply_edits(
     apply_state: State<'_, apply_batch::ApplyEditsState>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<(), String> {
-    session_state.request_apply_cancellation(session_id, &operation_id)?;
+    // Signal the in-flight runner before touching the session: a racing
+    // dismiss or completion can make the session mutation fail, and the
+    // runner must still observe cancellation so it stops at the next file
+    // boundary instead of finishing and resurrecting the apply dialog.
     apply_state.signal_cancel(&operation_id);
+    session_state.request_apply_cancellation(session_id, &operation_id)?;
     Ok(())
 }
 
