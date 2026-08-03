@@ -29,6 +29,7 @@ pub mod openai_normalise;
 mod openai_request;
 mod recycle;
 pub mod scanner;
+pub mod search_service;
 pub mod session;
 mod session_commands;
 pub mod settings;
@@ -299,6 +300,14 @@ fn get_media_library_session_snapshot(
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> session::MediaLibrarySessionSnapshot {
     session_state.snapshot()
+}
+
+#[tauri::command]
+fn search_media_library_session(
+    request: search_service::MediaLibrarySearchRequest,
+    session_state: State<'_, session::MediaLibrarySessionState>,
+) -> Result<search_service::MediaLibrarySearchResult, String> {
+    session_state.search().submit(request)
 }
 
 #[tauri::command]
@@ -1908,6 +1917,7 @@ pub fn run() {
             get_cli_folder,
             pick_folder,
             get_media_library_session_snapshot,
+            search_media_library_session,
             get_media_library_thumbnails,
             dismiss_media_library_session_issue,
             record_media_library_session_issue,
@@ -1961,6 +1971,9 @@ pub fn run() {
             commands::normalise::estimate_normalise_cost_cmd
         ])
         .setup(|app| {
+            app.state::<session::MediaLibrarySessionState>()
+                .search()
+                .install_app_handle(app.handle().clone());
             app.get_webview_window("main")
                 .expect("main window should exist during setup")
                 .set_title(&display_window_title("Media Library"))?;

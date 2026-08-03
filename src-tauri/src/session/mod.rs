@@ -5,6 +5,7 @@ pub use model::*;
 
 use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
 use crate::scanner::{FileInfo, FileMetadata};
+use crate::search_service::MediaLibrarySearchService;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -17,6 +18,7 @@ pub struct MediaLibrarySessionState {
     snapshot: Mutex<MediaLibrarySessionSnapshot>,
     thumbnail_cache: Mutex<HashMap<String, String>>,
     superseded_scan_metadata: Mutex<BTreeSet<String>>,
+    search: MediaLibrarySearchService,
 }
 
 impl MediaLibrarySessionState {
@@ -44,11 +46,16 @@ impl MediaLibrarySessionState {
             }),
             thumbnail_cache: Mutex::new(HashMap::new()),
             superseded_scan_metadata: Mutex::new(BTreeSet::new()),
+            search: MediaLibrarySearchService::new(),
         }
     }
 
     pub fn snapshot(&self) -> MediaLibrarySessionSnapshot {
         self.snapshot.lock().unwrap().clone()
+    }
+
+    pub fn search(&self) -> &MediaLibrarySearchService {
+        &self.search
     }
 
     /// Inspect authoritative state without cloning the complete session.
@@ -245,11 +252,17 @@ impl MediaLibrarySessionState {
             return Err("Draft persistence is not ready".into());
         }
         snapshot.revision += 1;
+        let revision = snapshot.revision;
         if entries.is_empty() {
             snapshot.drafts.remove(&relative_path);
         } else {
-            snapshot.drafts.insert(relative_path, entries);
+            snapshot
+                .drafts
+                .insert(relative_path.clone(), entries.clone());
         }
+        drop(snapshot);
+        self.search
+            .set_drafts(session_id, revision, vec![(relative_path, entries)]);
         Ok(())
     }
 
@@ -460,6 +473,8 @@ impl MediaLibrarySessionState {
             return Err("The metadata apply operation identity changed".into());
         }
 
+        let mut search_metadata = Vec::new();
+        let mut search_drafts = Vec::new();
         match message {
             crate::apply_batch::MetadataApplyStreamMessage::Started { total, .. } => {
                 let operation = snapshot.apply_operation.as_mut().unwrap();
@@ -496,6 +511,10 @@ impl MediaLibrarySessionState {
                             entry.state = MediaLibrarySessionMetadataState::Ready {
                                 occurrences: metadata.occurrences.clone(),
                             };
+                            search_metadata.push((
+                                result.relative_path.clone(),
+                                Some(metadata.occurrences.clone()),
+                            ));
                         }
                     }
                     if let Some(entries) = &result.persisted_draft_entries {
@@ -506,6 +525,7 @@ impl MediaLibrarySessionState {
                                 .drafts
                                 .insert(result.relative_path.clone(), entries.clone());
                         }
+                        search_drafts.push((result.relative_path.clone(), entries.clone()));
                     }
                     if result.target_outcomes.is_empty() {
                         snapshot.verification_outcomes.remove(&result.relative_path);
@@ -561,6 +581,16 @@ impl MediaLibrarySessionState {
             }
         }
         snapshot.revision += 1;
+        let revision = snapshot.revision;
+        drop(snapshot);
+        if !search_metadata.is_empty() {
+            self.search
+                .set_metadata(session_id, revision, search_metadata);
+        }
+        if !search_drafts.is_empty() {
+            self.search.set_drafts(session_id, revision, search_drafts);
+        }
+        self.search.set_revision(session_id, revision);
         Ok(())
     }
 
@@ -716,7 +746,10 @@ impl MediaLibrarySessionState {
         snapshot.batch_operations.clear();
         self.superseded_scan_metadata.lock().unwrap().clear();
         self.thumbnail_cache.lock().unwrap().clear();
-        snapshot.clone()
+        let result = snapshot.clone();
+        drop(snapshot);
+        self.search.reset(Some(session_id), result.revision);
+        result
     }
 
     pub fn install_draft_load_result(
@@ -750,7 +783,17 @@ impl MediaLibrarySessionState {
                 });
             }
         }
-        Ok(snapshot.clone())
+        let revision = snapshot.revision;
+        let rows = snapshot
+            .drafts
+            .iter()
+            .map(|(path, entries)| (path.clone(), entries.clone()))
+            .collect();
+        let result = snapshot.clone();
+        drop(snapshot);
+        self.search.set_revision(session_id, revision);
+        self.search.set_drafts(session_id, revision, rows);
+        Ok(result)
     }
 
     pub fn fail_session(
@@ -809,14 +852,20 @@ impl MediaLibrarySessionState {
             return Ok(snapshot.clone());
         }
         snapshot.revision += 1;
-        for (relative_path, entries) in rows {
+        let revision = snapshot.revision;
+        for (relative_path, entries) in &rows {
             if entries.is_empty() {
-                snapshot.drafts.remove(&relative_path);
+                snapshot.drafts.remove(relative_path);
             } else {
-                snapshot.drafts.insert(relative_path, entries);
+                snapshot
+                    .drafts
+                    .insert(relative_path.clone(), entries.clone());
             }
         }
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        drop(snapshot);
+        self.search.set_drafts(session_id, revision, rows);
+        Ok(result)
     }
 
     pub fn commit_draft_row(
@@ -890,11 +939,15 @@ impl MediaLibrarySessionState {
                 state: MediaLibrarySessionThumbnailState::Loading,
             }));
         snapshot.files.extend(files.iter().cloned());
-        Ok(MediaLibrarySessionFilesAdded {
+        let delta = MediaLibrarySessionFilesAdded {
             session_id,
             revision: snapshot.revision,
             files,
-        })
+        };
+        drop(snapshot);
+        self.search
+            .add_files(session_id, delta.revision, delta.files.clone());
+        Ok(delta)
     }
 
     pub fn commit_metadata_results(
@@ -932,11 +985,29 @@ impl MediaLibrarySessionState {
         if !entries.is_empty() {
             snapshot.revision += 1;
         }
-        Ok(MediaLibrarySessionMetadataChanged {
+        let delta = MediaLibrarySessionMetadataChanged {
             session_id,
             revision: snapshot.revision,
             entries,
-        })
+        };
+        let search_entries = delta
+            .entries
+            .iter()
+            .map(|entry| {
+                let occurrences = match &entry.state {
+                    MediaLibrarySessionMetadataState::Ready { occurrences } => {
+                        Some(occurrences.clone())
+                    }
+                    MediaLibrarySessionMetadataState::Loading
+                    | MediaLibrarySessionMetadataState::Failed { .. } => None,
+                };
+                (entry.relative_path.clone(), occurrences)
+            })
+            .collect();
+        drop(snapshot);
+        self.search
+            .set_metadata(session_id, delta.revision, search_entries);
+        Ok(delta)
     }
 
     pub fn commit_thumbnail_results(
@@ -1053,11 +1124,29 @@ impl MediaLibrarySessionState {
         if !entries.is_empty() {
             snapshot.revision += 1;
         }
-        Ok(MediaLibrarySessionMetadataChanged {
+        let delta = MediaLibrarySessionMetadataChanged {
             session_id,
             revision: snapshot.revision,
             entries,
-        })
+        };
+        let search_entries = delta
+            .entries
+            .iter()
+            .map(|entry| {
+                let occurrences = match &entry.state {
+                    MediaLibrarySessionMetadataState::Ready { occurrences } => {
+                        Some(occurrences.clone())
+                    }
+                    MediaLibrarySessionMetadataState::Loading
+                    | MediaLibrarySessionMetadataState::Failed { .. } => None,
+                };
+                (entry.relative_path.clone(), occurrences)
+            })
+            .collect();
+        drop(snapshot);
+        self.search
+            .set_metadata(session_id, delta.revision, search_entries);
+        Ok(delta)
     }
 
     pub fn remove_files(
@@ -1108,14 +1197,21 @@ impl MediaLibrarySessionState {
             .lock()
             .unwrap()
             .retain(|path| !paths.contains(path.as_str()));
-        if snapshot.files.len() != file_count
+        let changed = snapshot.files.len() != file_count
             || snapshot.metadata.len() != metadata_count
             || snapshot.thumbnails.len() != thumbnail_count
-            || snapshot.drafts.len() != draft_count
-        {
+            || snapshot.drafts.len() != draft_count;
+        if changed {
             snapshot.revision += 1;
         }
-        Ok(snapshot.clone())
+        let revision = snapshot.revision;
+        let result = snapshot.clone();
+        drop(snapshot);
+        if changed {
+            self.search
+                .remove_paths(session_id, revision, relative_paths.to_vec());
+        }
+        Ok(result)
     }
 
     pub fn finish_discovery(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
@@ -1179,12 +1275,21 @@ impl MediaLibrarySessionState {
             let excess = snapshot.issues.len() - MAX_SESSION_ISSUES;
             snapshot.issues.drain(0..excess);
         }
-        Ok(MediaLibrarySessionIssueAdded {
+        let delta = MediaLibrarySessionIssueAdded {
             session_id,
             revision: snapshot.revision,
             issue,
             metadata,
-        })
+        };
+        let search_entries = delta
+            .metadata
+            .iter()
+            .map(|entry| (entry.relative_path.clone(), None))
+            .collect();
+        drop(snapshot);
+        self.search
+            .set_metadata(session_id, delta.revision, search_entries);
+        Ok(delta)
     }
 
     pub fn dismiss_issue(&self, issue_id: u64) -> MediaLibrarySessionSnapshot {
@@ -1232,7 +1337,10 @@ impl MediaLibrarySessionState {
         snapshot.batch_operations.clear();
         self.thumbnail_cache.lock().unwrap().clear();
         self.superseded_scan_metadata.lock().unwrap().clear();
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        drop(snapshot);
+        self.search.reset(None, result.revision);
+        Ok(result)
     }
 }
 
@@ -1444,6 +1552,158 @@ mod tests {
                 }],
             )
             .is_err());
+    }
+
+    #[test]
+    fn search_index_tracks_authoritative_mutations_and_snapshot_recovery() {
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("a.jpg")])
+            .unwrap();
+
+        let search = |query: &str| {
+            state
+                .search()
+                .submit(crate::search_service::MediaLibrarySearchRequest {
+                    session_id,
+                    request_id: 1,
+                    query: query.into(),
+                })
+        };
+        assert_eq!(search("a.jpg").unwrap().matched_paths, vec!["a.jpg"]);
+
+        let schema_id = crate::tag_schema::SchemaDefinitionId {
+            table: "Test::Main".into(),
+            tag_id: "Needle".into(),
+            index: None,
+        };
+        let occurrence = crate::metadata_occurrence::MetadataOccurrence::try_new(
+            crate::metadata_occurrence::MetadataOccurrenceId {
+                document: None,
+                path: "XMP".into(),
+                runtime_tag_id: "Needle".into(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: schema_id.table.clone(),
+                    tag_id: schema_id.tag_id.clone(),
+                    index: None,
+                },
+                copy: 0,
+            },
+            schema_id.clone(),
+            crate::metadata_value::MetadataValue::Text("metadata needle".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        state
+            .commit_metadata_results(
+                session_id,
+                vec![FileMetadata {
+                    relative_path: "a.jpg".into(),
+                    occurrences: MetadataOccurrences(vec![occurrence]),
+                }],
+            )
+            .unwrap();
+        assert_eq!(
+            search("metadata needle").unwrap().matched_paths,
+            vec!["a.jpg"]
+        );
+
+        let target = crate::metadata_draft_target::MetadataDraftTarget::NewProperty {
+            schema_id: schema_id.clone(),
+            write_target: crate::metadata_occurrence::MetadataWriteTarget {
+                group1: "XMP-test".into(),
+                group7: "ID-Test".into(),
+                tag_name: "Needle".into(),
+            },
+        };
+        state
+            .commit_draft_row(
+                session_id,
+                "a.jpg".into(),
+                vec![MetadataTargetDraftEntry {
+                    target,
+                    edit: crate::draft_edits::MetadataDraftEdit {
+                        value: Some(crate::metadata_value::MetadataValue::Text(
+                            "draft needle".into(),
+                        )),
+                        intent: crate::draft_edits::EditIntent::Set,
+                    },
+                }],
+            )
+            .unwrap();
+        assert_eq!(search("has:edits").unwrap().matched_paths, vec!["a.jpg"]);
+        assert_eq!(search("draft needle").unwrap().matched_paths, vec!["a.jpg"]);
+
+        state
+            .begin_apply_operation(session_id, "apply-search".into(), None)
+            .unwrap();
+        let replacement = crate::metadata_occurrence::MetadataOccurrence::try_new(
+            crate::metadata_occurrence::MetadataOccurrenceId {
+                document: None,
+                path: "XMP".into(),
+                runtime_tag_id: "Needle".into(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: schema_id.table.clone(),
+                    tag_id: schema_id.tag_id.clone(),
+                    index: None,
+                },
+                copy: 0,
+            },
+            schema_id,
+            crate::metadata_value::MetadataValue::Text("apply replacement".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        state
+            .update_apply_operation(
+                session_id,
+                &crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
+                    operation_id: "apply-search".into(),
+                    sequence: 1,
+                    current: 1,
+                    total: 1,
+                    results: vec![crate::apply_batch::MetadataApplyFileResult {
+                        relative_path: "a.jpg".into(),
+                        applied: true,
+                        error: None,
+                        warning: None,
+                        fresh_file_metadata: Some(FileMetadata {
+                            relative_path: "a.jpg".into(),
+                            occurrences: MetadataOccurrences(vec![replacement]),
+                        }),
+                        target_outcomes: Vec::new(),
+                        persisted_draft_entries: Some(Vec::new()),
+                    }],
+                },
+            )
+            .unwrap();
+        assert!(search("metadata needle").unwrap().matched_paths.is_empty());
+        assert_eq!(
+            search("apply replacement").unwrap().matched_paths,
+            vec!["a.jpg"]
+        );
+        assert!(search("has:edits").unwrap().matched_paths.is_empty());
+
+        let recovered = state.snapshot();
+        let recovered_result = search("apply replacement").unwrap();
+        assert_eq!(recovered_result.session_revision, recovered.revision);
+        assert_eq!(recovered_result.matched_paths, vec!["a.jpg"]);
+
+        state.remove_files(session_id, &["a.jpg".into()]).unwrap();
+        assert!(search("a.jpg").unwrap().matched_paths.is_empty());
+        state.begin_close(session_id).unwrap();
+        state.finish_close(session_id).unwrap();
+        assert!(search("a.jpg").is_err());
     }
 
     #[test]

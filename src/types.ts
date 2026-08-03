@@ -88,6 +88,8 @@ export type { MediaLibraryThumbnailPayload } from "./types/generated/MediaLibrar
 export type { MediaLibrarySessionFileMetadata } from "./types/generated/MediaLibrarySessionFileMetadata";
 export type { MediaLibrarySessionMetadataChanged } from "./types/generated/MediaLibrarySessionMetadataChanged";
 export type { MediaLibrarySessionMetadataState } from "./types/generated/MediaLibrarySessionMetadataState";
+export type { MediaLibrarySearchRequest } from "./types/generated/MediaLibrarySearchRequest";
+export type { MediaLibrarySearchResult } from "./types/generated/MediaLibrarySearchResult";
 export type { MediaLibrarySessionDraftPersistenceState } from "./types/generated/MediaLibrarySessionDraftPersistenceState";
 // ── Thumbnail store ───────────────────────────────────────────────────────────
 

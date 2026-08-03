@@ -50,7 +50,7 @@ import { sortFiles, shouldSuspendSorting } from "./utils/sorting";
 import { listSearchQueryIsActive } from "./utils/listSearchText";
 import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequency";
 import { arePathsImageOnly } from "./utils/mediaKind";
-import { useSearchWorker, createSearchWorker } from "./hooks/useSearchWorker";
+import { useSearchService } from "./hooks/useSearchService";
 import { parseSearchQuery } from "./search/searchQuery";
 import "./App.css";
 
@@ -186,16 +186,12 @@ function LoadedView({
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
-  // Off-thread search via Web Worker.  The hook subscribes to the metadata
-  // and draft-edit stores directly, so any mutation (streamed ExifTool
-  // results, draft edits) refreshes results without the App needing to
-  // forward each change.  See `src/hooks/useSearchWorker.ts`.
-  const { matched: searchMatched, pending: searchPending } = useSearchWorker({
-    files: sortedFiles,
-    fileMetadataOccurrencesStore: state.fileMetadataOccurrences,
-    targetDraftEditsStore: state.targetDraftEditsStore,
+  // Search is maintained from the Rust-authoritative session. The frontend
+  // submits only the active query and filters its existing sorted list by the
+  // returned relative-path set.
+  const { matched: searchMatched, pending: searchPending } = useSearchService({
+    sessionId: state.kind === "loaded" ? state.sessionId : null,
     query: listSearchQuery,
-    createWorker: createSearchWorker,
   });
   const parsedListSearchQuery = useMemo(
     () => parseSearchQuery(listSearchQuery),
