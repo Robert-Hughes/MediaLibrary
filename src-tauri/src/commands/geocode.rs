@@ -154,8 +154,10 @@ pub fn cancel_geocode_cmd(
     app: AppHandle,
     geocode_state: State<'_, geocode::GeocodeState>,
 ) -> Result<(), String> {
+    // Signal the in-flight runner first so a racing dismiss cannot leave it
+    // running (see cancel_describe_cmd for the full rationale).
+    geocode_state.signal_cancel();
     app.state::<crate::session::MediaLibrarySessionState>()
         .request_batch_operation_cancellation(session_id, &operation_id)?;
-    geocode_state.signal_cancel();
     Ok(())
 }

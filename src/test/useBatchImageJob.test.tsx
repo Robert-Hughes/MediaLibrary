@@ -241,4 +241,54 @@ describe("useBatchImageJob Rust projection", () => {
     expect(result.current.state.currentFile).toBeNull();
     expect(result.current.state.succeeded).toEqual([]);
   });
+
+  it("does not reopen an authoritative operation the user dismissed", async () => {
+    const { result, rerender } = renderHook(
+      ({ value }: { value: MediaLibraryBatchOperation }) =>
+        useBatchImageJob(config, { sessionId: 12, operation: value }),
+      { initialProps: { value: operation() } },
+    );
+    await waitFor(() => expect(result.current.open).toBe(true));
+
+    act(() => result.current.actions.cancel());
+    expect(result.current.open).toBe(false);
+    expect(invokeMock).toHaveBeenCalledWith(
+      "dismiss_media_library_session_batch_operation",
+      { sessionId: 12, operationId: "describe-7" },
+    );
+
+    // The cancel command itself pushes a snapshot that still contains the
+    // operation (cancelling=true); a late completion snapshot can follow
+    // seconds later. Neither may reopen the dismissed dialog.
+    rerender({ value: operation({ cancelling: true }) });
+    await Promise.resolve();
+    expect(result.current.open).toBe(false);
+    rerender({ value: operation({ phase: "completed" }) });
+    await Promise.resolve();
+    expect(result.current.open).toBe(false);
+  });
+
+  it("dismisses an operation that appears after the user cancelled before it", async () => {
+    const { result, rerender } = renderHook(
+      ({ value }: { value: MediaLibraryBatchOperation | undefined }) =>
+        useBatchImageJob(config, { sessionId: 12, operation: value }),
+      {
+        initialProps: {
+          value: undefined as MediaLibraryBatchOperation | undefined,
+        },
+      },
+    );
+
+    act(() => result.current.actions.cancel());
+    expect(result.current.open).toBe(false);
+
+    rerender({ value: operation() });
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "dismiss_media_library_session_batch_operation",
+        { sessionId: 12, operationId: "describe-7" },
+      ),
+    );
+    expect(result.current.open).toBe(false);
+  });
 });

@@ -179,6 +179,16 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   operationIdRef.current = options.operation?.operation_id ?? null;
   const succeededPathsRef = useRef(new Set<string>());
   const failureKeysRef = useRef(new Set<string>());
+  // Operation id the user explicitly dismissed (cancelled or closed). Any
+  // later authoritative snapshot carrying the same operation must not reopen
+  // the dialog — the cancel command itself pushes one while the operation is
+  // still present, and a raced dismiss can leave a completion snapshot in
+  // flight seconds later.
+  const dismissedOperationIdRef = useRef<string | null>(null);
+  // The user dismissed the flow before the backend operation appeared in the
+  // session snapshot. When it does appear, dismiss it by id so it cannot
+  // reopen the dialog or block a future run of the same operation kind.
+  const pendingDismissalRef = useRef(false);
   const resetLocalOperationState = useCallback(() => {
     succeededPathsRef.current.clear();
     failureKeysRef.current.clear();
@@ -451,6 +461,12 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   );
 
   const recoverAuthoritativeOperation = useCallback(async () => {
+    if (
+      dismissedOperationIdRef.current !== null ||
+      pendingDismissalRef.current
+    ) {
+      return;
+    }
     try {
       const snapshot = (await invoke(
         "get_media_library_session_snapshot",
@@ -482,6 +498,25 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   useEffect(() => {
     const operation = options.operation;
     if (operation) {
+      if (pendingDismissalRef.current) {
+        // The user dismissed the flow before this operation appeared;
+        // dismiss it now so it cannot reopen the dialog or block a future
+        // run of the same operation kind.
+        pendingDismissalRef.current = false;
+        dismissedOperationIdRef.current = operation.operation_id;
+        void invoke("dismiss_media_library_session_batch_operation", {
+          sessionId: options.sessionId,
+          operationId: operation.operation_id,
+        }).catch(() => {
+          /* best effort */
+        });
+        return;
+      }
+      if (operation.operation_id === dismissedOperationIdRef.current) {
+        // The user dismissed this operation; an authoritative snapshot for
+        // it must not reopen the dialog.
+        return;
+      }
       recoveredOperationIdRef.current = null;
       recoveredSessionIdRef.current = undefined;
       projectOperation(operation);
@@ -533,6 +568,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         total,
         relPaths: relativePaths,
       });
+      dismissedOperationIdRef.current = null;
+      pendingDismissalRef.current = false;
       if (config.commands.estimate && config.buildEstimateArgs) {
         const estimateCmd = config.commands.estimate;
         const args = {
@@ -589,6 +626,10 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     // the user wants to see what landed before the dialog disappears.
     const operation = options.operation;
     if (!operation || options.sessionId === undefined) {
+      // The backend operation has not appeared in the session snapshot yet
+      // (it can lag behind the dialog under scan load). Record the dismissal
+      // so the snapshot cannot reopen the dialog when it lands.
+      pendingDismissalRef.current = true;
       projectedOperationIdRef.current = null;
       recoveredOperationIdRef.current = null;
       recoveredSessionIdRef.current = undefined;
@@ -605,6 +646,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     if (phaseRef.current === "running") {
       setState((s) => ({ ...s, cancelling: true }));
     } else {
+      dismissedOperationIdRef.current = operation.operation_id;
       void invoke("dismiss_media_library_session_batch_operation", {
         sessionId: options.sessionId,
         operationId: operation.operation_id,
@@ -623,10 +665,13 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   ]);
   const close = useCallback(() => {
     if (options.operation) {
+      dismissedOperationIdRef.current = options.operation.operation_id;
       void invoke("dismiss_media_library_session_batch_operation", {
         sessionId: options.sessionId,
         operationId: options.operation.operation_id,
       });
+    } else {
+      pendingDismissalRef.current = true;
     }
     projectedOperationIdRef.current = null;
     recoveredOperationIdRef.current = null;
