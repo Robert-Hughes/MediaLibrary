@@ -2638,9 +2638,7 @@ pub(crate) fn stage_batch_generated_metadata_drafts(
         }
         return Err(error);
     }
-    let committed =
-        session_state.commit_draft_row(session_id, relative_path.to_owned(), planned)?;
-    emit_session_snapshot(app, &committed)?;
+    session_state.commit_generated_draft_row(session_id, relative_path.to_owned(), planned)?;
     Ok(true)
 }
 

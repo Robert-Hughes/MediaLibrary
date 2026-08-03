@@ -367,7 +367,7 @@ impl MediaLibrarySessionState {
         relative_path: Option<String>,
         status: Option<&str>,
         error: Option<String>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -397,7 +397,7 @@ impl MediaLibrarySessionState {
             });
         }
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        Ok(())
     }
     pub fn update_batch_operation_estimate_progress(
         &self,
@@ -407,7 +407,7 @@ impl MediaLibrarySessionState {
         total: usize,
         relative_path: Option<String>,
         error: Option<String>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -427,7 +427,40 @@ impl MediaLibrarySessionState {
             operation.error = error;
         }
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        Ok(())
+    }
+
+    /// Commit one generated-draft row without cloning the complete session.
+    /// Batch workers reconcile the frontend once at a phase boundary; cloning
+    /// files, metadata, thumbnails, and every draft for each item is both
+    /// unnecessary and prohibitively expensive for large runs.
+    pub fn commit_generated_draft_row(
+        &self,
+        session_id: u64,
+        relative_path: String,
+        entries: Vec<MetadataTargetDraftEntry>,
+    ) -> Result<(), String> {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err(
+                "The media-library session changed before the drafts were committed".into(),
+            );
+        }
+        if !matches!(
+            snapshot.draft_persistence,
+            MediaLibrarySessionDraftPersistenceState::Ready
+        ) {
+            return Err("Draft persistence is not ready".into());
+        }
+        snapshot.revision += 1;
+        if entries.is_empty() {
+            snapshot.drafts.remove(&relative_path);
+        } else {
+            snapshot.drafts.insert(relative_path, entries);
+        }
+        Ok(())
     }
 
     pub fn complete_batch_operation_estimate(
