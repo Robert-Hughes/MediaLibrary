@@ -1839,7 +1839,14 @@ export function createMockTauriApi(): MockTauriApi {
           };
           mock.targetDraftEditsByFolder[folder] =
             targetDraftsFromWire(nextDrafts);
-          emit("media_library_session_changed", { ...sessionSnapshot });
+          emit("media_library_session_apply_progress", {
+            kind: "progress_batch",
+            operation_id: operationId,
+            sequence: index + 1,
+            current: index + 1,
+            total: relPaths.length,
+            results: [effectiveResult],
+          });
           if (effectiveResult.fresh_file_metadata !== null) {
             mock.emitFileMetadataReady(
               relative_path,

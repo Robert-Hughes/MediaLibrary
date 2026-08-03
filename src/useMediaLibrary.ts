@@ -23,6 +23,7 @@ import type {
   MediaLibrarySessionThumbnailsChanged,
   MediaLibrarySessionMetadataChanged,
 } from "./types";
+import type { MetadataApplyStreamMessage } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
 import { useRecentFolders } from "./hooks/useRecentFolders";
 import { useWritableSchemaDefinitions } from "./hooks/useWritableSchemaDefinitions";
@@ -43,6 +44,7 @@ import { projectApplyOperation } from "./applyProjection";
 import { mergeSessionIssues } from "./sessionIssueProjection";
 import { projectSessionMetadata } from "./sessionMetadataProjection";
 import { projectSessionThumbnails } from "./sessionThumbnailProjection";
+import { normalizeMetadataOccurrences } from "./utils/scanEvents";
 
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
@@ -556,6 +558,89 @@ export function useMediaLibrary(
         (raw) => applySessionSnapshot(raw as MediaLibrarySessionSnapshot),
       );
 
+      const unlistenApplyProgress = await api.listen(
+        "media_library_session_apply_progress",
+        (raw) => {
+          const message = raw as MetadataApplyStreamMessage;
+          if (message.kind === "complete") return;
+          let metadataChanged = false;
+          if (message.kind === "progress_batch") {
+            metadataChanged =
+              fileMetadataOccurrencesStoreRef.current.setMany(
+                message.results.flatMap((result) =>
+                  result.fresh_file_metadata === null
+                    ? []
+                    : [
+                        {
+                          path: result.relative_path,
+                          value: normalizeMetadataOccurrences(
+                            result.fresh_file_metadata.occurrences,
+                          ),
+                        },
+                      ],
+                ),
+              ).length > 0;
+            targetDraftEditsStoreRef.current.replaceMetadataFiles(
+              message.results.flatMap((result) =>
+                result.persisted_draft_entries === null
+                  ? []
+                  : [
+                      {
+                        path: result.relative_path,
+                        persistedEntries: result.persisted_draft_entries,
+                      },
+                    ],
+              ),
+            );
+            targetVerifyOutcomesStoreRef.current.replaceFiles(
+              message.results.map((result) => ({
+                path: result.relative_path,
+                outcomes: targetVerifyOutcomesFromBackend(
+                  result.relative_path,
+                  result.target_outcomes,
+                ),
+              })),
+            );
+          }
+          setAppState((previous) => {
+            if (previous.kind !== "loaded" || previous.applying === null) {
+              return previous;
+            }
+            if (previous.applying.operationId !== message.operation_id) {
+              return previous;
+            }
+            if (message.kind === "started") {
+              return {
+                ...previous,
+                applying: {
+                  ...previous.applying,
+                  total: message.total,
+                },
+              };
+            }
+            const latest = message.results[message.results.length - 1];
+            return {
+              ...previous,
+              metadataVersion:
+                metadataChanged && previous.sortConfig.primary?.kind === "image"
+                  ? previous.metadataVersion + 1
+                  : previous.metadataVersion,
+              applying: {
+                ...previous.applying,
+                current: message.current,
+                total: message.total,
+                currentFile:
+                  latest?.relative_path ?? previous.applying.currentFile,
+                failureCount:
+                  previous.applying.failureCount +
+                  message.results.filter((result) => result.error !== null)
+                    .length,
+              },
+            };
+          });
+        },
+      );
+
       const unlistenFound = await api.listen(
         "media_library_session_files_added",
         async (raw) => {
@@ -664,6 +749,7 @@ export function useMediaLibrary(
 
       unlisteners.push(
         unlistenSession,
+        unlistenApplyProgress,
         unlistenFound,
         unlistenMetadata,
         unlistenThumbnail,

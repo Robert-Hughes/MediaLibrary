@@ -645,7 +645,7 @@ impl MediaLibrarySessionState {
         &self,
         session_id: u64,
         message: &crate::apply_batch::MetadataApplyStreamMessage,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -771,7 +771,7 @@ impl MediaLibrarySessionState {
             }
         }
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        Ok(())
     }
 
     pub fn request_apply_cancellation(
@@ -1710,7 +1710,7 @@ mod tests {
             .begin_apply_operation(session_id, "apply-1".into(), None)
             .unwrap();
 
-        let updated = state
+        state
             .update_apply_operation(
                 session_id,
                 &crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
@@ -1731,6 +1731,7 @@ mod tests {
             )
             .unwrap();
 
+        let updated = state.snapshot();
         let operation = updated.apply_operation.as_ref().unwrap();
         assert_eq!(operation.issues.len(), 2);
         assert_eq!(operation.issues[0].relative_path, "failed.jpg");

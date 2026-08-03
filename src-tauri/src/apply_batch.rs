@@ -490,13 +490,17 @@ struct SessionApplyEvents {
 
 impl ApplyEvents for SessionApplyEvents {
     fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
-        let snapshot = self
-            .app
-            .state::<crate::session::MediaLibrarySessionState>()
-            .update_apply_operation(self.session_id, message)?;
+        let state = self.app.state::<crate::session::MediaLibrarySessionState>();
+        state.update_apply_operation(self.session_id, message)?;
         self.app
-            .emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
-            .map_err(|error| error.to_string())
+            .emit("media_library_session_apply_progress", message)
+            .map_err(|error| error.to_string())?;
+        if matches!(message, MetadataApplyStreamMessage::Complete { .. }) {
+            self.app
+                .emit(crate::session::SESSION_CHANGED_EVENT, state.snapshot())
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
     }
 }
 
