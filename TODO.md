@@ -1,7 +1,7 @@
 Current
 =======
 
-- Continue from 2019
+- Continue from 2024
 
 - Check all photos at the end
   - Any missing GPS?
