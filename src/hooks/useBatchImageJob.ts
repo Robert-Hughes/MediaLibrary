@@ -40,7 +40,12 @@ export interface BatchJobFailure {
   detail: string;
 }
 
-interface BatchJobProgress {
+interface ScopedBatchEvent {
+  sessionId?: number;
+  operationId?: string;
+}
+
+interface BatchJobProgress extends ScopedBatchEvent {
   current: number;
   total: number;
   relativePath: string;
@@ -168,6 +173,10 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   const recoveredSessionIdRef = useRef<number | undefined>(undefined);
   const pendingEstimateRef = useRef<null | (() => void)>(null);
   const listenersReadyRef = useRef(false);
+  const sessionIdRef = useRef(options.sessionId);
+  sessionIdRef.current = options.sessionId;
+  const operationIdRef = useRef(options.operation?.operation_id ?? null);
+  operationIdRef.current = options.operation?.operation_id ?? null;
   const succeededPathsRef = useRef(new Set<string>());
   const failureKeysRef = useRef(new Set<string>());
   const resetLocalOperationState = useCallback(() => {
@@ -191,12 +200,24 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     ) => {
       if (mounted) setState(updater);
     };
-    const subscribe = async <T>(
+    const subscribe = async <T extends ScopedBatchEvent>(
       event: string,
       handler: (payload: T) => void,
     ) => {
       const unlisten = await listen<T>(event, ({ payload }) => {
-        if (mounted) handler(payload);
+        if (!mounted) return;
+        if (
+          payload.sessionId !== undefined &&
+          payload.sessionId !== sessionIdRef.current
+        )
+          return;
+        if (
+          payload.operationId !== undefined &&
+          operationIdRef.current !== null &&
+          payload.operationId !== operationIdRef.current
+        )
+          return;
+        handler(payload);
       });
       unlisteners.push(unlisten);
     };
@@ -262,7 +283,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
 
     void (async () => {
       const prefix = config.operationKind;
-      await subscribe<{ total: number }>(`${prefix}_started`, ({ total }) => {
+      await subscribe<ScopedBatchEvent & { total: number }>(`${prefix}_started`, ({ total }) => {
         succeededPathsRef.current.clear();
         failureKeysRef.current.clear();
         safeSetState((state) => ({
@@ -274,7 +295,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         }));
       });
       if (config.batchedProgress) {
-        await subscribe<{ results: BatchJobProgress[] }>(
+        await subscribe<ScopedBatchEvent & { results: BatchJobProgress[] }>(
           `${prefix}_progress_batch`,
           ({ results }) => {
             queueProgress(results);
@@ -285,7 +306,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           queueProgress([progress]);
         });
       }
-      await subscribe<{
+      await subscribe<ScopedBatchEvent & {
         succeeded: string[];
         failed: Array<{
           relativePath: string;
@@ -317,7 +338,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         });
       });
       if (config.commands.estimate) {
-        await subscribe<{ total: number }>(
+        await subscribe<ScopedBatchEvent & { total: number }>(
           `${prefix}_estimate_started`,
           ({ total }) => {
             safeSetState((state) => ({
@@ -329,7 +350,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
             }));
           },
         );
-        await subscribe<{
+        await subscribe<ScopedBatchEvent & {
           current: number;
           total: number;
           relativePath: string;
@@ -343,8 +364,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           }));
         });
         await subscribe<
-          | { relativePath: string; message: string }
-          | { relative_path: string; message: string }
+          | (ScopedBatchEvent & { relativePath: string; message: string })
+          | (ScopedBatchEvent & { relative_path: string; message: string })
         >(`${prefix}_estimate_error`, (payload) => {
           const relativePath =
             "relativePath" in payload
@@ -355,7 +376,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
             estimateError: `${relativePath}: ${payload.message}`,
           }));
         });
-        await subscribe<EstimatePayload>(
+        await subscribe<EstimatePayload & ScopedBatchEvent>(
           `${prefix}_estimate_complete`,
           (estimate) => {
             safeSetState((state) => ({
