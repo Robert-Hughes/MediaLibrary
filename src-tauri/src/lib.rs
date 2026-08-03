@@ -319,17 +319,17 @@ fn record_media_library_session_issue(
     affected_files: Vec<String>,
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    session_state.add_issue(
+) -> Result<session::MediaLibrarySessionIssueAdded, String> {
+    let delta = session_state.add_issue(
         session_id,
         severity,
         error_type,
         error_message,
         affected_files,
     )?;
-    let snapshot = session_state.snapshot();
-    emit_session_snapshot(&app, &snapshot)?;
-    Ok(snapshot)
+    app.emit(session::SESSION_ISSUE_ADDED_EVENT, &delta)
+        .map_err(|error| error.to_string())?;
+    Ok(delta)
 }
 
 #[tauri::command]
