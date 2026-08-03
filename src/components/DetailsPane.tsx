@@ -11,6 +11,7 @@ import type {
   SchemaMetadataEdit,
   TargetDraftPersistenceState,
 } from "../types";
+import { isPromiseLike } from "../utils/promiseLike";
 import {
   metadataTargetDraftEntryEqualsExact,
   type TargetDraftCollection,
@@ -1455,8 +1456,16 @@ export function DetailsPane({
                   );
                 }
               };
-              if (applyResult instanceof Promise) {
-                void applyResult.then(handleResult);
+              if (isPromiseLike<boolean>(applyResult)) {
+                void Promise.resolve(applyResult)
+                  .then(handleResult)
+                  .catch((error) => {
+                    setEditDialogUnavailableMessage(
+                      error instanceof Error
+                        ? error.message
+                        : "The target-aware GPS batch could not be saved. The editor remains open and nothing was retargeted.",
+                    );
+                  });
               } else {
                 handleResult(applyResult);
               }

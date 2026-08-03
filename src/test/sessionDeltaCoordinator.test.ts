@@ -130,4 +130,27 @@ describe("createSessionDeltaCoordinator", () => {
       expect.objectContaining({ message: "projection failed" }),
     );
   });
+  it("reports a failed gap refresh without rejecting or advancing", async () => {
+    let revision = 2;
+    const refreshError = new Error("snapshot unavailable");
+    const onError = vi.fn();
+    const coordinator = createSessionDeltaCoordinator({
+      getActiveSessionId: () => 9,
+      getCurrentRevision: () => revision,
+      setCurrentRevision: (next) => {
+        revision = next;
+      },
+      refreshSnapshot: vi.fn(async () => {
+        throw refreshError;
+      }),
+      isCancelled: () => false,
+      onError,
+    });
+
+    await expect(
+      coordinator.enqueue({ sessionId: 9, revision: 4, apply: vi.fn() }),
+    ).resolves.toBeUndefined();
+    expect(revision).toBe(2);
+    expect(onError).toHaveBeenCalledWith(refreshError);
+  });
 });

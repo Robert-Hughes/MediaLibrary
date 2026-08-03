@@ -1,3 +1,5 @@
+import { isPromiseLike } from "./utils/promiseLike";
+
 export interface SessionDelta {
   sessionId: number;
   revision: number;
@@ -22,15 +24,6 @@ interface QueuedDelta {
   delta: SessionDelta;
   resolve: () => void;
   reject: (error: unknown) => void;
-}
-
-function isPromiseLike(value: unknown): value is PromiseLike<void> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof value.then === "function"
-  );
 }
 
 export function createSessionDeltaCoordinator(
@@ -86,13 +79,17 @@ export function createSessionDeltaCoordinator(
     if (delta.revision <= options.getCurrentRevision()) return;
 
     if (delta.revision !== options.getCurrentRevision() + 1) {
-      return refresh().then(() => {
-        if (options.isCancelled()) return;
-        if (delta.sessionId !== options.getActiveSessionId()) return;
-        if (delta.revision <= options.getCurrentRevision()) return;
-        if (delta.revision !== options.getCurrentRevision() + 1) return;
-        return applyDelta(delta);
-      });
+      return refresh()
+        .then(() => {
+          if (options.isCancelled()) return;
+          if (delta.sessionId !== options.getActiveSessionId()) return;
+          if (delta.revision <= options.getCurrentRevision()) return;
+          if (delta.revision !== options.getCurrentRevision() + 1) return;
+          return applyDelta(delta);
+        })
+        .catch((error) => {
+          options.onError(error);
+        });
     }
 
     return applyDelta(delta);
