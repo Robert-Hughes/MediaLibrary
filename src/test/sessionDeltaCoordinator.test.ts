@@ -153,4 +153,44 @@ describe("createSessionDeltaCoordinator", () => {
     expect(revision).toBe(2);
     expect(onError).toHaveBeenCalledWith(refreshError);
   });
+
+  it("serialises a newer full snapshot behind asynchronous delta projection", async () => {
+    let revision = 0;
+    let releaseDelta!: () => void;
+    const order: string[] = [];
+    const coordinator = createSessionDeltaCoordinator({
+      getActiveSessionId: () => 1,
+      getCurrentRevision: () => revision,
+      setCurrentRevision: (next) => {
+        revision = next;
+      },
+      refreshSnapshot: vi.fn(async () => {}),
+      isCancelled: () => false,
+      onError: vi.fn(),
+    });
+
+    const delta = coordinator.enqueue({
+      sessionId: 1,
+      revision: 1,
+      apply: async () => {
+        order.push("delta-start");
+        await new Promise<void>((resolve) => {
+          releaseDelta = resolve;
+        });
+        order.push("delta-end");
+      },
+    });
+    const snapshot = coordinator.enqueueSnapshot(2, () => {
+      order.push("snapshot");
+      revision = 2;
+    });
+
+    await Promise.resolve();
+    expect(order).toEqual(["delta-start"]);
+    releaseDelta();
+    await Promise.all([delta, snapshot]);
+
+    expect(order).toEqual(["delta-start", "delta-end", "snapshot"]);
+    expect(revision).toBe(2);
+  });
 });

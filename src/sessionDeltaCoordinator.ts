@@ -17,11 +17,13 @@ export interface SessionDeltaCoordinatorOptions {
 
 export interface SessionDeltaCoordinator {
   enqueue: (delta: SessionDelta) => Promise<void>;
+  enqueueSnapshot: (revision: number, apply: () => void | Promise<void>) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
 interface QueuedDelta {
-  delta: SessionDelta;
+  delta?: SessionDelta;
+  snapshot?: { revision: number; apply: () => void | Promise<void> };
   resolve: () => void;
   reject: (error: unknown) => void;
 }
@@ -103,7 +105,15 @@ export function createSessionDeltaCoordinator(
       const item = queue.shift()!;
       let result: void | Promise<void>;
       try {
-        result = process(item.delta);
+        if (item.snapshot) {
+          if (item.snapshot.revision <= options.getCurrentRevision()) {
+            result = undefined;
+          } else {
+            result = item.snapshot.apply();
+          }
+        } else {
+          result = process(item.delta!);
+        }
       } catch (error) {
         item.reject(error);
         continue;
@@ -127,6 +137,11 @@ export function createSessionDeltaCoordinator(
     enqueue: (delta) =>
       new Promise<void>((resolve, reject) => {
         queue.push({ delta, resolve, reject });
+        drain();
+      }),
+    enqueueSnapshot: (revision, apply) =>
+      new Promise<void>((resolve, reject) => {
+        queue.push({ snapshot: { revision, apply }, resolve, reject });
         drain();
       }),
     refresh,

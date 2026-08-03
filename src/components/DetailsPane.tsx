@@ -523,6 +523,7 @@ export function DetailsPane({
     useState<string | null>(null);
   const [gpsSavePending, setGpsSavePending] = useState(false);
   const gpsSaveGenerationRef = useRef(0);
+  const gpsPreviewGenerationRef = useRef(0);
   const [showNewPropertyDialog, setShowNewPropertyDialog] = useState(false);
   // Stage 2 of the new-property flow: key picked, now show a TypedValueEditor
   // for that key.  null when no flow is active or we're still on stage 1.
@@ -961,6 +962,7 @@ export function DetailsPane({
   };
 
   const showGroupedGpsEditor = (group: GpsTagGroup) => {
+    gpsPreviewGenerationRef.current += 1;
     gpsSaveGenerationRef.current += 1;
     setGpsSavePending(false);
     setEditDialogUnavailableMessage(null);
@@ -988,6 +990,8 @@ export function DetailsPane({
       return;
     }
 
+    const previewGeneration = ++gpsPreviewGenerationRef.current;
+    const previewFilePath = file.relative_path;
     void onPreviewGpsTargetDraftBatch(
       gpsGroupIds(group).map((schema_id) => ({
         schema_id,
@@ -995,9 +999,16 @@ export function DetailsPane({
       })),
     )
       .then((preview) => {
-        if (preview !== null) showGroupedGpsEditor(group);
+        if (
+          preview !== null &&
+          gpsPreviewGenerationRef.current === previewGeneration &&
+          file.relative_path === previewFilePath
+        ) {
+          showGroupedGpsEditor(group);
+        }
       })
       .catch((error) => {
+        if (gpsPreviewGenerationRef.current !== previewGeneration) return;
         setEditDialogUnavailableMessage(
           error instanceof Error
             ? error.message

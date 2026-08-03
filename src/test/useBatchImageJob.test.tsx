@@ -109,6 +109,7 @@ describe("useBatchImageJob Rust projection", () => {
       if (command === "estimate_cmd") throw new Error("missing API key");
       if (command === "get_media_library_session_snapshot") {
         return {
+          session_id: 12,
           batch_operations: {
             describe: operation({
               phase: "failed",
@@ -133,6 +134,34 @@ describe("useBatchImageJob Rust projection", () => {
     );
   });
 
+
+  it("does not recover a batch operation from a replacement session", async () => {
+    invokeMock.mockImplementation(async (command: unknown) => {
+      if (command === "estimate_cmd") throw new Error("stale command");
+      if (command === "get_media_library_session_snapshot") {
+        return {
+          session_id: 13,
+          batch_operations: {
+            describe: operation({ phase: "failed", error: "wrong session" }),
+          },
+        };
+      }
+      return undefined;
+    });
+    const { result } = renderHook(() =>
+      useBatchImageJob(config, { sessionId: 12 }),
+    );
+
+    act(() => result.current.actions.start("/folder", ["a.jpg"]));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith(
+        "get_media_library_session_snapshot",
+      ),
+    );
+    expect(result.current.state.phase).toBe("estimating");
+    expect(result.current.state.estimateError).toBeNull();
+  });
   it("reconstructs all durable lifecycle state from one Rust operation", async () => {
     const { result, rerender } = renderHook(
       ({ value }: { value: MediaLibraryBatchOperation }) =>

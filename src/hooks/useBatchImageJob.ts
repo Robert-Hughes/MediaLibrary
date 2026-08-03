@@ -427,6 +427,7 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       const snapshot = (await invoke(
         "get_media_library_session_snapshot",
       )) as MediaLibrarySessionSnapshot;
+      if (snapshot.session_id !== options.sessionId) return;
       const operation = snapshot.batch_operations[config.operationKind];
       if (operation) {
         recoveredOperationIdRef.current = operation.operation_id;
