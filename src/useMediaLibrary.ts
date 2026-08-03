@@ -23,6 +23,7 @@ import type {
   MediaLibrarySessionThumbnailsChanged,
   MediaLibrarySessionMetadataChanged,
   MediaLibrarySessionIssueAdded,
+  MediaLibrarySessionRevisionAdvanced,
 } from "./types";
 import type { MetadataApplyStreamMessage } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -807,6 +808,20 @@ export function useMediaLibrary(
         },
       );
 
+      const unlistenRevisionAdvanced = await api.listen(
+        "media_library_session_revision_advanced",
+        (raw) => {
+          const { session_id, revision } =
+            raw as MediaLibrarySessionRevisionAdvanced;
+          void deltaCoordinator.enqueue({
+            sessionId: session_id,
+            revision,
+            source: "media_library_session_revision_advanced",
+            apply: () => {},
+          });
+        },
+      );
+
       unlisteners.push(
         unlistenSession,
         unlistenApplyProgress,
@@ -814,6 +829,7 @@ export function useMediaLibrary(
         unlistenMetadata,
         unlistenIssueAdded,
         unlistenThumbnail,
+        unlistenRevisionAdvanced,
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
