@@ -61,7 +61,7 @@ use session_commands::*;
 use tauri::{AppHandle, Emitter, Manager, State};
 use work_queue::WorkQueue;
 
-// â”€â”€ Shared state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared state ──────────────────────────────────────────────────────────────
 
 pub struct ScanState {
     running: Mutex<bool>,
@@ -181,7 +181,7 @@ impl Default for ActiveQueues {
     }
 }
 
-// â”€â”€ Event payloads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Event payloads ────────────────────────────────────────────────────────────
 
 /// Emitted when the directory walk is complete (no payload needed).
 #[derive(Clone, Serialize)]
@@ -190,7 +190,7 @@ struct ThumbnailResult {
     thumbnail: Option<String>,
 }
 
-// â”€â”€ Commands â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
 fn log_to_console(level: String, message: String) {
@@ -382,15 +382,15 @@ fn close_media_library_session(
 ///
 /// Three concurrent phases, all starting as soon as files are discovered:
 ///
-///  Phase 1 â€” streaming file discovery (single thread):
+///  Phase 1 — streaming file discovery (single thread):
 ///    Walks the directory tree. Discovered files are committed to the Rust
 ///    session in bounded batches before a revisioned delta is emitted. The
 ///    authoritative session snapshot records when discovery has finished.
 ///
-///  Phase 2 â€” Image Metadata (thread pool, starts alongside phase 1):
+///  Phase 2 — Image Metadata (thread pool, starts alongside phase 1):
 ///    Reads EXIF data per file and commits revisioned metadata deltas.
 ///
-///  Phase 3 â€” thumbnail generation (thread pool, starts alongside phase 1):
+///  Phase 3 — thumbnail generation (thread pool, starts alongside phase 1):
 ///    Generates thumbnails and commits revisioned thumbnail deltas.
 ///    Supports priority reordering via `prioritize_queues`.
 fn effective_scan_concurrency(
@@ -491,7 +491,7 @@ fn start_scan(
 
         let root_arc = Arc::new(root.clone());
 
-        // â”€â”€ Phase 2: Image Metadata workers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Phase 2: Image Metadata workers ───────────────────────────────
         let metadata_handles: Vec<_> = (0..metadata_workers)
             .map(|_| {
                 let queue = file_metadata_queue.clone();
@@ -588,7 +588,7 @@ fn start_scan(
                 })
             })
             .collect();
-        // â”€â”€ Phase 3: thumbnail workers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Phase 3: thumbnail workers ────────────────────────────────────
         // All thumbnail producers send results through one channel. A single
         // emitter batches both extracted image thumbnails and immediate
         // audio/video placeholders before notifying the frontend.
@@ -643,7 +643,7 @@ fn start_scan(
                 })
             })
             .collect();
-        // â”€â”€ Phase 1: streaming directory walk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // ── Phase 1: streaming directory walk ─────────────────────────────
         // Run the directory walk in a separate thread so we can implement
         // timeout-based flushing even when the walk is slow.
         let file_queue = Arc::new(Mutex::new(Vec::new()));
@@ -772,7 +772,7 @@ fn start_scan(
         }
         drop(thumbnail_result_tx);
         let _ = thumbnail_emitter.join();
-        // Clear the queue slots â€” but only if a newer scan hasn't already
+        // Clear the queue slots — but only if a newer scan hasn't already
         // installed its own queues here.  Without this guard, a fast
         // folder-switch can null out the new scan's queues and break
         // prioritize_queues / stop_scan for it.
@@ -1773,7 +1773,7 @@ mod tests {
         assert!(elapsed >= Duration::from_millis(15));
     }
 
-    // â”€â”€ ActiveQueues race-condition tests â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── ActiveQueues race-condition tests ─────────────────────────────────────
 
     #[test]
     fn clear_if_mine_clears_when_my_queues_are_still_installed() {
@@ -1863,7 +1863,7 @@ mod tests {
     }
 }
 
-// â”€â”€ App entry point â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── App entry point ───────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

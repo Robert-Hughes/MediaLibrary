@@ -208,6 +208,7 @@ describe("App schema preloading", () => {
     render(<App />);
 
     expect(screen.getByTestId("schema-loading-dialog")).toBeInTheDocument();
+    expect(screen.getByText("Loading schema…")).toBeInTheDocument();
 
     resolvePreload();
     await waitFor(() => {

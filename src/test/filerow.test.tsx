@@ -246,7 +246,7 @@ describe("FileRow", () => {
     expect(grid.style.getPropertyValue("--grid-columns")).not.toBe("");
   });
 
-  it("displays em dash — for missing metadata and not mojibake â€”", () => {
+  it("displays an em dash for missing metadata without mojibake", () => {
     const thumbnails = new ThumbnailStore();
     const metadata = new FileMetadataOccurrencesStore();
     thumbnails.add("1.jpg");
@@ -285,7 +285,7 @@ describe("FileRow", () => {
     );
 
     expect(screen.queryByText("—")).not.toBeNull();
-    expect(screen.queryByText("â€”")).toBeNull();
+    expect(screen.queryByText("\u00e2\u20ac\u201d")).toBeNull();
   });
 
   it("displays schema-backed enum labels for image metadata columns", () => {
