@@ -46,6 +46,7 @@ import { mergeSessionIssues } from "./sessionIssueProjection";
 import { projectSessionMetadata } from "./sessionMetadataProjection";
 import { projectSessionThumbnails } from "./sessionThumbnailProjection";
 import { normalizeMetadataOccurrences } from "./utils/scanEvents";
+import { createSessionDeltaCoordinator } from "./sessionDeltaCoordinator";
 
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
@@ -392,15 +393,16 @@ export function useMediaLibrary(
             !isRecovery &&
             snapshot.revision === previousRevision + 1;
           if (canApplyStatusOnly && previous.kind === "loaded") {
+            const projectedApply = projectApplyOperation(
+              snapshot.apply_operation,
+            );
             return {
               ...previous,
               scanning: snapshot.discovery_running,
               targetDraftPersistence: targetDraftPersistenceRef.current,
               batchOperations: snapshot.batch_operations ?? {},
-              applying: projectApplyOperation(snapshot.apply_operation)
-                .applying,
-              applyCompletion: projectApplyOperation(snapshot.apply_operation)
-                .completion,
+              applying: projectedApply.applying,
+              applyCompletion: projectedApply.completion,
               applicationErrors: mergeSessionIssues(
                 previous.applicationErrors,
                 snapshot.session_id!,
@@ -428,7 +430,6 @@ export function useMediaLibrary(
           if (previous.kind === "loaded") {
             next.selectedPath = previous.selectedPath;
             next.metadataVersion = previous.metadataVersion;
-            next.selectedPath = previous.selectedPath;
             next.applicationErrors = mergeSessionIssues(
               previous.applicationErrors,
               snapshot.session_id!,
@@ -547,6 +548,22 @@ export function useMediaLibrary(
     const unlisteners: Array<() => void> = [];
     let cancelled = false;
 
+    const deltaCoordinator = createSessionDeltaCoordinator({
+      getActiveSessionId: () => activeScanIdRef.current,
+      getCurrentRevision: () => sessionRevisionRef.current,
+      setCurrentRevision: (revision) => {
+        sessionRevisionRef.current = revision;
+      },
+      refreshSnapshot: async () => {
+        const snapshot = (await api.invoke(
+          "get_media_library_session_snapshot",
+        )) as MediaLibrarySessionSnapshot;
+        if (!cancelled) applySessionSnapshot(snapshot);
+      },
+      isCancelled: () => cancelled,
+      onError: (error) => pushApplicationError("session-delta", error),
+    });
+
     const setup = async () => {
       // Create a new pending latch for this setup cycle; startScan awaits it.
       let resolve!: () => void;
@@ -644,140 +661,123 @@ export function useMediaLibrary(
 
       const unlistenFound = await api.listen(
         "media_library_session_files_added",
-        async (raw) => {
-          if (cancelled) return;
+        (raw) => {
           const { session_id, revision, files } =
             raw as MediaLibrarySessionFilesAdded;
-          if (session_id !== activeScanIdRef.current) return;
-          if (revision <= sessionRevisionRef.current) return;
-          if (revision !== sessionRevisionRef.current + 1) {
-            const snapshot = (await api.invoke(
-              "get_media_library_session_snapshot",
-            )) as MediaLibrarySessionSnapshot;
-            if (!cancelled) applySessionSnapshot(snapshot);
-            return;
-          }
-          sessionRevisionRef.current = revision;
-          console.debug(`[session-files] received ${files.length} files`);
-
-          for (const file of files) {
-            sessionFilePathsRef.current.add(file.relative_path);
-            thumbnailStoreRef.current.add(file.relative_path);
-            fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
-          }
-
-          setAppState((previous) => {
-            if (previous.kind === "idle" || files.length === 0) return previous;
-            if (previous.kind === "loading") {
-              return loadedStateFromProjection(
-                session_id,
-                previous.folder,
-                files,
-                true,
-                {
-                  visibleColumns: previous.visibleColumns,
-                  columnWidths: previous.columnWidths,
-                  sortConfig: previous.sortConfig,
-                },
-              );
-            }
-            const nextFiles = [...previous.files, ...files];
-            metadataProgressStoreRef.current.setTotal(nextFiles.length);
-            return { ...previous, files: nextFiles };
+          void deltaCoordinator.enqueue({
+            sessionId: session_id,
+            revision,
+            apply: () => {
+              console.debug(`[session-files] received ${files.length} files`);
+              for (const file of files) {
+                sessionFilePathsRef.current.add(file.relative_path);
+                thumbnailStoreRef.current.add(file.relative_path);
+                fileMetadataOccurrencesStoreRef.current.add(file.relative_path);
+              }
+              setAppState((previous) => {
+                if (previous.kind === "idle" || files.length === 0)
+                  return previous;
+                if (previous.kind === "loading") {
+                  return loadedStateFromProjection(
+                    session_id,
+                    previous.folder,
+                    files,
+                    true,
+                    {
+                      visibleColumns: previous.visibleColumns,
+                      columnWidths: previous.columnWidths,
+                      sortConfig: previous.sortConfig,
+                    },
+                  );
+                }
+                const nextFiles = [...previous.files, ...files];
+                metadataProgressStoreRef.current.setTotal(nextFiles.length);
+                return { ...previous, files: nextFiles };
+              });
+            },
           });
         },
       );
 
       const unlistenMetadata = await api.listen(
         "media_library_session_metadata_changed",
-        async (raw) => {
+        (raw) => {
           const delta = raw as MediaLibrarySessionMetadataChanged;
-          if (delta.session_id !== activeScanIdRef.current) return;
-          if (delta.revision <= sessionRevisionRef.current) return;
-          if (delta.revision !== sessionRevisionRef.current + 1) {
-            const snapshot = (await api.invoke(
-              "get_media_library_session_snapshot",
-            )) as MediaLibrarySessionSnapshot;
-            if (!cancelled) applySessionSnapshot(snapshot);
-            return;
-          }
-          sessionRevisionRef.current = delta.revision;
-          const acceptedReady = projectSessionMetadata(delta.entries, false, {
-            occurrences: fileMetadataOccurrencesStoreRef.current,
-            progress: metadataProgressStoreRef.current,
-          });
-          if (acceptedReady > 0) {
-            setAppState((previous) => {
-              if (
-                previous.kind !== "loaded" ||
-                !previous.sortConfig.primary ||
-                previous.sortConfig.primary.kind !== "image"
-              ) {
-                return previous;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            apply: () => {
+              const acceptedReady = projectSessionMetadata(
+                delta.entries,
+                false,
+                {
+                  occurrences: fileMetadataOccurrencesStoreRef.current,
+                  progress: metadataProgressStoreRef.current,
+                },
+              );
+              if (acceptedReady > 0) {
+                setAppState((previous) => {
+                  if (
+                    previous.kind !== "loaded" ||
+                    !previous.sortConfig.primary ||
+                    previous.sortConfig.primary.kind !== "image"
+                  )
+                    return previous;
+                  return {
+                    ...previous,
+                    metadataVersion: previous.metadataVersion + 1,
+                  };
+                });
               }
-              return {
-                ...previous,
-                metadataVersion: previous.metadataVersion + 1,
-              };
-            });
-          }
+            },
+          });
         },
       );
 
       const unlistenIssueAdded = await api.listen(
         "media_library_session_issue_added",
-        async (raw) => {
+        (raw) => {
           const delta = raw as MediaLibrarySessionIssueAdded;
-          if (delta.session_id !== activeScanIdRef.current) return;
-          if (delta.revision <= sessionRevisionRef.current) return;
-          if (delta.revision !== sessionRevisionRef.current + 1) {
-            const snapshot = (await api.invoke(
-              "get_media_library_session_snapshot",
-            )) as MediaLibrarySessionSnapshot;
-            if (!cancelled) applySessionSnapshot(snapshot);
-            return;
-          }
-          sessionRevisionRef.current = delta.revision;
-          if (delta.metadata.length > 0) {
-            projectSessionMetadata(delta.metadata, false, {
-              occurrences: fileMetadataOccurrencesStoreRef.current,
-              progress: metadataProgressStoreRef.current,
-            });
-          }
-          setAppState((previous) => {
-            if (previous.kind !== "loaded") return previous;
-            return {
-              ...previous,
-              applicationErrors: mergeSessionIssues(
-                previous.applicationErrors,
-                delta.session_id,
-                [delta.issue],
-              ),
-            };
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            apply: () => {
+              if (delta.metadata.length > 0) {
+                projectSessionMetadata(delta.metadata, false, {
+                  occurrences: fileMetadataOccurrencesStoreRef.current,
+                  progress: metadataProgressStoreRef.current,
+                });
+              }
+              setAppState((previous) => {
+                if (previous.kind !== "loaded") return previous;
+                return {
+                  ...previous,
+                  applicationErrors: mergeSessionIssues(
+                    previous.applicationErrors,
+                    delta.session_id,
+                    [delta.issue],
+                  ),
+                };
+              });
+            },
           });
         },
       );
 
       const unlistenThumbnail = await api.listen(
         "media_library_session_thumbnails_changed",
-        async (raw) => {
-          if (cancelled) return;
+        (raw) => {
           const delta = raw as MediaLibrarySessionThumbnailsChanged;
-          if (delta.session_id !== activeScanIdRef.current) return;
-          if (delta.revision <= sessionRevisionRef.current) return;
-          if (delta.revision !== sessionRevisionRef.current + 1) {
-            const snapshot = (await api.invoke(
-              "get_media_library_session_snapshot",
-            )) as MediaLibrarySessionSnapshot;
-            if (!cancelled) applySessionSnapshot(snapshot);
-            return;
-          }
-          sessionRevisionRef.current = delta.revision;
-          await projectSessionThumbnails(delta.session_id, delta.entries, {
-            store: thumbnailStoreRef.current,
-            invoke: api.invoke,
-            isCurrentSession: (sessionId) =>
-              activeScanIdRef.current === sessionId,
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            apply: () =>
+              projectSessionThumbnails(delta.session_id, delta.entries, {
+                store: thumbnailStoreRef.current,
+                invoke: api.invoke,
+                isCurrentSession: (sessionId) =>
+                  activeScanIdRef.current === sessionId,
+              }),
           });
         },
       );
@@ -806,7 +806,12 @@ export function useMediaLibrary(
       cancelled = true;
       unlisteners.forEach((fn) => fn());
     };
-  }, [api, applySessionSnapshot, loadedStateFromProjection]);
+  }, [
+    api,
+    applySessionSnapshot,
+    loadedStateFromProjection,
+    pushApplicationError,
+  ]);
 
   const openFolder = useCallback(async () => {
     const folder = (await api.invoke("pick_folder")) as string | null;
