@@ -116,7 +116,7 @@ pub fn read_file_metadata_batch(
 
 /// Run one exiftool pass over `paths` and return a per-SourceFile map.
 /// `numeric=true` adds `-n` to drop PrintConv formatting.
-fn run_exiftool_pass(
+pub(super) fn run_exiftool_pass(
     paths: &[std::path::PathBuf],
     numeric: bool,
 ) -> Result<ExifToolPassOutput, String> {

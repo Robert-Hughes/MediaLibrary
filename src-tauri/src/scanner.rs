@@ -1904,8 +1904,8 @@ mod tests {
     #[cfg(feature = "integration")]
     fn read_integration_occurrences(path: &Path) -> Vec<CanonicalRuntimeOccurrence> {
         let paths = [path.to_path_buf()];
-        let display = run_exiftool_pass(&paths, false).unwrap();
-        let raw = run_exiftool_pass(&paths, true).unwrap();
+        let display = metadata_reader::run_exiftool_pass(&paths, false).unwrap();
+        let raw = metadata_reader::run_exiftool_pass(&paths, true).unwrap();
         let key = path.to_string_lossy().replace('\\', "/");
         canonical_occurrences_from_exiftool_pair(
             raw.values_by_source

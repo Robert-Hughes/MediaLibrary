@@ -1658,7 +1658,7 @@ mod tests {
                 relative_path
             })
             .collect::<Vec<_>>();
-        let mut before = read_metadata_for_jobs(temp.path().to_str().unwrap(), &paths);
+        let mut before = adapters::read_metadata_for_jobs(temp.path().to_str().unwrap(), &paths);
         let jobs = paths
             .iter()
             .map(|relative_path| {
@@ -1686,7 +1686,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        let outcomes = apply_real_metadata_batch(
+        let outcomes = adapters::apply_real_metadata_batch(
             temp.path().to_str().unwrap(),
             &jobs,
             2,
