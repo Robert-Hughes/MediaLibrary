@@ -258,9 +258,17 @@ export function useMediaLibrary(
     [],
   );
   const applySessionSnapshot = useCallback(
-    (snapshot: MediaLibrarySessionSnapshot) => {
+    (snapshot: MediaLibrarySessionSnapshot): void | Promise<void> => {
       if (snapshot.lifecycle === "idle" && snapshot.revision === 0) return;
       if (snapshot.revision <= sessionRevisionRef.current) return;
+      if (
+        snapshot.lifecycle !== "idle" &&
+        (snapshot.session_id === null || snapshot.folder === null)
+      ) {
+        throw new Error(
+          `Invalid ${snapshot.lifecycle} media-library snapshot: missing session identity`,
+        );
+      }
       const previousRevision = sessionRevisionRef.current;
       sessionRevisionRef.current = snapshot.revision;
       activeApplyOperationIdRef.current = snapshot.apply_operation?.operation_id ?? null;
@@ -282,19 +290,19 @@ export function useMediaLibrary(
         if (hadActiveSession) setAppState({ kind: "idle" });
         return;
       }
-      if (snapshot.session_id === null || snapshot.folder === null) return;
-
+      const sessionId = snapshot.session_id!;
+      const folder = snapshot.folder!;
       const previousSessionId = activeScanIdRef.current;
       const isRecovery = previousSessionId === -1;
-      if (previousSessionId !== snapshot.session_id) {
+      if (previousSessionId !== sessionId) {
         seenSessionIssueIdsRef.current.clear();
       }
-      activeScanIdRef.current = snapshot.session_id;
-      activeFolderRef.current = snapshot.folder;
+      activeScanIdRef.current = sessionId;
+      activeFolderRef.current = folder;
       const projectedDrafts = targetDraftsFromWire(
         snapshot.drafts as Record<string, MetadataTargetDraftEntry[]>,
       );
-      if (isRecovery || previousSessionId !== snapshot.session_id) {
+      if (isRecovery || previousSessionId !== sessionId) {
         targetDraftEditsStoreRef.current.resetMetadata(projectedDrafts);
       } else {
         const paths = new Set([
@@ -329,7 +337,7 @@ export function useMediaLibrary(
             loadColumnConfig();
           setAppState({
             kind: "loading",
-            folder: snapshot.folder,
+            folder: folder,
             visibleColumns,
             columnWidths,
             sortConfig,
@@ -363,15 +371,17 @@ export function useMediaLibrary(
           progress: metadataProgressStoreRef.current,
         });
         metadataProgressStoreRef.current.setTotal(snapshot.files.length);
+        let thumbnailProjection: Promise<void> | undefined;
         if (rebuildMetadataProjection) {
-          void projectSessionThumbnails(
-            snapshot.session_id,
+          thumbnailProjection = projectSessionThumbnails(
+            sessionId,
             snapshot.thumbnails,
             {
               store: thumbnailStoreRef.current,
               invoke: api.invoke,
               isCurrentSession: (sessionId) =>
-                activeScanIdRef.current === sessionId,
+                activeScanIdRef.current === sessionId &&
+                sessionRevisionRef.current === snapshot.revision,
             },
           );
         }
@@ -392,7 +402,7 @@ export function useMediaLibrary(
         setAppState((previous) => {
           const canApplyStatusOnly =
             previous.kind === "loaded" &&
-            previous.sessionId === snapshot.session_id &&
+            previous.sessionId === sessionId &&
             !isRecovery &&
             snapshot.revision === previousRevision + 1;
           if (canApplyStatusOnly && previous.kind === "loaded") {
@@ -408,7 +418,7 @@ export function useMediaLibrary(
               applyCompletion: projectedApply.completion,
               applicationErrors: mergeSessionIssues(
                 previous.applicationErrors,
-                snapshot.session_id!,
+                sessionId!,
                 snapshot.issues,
               ),
             };
@@ -423,8 +433,8 @@ export function useMediaLibrary(
                 }
               : undefined;
           const next = loadedStateFromProjection(
-            snapshot.session_id!,
-            snapshot.folder!,
+            sessionId!,
+            folder!,
             snapshot.files,
             snapshot.discovery_running,
             presentation,
@@ -435,7 +445,7 @@ export function useMediaLibrary(
             next.metadataVersion = previous.metadataVersion;
             next.applicationErrors = mergeSessionIssues(
               previous.applicationErrors,
-              snapshot.session_id!,
+              sessionId!,
               snapshot.issues,
             );
             const projectedApply = projectApplyOperation(
@@ -446,7 +456,7 @@ export function useMediaLibrary(
           } else {
             next.applicationErrors = mergeSessionIssues(
               next.applicationErrors,
-              snapshot.session_id!,
+              sessionId!,
               snapshot.issues,
             );
             const projectedApply = projectApplyOperation(
@@ -457,6 +467,7 @@ export function useMediaLibrary(
           }
           return next;
         });
+        return thumbnailProjection;
       }
     },
     [api, loadedStateFromProjection],
@@ -530,7 +541,7 @@ export function useMediaLibrary(
       if (session.session_id === null || session.folder !== folder) {
         throw new Error("Rust opened an invalid media-library session");
       }
-      applySessionSnapshot(session);
+      await applySessionSnapshot(session);
       if (session.lifecycle === "failed") return;
       if (session.lifecycle !== "opening") {
         throw new Error("Rust returned an invalid session lifecycle");
@@ -561,22 +572,29 @@ export function useMediaLibrary(
         const snapshot = (await api.invoke(
           "get_media_library_session_snapshot",
         )) as MediaLibrarySessionSnapshot;
-        if (!cancelled) applySessionSnapshot(snapshot);
+        if (!cancelled) await applySessionSnapshot(snapshot);
       },
       isCancelled: () => cancelled,
       onError: (error) => pushApplicationError("session-delta", error),
     });
 
+    let rejectListenersReady: (error: unknown) => void = () => {};
     const setup = async () => {
       // Create a new pending latch for this setup cycle; startScan awaits it.
       let resolve!: () => void;
-      listenersReadyRef.current = new Promise<void>((r) => {
+      listenersReadyRef.current = new Promise<void>((r, j) => {
         resolve = r;
+        rejectListenersReady = j;
       });
 
       const unlistenSession = await api.listen(
         "media_library_session_changed",
-        (raw) => applySessionSnapshot(raw as MediaLibrarySessionSnapshot),
+        (raw) => {
+          void deltaCoordinator.enqueueSnapshot(
+            (raw as MediaLibrarySessionSnapshot).revision,
+            () => applySessionSnapshot(raw as MediaLibrarySessionSnapshot),
+          );
+        },
       );
 
       const unlistenApplyProgress = await api.listen(
@@ -798,13 +816,21 @@ export function useMediaLibrary(
       const initialSession = (await api.invoke(
         "get_media_library_session_snapshot",
       )) as MediaLibrarySessionSnapshot;
-      if (!cancelled) applySessionSnapshot(initialSession);
+      if (!cancelled) {
+        await deltaCoordinator.enqueueSnapshot(initialSession.revision, () =>
+          applySessionSnapshot(initialSession),
+        );
+      }
 
       console.debug("[setup] all listeners registered");
       resolve();
     };
 
-    setup();
+    void setup().catch((error) => {
+      for (const unlisten of unlisteners.splice(0)) unlisten();
+      rejectListenersReady(error);
+      pushApplicationError("session-listener-setup", error);
+    });
     return () => {
       cancelled = true;
       unlisteners.forEach((fn) => fn());
@@ -834,7 +860,7 @@ export function useMediaLibrary(
     api
       .invoke("close_media_library_session", { sessionId })
       .then((snapshot) => {
-        applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot);
+        void applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot);
         api
           .invoke("set_window_title", { title: "Media Library" })
           .catch(() => {});
