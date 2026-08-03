@@ -22,6 +22,7 @@ import type {
   MediaLibrarySessionFilesAdded,
   MediaLibrarySessionThumbnailsChanged,
   MediaLibrarySessionMetadataChanged,
+  MediaLibrarySessionIssueAdded,
 } from "./types";
 import type { MetadataApplyStreamMessage } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -723,6 +724,40 @@ export function useMediaLibrary(
         },
       );
 
+      const unlistenIssueAdded = await api.listen(
+        "media_library_session_issue_added",
+        async (raw) => {
+          const delta = raw as MediaLibrarySessionIssueAdded;
+          if (delta.session_id !== activeScanIdRef.current) return;
+          if (delta.revision <= sessionRevisionRef.current) return;
+          if (delta.revision !== sessionRevisionRef.current + 1) {
+            const snapshot = (await api.invoke(
+              "get_media_library_session_snapshot",
+            )) as MediaLibrarySessionSnapshot;
+            if (!cancelled) applySessionSnapshot(snapshot);
+            return;
+          }
+          sessionRevisionRef.current = delta.revision;
+          if (delta.metadata.length > 0) {
+            projectSessionMetadata(delta.metadata, false, {
+              occurrences: fileMetadataOccurrencesStoreRef.current,
+              progress: metadataProgressStoreRef.current,
+            });
+          }
+          setAppState((previous) => {
+            if (previous.kind !== "loaded") return previous;
+            return {
+              ...previous,
+              applicationErrors: mergeSessionIssues(
+                previous.applicationErrors,
+                delta.session_id,
+                [delta.issue],
+              ),
+            };
+          });
+        },
+      );
+
       const unlistenThumbnail = await api.listen(
         "media_library_session_thumbnails_changed",
         async (raw) => {
@@ -752,6 +787,7 @@ export function useMediaLibrary(
         unlistenApplyProgress,
         unlistenFound,
         unlistenMetadata,
+        unlistenIssueAdded,
         unlistenThumbnail,
       );
 

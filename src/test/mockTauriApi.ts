@@ -787,23 +787,21 @@ export function createMockTauriApi(): MockTauriApi {
       if (cmd === "record_media_library_session_issue") {
         const sessionId = args?.sessionId as number;
         if (sessionId !== mock.currentScanId) throw new Error("stale session");
+        const issue = {
+          issue_id:
+            Math.max(
+              0,
+              ...sessionSnapshot.issues.map((entry) => entry.issue_id),
+            ) + 1,
+          severity: args?.severity as string,
+          error_type: args?.errorType as string,
+          error_message: args?.errorMessage as string,
+          affected_files: args?.affectedFiles as string[],
+        };
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
-          issues: [
-            ...sessionSnapshot.issues,
-            {
-              issue_id:
-                Math.max(
-                  0,
-                  ...sessionSnapshot.issues.map((issue) => issue.issue_id),
-                ) + 1,
-              severity: args?.severity as string,
-              error_type: args?.errorType as string,
-              error_message: args?.errorMessage as string,
-              affected_files: args?.affectedFiles as string[],
-            },
-          ],
+          issues: [...sessionSnapshot.issues, issue],
         };
         emit("media_library_session_changed", { ...sessionSnapshot });
         return { ...sessionSnapshot };
