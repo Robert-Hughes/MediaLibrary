@@ -34,10 +34,24 @@ pub enum SessionEvent {
     /// (per-row apply progress, generated-draft staging). Keeps the frontend
     /// revision sequence dense so no spurious delta gaps are detected.
     RevisionAdvanced(MediaLibrarySessionRevisionAdvanced),
+    /// Disposable unversioned frontend projection (batch-job estimate
+    /// telemetry, progress, completion summaries). Routed through the same
+    /// ordered channel so it is delivered after the snapshot/mutation it
+    /// describes and can never overtake it. Carries the event name because
+    /// the projection namespace is caller-chosen per job (`describe_*`,
+    /// `geocode_*`, `normalise_*`).
+    Projection(Box<ProjectionEvent>),
+}
+
+/// One unversioned frontend projection event queued on the session channel.
+#[derive(Debug)]
+pub struct ProjectionEvent {
+    pub event: String,
+    pub payload: serde_json::Value,
 }
 
 impl SessionEvent {
-    pub fn event_name(&self) -> &'static str {
+    pub fn event_name(&self) -> &str {
         match self {
             Self::Snapshot(_) => SESSION_CHANGED_EVENT,
             Self::FilesAdded(_) => SESSION_FILES_ADDED_EVENT,
@@ -46,6 +60,7 @@ impl SessionEvent {
             Self::IssueAdded(_) => SESSION_ISSUE_ADDED_EVENT,
             Self::ApplyProgress(_) => SESSION_APPLY_PROGRESS_EVENT,
             Self::RevisionAdvanced(_) => SESSION_REVISION_ADVANCED_EVENT,
+            Self::Projection(value) => &value.event,
         }
     }
 
@@ -60,6 +75,7 @@ impl SessionEvent {
             Self::IssueAdded(value) => value.revision,
             Self::ApplyProgress(_) => 0,
             Self::RevisionAdvanced(value) => value.revision,
+            Self::Projection(_) => 0,
         }
     }
 
@@ -72,6 +88,7 @@ impl SessionEvent {
             Self::IssueAdded(payload) => serde_json::to_value(payload),
             Self::ApplyProgress(payload) => serde_json::to_value(*payload),
             Self::RevisionAdvanced(payload) => serde_json::to_value(payload),
+            Self::Projection(value) => Ok(value.payload),
         };
         serialized.unwrap_or_else(|error| {
             log::error!("[session-event] failed to serialize payload: {error}");
@@ -87,8 +104,8 @@ impl SessionEvent {
 /// every sender is dropped during teardown.
 pub fn drain_session_events(receiver: mpsc::Receiver<SessionEvent>, app: AppHandle) {
     while let Ok(event) = receiver.recv() {
-        let name = event.event_name();
+        let name = event.event_name().to_owned();
         let payload = event.into_payload();
-        let _ = crate::emit_frontend_event(&app, name, payload);
+        let _ = crate::emit_frontend_event(&app, &name, payload);
     }
 }

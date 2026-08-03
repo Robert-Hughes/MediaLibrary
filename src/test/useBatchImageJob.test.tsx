@@ -291,4 +291,54 @@ describe("useBatchImageJob Rust projection", () => {
     );
     expect(result.current.open).toBe(false);
   });
+
+  it("does not regress an open dialog to estimating from a lagging begin snapshot", async () => {
+    const { result, rerender } = renderHook(
+      ({ value }: { value: MediaLibraryBatchOperation | undefined }) =>
+        useBatchImageJob(config, { sessionId: 12, operation: value }),
+      {
+        initialProps: {
+          value: undefined as MediaLibraryBatchOperation | undefined,
+        },
+      },
+    );
+
+    act(() => result.current.actions.start("/folder", ["a.jpg"]));
+    await waitFor(() =>
+      expect(eventListeners.has("describe_estimate_started")).toBe(true),
+    );
+
+    // The command thread emits the projection events synchronously, so the
+    // dialog advances straight to the confirmation stage.
+    act(() => {
+      eventListeners.get("describe_estimate_started")?.({
+        payload: { total: 1 },
+      });
+      eventListeners.get("describe_estimate_complete")?.({
+        payload: {
+          sessionId: 12,
+          operationId: "describe-7",
+          totalInputTokens: 42,
+          predictedCostUsd: 0.001,
+          upperBoundCostUsd: 0.002,
+          model: "gpt-test",
+          estimateMode: "heuristic",
+        },
+      });
+    });
+    expect(result.current.state.phase).toBe("awaiting-confirm");
+
+    // The Estimating begin snapshot drains through the session channel
+    // afterwards and must not push the dialog back to the estimating panel.
+    rerender({
+      value: operation({ phase: "estimating", current: 0, current_file: null }),
+    });
+    expect(result.current.state.phase).toBe("awaiting-confirm");
+
+    // The completion snapshot lands even later; it confirms the phase and
+    // supplies the authoritative estimate payload.
+    rerender({ value: operation({ phase: "awaiting-confirm" }) });
+    expect(result.current.state.phase).toBe("awaiting-confirm");
+    expect(result.current.state.estimate).toEqual({ totalInputTokens: 42 });
+  });
 });

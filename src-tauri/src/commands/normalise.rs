@@ -30,11 +30,6 @@ struct NormaliseRetainedRequest {
 }
 
 #[derive(Clone, Serialize)]
-struct NormaliseEstimateStartedPayload {
-    total: usize,
-}
-
-#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NormaliseEstimateProgressPayload {
     current: usize,
@@ -427,11 +422,6 @@ pub async fn estimate_normalise_cost_cmd(
         None,
     )?;
     emitter.estimate_started(total);
-    let _ = crate::emit_frontend_event(
-        &app,
-        "normalise_estimate_started",
-        NormaliseEstimateStartedPayload { total },
-    );
 
     // Always walk every group so the confirm-phase outcome table has
     // counts for every row. The user's selection is honoured client-
