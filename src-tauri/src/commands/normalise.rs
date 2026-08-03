@@ -12,7 +12,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::batch_audit_log;
 use crate::batch_job;
@@ -427,7 +427,8 @@ pub async fn estimate_normalise_cost_cmd(
         None,
     )?;
     emitter.estimate_started(total);
-    let _ = app.emit(
+    let _ = crate::emit_frontend_event(
+        &app,
         "normalise_estimate_started",
         NormaliseEstimateStartedPayload { total },
     );
@@ -1145,7 +1146,7 @@ pub fn cancel_normalise_cmd(
     let snapshot = app
         .state::<crate::session::MediaLibrarySessionState>()
         .request_batch_operation_cancellation(session_id, &operation_id)?;
-    let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+    let _ = crate::emit_frontend_event(&app, crate::session::SESSION_CHANGED_EVENT, snapshot);
     normalise_state.signal_cancel();
     Ok(())
 }

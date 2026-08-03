@@ -15,7 +15,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 pub const SEARCH_RESULT_EVENT: &str = "media_library_search_result";
 const REFRESH_COALESCE_DELAY: Duration = Duration::from_millis(25);
@@ -423,7 +423,7 @@ impl MediaLibrarySearchService {
             .fetch_add(1, Ordering::Relaxed);
         let app_handle = self.inner.app_handle.lock().unwrap().clone();
         if let Some(app_handle) = app_handle {
-            if app_handle.emit(SEARCH_RESULT_EVENT, result).is_ok() {
+            if crate::emit_frontend_event(&app_handle, SEARCH_RESULT_EVENT, result).is_ok() {
                 self.inner
                     .frontend_event_count
                     .fetch_add(1, Ordering::Relaxed);

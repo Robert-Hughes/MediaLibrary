@@ -4,7 +4,7 @@
 //! without a Tauri runtime; this file owns the Tauri glue (state +
 //! event sink).
 
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::batch_job;
 use crate::commands::shared::app_data_dir;
@@ -157,7 +157,7 @@ pub fn cancel_geocode_cmd(
     let snapshot = app
         .state::<crate::session::MediaLibrarySessionState>()
         .request_batch_operation_cancellation(session_id, &operation_id)?;
-    let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+    let _ = crate::emit_frontend_event(&app, crate::session::SESSION_CHANGED_EVENT, snapshot);
     geocode_state.signal_cancel();
     Ok(())
 }

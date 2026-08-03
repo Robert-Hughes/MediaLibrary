@@ -34,7 +34,7 @@ use std::time::Duration;
 use std::{future::Future, num::NonZeroUsize};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 /// Typed wire kind for a per-image batch-job failure.
 ///
@@ -434,7 +434,7 @@ pub fn fail_retained_operation(app: &AppHandle, session_id: u64, operation_id: &
         .state::<crate::session::MediaLibrarySessionState>()
         .fail_batch_operation(session_id, operation_id, error.to_owned())
     {
-        let _ = app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+        let _ = crate::emit_frontend_event(app, crate::session::SESSION_CHANGED_EVENT, snapshot);
     }
 }
 
@@ -458,8 +458,7 @@ impl<'a> BatchProgressEmitter<'a> {
             .expect("the operation was inserted above")
             .operation_id
             .clone();
-        app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
-            .map_err(|error| error.to_string())?;
+        crate::emit_frontend_event(app, crate::session::SESSION_CHANGED_EVENT, snapshot)?;
         Ok(Self {
             app,
             prefix,
@@ -482,8 +481,7 @@ impl<'a> BatchProgressEmitter<'a> {
         let snapshot = app
             .state::<crate::session::MediaLibrarySessionState>()
             .start_batch_operation(session_id, &operation_id, total, confirmed_request)?;
-        app.emit(crate::session::SESSION_CHANGED_EVENT, snapshot)
-            .map_err(|error| error.to_string())?;
+        crate::emit_frontend_event(app, crate::session::SESSION_CHANGED_EVENT, snapshot)?;
         Ok(Self {
             app,
             prefix,
@@ -513,9 +511,8 @@ impl<'a> BatchProgressEmitter<'a> {
             "operationId".into(),
             serde_json::Value::String(self.operation_id.clone()),
         );
-        let _ = self
-            .app
-            .emit(&format!("{}_{}", self.prefix, suffix), payload);
+        let event = format!("{}_{}", self.prefix, suffix);
+        let _ = crate::emit_frontend_event(self.app, &event, payload);
     }
 
     pub fn fail(&self, error: impl Into<String>) {
@@ -529,9 +526,8 @@ impl<'a> BatchProgressEmitter<'a> {
     }
 
     fn emit_session_snapshot(&self, snapshot: crate::session::MediaLibrarySessionSnapshot) {
-        let _ = self
-            .app
-            .emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
+        let _ =
+            crate::emit_frontend_event(self.app, crate::session::SESSION_CHANGED_EVENT, snapshot);
     }
     pub fn estimate_started(&self, total: usize) {
         let _ = total;
@@ -577,8 +573,10 @@ impl<'a> BatchProgressEmitter<'a> {
             operation_id: &'a str,
             total: usize,
         }
-        let _ = self.app.emit(
-            &format!("{}_started", self.prefix),
+        let event = format!("{}_started", self.prefix);
+        let _ = crate::emit_frontend_event(
+            self.app,
+            &event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,
@@ -627,8 +625,10 @@ impl<'a> BatchProgressEmitter<'a> {
             #[serde(skip_serializing_if = "Option::is_none")]
             edits: Option<Vec<crate::draft_edits::SchemaMetadataEdit>>,
         }
-        let _ = self.app.emit(
-            &format!("{}_progress", self.prefix),
+        let event = format!("{}_progress", self.prefix);
+        let _ = crate::emit_frontend_event(
+            self.app,
+            &event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,
@@ -668,8 +668,10 @@ impl<'a> BatchProgressEmitter<'a> {
             operation_id: &'a str,
             results: &'a [BatchMetadataProgress],
         }
-        let _ = self.app.emit(
-            &format!("{}_progress_batch", self.prefix),
+        let event = format!("{}_progress_batch", self.prefix);
+        let _ = crate::emit_frontend_event(
+            self.app,
+            &event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,
@@ -733,8 +735,10 @@ impl<'a> BatchProgressEmitter<'a> {
             failed: &'a [BatchFailureRow],
             usage_summary: &'a S,
         }
-        let _ = self.app.emit(
-            &format!("{}_complete", self.prefix),
+        let event = format!("{}_complete", self.prefix);
+        let _ = crate::emit_frontend_event(
+            self.app,
+            &event,
             Payload {
                 session_id: self.session_id,
                 operation_id: &self.operation_id,
