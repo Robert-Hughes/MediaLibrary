@@ -47,8 +47,44 @@ const rustSessionCommands = import.meta.glob<string>(
 )["../../src-tauri/src/session_commands.rs"];
 const rustAuthority = `${rustLib}
 ${rustSessionCommands}`;
+const appSource = import.meta.glob<string>("../App.tsx", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})["../App.tsx"];
+const searchHook = import.meta.glob<string>("../hooks/useSearchService.ts", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})["../hooks/useSearchService.ts"];
+const legacySearchSources = import.meta.glob<string>(
+  [
+    "../hooks/useSearchWorker.ts",
+    "../search/searchIndex.ts",
+    "../workers/searchWorker.ts",
+    "../workers/searchWorkerProtocol.ts",
+  ],
+  { query: "?raw", import: "default", eager: true },
+);
+const rustSearchService = import.meta.glob<string>(
+  "../../src-tauri/src/search_service.rs",
+  { query: "?raw", import: "default", eager: true },
+)["../../src-tauri/src/search_service.rs"];
 
 describe("Rust-authoritative application boundary", () => {
+  it("keeps list-search matching and authoritative index state in Rust", () => {
+    expect(legacySearchSources).toEqual({});
+    expect(appSource).toContain("useSearchService");
+    expect(appSource).not.toContain("useSearchWorker");
+    expect(searchHook).toContain('"search_media_library_session"');
+    expect(searchHook).toContain('"media_library_search_result"');
+    expect(searchHook).not.toContain("FileMetadataOccurrencesStore");
+    expect(searchHook).not.toContain("TargetDraftEditsStore");
+    expect(rustSearchService).toContain("struct SearchIndex");
+    expect(rustSearchService).toContain("MediaLibrarySearchService");
+    expect(rustLib).toContain("search_media_library_session");
+  });
+
   it("does not retain the removed frontend draft autosave authority", () => {
     expect(productionSources).not.toHaveProperty(
       "../targetDraftAutosaveGate.ts",

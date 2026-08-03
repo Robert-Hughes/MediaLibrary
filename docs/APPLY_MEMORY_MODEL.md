@@ -56,11 +56,12 @@ It does not retain raw event payloads, every per-file application summary or a
 settled Promise whose value contains the complete result collection. Callback
 failures are contained and cannot interrupt the backend command.
 
-The occurrence and draft stores notify the search worker in batches. One Apply
-chunk causes at most one occurrence message, one draft message and one active
-query refresh. An inactive search performs no query refresh. Channel and worker
-handlers are cleared during cleanup so queued messages cannot update a later
-operation or an unmounted React tree.
+Apply readback commits fresh occurrences and persisted draft rows to the Rust
+session, then updates the separate Rust search index after releasing the main
+session lock. An active query is re-evaluated through a coalesced refresh and an
+event is emitted only when the effective matched path set changes. The frontend
+receives no occurrence or draft payload for search and retains no search-index
+copy to clean up after Apply.
 
 ## Exact-once and failure semantics
 

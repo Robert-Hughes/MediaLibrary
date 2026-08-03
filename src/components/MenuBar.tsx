@@ -8,9 +8,8 @@ interface Props {
   /** Optional search wiring — when provided, MenuBar renders the search box in the right group. */
   searchQuery?: string;
   onSearchQueryChange?: (q: string) => void;
-  /** True while the off-thread search worker is processing the current query
-   *  or refreshing results after a file/metadata/draft change.  Renders an
-   *  inline spinner next to the search box. */
+  /** True while the asynchronous Rust search service is processing the current
+   * query. Renders an inline spinner next to the search box. */
   searching?: boolean;
 }
 

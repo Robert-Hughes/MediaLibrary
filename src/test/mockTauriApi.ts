@@ -698,9 +698,152 @@ export function createMockTauriApi(): MockTauriApi {
     }
   };
 
+  let activeSearchRequest: {
+    session_id: number;
+    request_id: number;
+    query: string;
+  } | null = null;
+
+  const searchValueText = (value: MetadataValue): string => {
+    switch (value.kind) {
+      case "Null":
+        return "";
+      case "Text":
+      case "Integer":
+      case "Real":
+        return String(value.value);
+      case "Bool":
+        return String(value.value);
+      case "Rational":
+        return `${value.value.numerator}/${value.value.denominator}`;
+      case "Date":
+        return `${value.value.year}:${value.value.month}:${value.value.day}`;
+      case "Time":
+      case "DateTime":
+      case "TimeOffset":
+      case "LangAlt":
+      case "Struct":
+      case "Unknown":
+        return JSON.stringify(value.value);
+      case "List":
+        return value.value.items.map(searchValueText).join(", ");
+      case "Binary":
+        return "<binary>";
+    }
+  };
+
+  const schemaSearchText = (schemaId: TagInfo["id"]): string[] => {
+    const info = mock.tagInfos.find((candidate) =>
+      schemaDefinitionIdEquals(candidate.id, schemaId),
+    );
+    const exact = `${schemaId.table}/${schemaId.tag_id}${
+      schemaId.index === undefined ? "" : `/index=${schemaId.index}`
+    }`;
+    return [
+      schemaId.table,
+      schemaId.tag_id,
+      exact,
+      info ? `${info.group}:${info.name}` : "",
+      info?.name ?? "",
+      info?.description ?? "",
+    ];
+  };
+
+  const evaluateSearch = (request: {
+    session_id: number;
+    request_id: number;
+    query: string;
+  }) => {
+    if (sessionSnapshot.session_id !== request.session_id) {
+      throw new Error("The media-library session changed before search ran");
+    }
+    const kinds = new Set<string>();
+    let hasEdits = false;
+    const free: string[] = [];
+    for (const token of request.query.trim().split(/\s+/).filter(Boolean)) {
+      const normalized = token.toLowerCase();
+      if (normalized === "has:edits") hasEdits = true;
+      else if (
+        ["kind:image", "kind:audio", "kind:video"].includes(normalized)
+      ) {
+        kinds.add(normalized.slice(5));
+      } else free.push(token);
+    }
+    const needle = free.join(" ").toLowerCase();
+    const drafts = sessionSnapshot.drafts as Record<
+      string,
+      MetadataTargetDraftEntry[]
+    >;
+    const matched_paths = sessionSnapshot.files
+      .filter((file) => {
+        const fileDrafts = drafts[file.relative_path] ?? [];
+        if (hasEdits && fileDrafts.length === 0) return false;
+        if (kinds.size > 0 && !kinds.has(file.media_kind)) return false;
+        if (!needle) return true;
+        const metadata = sessionSnapshot.metadata.find(
+          (entry) => entry.relative_path === file.relative_path,
+        );
+        const occurrenceText =
+          metadata?.state.status === "ready"
+            ? metadata.state.occurrences.flatMap((occurrence) => [
+                ...schemaSearchText(occurrence.schema_id),
+                searchValueText(occurrence.value),
+                occurrence.id.document ?? "",
+                occurrence.id.path,
+                occurrence.id.runtime_tag_id,
+                occurrence.id.tag_id_scope.table,
+                occurrence.id.tag_id_scope.tag_id,
+                occurrence.id.tag_id_scope.index === null
+                  ? ""
+                  : String(occurrence.id.tag_id_scope.index),
+                String(occurrence.id.copy),
+              ])
+            : [];
+        const draftText = fileDrafts.flatMap((entry) => [
+          ...schemaSearchText(entry.target.schema_id),
+          entry.edit.value ? searchValueText(entry.edit.value) : "—",
+        ]);
+        return [
+          file.relative_path,
+          file.filename,
+          file.date_created === null ? "—" : String(file.date_created),
+          file.date_modified === null ? "—" : String(file.date_modified),
+          ...occurrenceText,
+          ...draftText,
+        ]
+          .join("\n")
+          .toLowerCase()
+          .includes(needle);
+      })
+      .map((file) => file.relative_path);
+    return {
+      session_id: request.session_id,
+      request_id: request.request_id,
+      session_revision: sessionSnapshot.revision,
+      matched_paths,
+      has_edits_filter: hasEdits,
+    };
+  };
+
+  const emitActiveSearchRefresh = () => {
+    if (!activeSearchRequest) return;
+    let result;
+    try {
+      result = evaluateSearch(activeSearchRequest);
+    } catch {
+      return;
+    }
+    queueMicrotask(() => emit("media_library_search_result", result));
+  };
+
   const api: TauriApi = {
     invoke: async (cmd, args) => {
       mock.invocations.push({ cmd, args });
+      if (cmd === "search_media_library_session") {
+        activeSearchRequest = args?.request as typeof activeSearchRequest;
+        if (!activeSearchRequest) throw new Error("Missing search request");
+        return evaluateSearch(activeSearchRequest);
+      }
       if (cmd === "pick_folder") return nextFolder;
       if (cmd === "get_cli_folder") return null;
       if (cmd === "get_media_library_session_snapshot") {
@@ -2437,6 +2580,13 @@ export function createMockTauriApi(): MockTauriApi {
 
   const emit = (event: string, payload: unknown) => {
     (handlers[event] ?? []).forEach((h) => h(payload));
+    if (
+      event !== "media_library_search_result" &&
+      (event.startsWith("media_library_session_") ||
+        event === "media_library_session_changed")
+    ) {
+      emitActiveSearchRefresh();
+    }
   };
 
   mock.api = api;

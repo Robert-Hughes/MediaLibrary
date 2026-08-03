@@ -187,9 +187,12 @@ generated batch is rejected rather than guessing a destination. Once planned,
 only an exact matching target owner can be changed; same-schema siblings are
 unrelated.
 
-## Search projection
+## Search service
 
-The search worker receives authoritative occurrence fields, complete target
-drafts, semantic values and friendly labels. Initial snapshots, incremental
-changes, last-draft deletion, retries, stale-result protection and reserved
-paths are supported. Search never owns execution identity.
+Rust maintains the list-search index directly from the same authoritative
+session transitions that commit files, metadata occurrences, target drafts,
+post-write replacements and removals. Queries cross Tauri as small
+session/request-tagged messages and results contain only matched relative paths;
+the frontend retains presentation state and sorted-list ordering. Backend
+refreshes are coalesced, stale revisions and sessions are rejected, and no
+complete occurrence or draft collection is copied into JavaScript.
