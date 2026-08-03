@@ -570,9 +570,9 @@ pub async fn estimate_normalise_cost_cmd(
                             .count_input_tokens(&body)
                             .await
                             .map_err(|e| {
-                                let _ = app.emit(
-                                    "normalise_estimate_error",
-                                    NormaliseEstimateErrorPayload {
+                                emitter.emit_projection_event(
+                                    "estimate_error",
+                                    &NormaliseEstimateErrorPayload {
                                         relative_path: item.rel_path.clone(),
                                         message: e.clone(),
                                     },
@@ -595,9 +595,9 @@ pub async fn estimate_normalise_cost_cmd(
                             .count_input_tokens(&body)
                             .await
                             .map_err(|e| {
-                                let _ = app.emit(
-                                    "normalise_estimate_error",
-                                    NormaliseEstimateErrorPayload {
+                                emitter.emit_projection_event(
+                                    "estimate_error",
+                                    &NormaliseEstimateErrorPayload {
                                         relative_path: item.rel_path.clone(),
                                         message: e.clone(),
                                     },
@@ -622,9 +622,9 @@ pub async fn estimate_normalise_cost_cmd(
                             .count_input_tokens(&body)
                             .await
                             .map_err(|e| {
-                                let _ = app.emit(
-                                    "normalise_estimate_error",
-                                    NormaliseEstimateErrorPayload {
+                                emitter.emit_projection_event(
+                                    "estimate_error",
+                                    &NormaliseEstimateErrorPayload {
                                         relative_path: item.rel_path.clone(),
                                         message: e.clone(),
                                     },
@@ -654,9 +654,9 @@ pub async fn estimate_normalise_cost_cmd(
         }
 
         emitter.estimate_progress(current, total, &item.rel_path, None);
-        let _ = app.emit(
-            "normalise_estimate_progress",
-            NormaliseEstimateProgressPayload {
+        emitter.emit_projection_event(
+            "estimate_progress",
+            &NormaliseEstimateProgressPayload {
                 current,
                 total,
                 relative_path: item.rel_path.clone(),
@@ -769,7 +769,7 @@ pub async fn estimate_normalise_cost_cmd(
         location_cache_partitions: openai_normalise::LOCATION_CACHE_PARTITIONS,
     };
     emitter.estimate_complete(&estimate);
-    let _ = app.emit("normalise_estimate_complete", estimate);
+    emitter.emit_projection_event("estimate_complete", &estimate);
     normalise_state.clear();
     Ok(())
 }

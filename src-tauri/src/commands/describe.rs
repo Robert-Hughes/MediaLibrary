@@ -431,7 +431,7 @@ pub async fn estimate_describe_cost_cmd(
             estimate_mode: s.ai_cost_estimate_mode,
         };
         emitter.estimate_complete(&estimate);
-        let _ = app.emit("describe_estimate_complete", estimate);
+        emitter.emit_projection_event("estimate_complete", &estimate);
         /* replaced payload */
         if false {
             let _ = DescribeEstimateCompletePayload {
@@ -462,9 +462,9 @@ pub async fn estimate_describe_cost_cmd(
         let current = index + 1;
         let abs = resolve_rel(&folder_path, rel);
         let bytes = openai_describe::load_and_downscale_image(&abs).map_err(|e| {
-            let _ = app.emit(
-                "describe_estimate_error",
-                DescribeEstimateErrorPayload {
+            emitter.emit_projection_event(
+                "estimate_error",
+                &DescribeEstimateErrorPayload {
                     relative_path: rel.clone(),
                     message: e.clone(),
                 },
@@ -476,9 +476,9 @@ pub async fn estimate_describe_cost_cmd(
         let n = openai_describe::count_input_tokens(&client, &s.openai_model, &bytes)
             .await
             .map_err(|e| {
-                let _ = app.emit(
-                    "describe_estimate_error",
-                    DescribeEstimateErrorPayload {
+                emitter.emit_projection_event(
+                    "estimate_error",
+                    &DescribeEstimateErrorPayload {
                         relative_path: rel.clone(),
                         message: e.clone(),
                     },
@@ -492,9 +492,9 @@ pub async fn estimate_describe_cost_cmd(
             + (openai_describe::EXPECTED_OUTPUT_TOKENS as f64 / 1_000_000.0)
                 * pricing.output_per_1m;
         emitter.estimate_progress(current, total, rel, None);
-        let _ = app.emit(
-            "describe_estimate_progress",
-            DescribeEstimateProgressPayload {
+        emitter.emit_projection_event(
+            "estimate_progress",
+            &DescribeEstimateProgressPayload {
                 current,
                 total,
                 relative_path: rel.clone(),
@@ -524,7 +524,7 @@ pub async fn estimate_describe_cost_cmd(
         estimate_mode: s.ai_cost_estimate_mode,
     };
     emitter.estimate_complete(&estimate);
-    let _ = app.emit("describe_estimate_complete", estimate);
+    emitter.emit_projection_event("estimate_complete", &estimate);
     if false {
         let _ = DescribeEstimateCompletePayload {
             total_input_tokens,

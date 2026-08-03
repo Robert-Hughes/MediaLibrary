@@ -498,6 +498,26 @@ impl<'a> BatchProgressEmitter<'a> {
         &self.operation_id
     }
 
+    /// Emit a disposable frontend-projection event scoped to this retained
+    /// Rust operation. The session and operation identities are inserted into
+    /// every object payload so late events cannot update a replacement run.
+    pub fn emit_projection_event<S: Serialize>(&self, suffix: &str, payload: &S) {
+        let Ok(mut payload) = serde_json::to_value(payload) else {
+            return;
+        };
+        let Some(object) = payload.as_object_mut() else {
+            return;
+        };
+        object.insert("sessionId".into(), self.session_id.into());
+        object.insert(
+            "operationId".into(),
+            serde_json::Value::String(self.operation_id.clone()),
+        );
+        let _ = self
+            .app
+            .emit(&format!("{}_{}", self.prefix, suffix), payload);
+    }
+
     pub fn fail(&self, error: impl Into<String>) {
         if let Ok(snapshot) = self
             .app
@@ -513,7 +533,6 @@ impl<'a> BatchProgressEmitter<'a> {
             .app
             .emit(crate::session::SESSION_CHANGED_EVENT, snapshot);
     }
-
     pub fn estimate_started(&self, total: usize) {
         let _ = total;
     }
@@ -558,16 +577,14 @@ impl<'a> BatchProgressEmitter<'a> {
             operation_id: &'a str,
             total: usize,
         }
-        let _ = self
-            .app
-            .emit(
-                &format!("{}_started", self.prefix),
-                Payload {
-                    session_id: self.session_id,
-                    operation_id: &self.operation_id,
-                    total,
-                },
-            );
+        let _ = self.app.emit(
+            &format!("{}_started", self.prefix),
+            Payload {
+                session_id: self.session_id,
+                operation_id: &self.operation_id,
+                total,
+            },
+        );
     }
     /// Emit `${prefix}_progress` with semantic draft edits.
     pub fn progress_metadata(
