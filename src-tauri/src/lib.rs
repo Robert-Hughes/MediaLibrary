@@ -283,9 +283,9 @@ fn record_session_issue(
         error_message,
         affected_files,
     ) {
-        Ok(snapshot) => {
-            if let Err(error) = emit_session_snapshot(app, &snapshot) {
-                log::error!("[session-issue] failed to emit snapshot: {error}");
+        Ok(delta) => {
+            if let Err(error) = app.emit(session::SESSION_ISSUE_ADDED_EVENT, delta) {
+                log::error!("[session-issue] failed to emit delta: {error}");
             }
         }
         Err(error) => log::debug!("[session-issue] discarded stale issue: {error}"),
@@ -320,13 +320,14 @@ fn record_media_library_session_issue(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.add_issue(
+    session_state.add_issue(
         session_id,
         severity,
         error_type,
         error_message,
         affected_files,
     )?;
+    let snapshot = session_state.snapshot();
     emit_session_snapshot(&app, &snapshot)?;
     Ok(snapshot)
 }

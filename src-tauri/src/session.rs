@@ -12,6 +12,7 @@ pub const SESSION_CHANGED_EVENT: &str = "media_library_session_changed";
 pub const SESSION_FILES_ADDED_EVENT: &str = "media_library_session_files_added";
 pub const SESSION_METADATA_CHANGED_EVENT: &str = "media_library_session_metadata_changed";
 pub const SESSION_THUMBNAILS_CHANGED_EVENT: &str = "media_library_session_thumbnails_changed";
+pub const SESSION_ISSUE_ADDED_EVENT: &str = "media_library_session_issue_added";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -214,6 +215,18 @@ pub struct MediaLibrarySessionIssue {
     pub error_type: String,
     pub error_message: String,
     pub affected_files: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionIssueAdded {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub issue: MediaLibrarySessionIssue,
+    pub metadata: Vec<MediaLibrarySessionFileMetadata>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1357,7 +1370,7 @@ impl MediaLibrarySessionState {
         error_type: String,
         error_message: String,
         affected_files: Vec<String>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<MediaLibrarySessionIssueAdded, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || matches!(
@@ -1369,6 +1382,7 @@ impl MediaLibrarySessionState {
         }
         let issue_id = self.next_issue_id.fetch_add(1, Ordering::Relaxed);
         snapshot.revision += 1;
+        let mut metadata = Vec::new();
         if error_type == "metadata" {
             for relative_path in &affected_files {
                 if let Some(entry) = snapshot
@@ -1379,22 +1393,29 @@ impl MediaLibrarySessionState {
                     entry.state = MediaLibrarySessionMetadataState::Failed {
                         error: error_message.clone(),
                     };
+                    metadata.push(entry.clone());
                 }
             }
         }
-        snapshot.issues.push(MediaLibrarySessionIssue {
+        let issue = MediaLibrarySessionIssue {
             issue_id,
             severity,
             error_type,
             error_message,
             affected_files,
-        });
+        };
+        snapshot.issues.push(issue.clone());
         const MAX_SESSION_ISSUES: usize = 100;
         if snapshot.issues.len() > MAX_SESSION_ISSUES {
             let excess = snapshot.issues.len() - MAX_SESSION_ISSUES;
             snapshot.issues.drain(0..excess);
         }
-        Ok(snapshot.clone())
+        Ok(MediaLibrarySessionIssueAdded {
+            session_id,
+            revision: snapshot.revision,
+            issue,
+            metadata,
+        })
     }
 
     pub fn dismiss_issue(&self, issue_id: u64) -> MediaLibrarySessionSnapshot {
@@ -1675,12 +1696,12 @@ mod tests {
                 vec!["private.jpg".into()],
             )
             .unwrap();
-        assert_eq!(with_issue.issues.len(), 1);
+        assert_eq!(with_issue.issue.error_message, "permission denied");
         assert!(matches!(
             with_issue.metadata[0].state,
             MediaLibrarySessionMetadataState::Failed { .. }
         ));
-        let issue_id = with_issue.issues[0].issue_id;
+        let issue_id = with_issue.issue.issue_id;
         assert_eq!(state.snapshot().issues[0].issue_id, issue_id);
 
         let dismissed = state.dismiss_issue(issue_id);

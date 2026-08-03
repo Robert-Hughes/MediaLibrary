@@ -80,6 +80,7 @@ export type { MediaLibraryBatchOperation } from "./types/generated/MediaLibraryB
 export type { MediaLibraryBatchOperationPhase } from "./types/generated/MediaLibraryBatchOperationPhase";
 export type { MediaLibrarySessionFilesAdded } from "./types/generated/MediaLibrarySessionFilesAdded";
 export type { MediaLibrarySessionIssue } from "./types/generated/MediaLibrarySessionIssue";
+export type { MediaLibrarySessionIssueAdded } from "./types/generated/MediaLibrarySessionIssueAdded";
 export type { MediaLibrarySessionFileThumbnail } from "./types/generated/MediaLibrarySessionFileThumbnail";
 export type { MediaLibrarySessionThumbnailState } from "./types/generated/MediaLibrarySessionThumbnailState";
 export type { MediaLibrarySessionThumbnailsChanged } from "./types/generated/MediaLibrarySessionThumbnailsChanged";
