@@ -283,17 +283,20 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
 
     void (async () => {
       const prefix = config.operationKind;
-      await subscribe<ScopedBatchEvent & { total: number }>(`${prefix}_started`, ({ total }) => {
-        succeededPathsRef.current.clear();
-        failureKeysRef.current.clear();
-        safeSetState((state) => ({
-          ...state,
-          phase: "running",
-          total,
-          current: 0,
-          currentFile: null,
-        }));
-      });
+      await subscribe<ScopedBatchEvent & { total: number }>(
+        `${prefix}_started`,
+        ({ total }) => {
+          succeededPathsRef.current.clear();
+          failureKeysRef.current.clear();
+          safeSetState((state) => ({
+            ...state,
+            phase: "running",
+            total,
+            current: 0,
+            currentFile: null,
+          }));
+        },
+      );
       if (config.batchedProgress) {
         await subscribe<ScopedBatchEvent & { results: BatchJobProgress[] }>(
           `${prefix}_progress_batch`,
@@ -306,15 +309,17 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           queueProgress([progress]);
         });
       }
-      await subscribe<ScopedBatchEvent & {
-        succeeded: string[];
-        failed: Array<{
-          relativePath: string;
-          kind: BatchJobFailureKind;
-          detail: string;
-        }>;
-        usageSummary: SummaryPayload;
-      }>(`${prefix}_complete`, (payload) => {
+      await subscribe<
+        ScopedBatchEvent & {
+          succeeded: string[];
+          failed: Array<{
+            relativePath: string;
+            kind: BatchJobFailureKind;
+            detail: string;
+          }>;
+          usageSummary: SummaryPayload;
+        }
+      >(`${prefix}_complete`, (payload) => {
         void progressQueue.then(() => {
           succeededPathsRef.current = new Set(payload.succeeded);
           failureKeysRef.current = new Set(
@@ -350,11 +355,13 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
             }));
           },
         );
-        await subscribe<ScopedBatchEvent & {
-          current: number;
-          total: number;
-          relativePath: string;
-        }>(`${prefix}_estimate_progress`, (payload) => {
+        await subscribe<
+          ScopedBatchEvent & {
+            current: number;
+            total: number;
+            relativePath: string;
+          }
+        >(`${prefix}_estimate_progress`, (payload) => {
           safeSetState((state) => ({
             ...state,
             phase: "estimating",

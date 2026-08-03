@@ -134,7 +134,6 @@ describe("useBatchImageJob Rust projection", () => {
     );
   });
 
-
   it("does not recover a batch operation from a replacement session", async () => {
     invokeMock.mockImplementation(async (command: unknown) => {
       if (command === "estimate_cmd") throw new Error("stale command");

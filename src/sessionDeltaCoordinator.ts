@@ -17,7 +17,10 @@ export interface SessionDeltaCoordinatorOptions {
 
 export interface SessionDeltaCoordinator {
   enqueue: (delta: SessionDelta) => Promise<void>;
-  enqueueSnapshot: (revision: number, apply: () => void | Promise<void>) => Promise<void>;
+  enqueueSnapshot: (
+    revision: number,
+    apply: () => void | Promise<void>,
+  ) => Promise<void>;
   refresh: () => Promise<void>;
 }
 
