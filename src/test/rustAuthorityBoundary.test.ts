@@ -37,6 +37,16 @@ const rustLib = import.meta.glob<string>("../../src-tauri/src/lib.rs", {
   import: "default",
   eager: true,
 })["../../src-tauri/src/lib.rs"];
+const rustSessionCommands = import.meta.glob<string>(
+  "../../src-tauri/src/session_commands.rs",
+  {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  },
+)["../../src-tauri/src/session_commands.rs"];
+const rustAuthority = `${rustLib}
+${rustSessionCommands}`;
 
 describe("Rust-authoritative application boundary", () => {
   it("does not retain the removed frontend draft autosave authority", () => {
@@ -75,7 +85,7 @@ describe("Rust-authoritative application boundary", () => {
   it("does not expose direct draft persistence outside the session boundary", () => {
     expect(rustLib).not.toContain("fn load_metadata_draft_edits(");
     expect(rustLib).not.toContain("            load_metadata_draft_edits,");
-    expect(rustLib).toContain(
+    expect(rustAuthority).toContain(
       "ensure_session_draft_mutation_allowed(&snapshot)?",
     );
   });
@@ -88,8 +98,10 @@ describe("Rust-authoritative application boundary", () => {
     expect(metadataSessionActions).toContain(
       '"stage_media_library_session_gps_drafts"',
     );
-    expect(rustLib).toContain("fn plan_session_gps_drafts(");
-    expect(rustLib).toContain("edits: &[draft_edits::SchemaMetadataEdit]");
+    expect(rustAuthority).toContain("fn plan_session_gps_drafts(");
+    expect(rustAuthority).toContain(
+      "edits: &[draft_edits::SchemaMetadataEdit]",
+    );
   });
 
   it("keeps metadata-removal planning behind the Rust session boundary", () => {
@@ -99,7 +111,9 @@ describe("Rust-authoritative application boundary", () => {
     expect(metadataSessionActions).toContain(
       '"preview_media_library_session_metadata_target_removals"',
     );
-    expect(rustLib).toContain("fn preview_exact_session_target_removals(");
+    expect(rustAuthority).toContain(
+      "fn preview_exact_session_target_removals(",
+    );
   });
 
   it("leaves New Property command eligibility to Rust", () => {
@@ -110,8 +124,8 @@ describe("Rust-authoritative application boundary", () => {
       "tagInfoSupportsMetadataWrite",
     );
     expect(metadataSessionActions).not.toContain("validateFamily1Group");
-    expect(rustLib).toContain("validate_new_property(info)");
-    expect(rustLib).toContain(
+    expect(rustAuthority).toContain("validate_new_property(info)");
+    expect(rustAuthority).toContain(
       "Another pending draft already uses the intended complete selector",
     );
   });
@@ -141,17 +155,19 @@ describe("Rust-authoritative application boundary", () => {
     expect(metadataSessionActions).not.toContain("activeApplyPromiseRef");
     expect(metadataSessionActions).not.toContain("onFileError:");
     expect(metadataSessionActions).not.toContain("onFileWarning:");
-    expect(rustLib).toContain("begin_new_apply_operation");
-    expect(rustLib).not.toContain("progress_channel:");
+    expect(rustAuthority).toContain("begin_new_apply_operation");
+    expect(rustAuthority).not.toContain("progress_channel:");
     expect(metadataSessionActions).toContain(
       '"dismiss_media_library_session_apply_operation"',
     );
-    expect(rustLib).toContain(
+    expect(rustAuthority).toContain(
       "fn dismiss_media_library_session_apply_operation(",
     );
-    expect(rustLib).toContain("dismiss_media_library_session_apply_operation,");
-    expect(rustLib).toContain("session_id: u64");
-    expect(rustLib).toContain("operation_id: String");
+    expect(rustAuthority).toContain(
+      "dismiss_media_library_session_apply_operation,",
+    );
+    expect(rustAuthority).toContain("session_id: u64");
+    expect(rustAuthority).toContain("operation_id: String");
     expect(
       generatedSources["../types/generated/MediaLibraryApplyOperation.ts"],
     ).toContain("issues: Array<MediaLibraryApplyIssue>");
