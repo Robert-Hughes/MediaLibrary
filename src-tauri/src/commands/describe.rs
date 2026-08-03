@@ -727,9 +727,13 @@ pub fn cancel_describe_cmd(
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
+    // Signal the in-flight runner before touching the session: a racing
+    // dismiss can remove the operation before this mutation runs, and the
+    // runner must still observe cancellation so it stops at its next item
+    // boundary instead of completing and resurrecting the dialog.
+    describe_state.signal_cancel();
     app.state::<crate::session::MediaLibrarySessionState>()
         .request_batch_operation_cancellation(session_id, &operation_id)?;
-    describe_state.signal_cancel();
     Ok(())
 }
 #[cfg(test)]

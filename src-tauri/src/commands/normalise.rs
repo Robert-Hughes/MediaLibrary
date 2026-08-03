@@ -1143,9 +1143,11 @@ pub fn cancel_normalise_cmd(
     app: AppHandle,
     normalise_state: State<'_, normalise::NormaliseState>,
 ) -> Result<(), String> {
+    // Signal the in-flight runner first so a racing dismiss cannot leave it
+    // running (see cancel_describe_cmd for the full rationale).
+    normalise_state.signal_cancel();
     app.state::<crate::session::MediaLibrarySessionState>()
         .request_batch_operation_cancellation(session_id, &operation_id)?;
-    normalise_state.signal_cancel();
     Ok(())
 }
 #[cfg(test)]
