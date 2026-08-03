@@ -168,6 +168,7 @@ export function useNormaliseMetadata(
   const config = useMemo<BatchJobConfig<StartArgs>>(
     () => ({
       operationKind: "normalise",
+      batchedProgress: true,
       commands: {
         estimate: "estimate_normalise_cost_cmd",
         run: "normalise_metadata_cmd",

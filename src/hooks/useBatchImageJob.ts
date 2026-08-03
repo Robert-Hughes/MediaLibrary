@@ -22,6 +22,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   BatchJobFailureKind,
   MediaLibraryBatchOperation,
@@ -37,6 +38,14 @@ export interface BatchJobFailure {
   relativePath: string;
   kind: BatchJobFailureKind;
   detail: string;
+}
+
+interface BatchJobProgress {
+  current: number;
+  total: number;
+  relativePath: string;
+  status: string;
+  error?: string;
 }
 
 /**
@@ -106,6 +115,8 @@ export interface BatchJobActions<StartArgs> {
 export interface BatchJobConfig<StartArgs> {
   /** Key of the authoritative operation in the Rust session snapshot. */
   operationKind: string;
+  /** Consume `${operationKind}_progress_batch` instead of per-item events. */
+  batchedProgress?: boolean;
   commands: {
     estimate?: string;
     run: string;
@@ -155,6 +166,182 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   const projectedOperationIdRef = useRef<string | null>(null);
   const recoveredOperationIdRef = useRef<string | null>(null);
   const recoveredSessionIdRef = useRef<number | undefined>(undefined);
+  const pendingEstimateRef = useRef<null | (() => void)>(null);
+  const listenersReadyRef = useRef(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const unlisteners: UnlistenFn[] = [];
+    let mounted = true;
+    let progressQueue = Promise.resolve();
+
+    const safeSetState = (
+      updater: (
+        state: BatchJobState<EstimatePayload, SummaryPayload>,
+      ) => BatchJobState<EstimatePayload, SummaryPayload>,
+    ) => {
+      if (mounted) setState(updater);
+    };
+    const subscribe = async <T>(
+      event: string,
+      handler: (payload: T) => void,
+    ) => {
+      const unlisten = await listen<T>(event, ({ payload }) => {
+        if (mounted) handler(payload);
+      });
+      unlisteners.push(unlisten);
+    };
+    const applyProgress = (items: readonly BatchJobProgress[]) => {
+      if (items.length === 0) return;
+      safeSetState((state) => {
+        const failures = [...state.failures];
+        const succeeded = [...state.succeeded];
+        for (const item of items) {
+          if (item.status === "ok") {
+            if (!succeeded.includes(item.relativePath)) {
+              succeeded.push(item.relativePath);
+            }
+          } else if (
+            !failures.some(
+              (failure) =>
+                failure.relativePath === item.relativePath &&
+                failure.kind === item.status &&
+                failure.detail === (item.error ?? ""),
+            )
+          ) {
+            failures.push({
+              relativePath: item.relativePath,
+              kind: item.status as BatchJobFailureKind,
+              detail: item.error ?? "",
+            });
+          }
+        }
+        const latest = items[items.length - 1];
+        return {
+          ...state,
+          phase: "running",
+          current: latest.current,
+          total: latest.total,
+          currentFile: latest.relativePath,
+          failures,
+          succeeded,
+        };
+      });
+    };
+
+    void (async () => {
+      const prefix = config.operationKind;
+      await subscribe<{ total: number }>(`${prefix}_started`, ({ total }) => {
+        safeSetState((state) => ({
+          ...state,
+          phase: "running",
+          total,
+          current: 0,
+          currentFile: null,
+        }));
+      });
+      if (config.batchedProgress) {
+        await subscribe<{ results: BatchJobProgress[] }>(
+          `${prefix}_progress_batch`,
+          ({ results }) => {
+            progressQueue = progressQueue.then(() => applyProgress(results));
+          },
+        );
+      } else {
+        await subscribe<BatchJobProgress>(`${prefix}_progress`, (progress) => {
+          progressQueue = progressQueue.then(() => applyProgress([progress]));
+        });
+      }
+      await subscribe<{
+        succeeded: string[];
+        failed: Array<{
+          relativePath: string;
+          kind: BatchJobFailureKind;
+          detail: string;
+        }>;
+        usageSummary: SummaryPayload;
+      }>(`${prefix}_complete`, (payload) => {
+        void progressQueue.then(() => {
+          safeSetState((state) => ({
+            ...state,
+            phase: "done",
+            currentFile: null,
+            cancelling: false,
+            failures: payload.failed,
+            succeeded: payload.succeeded,
+            summary: payload.usageSummary,
+          }));
+        });
+      });
+      if (config.commands.estimate) {
+        await subscribe<{ total: number }>(
+          `${prefix}_estimate_started`,
+          ({ total }) => {
+            safeSetState((state) => ({
+              ...state,
+              phase: "estimating",
+              total,
+              current: 0,
+              currentFile: null,
+            }));
+          },
+        );
+        await subscribe<{
+          current: number;
+          total: number;
+          relativePath: string;
+        }>(`${prefix}_estimate_progress`, (payload) => {
+          safeSetState((state) => ({
+            ...state,
+            phase: "estimating",
+            current: payload.current,
+            total: payload.total,
+            currentFile: payload.relativePath,
+          }));
+        });
+        await subscribe<
+          | { relativePath: string; message: string }
+          | { relative_path: string; message: string }
+        >(`${prefix}_estimate_error`, (payload) => {
+          const relativePath =
+            "relativePath" in payload
+              ? payload.relativePath
+              : payload.relative_path;
+          safeSetState((state) => ({
+            ...state,
+            estimateError: `${relativePath}: ${payload.message}`,
+          }));
+        });
+        await subscribe<EstimatePayload>(
+          `${prefix}_estimate_complete`,
+          (estimate) => {
+            safeSetState((state) => ({
+              ...state,
+              phase: "awaiting-confirm",
+              currentFile: null,
+              estimate,
+            }));
+          },
+        );
+      }
+      if (mounted) {
+        listenersReadyRef.current = true;
+        pendingEstimateRef.current?.();
+        pendingEstimateRef.current = null;
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      listenersReadyRef.current = false;
+      for (const unlisten of unlisteners) unlisten();
+    };
+  }, [
+    config.batchedProgress,
+    config.commands.estimate,
+    config.operationKind,
+    open,
+  ]);
 
   const projectOperation = useCallback(
     (operation: MediaLibraryBatchOperation) => {
@@ -264,7 +451,11 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           ...config.buildEstimateArgs(folderPath, startArgs),
           sessionId: options.sessionId,
         };
-        void invoke(estimateCmd, args).catch(recoverAuthoritativeOperation);
+        const runEstimate = () => {
+          void invoke(estimateCmd, args).catch(recoverAuthoritativeOperation);
+        };
+        if (listenersReadyRef.current) runEstimate();
+        else pendingEstimateRef.current = runEstimate;
       }
       setOpen(true);
     },

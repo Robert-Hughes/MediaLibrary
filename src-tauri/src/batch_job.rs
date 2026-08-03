@@ -525,7 +525,7 @@ impl<'a> BatchProgressEmitter<'a> {
         relative_path: &str,
         error: Option<&str>,
     ) {
-        if let Ok(snapshot) = self
+        let _ = self
             .app
             .state::<crate::session::MediaLibrarySessionState>()
             .update_batch_operation_estimate_progress(
@@ -535,10 +535,7 @@ impl<'a> BatchProgressEmitter<'a> {
                 total,
                 Some(relative_path.to_owned()),
                 error.map(str::to_owned),
-            )
-        {
-            self.emit_session_snapshot(snapshot);
-        }
+            );
     }
 
     pub fn estimate_complete<S: Serialize>(&self, estimate: &S) {
@@ -578,7 +575,7 @@ impl<'a> BatchProgressEmitter<'a> {
             .map(crate::draft_edits::schema_metadata_edit_entries);
         let (status, error) =
             self.stage_result(relative_path, status, error, edit_entries.as_deref());
-        if let Ok(snapshot) = self
+        let _ = self
             .app
             .state::<crate::session::MediaLibrarySessionState>()
             .update_batch_operation_progress(
@@ -589,10 +586,7 @@ impl<'a> BatchProgressEmitter<'a> {
                 Some(relative_path.to_owned()),
                 Some(&status),
                 error.clone(),
-            )
-        {
-            self.emit_session_snapshot(snapshot);
-        }
+            );
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload<'a> {
@@ -621,7 +615,6 @@ impl<'a> BatchProgressEmitter<'a> {
     /// Emit `${prefix}_progress_batch` using the scanner-style `results` envelope.
     pub fn progress_metadata_batch(&self, results: &[BatchMetadataProgress]) {
         let state = self.app.state::<crate::session::MediaLibrarySessionState>();
-        let mut latest = None;
         for result in results {
             let (status, error) = self.stage_result(
                 &result.relative_path,
@@ -629,7 +622,7 @@ impl<'a> BatchProgressEmitter<'a> {
                 result.error.as_deref(),
                 result.edits.as_deref(),
             );
-            if let Ok(snapshot) = state.update_batch_operation_progress(
+            let _ = state.update_batch_operation_progress(
                 self.session_id,
                 &self.operation_id,
                 result.current,
@@ -637,12 +630,7 @@ impl<'a> BatchProgressEmitter<'a> {
                 Some(result.relative_path.clone()),
                 Some(&status),
                 error,
-            ) {
-                latest = Some(snapshot);
-            }
-        }
-        if let Some(snapshot) = latest {
-            self.emit_session_snapshot(snapshot);
+            );
         }
         #[derive(Clone, Serialize)]
         struct Payload<'a> {

@@ -7,8 +7,18 @@ import {
 } from "../hooks/useBatchImageJob";
 
 const invokeMock = vi.fn<(...args: unknown[]) => Promise<unknown>>();
+const eventListeners = new Map<string, (event: { payload: unknown }) => void>();
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) => invokeMock(...args),
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: async (
+    event: string,
+    handler: (event: { payload: unknown }) => void,
+  ) => {
+    eventListeners.set(event, handler);
+    return () => eventListeners.delete(event);
+  },
 }));
 
 const config: BatchJobConfig<string[]> = {
@@ -46,19 +56,52 @@ function operation(
   };
 }
 
-beforeEach(() => invokeMock.mockReset().mockResolvedValue(undefined));
+beforeEach(() => {
+  invokeMock.mockReset().mockResolvedValue(undefined);
+  eventListeners.clear();
+});
 
 describe("useBatchImageJob Rust projection", () => {
-  it("starts estimation with the authoritative session identity", () => {
+  it("starts estimation with the authoritative session identity", async () => {
     const { result } = renderHook(() =>
       useBatchImageJob(config, { sessionId: 12 }),
     );
     act(() => result.current.actions.start("/folder", ["a.jpg"]));
-    expect(invokeMock).toHaveBeenCalledWith("estimate_cmd", {
-      folderPath: "/folder",
-      relPaths: ["a.jpg"],
-      sessionId: 12,
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("estimate_cmd", {
+        folderPath: "/folder",
+        relPaths: ["a.jpg"],
+        sessionId: 12,
+      }),
+    );
+  });
+
+  it("projects compact progress events without fetching a session snapshot", async () => {
+    const { result } = renderHook(() =>
+      useBatchImageJob(config, { sessionId: 12 }),
+    );
+    act(() => result.current.actions.start("/folder", ["a.jpg", "b.jpg"]));
+    await waitFor(() =>
+      expect(eventListeners.has("describe_progress")).toBe(true),
+    );
+
+    act(() => {
+      eventListeners.get("describe_progress")?.({
+        payload: {
+          current: 1,
+          total: 2,
+          relativePath: "a.jpg",
+          status: "ok",
+        },
+      });
     });
+
+    await waitFor(() => expect(result.current.state.current).toBe(1));
+    expect(result.current.state.currentFile).toBe("a.jpg");
+    expect(result.current.state.succeeded).toEqual(["a.jpg"]);
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "get_media_library_session_snapshot",
+    );
   });
 
   it("recovers a rejected command from the Rust session instead of inventing a failure", async () => {
