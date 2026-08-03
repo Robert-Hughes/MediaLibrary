@@ -192,6 +192,7 @@ export function useMediaLibrary(
   // scan_id are stale (from a previous scan) and are discarded.
   const activeScanIdRef = useRef<number>(-1);
   const sessionRevisionRef = useRef<number>(-1);
+  const activeApplyOperationIdRef = useRef<string | null>(null);
   const sessionFilePathsRef = useRef<Set<string>>(new Set());
   const seenSessionIssueIdsRef = useRef<Set<number>>(new Set());
   const locallyLoggedIssueKeysRef = useRef<Set<string>>(new Set());
@@ -262,6 +263,7 @@ export function useMediaLibrary(
       if (snapshot.revision <= sessionRevisionRef.current) return;
       const previousRevision = sessionRevisionRef.current;
       sessionRevisionRef.current = snapshot.revision;
+      activeApplyOperationIdRef.current = snapshot.apply_operation?.operation_id ?? null;
       if (snapshot.lifecycle === "idle") {
         const hadActiveSession =
           activeScanIdRef.current !== -1 || activeFolderRef.current !== null;
@@ -274,6 +276,7 @@ export function useMediaLibrary(
         targetDraftPersistenceRef.current = TARGET_DRAFT_NOT_LOADED_STATE;
         seenSessionIssueIdsRef.current.clear();
         locallyLoggedIssueKeysRef.current.clear();
+        activeApplyOperationIdRef.current = null;
         activeScanIdRef.current = -1;
         activeFolderRef.current = null;
         if (hadActiveSession) setAppState({ kind: "idle" });
