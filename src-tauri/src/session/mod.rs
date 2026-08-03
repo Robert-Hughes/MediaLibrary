@@ -1,6 +1,8 @@
 //! Authoritative mutable media-library session state machine.
 
+mod events;
 mod model;
+pub use events::{drain_session_events, SessionEvent};
 pub use model::*;
 
 use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
@@ -8,7 +10,7 @@ use crate::scanner::{FileInfo, FileMetadata};
 use crate::search_service::MediaLibrarySearchService;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{mpsc, Mutex};
 
 pub struct MediaLibrarySessionState {
     next_session_id: AtomicU64,
@@ -19,6 +21,13 @@ pub struct MediaLibrarySessionState {
     thumbnail_cache: Mutex<HashMap<String, String>>,
     superseded_scan_metadata: Mutex<BTreeSet<String>>,
     search: MediaLibrarySearchService,
+    /// Optional ordered channel for revisioned session events. When present,
+    /// every accepted mutation pushes its notification while holding the
+    /// snapshot lock, so the channel order equals commit/revision order.
+    notifier: Option<mpsc::Sender<SessionEvent>>,
+    /// Receiver side of `notifier`, moved to the dedicated drain thread during
+    /// Tauri setup. `None` in unit tests and after it has been taken.
+    event_receiver: Mutex<Option<mpsc::Receiver<SessionEvent>>>,
 }
 
 impl MediaLibrarySessionState {
@@ -47,6 +56,36 @@ impl MediaLibrarySessionState {
             thumbnail_cache: Mutex::new(HashMap::new()),
             superseded_scan_metadata: Mutex::new(BTreeSet::new()),
             search: MediaLibrarySearchService::new(),
+            notifier: None,
+            event_receiver: Mutex::new(None),
+        }
+    }
+
+    /// Construct production state with an ordered session-event channel.
+    /// The sender is used to queue notifications in commit order; the
+    /// receiver should be handed to `drain_session_events` during setup.
+    pub fn with_event_channel(
+        notifier: mpsc::Sender<SessionEvent>,
+        receiver: mpsc::Receiver<SessionEvent>,
+    ) -> Self {
+        Self {
+            notifier: Some(notifier),
+            event_receiver: Mutex::new(Some(receiver)),
+            ..Self::new()
+        }
+    }
+
+    /// Take the event-channel receiver so the application can spawn the
+    /// ordered emitter thread. Returns `None` for unit-test instances.
+    pub fn take_event_receiver(&self) -> Option<mpsc::Receiver<SessionEvent>> {
+        self.event_receiver.lock().unwrap().take()
+    }
+
+    /// Queue a revisioned session event in commit order. Safe to call only
+    /// while the snapshot mutex is held; a no-op when no channel is installed.
+    fn notify(&self, event: SessionEvent) {
+        if let Some(sender) = &self.notifier {
+            let _ = sender.send(event);
         }
     }
 
@@ -117,7 +156,9 @@ impl MediaLibrarySessionState {
                 error: None,
             },
         );
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn start_batch_operation(
@@ -151,7 +192,9 @@ impl MediaLibrarySessionState {
             operation.request = Some(request);
         }
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -292,7 +335,9 @@ impl MediaLibrarySessionState {
         operation.estimate = Some(estimate);
         operation.error = None;
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn complete_batch_operation(
@@ -325,7 +370,9 @@ impl MediaLibrarySessionState {
         operation.summary = Some(summary);
         operation.error = None;
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn fail_batch_operation(
@@ -348,7 +395,9 @@ impl MediaLibrarySessionState {
         operation.cancelling = false;
         operation.error = Some(error);
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn request_batch_operation_cancellation(
@@ -369,7 +418,9 @@ impl MediaLibrarySessionState {
             .ok_or_else(|| "The batch operation identity changed".to_string())?;
         operation.cancelling = true;
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn dismiss_batch_operation(
@@ -394,6 +445,9 @@ impl MediaLibrarySessionState {
             .is_some_and(|kind| snapshot.batch_operations.remove(kind).is_some())
         {
             snapshot.revision += 1;
+            let result = snapshot.clone();
+            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+            return Ok(result);
         }
         Ok(snapshot.clone())
     }
@@ -429,7 +483,9 @@ impl MediaLibrarySessionState {
             issues: Vec::new(),
             summary: None,
         });
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn begin_new_apply_operation(
@@ -582,6 +638,12 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         let revision = snapshot.revision;
+        if matches!(
+            message,
+            crate::apply_batch::MetadataApplyStreamMessage::Complete { .. }
+        ) {
+            self.notify(SessionEvent::Snapshot(Box::new(snapshot.clone())));
+        }
         drop(snapshot);
         if !search_metadata.is_empty() {
             self.search
@@ -617,7 +679,9 @@ impl MediaLibrarySessionState {
         }
         operation.cancelling = true;
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn fail_apply_operation(
@@ -640,7 +704,9 @@ impl MediaLibrarySessionState {
         operation.state = MediaLibraryApplyOperationState::Failed { error };
         operation.current_file = None;
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn dismiss_apply_operation(
@@ -660,7 +726,9 @@ impl MediaLibrarySessionState {
         }
         snapshot.apply_operation = None;
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn resolve_verification_outcome(
@@ -704,7 +772,9 @@ impl MediaLibrarySessionState {
             }
         }
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn dismiss_all_verification_outcomes(
@@ -724,7 +794,9 @@ impl MediaLibrarySessionState {
         }
         snapshot.verification_outcomes.clear();
         snapshot.revision += 1;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn begin_open(&self, folder: String) -> MediaLibrarySessionSnapshot {
@@ -747,6 +819,7 @@ impl MediaLibrarySessionState {
         self.superseded_scan_metadata.lock().unwrap().clear();
         self.thumbnail_cache.lock().unwrap().clear();
         let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
         drop(snapshot);
         self.search.reset(Some(session_id), result.revision);
         result
@@ -790,6 +863,7 @@ impl MediaLibrarySessionState {
             .map(|(path, entries)| (path.clone(), entries.clone()))
             .collect();
         let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
         drop(snapshot);
         self.search.set_revision(session_id, revision);
         self.search.set_drafts(session_id, revision, rows);
@@ -826,7 +900,9 @@ impl MediaLibrarySessionState {
             let excess = snapshot.issues.len() - MAX_SESSION_ISSUES;
             snapshot.issues.drain(0..excess);
         }
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn commit_draft_rows(
@@ -863,6 +939,7 @@ impl MediaLibrarySessionState {
             }
         }
         let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
         drop(snapshot);
         self.search.set_drafts(session_id, revision, rows);
         Ok(result)
@@ -892,7 +969,9 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::SaveFailed { error };
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn mark_loaded(
@@ -910,7 +989,9 @@ impl MediaLibrarySessionState {
         snapshot.revision += 1;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Loaded;
         snapshot.discovery_running = true;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn add_files(
@@ -944,6 +1025,7 @@ impl MediaLibrarySessionState {
             revision: snapshot.revision,
             files,
         };
+        self.notify(SessionEvent::FilesAdded(delta.clone()));
         drop(snapshot);
         self.search
             .add_files(session_id, delta.revision, delta.files.clone());
@@ -990,6 +1072,9 @@ impl MediaLibrarySessionState {
             revision: snapshot.revision,
             entries,
         };
+        if !delta.entries.is_empty() {
+            self.notify(SessionEvent::MetadataChanged(delta.clone()));
+        }
         let search_entries = delta
             .entries
             .iter()
@@ -1048,11 +1133,15 @@ impl MediaLibrarySessionState {
         if !entries.is_empty() {
             snapshot.revision += 1;
         }
-        Ok(MediaLibrarySessionThumbnailsChanged {
+        let delta = MediaLibrarySessionThumbnailsChanged {
             session_id,
             revision: snapshot.revision,
             entries,
-        })
+        };
+        if !delta.entries.is_empty() {
+            self.notify(SessionEvent::ThumbnailsChanged(delta.clone()));
+        }
+        Ok(delta)
     }
 
     pub fn thumbnail_payloads(
@@ -1206,6 +1295,9 @@ impl MediaLibrarySessionState {
         }
         let revision = snapshot.revision;
         let result = snapshot.clone();
+        if changed {
+            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        }
         drop(snapshot);
         if changed {
             self.search
@@ -1224,6 +1316,9 @@ impl MediaLibrarySessionState {
         if snapshot.discovery_running {
             snapshot.revision += 1;
             snapshot.discovery_running = false;
+            let result = snapshot.clone();
+            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+            return Ok(result);
         }
         Ok(snapshot.clone())
     }
@@ -1281,6 +1376,7 @@ impl MediaLibrarySessionState {
             issue,
             metadata,
         };
+        self.notify(SessionEvent::IssueAdded(delta.clone()));
         let search_entries = delta
             .metadata
             .iter()
@@ -1298,6 +1394,9 @@ impl MediaLibrarySessionState {
         snapshot.issues.retain(|issue| issue.issue_id != issue_id);
         if snapshot.issues.len() != previous_len {
             snapshot.revision += 1;
+            let result = snapshot.clone();
+            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+            return result;
         }
         snapshot.clone()
     }
@@ -1311,7 +1410,9 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Closing;
-        Ok(snapshot.clone())
+        let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        Ok(result)
     }
 
     pub fn finish_close(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
@@ -1338,6 +1439,7 @@ impl MediaLibrarySessionState {
         self.thumbnail_cache.lock().unwrap().clear();
         self.superseded_scan_metadata.lock().unwrap().clear();
         let result = snapshot.clone();
+        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
         drop(snapshot);
         self.search.reset(None, result.revision);
         Ok(result)
@@ -1361,6 +1463,161 @@ mod tests {
             date_modified: None,
             date_created: None,
         }
+    }
+
+    #[test]
+    fn notifications_are_queued_in_commit_order() {
+        let (notifier, receiver) = std::sync::mpsc::channel();
+        let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
+        let receiver = state.take_event_receiver().unwrap();
+        let session_id = state.begin_open("C:/photos".into()).session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("a.jpg")])
+            .unwrap();
+        state
+            .commit_metadata_results(
+                session_id,
+                vec![FileMetadata {
+                    relative_path: "a.jpg".into(),
+                    occurrences: MetadataOccurrences::default(),
+                }],
+            )
+            .unwrap();
+        state.finish_discovery(session_id).unwrap();
+
+        let events: Vec<SessionEvent> = receiver.try_iter().collect();
+        let names: Vec<&'static str> = events.iter().map(SessionEvent::event_name).collect();
+        assert_eq!(
+            names,
+            vec![
+                SESSION_CHANGED_EVENT,
+                SESSION_CHANGED_EVENT,
+                SESSION_CHANGED_EVENT,
+                SESSION_FILES_ADDED_EVENT,
+                SESSION_METADATA_CHANGED_EVENT,
+                SESSION_CHANGED_EVENT,
+            ]
+        );
+        let revisions: Vec<u64> = events.iter().map(SessionEvent::revision).collect();
+        assert_eq!(revisions, vec![1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn concurrent_commits_are_notified_in_revision_order() {
+        let (notifier, receiver) = std::sync::mpsc::channel();
+        let state = std::sync::Arc::new(MediaLibrarySessionState::with_event_channel(
+            notifier, receiver,
+        ));
+        let receiver = state.take_event_receiver().unwrap();
+        let (_, session_id) = {
+            let opened = state.begin_open("C:/photos".into());
+            let session_id = opened.session_id.unwrap();
+            state
+                .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+                .unwrap();
+            state.mark_loaded(session_id, "C:/photos").unwrap();
+            ((), session_id)
+        };
+
+        let mut handles = Vec::new();
+        for thread_index in 0..8 {
+            let state = state.clone();
+            handles.push(std::thread::spawn(move || {
+                for batch in 0..20 {
+                    let files: Vec<FileInfo> = (0..3)
+                        .map(|item| test_file(&format!("t{thread_index}-b{batch}-{item}.jpg")))
+                        .collect();
+                    assert!(state.add_files(session_id, files).is_ok());
+                }
+            }));
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let events: Vec<SessionEvent> = receiver.try_iter().collect();
+        assert_eq!(events.len(), 3 + 8 * 20);
+        let revisions: Vec<u64> = events.iter().map(SessionEvent::revision).collect();
+        for pair in revisions.windows(2) {
+            assert_eq!(
+                pair[1],
+                pair[0] + 1,
+                "notifications must be queued in revision order"
+            );
+        }
+        assert!(events[3..]
+            .iter()
+            .all(|event| matches!(event, SessionEvent::FilesAdded(_))));
+    }
+
+    #[test]
+    fn apply_progress_does_not_queue_snapshots_but_completion_does() {
+        let (notifier, receiver) = std::sync::mpsc::channel();
+        let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
+        let receiver = state.take_event_receiver().unwrap();
+        let session_id = state.begin_open("C:/photos".into()).session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        let (operation_id, _) = state.begin_new_apply_operation(session_id, None).unwrap();
+        // Drain the four lifecycle snapshots queued so far.
+        assert_eq!(receiver.try_iter().count(), 4);
+
+        state
+            .update_apply_operation(
+                session_id,
+                &crate::apply_batch::MetadataApplyStreamMessage::Started {
+                    operation_id: operation_id.clone(),
+                    total: 1,
+                },
+            )
+            .unwrap();
+        state
+            .update_apply_operation(
+                session_id,
+                &crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
+                    operation_id: operation_id.clone(),
+                    sequence: 1,
+                    current: 1,
+                    total: 1,
+                    results: Vec::new(),
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            receiver.try_iter().count(),
+            0,
+            "apply progress must not queue session snapshots"
+        );
+
+        state
+            .update_apply_operation(
+                session_id,
+                &crate::apply_batch::MetadataApplyStreamMessage::Complete {
+                    operation_id,
+                    summary: crate::apply_batch::MetadataApplySummary {
+                        requested: 1,
+                        selected: 1,
+                        completed: 1,
+                        applied: 1,
+                        failed: 0,
+                        warning_count: 0,
+                        cancelled: false,
+                        aborted: false,
+                        abort_reason: None,
+                        delivery_failure_count: 0,
+                    },
+                },
+            )
+            .unwrap();
+        let after_complete: Vec<SessionEvent> = receiver.try_iter().collect();
+        assert_eq!(after_complete.len(), 1);
+        assert!(matches!(after_complete[0], SessionEvent::Snapshot(_)));
     }
 
     #[test]

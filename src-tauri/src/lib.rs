@@ -227,25 +227,12 @@ pub(crate) fn emit_frontend_event<S: Serialize + Clone>(
     })
 }
 
-fn emit_session_snapshot(
-    app: &AppHandle,
-    snapshot: &session::MediaLibrarySessionSnapshot,
-) -> Result<(), String> {
-    emit_frontend_event(app, session::SESSION_CHANGED_EVENT, snapshot.clone())
-}
-
 fn commit_session_metadata(app: &AppHandle, session_id: u64, results: Vec<scanner::FileMetadata>) {
-    match app
+    if let Err(error) = app
         .state::<session::MediaLibrarySessionState>()
         .commit_metadata_results(session_id, results)
     {
-        Ok(delta) => {
-            if delta.entries.is_empty() {
-                return;
-            }
-            let _ = emit_frontend_event(app, session::SESSION_METADATA_CHANGED_EVENT, delta);
-        }
-        Err(error) => log::debug!("[session-metadata] discarded stale results: {error}"),
+        log::debug!("[session-metadata] discarded stale results: {error}");
     }
 }
 
@@ -254,17 +241,11 @@ fn commit_session_thumbnails(app: &AppHandle, session_id: u64, results: Vec<Thum
         .into_iter()
         .map(|result| (result.relative_path, result.thumbnail))
         .collect();
-    match app
+    if let Err(error) = app
         .state::<session::MediaLibrarySessionState>()
         .commit_thumbnail_results(session_id, results)
     {
-        Ok(delta) => {
-            if delta.entries.is_empty() {
-                return;
-            }
-            let _ = emit_frontend_event(app, session::SESSION_THUMBNAILS_CHANGED_EVENT, delta);
-        }
-        Err(error) => log::debug!("[session-thumbnails] discarded stale results: {error}"),
+        log::debug!("[session-thumbnails] discarded stale results: {error}");
     }
 }
 
@@ -285,17 +266,14 @@ fn record_session_issue(
     error_message: String,
     affected_files: Vec<String>,
 ) {
-    match app.state::<session::MediaLibrarySessionState>().add_issue(
+    if let Err(error) = app.state::<session::MediaLibrarySessionState>().add_issue(
         session_id,
         severity.to_owned(),
         error_type.to_owned(),
         error_message,
         affected_files,
     ) {
-        Ok(delta) => {
-            let _ = emit_frontend_event(app, session::SESSION_ISSUE_ADDED_EVENT, delta);
-        }
-        Err(error) => log::debug!("[session-issue] discarded stale issue: {error}"),
+        log::debug!("[session-issue] discarded stale issue: {error}");
     }
 }
 
@@ -317,12 +295,9 @@ fn search_media_library_session(
 #[tauri::command]
 fn dismiss_media_library_session_issue(
     issue_id: u64,
-    app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.dismiss_issue(issue_id);
-    emit_session_snapshot(&app, &snapshot)?;
-    Ok(snapshot)
+    Ok(session_state.dismiss_issue(issue_id))
 }
 
 #[tauri::command]
@@ -332,18 +307,15 @@ fn record_media_library_session_issue(
     error_type: String,
     error_message: String,
     affected_files: Vec<String>,
-    app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionIssueAdded, String> {
-    let delta = session_state.add_issue(
+    session_state.add_issue(
         session_id,
         severity,
         error_type,
         error_message,
         affected_files,
-    )?;
-    emit_frontend_event(&app, session::SESSION_ISSUE_ADDED_EVENT, &delta)?;
-    Ok(delta)
+    )
 }
 
 #[tauri::command]
@@ -362,33 +334,23 @@ fn open_media_library_session(
         .ok_or_else(|| "Rust opened a session without an identity".to_string())?;
     let app_data_dir = match commands::shared::app_data_dir(&app) {
         Ok(path) => path,
-        Err(error) => {
-            let failed = session_state.fail_session(session_id, "session-open", error)?;
-            emit_session_snapshot(&app, &failed)?;
-            return Ok(failed);
-        }
+        Err(error) => return session_state.fail_session(session_id, "session-open", error),
     };
     let drafts =
         draft_repository::load_metadata_draft_edits(&app_data_dir, &folder_path, &repository_state);
-    let snapshot = session_state.install_draft_load_result(session_id, drafts)?;
-    emit_session_snapshot(&app, &snapshot)?;
-    Ok(snapshot)
+    session_state.install_draft_load_result(session_id, drafts)
 }
 
 #[tauri::command]
 fn close_media_library_session(
     session_id: u64,
-    app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     scan_state: State<'_, ScanState>,
     active_queues: State<'_, ActiveQueues>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let closing = session_state.begin_close(session_id)?;
-    emit_session_snapshot(&app, &closing)?;
+    session_state.begin_close(session_id)?;
     stop_scan_impl(&scan_state, &active_queues);
-    let idle = session_state.finish_close(session_id)?;
-    emit_session_snapshot(&app, &idle)?;
-    Ok(idle)
+    session_state.finish_close(session_id)
 }
 /// Start a background scan of `folder_path`.
 ///
@@ -437,8 +399,9 @@ fn start_scan(
         return Err("The requested scan does not match the active media-library session".into());
     }
     let fail_start = |error: String| -> Result<(), String> {
-        let failed = session_state.fail_session(scan_id, "scan", error)?;
-        emit_session_snapshot(&app, &failed)
+        session_state
+            .fail_session(scan_id, "scan", error)
+            .map(|_| ())
     };
     let root = std::path::PathBuf::from(&folder_path);
     if !root.is_dir() {
@@ -471,8 +434,7 @@ fn start_scan(
     let app_clone = app.clone();
     let cancel_clone = cancellation_flag.clone();
 
-    let loaded = session_state.mark_loaded(scan_id, &folder_path)?;
-    emit_session_snapshot(&app, &loaded)?;
+    session_state.mark_loaded(scan_id, &folder_path)?;
 
     std::thread::spawn(move || {
         // In slow-mode (MEDIA_LIBRARY_SLOW_MODE=1) use a single worker per pool
@@ -722,13 +684,7 @@ fn start_scan(
                         .state::<session::MediaLibrarySessionState>()
                         .add_files(scan_id, batch)
                     {
-                        Ok(delta) => {
-                            let _ = emit_frontend_event(
-                                &app_flush,
-                                session::SESSION_FILES_ADDED_EVENT,
-                                delta,
-                            );
-                        }
+                        Ok(_) => {}
                         Err(error) => {
                             log::debug!("[file-discovery] discarded stale batch: {error}")
                         }
@@ -748,13 +704,7 @@ fn start_scan(
                             .state::<session::MediaLibrarySessionState>()
                             .add_files(scan_id, batch)
                         {
-                            Ok(delta) => {
-                                let _ = emit_frontend_event(
-                                    &app_flush,
-                                    session::SESSION_FILES_ADDED_EVENT,
-                                    delta,
-                                );
-                            }
+                            Ok(_) => {}
                             Err(error) => {
                                 log::debug!("[file-discovery] discarded stale final batch: {error}")
                             }
@@ -769,12 +719,9 @@ fn start_scan(
         walk_handle.join().unwrap();
         flush_handle.join().unwrap();
 
-        if let Ok(snapshot) = app_clone
+        let _ = app_clone
             .state::<session::MediaLibrarySessionState>()
-            .finish_discovery(scan_id)
-        {
-            let _ = emit_session_snapshot(&app_clone, &snapshot);
-        }
+            .finish_discovery(scan_id);
         // Clear running flag immediately so a new scan can start.
         // Workers can continue processing in the background.
         clear_running(&app_clone);
@@ -885,15 +832,11 @@ fn recycle_media_files(
                 &draft_mutations,
                 &repository_state,
             ) {
-                if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone())
-                {
-                    let _ = emit_session_snapshot(&app, &failed);
-                }
+                let _ = session_state.mark_draft_save_failed(session_id, error.clone());
                 return Err(error);
             }
         }
-        let snapshot = session_state.remove_files(session_id, &recycled_paths)?;
-        emit_session_snapshot(&app, &snapshot)?;
+        session_state.remove_files(session_id, &recycled_paths)?;
     }
     Ok(result)
 }
@@ -1888,6 +1831,7 @@ mod tests {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     STARTUP_INSTANT.set(Instant::now()).ok();
+    let (session_event_tx, session_event_rx) = std::sync::mpsc::channel();
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -1915,7 +1859,10 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(ScanState::new())
-        .manage(session::MediaLibrarySessionState::new())
+        .manage(session::MediaLibrarySessionState::with_event_channel(
+            session_event_tx,
+            session_event_rx,
+        ))
         .manage(ActiveQueues::new())
         .manage(apply_batch::ApplyEditsState::new())
         .manage(openai_describe::DescribeState::default())
@@ -1982,9 +1929,14 @@ pub fn run() {
             commands::normalise::estimate_normalise_cost_cmd
         ])
         .setup(|app| {
-            app.state::<session::MediaLibrarySessionState>()
-                .search()
-                .install_app_handle(app.handle().clone());
+            {
+                let session = app.state::<session::MediaLibrarySessionState>();
+                session.search().install_app_handle(app.handle().clone());
+                if let Some(receiver) = session.take_event_receiver() {
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || session::drain_session_events(receiver, handle));
+                }
+            }
             app.get_webview_window("main")
                 .expect("main window should exist during setup")
                 .set_title(&display_window_title("Media Library"))?;

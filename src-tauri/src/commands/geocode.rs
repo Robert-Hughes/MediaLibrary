@@ -154,10 +154,8 @@ pub fn cancel_geocode_cmd(
     app: AppHandle,
     geocode_state: State<'_, geocode::GeocodeState>,
 ) -> Result<(), String> {
-    let snapshot = app
-        .state::<crate::session::MediaLibrarySessionState>()
+    app.state::<crate::session::MediaLibrarySessionState>()
         .request_batch_operation_cancellation(session_id, &operation_id)?;
-    let _ = crate::emit_frontend_event(&app, crate::session::SESSION_CHANGED_EVENT, snapshot);
     geocode_state.signal_cancel();
     Ok(())
 }

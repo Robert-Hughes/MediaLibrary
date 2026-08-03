@@ -727,10 +727,8 @@ pub fn cancel_describe_cmd(
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
-    let snapshot = app
-        .state::<crate::session::MediaLibrarySessionState>()
+    app.state::<crate::session::MediaLibrarySessionState>()
         .request_batch_operation_cancellation(session_id, &operation_id)?;
-    let _ = crate::emit_frontend_event(&app, crate::session::SESSION_CHANGED_EVENT, snapshot);
     describe_state.signal_cancel();
     Ok(())
 }

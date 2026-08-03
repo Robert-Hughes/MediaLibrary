@@ -198,14 +198,10 @@ pub(super) fn set_media_library_session_draft(
         relative_path.clone(),
         entries.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, entries)
 }
 
 #[tauri::command]
@@ -242,14 +238,10 @@ pub(super) fn discard_media_library_session_draft(
         relative_path.clone(),
         entries.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, entries)
 }
 
 #[tauri::command]
@@ -308,9 +300,7 @@ pub(super) fn resolve_media_library_session_verification_outcome(
             relative_path.clone(),
             entries.clone(),
         ) {
-            if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-                let _ = emit_session_snapshot(&app, &failed);
-            }
+            let _ = session_state.mark_draft_save_failed(session_id, error.clone());
             return Err(error);
         }
         Some(entries)
@@ -318,25 +308,20 @@ pub(super) fn resolve_media_library_session_verification_outcome(
         None
     };
 
-    let committed = session_state.resolve_verification_outcome(
+    session_state.resolve_verification_outcome(
         session_id,
         &relative_path,
         &current_target,
         persisted_entries,
-    )?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    )
 }
 
 #[tauri::command]
 pub(super) fn dismiss_media_library_session_verification_outcomes(
     session_id: u64,
-    app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.dismiss_all_verification_outcomes(session_id)?;
-    emit_session_snapshot(&app, &snapshot)?;
-    Ok(snapshot)
+    session_state.dismiss_all_verification_outcomes(session_id)
 }
 
 pub(super) fn discard_exact_session_draft_targets(
@@ -393,14 +378,10 @@ pub(super) fn discard_media_library_session_drafts(
         relative_path.clone(),
         entries.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, entries)
 }
 
 pub(super) fn replace_exact_new_property_session_draft(
@@ -500,14 +481,10 @@ pub(super) fn replace_media_library_session_new_property_draft(
         relative_path.clone(),
         entries.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, entries)
 }
 
 pub(super) fn plan_exact_session_target_removals(
@@ -673,14 +650,10 @@ pub(super) fn remove_media_library_session_metadata_targets(
         relative_path.clone(),
         entries.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, entries)
 }
 
 pub(super) fn plan_session_schema_removal(
@@ -811,14 +784,10 @@ pub(super) fn remove_media_library_session_metadata_field_from_files(
     if let Err(error) =
         draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
     {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_rows(session_id, committed_rows)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_rows(session_id, committed_rows)
 }
 
 #[tauri::command]
@@ -886,14 +855,10 @@ pub(super) fn remove_media_library_session_metadata_fields(
         relative_path.clone(),
         entries.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, entries)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, entries)
 }
 
 pub(super) fn is_gps_coordinate_schema(id: &tag_schema::SchemaDefinitionId) -> bool {
@@ -1089,14 +1054,10 @@ pub(super) fn stage_media_library_session_gps_drafts(
         relative_path.clone(),
         planned.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, planned)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, planned)
 }
 
 pub(super) fn is_describe_schema(id: &tag_schema::SchemaDefinitionId) -> bool {
@@ -1655,9 +1616,7 @@ pub(crate) fn stage_batch_generated_metadata_drafts(
         relative_path.to_owned(),
         planned.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
     session_state.commit_generated_draft_row(session_id, relative_path.to_owned(), planned)?;
@@ -1696,14 +1655,10 @@ pub(super) fn stage_media_library_session_describe_drafts(
         relative_path.clone(),
         planned.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, planned)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, planned)
 }
 
 #[tauri::command]
@@ -1738,14 +1693,10 @@ pub(super) fn stage_media_library_session_geocode_drafts(
         relative_path.clone(),
         planned.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, planned)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, planned)
 }
 #[tauri::command]
 pub(super) fn stage_media_library_session_normalise_drafts(
@@ -1780,14 +1731,10 @@ pub(super) fn stage_media_library_session_normalise_drafts(
         relative_path.clone(),
         planned.clone(),
     ) {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_row(session_id, relative_path, planned)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_row(session_id, relative_path, planned)
 }
 
 #[tauri::command]
@@ -1853,14 +1800,10 @@ pub(super) fn stage_media_library_session_bulk_drafts(
     if let Err(error) =
         draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
     {
-        if let Ok(failed) = session_state.mark_draft_save_failed(session_id, error.clone()) {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    let committed = session_state.commit_draft_rows(session_id, plan.rows)?;
-    emit_session_snapshot(&app, &committed)?;
-    Ok(committed)
+    session_state.commit_draft_rows(session_id, plan.rows)
 }
 
 /// Production occurrence-aware metadata apply.
@@ -1882,9 +1825,8 @@ pub(super) async fn apply_metadata_draft_edits_cmd(
         .folder
         .clone()
         .ok_or_else(|| "The active media-library session has no folder".to_string())?;
-    let (operation_id, begun) =
+    let (operation_id, _begun) =
         session_state.begin_new_apply_operation(session_id, rel_paths.clone())?;
-    emit_session_snapshot(&app, &begun)?;
 
     let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
     let batch_size = usize::from(app_settings.metadata_apply_batch_size);
@@ -1915,11 +1857,7 @@ pub(super) async fn apply_metadata_draft_edits_cmd(
         })
         .await;
     if let Err(error) = &result {
-        if let Ok(failed) =
-            session_state.fail_apply_operation(session_id, &operation_id, error.clone())
-        {
-            let _ = emit_session_snapshot(&app, &failed);
-        }
+        let _ = session_state.fail_apply_operation(session_id, &operation_id, error.clone());
     }
     result
 }
@@ -1928,12 +1866,10 @@ pub(super) async fn apply_metadata_draft_edits_cmd(
 pub(super) fn cancel_apply_edits(
     session_id: u64,
     operation_id: String,
-    app: AppHandle,
     apply_state: State<'_, apply_batch::ApplyEditsState>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<(), String> {
-    let cancelling = session_state.request_apply_cancellation(session_id, &operation_id)?;
-    emit_session_snapshot(&app, &cancelling)?;
+    session_state.request_apply_cancellation(session_id, &operation_id)?;
     apply_state.signal_cancel(&operation_id);
     Ok(())
 }
@@ -1942,21 +1878,15 @@ pub(super) fn cancel_apply_edits(
 pub(super) fn dismiss_media_library_session_apply_operation(
     session_id: u64,
     operation_id: String,
-    app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.dismiss_apply_operation(session_id, &operation_id)?;
-    emit_session_snapshot(&app, &snapshot)?;
-    Ok(snapshot)
+    session_state.dismiss_apply_operation(session_id, &operation_id)
 }
 #[tauri::command]
 pub(super) fn dismiss_media_library_session_batch_operation(
     session_id: u64,
     operation_id: String,
-    app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.dismiss_batch_operation(session_id, &operation_id)?;
-    emit_session_snapshot(&app, &snapshot)?;
-    Ok(snapshot)
+    session_state.dismiss_batch_operation(session_id, &operation_id)
 }

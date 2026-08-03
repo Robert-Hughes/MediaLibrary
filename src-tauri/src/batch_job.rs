@@ -430,12 +430,9 @@ impl GeneratedDraftProducer {
 /// the worker. This keeps malformed or unavailable retained inputs recoverable
 /// even though no progress emitter could be constructed.
 pub fn fail_retained_operation(app: &AppHandle, session_id: u64, operation_id: &str, error: &str) {
-    if let Ok(snapshot) = app
+    let _ = app
         .state::<crate::session::MediaLibrarySessionState>()
-        .fail_batch_operation(session_id, operation_id, error.to_owned())
-    {
-        let _ = crate::emit_frontend_event(app, crate::session::SESSION_CHANGED_EVENT, snapshot);
-    }
+        .fail_batch_operation(session_id, operation_id, error.to_owned());
 }
 
 impl<'a> BatchProgressEmitter<'a> {
@@ -458,7 +455,6 @@ impl<'a> BatchProgressEmitter<'a> {
             .expect("the operation was inserted above")
             .operation_id
             .clone();
-        crate::emit_frontend_event(app, crate::session::SESSION_CHANGED_EVENT, snapshot)?;
         Ok(Self {
             app,
             prefix,
@@ -478,10 +474,8 @@ impl<'a> BatchProgressEmitter<'a> {
         confirmed_request: Option<serde_json::Value>,
         producer: GeneratedDraftProducer,
     ) -> Result<Self, String> {
-        let snapshot = app
-            .state::<crate::session::MediaLibrarySessionState>()
+        app.state::<crate::session::MediaLibrarySessionState>()
             .start_batch_operation(session_id, &operation_id, total, confirmed_request)?;
-        crate::emit_frontend_event(app, crate::session::SESSION_CHANGED_EVENT, snapshot)?;
         Ok(Self {
             app,
             prefix,
@@ -516,18 +510,10 @@ impl<'a> BatchProgressEmitter<'a> {
     }
 
     pub fn fail(&self, error: impl Into<String>) {
-        if let Ok(snapshot) = self
+        let _ = self
             .app
             .state::<crate::session::MediaLibrarySessionState>()
-            .fail_batch_operation(self.session_id, &self.operation_id, error.into())
-        {
-            self.emit_session_snapshot(snapshot);
-        }
-    }
-
-    fn emit_session_snapshot(&self, snapshot: crate::session::MediaLibrarySessionSnapshot) {
-        let _ =
-            crate::emit_frontend_event(self.app, crate::session::SESSION_CHANGED_EVENT, snapshot);
+            .fail_batch_operation(self.session_id, &self.operation_id, error.into());
     }
     pub fn estimate_started(&self, total: usize) {
         let _ = total;
@@ -557,13 +543,10 @@ impl<'a> BatchProgressEmitter<'a> {
         let Ok(estimate) = serde_json::to_value(estimate) else {
             return;
         };
-        if let Ok(snapshot) = self
+        let _ = self
             .app
             .state::<crate::session::MediaLibrarySessionState>()
-            .complete_batch_operation_estimate(self.session_id, &self.operation_id, estimate)
-        {
-            self.emit_session_snapshot(snapshot);
-        }
+            .complete_batch_operation_estimate(self.session_id, &self.operation_id, estimate);
     }
 
     pub fn started(&self, total: usize) {
@@ -712,7 +695,7 @@ impl<'a> BatchProgressEmitter<'a> {
             .collect::<Vec<_>>();
         if let Ok(mut summary_value) = serde_json::to_value(summary) {
             reconcile_summary_counts(&mut summary_value, succeeded.len(), failed_paths.len());
-            if let Ok(snapshot) = self
+            let _ = self
                 .app
                 .state::<crate::session::MediaLibrarySessionState>()
                 .complete_batch_operation(
@@ -721,10 +704,7 @@ impl<'a> BatchProgressEmitter<'a> {
                     succeeded.clone(),
                     failures,
                     summary_value,
-                )
-            {
-                self.emit_session_snapshot(snapshot);
-            }
+                );
         }
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
