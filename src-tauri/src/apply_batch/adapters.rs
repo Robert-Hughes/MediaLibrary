@@ -235,13 +235,6 @@ impl ApplyEvents for SessionApplyEvents {
         let state = self.app.state::<crate::session::MediaLibrarySessionState>();
         state.update_apply_operation(self.session_id, message)?;
         crate::emit_frontend_event(&self.app, "media_library_session_apply_progress", message)?;
-        if matches!(message, MetadataApplyStreamMessage::Complete { .. }) {
-            crate::emit_frontend_event(
-                &self.app,
-                crate::session::SESSION_CHANGED_EVENT,
-                state.snapshot(),
-            )?;
-        }
         Ok(())
     }
 }
