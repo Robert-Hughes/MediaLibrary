@@ -269,6 +269,14 @@ impl MediaLibrarySessionState {
         self.snapshot.lock().unwrap().clone()
     }
 
+    /// Inspect authoritative state without cloning the complete session.
+    /// Callers must keep the closure read-only and return only the small data
+    /// they need after the lock is released.
+    pub(crate) fn inspect<R>(&self, read: impl FnOnce(&MediaLibrarySessionSnapshot) -> R) -> R {
+        let snapshot = self.snapshot.lock().unwrap();
+        read(&snapshot)
+    }
+
     pub fn begin_batch_operation(
         &self,
         session_id: u64,

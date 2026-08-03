@@ -2594,42 +2594,46 @@ pub(crate) fn stage_batch_generated_metadata_drafts(
     }
     let session_state = app.state::<session::MediaLibrarySessionState>();
     let repository_state = app.state::<draft_edits::DraftRepositoryState>();
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before generated drafts were saved".into());
-    }
-    let operation_is_current = snapshot
-        .batch_operations
-        .get(producer.kind())
-        .is_some_and(|operation| operation.operation_id == operation_id);
-    if !operation_is_current {
-        return Err("The generated-metadata batch operation identity changed".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let planned = match producer {
-        batch_job::GeneratedDraftProducer::Describe => {
-            plan_session_describe_drafts(&snapshot, relative_path, edits)?
+    let (folder, planned) = session_state.inspect(|snapshot| {
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err(
+                "The media-library session changed before generated drafts were saved".into(),
+            );
         }
-        batch_job::GeneratedDraftProducer::Geocode => {
-            plan_session_geocode_drafts(&snapshot, relative_path, edits)?
+        let operation_is_current = snapshot
+            .batch_operations
+            .get(producer.kind())
+            .is_some_and(|operation| operation.operation_id == operation_id);
+        if !operation_is_current {
+            return Err("The generated-metadata batch operation identity changed".into());
         }
-        batch_job::GeneratedDraftProducer::Normalise { enabled_groups } => {
-            plan_session_normalise_drafts(&snapshot, relative_path, edits, enabled_groups)?
-        }
-    };
+        ensure_session_draft_mutation_allowed(snapshot)?;
+        let planned = match producer {
+            batch_job::GeneratedDraftProducer::Describe => {
+                plan_session_describe_drafts(snapshot, relative_path, edits)?
+            }
+            batch_job::GeneratedDraftProducer::Geocode => {
+                plan_session_geocode_drafts(snapshot, relative_path, edits)?
+            }
+            batch_job::GeneratedDraftProducer::Normalise { enabled_groups } => {
+                plan_session_normalise_drafts(snapshot, relative_path, edits, enabled_groups)?
+            }
+        };
+        let folder = snapshot
+            .folder
+            .clone()
+            .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+        Ok::<_, String>((folder, planned))
+    })?;
     let Some(planned) = planned else {
         return Ok(false);
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.to_owned(),
         planned.clone(),
     ) {

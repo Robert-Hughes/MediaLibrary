@@ -409,28 +409,6 @@ pub async fn estimate_describe_cost_cmd(
     );
 
     if s.ai_cost_estimate_mode == AiCostEstimateMode::Heuristic {
-        for (index, rel) in rel_paths.iter().enumerate() {
-            if cancel_flag.load(Ordering::Relaxed) {
-                describe_state.clear();
-                emitter.fail("Cancelled by user");
-                return Err("Cancelled by user".into());
-            }
-            let current = index + 1;
-            emitter.estimate_progress(current, total, rel, None);
-            let _ = app.emit(
-                "describe_estimate_progress",
-                DescribeEstimateProgressPayload {
-                    current,
-                    total,
-                    relative_path: rel.clone(),
-                    input_tokens: openai_describe::TYPICAL_INPUT_TOKENS_PER_IMAGE,
-                    expected_cost_usd: openai_describe::estimate_typical_cost_per_image(
-                        &s.openai_model,
-                    )
-                    .unwrap_or(0.0),
-                },
-            );
-        }
         let total_input_tokens = openai_describe::heuristic_describe_input_tokens(total);
         let (predicted_cost, upper_bound) =
             openai_describe::estimate_describe_cost_from_input_tokens(
