@@ -553,12 +553,21 @@ impl<'a> BatchProgressEmitter<'a> {
 
     pub fn started(&self, total: usize) {
         #[derive(Clone, Serialize)]
-        struct Payload {
+        struct Payload<'a> {
+            session_id: u64,
+            operation_id: &'a str,
             total: usize,
         }
         let _ = self
             .app
-            .emit(&format!("{}_started", self.prefix), Payload { total });
+            .emit(
+                &format!("{}_started", self.prefix),
+                Payload {
+                    session_id: self.session_id,
+                    operation_id: &self.operation_id,
+                    total,
+                },
+            );
     }
     /// Emit `${prefix}_progress` with semantic draft edits.
     pub fn progress_metadata(
@@ -590,6 +599,8 @@ impl<'a> BatchProgressEmitter<'a> {
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload<'a> {
+            session_id: u64,
+            operation_id: &'a str,
             current: usize,
             total: usize,
             relative_path: &'a str,
@@ -602,6 +613,8 @@ impl<'a> BatchProgressEmitter<'a> {
         let _ = self.app.emit(
             &format!("{}_progress", self.prefix),
             Payload {
+                session_id: self.session_id,
+                operation_id: &self.operation_id,
                 current,
                 total,
                 relative_path,
@@ -634,11 +647,17 @@ impl<'a> BatchProgressEmitter<'a> {
         }
         #[derive(Clone, Serialize)]
         struct Payload<'a> {
+            session_id: u64,
+            operation_id: &'a str,
             results: &'a [BatchMetadataProgress],
         }
         let _ = self.app.emit(
             &format!("{}_progress_batch", self.prefix),
-            Payload { results },
+            Payload {
+                session_id: self.session_id,
+                operation_id: &self.operation_id,
+                results,
+            },
         );
     }
     ///
@@ -691,6 +710,8 @@ impl<'a> BatchProgressEmitter<'a> {
         #[derive(Clone, Serialize)]
         #[serde(rename_all = "camelCase")]
         struct Payload<'a, S: Serialize> {
+            session_id: u64,
+            operation_id: &'a str,
             succeeded: &'a [String],
             failed: &'a [BatchFailureRow],
             usage_summary: &'a S,
@@ -698,6 +719,8 @@ impl<'a> BatchProgressEmitter<'a> {
         let _ = self.app.emit(
             &format!("{}_complete", self.prefix),
             Payload {
+                session_id: self.session_id,
+                operation_id: &self.operation_id,
                 succeeded: &succeeded,
                 failed,
                 usage_summary: summary,
