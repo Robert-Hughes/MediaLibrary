@@ -957,7 +957,15 @@ export function DetailsPane({
     });
   };
 
-  const openGroupedGpsEditor = async (group: GpsTagGroup) => {
+  const showGroupedGpsEditor = (group: GpsTagGroup) => {
+    setEditDialogUnavailableMessage(null);
+    setEditDialog({
+      kind: "gps-group",
+      group: structuredClone(group),
+    });
+  };
+
+  const openGroupedGpsEditor = (group: GpsTagGroup) => {
     if (!targetDraftsWritable) {
       setEditDialogUnavailableMessage(
         "Target-aware GPS editing is unavailable because target-aware draft persistence did not load safely. Nothing was saved.",
@@ -970,30 +978,28 @@ export function DetailsPane({
       );
       return;
     }
-    try {
-      if (onPreviewGpsTargetDraftBatch) {
-        const preview = await onPreviewGpsTargetDraftBatch(
-          gpsGroupIds(group).map((schema_id) => ({
-            schema_id,
-            edit: { intent: "Delete" as const, value: null },
-          })),
-        );
-        if (preview === null) return;
-      }
-      setEditDialogUnavailableMessage(null);
-      setEditDialog({
-        kind: "gps-group",
-        group: structuredClone(group),
-      });
-    } catch (error) {
-      setEditDialogUnavailableMessage(
-        error instanceof Error
-          ? error.message
-          : "The GPS editor could not capture exact destinations. Nothing was saved.",
-      );
+    if (!onPreviewGpsTargetDraftBatch) {
+      showGroupedGpsEditor(group);
+      return;
     }
-  };
 
+    void onPreviewGpsTargetDraftBatch(
+      gpsGroupIds(group).map((schema_id) => ({
+        schema_id,
+        edit: { intent: "Delete" as const, value: null },
+      })),
+    )
+      .then((preview) => {
+        if (preview !== null) showGroupedGpsEditor(group);
+      })
+      .catch((error) => {
+        setEditDialogUnavailableMessage(
+          error instanceof Error
+            ? error.message
+            : "The GPS editor could not capture exact destinations. Nothing was saved.",
+        );
+      });
+  };
   const activeRowContext = rowContextMenu
     ? allOccurrenceRows.find((row) => row.key === rowContextMenu.rowKey)
     : undefined;
@@ -1431,7 +1437,7 @@ export function DetailsPane({
             effectiveGps={
               editDialog.kind === "gps-group" ? resolvedGps : undefined
             }
-            onSaveMetadataBatch={async (edits) => {
+            onSaveMetadataBatch={(edits) => {
               // Staged New Property editors use single mode and cannot emit a
               // batch. Rust resolves grouped GPS edits to exact targets.
               if (editDialog.kind !== "gps-group") return;
@@ -1439,12 +1445,20 @@ export function DetailsPane({
                 schema_id,
                 edit,
               }));
-              if (await onApplyGpsTargetDraftBatch?.(semanticEdits)) {
-                setEditDialog(null);
+              const applyResult = onApplyGpsTargetDraftBatch?.(semanticEdits);
+              const handleResult = (saved: boolean | undefined) => {
+                if (saved) {
+                  setEditDialog(null);
+                } else {
+                  setEditDialogUnavailableMessage(
+                    "The target-aware GPS batch could not be saved. The editor remains open and nothing was retargeted.",
+                  );
+                }
+              };
+              if (applyResult instanceof Promise) {
+                void applyResult.then(handleResult);
               } else {
-                setEditDialogUnavailableMessage(
-                  "The target-aware GPS batch could not be saved. The editor remains open and nothing was retargeted.",
-                );
+                handleResult(applyResult);
               }
             }}
             onSaveMetadata={async (edit) => {
