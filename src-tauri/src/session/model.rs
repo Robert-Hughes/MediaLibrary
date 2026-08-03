@@ -12,6 +12,8 @@ pub const SESSION_FILES_ADDED_EVENT: &str = "media_library_session_files_added";
 pub const SESSION_METADATA_CHANGED_EVENT: &str = "media_library_session_metadata_changed";
 pub const SESSION_THUMBNAILS_CHANGED_EVENT: &str = "media_library_session_thumbnails_changed";
 pub const SESSION_ISSUE_ADDED_EVENT: &str = "media_library_session_issue_added";
+pub const SESSION_APPLY_PROGRESS_EVENT: &str = "media_library_session_apply_progress";
+pub const SESSION_REVISION_ADVANCED_EVENT: &str = "media_library_session_revision_advanced";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -226,6 +228,20 @@ pub struct MediaLibrarySessionIssueAdded {
     pub revision: u64,
     pub issue: MediaLibrarySessionIssue,
     pub metadata: Vec<MediaLibrarySessionFileMetadata>,
+}
+
+/// Revision-only advance notification. Emitted for accepted state transitions
+/// that change no user-visible entity set (for example per-row apply progress
+/// or generated-draft staging), so the frontend's revision sequence stays dense
+/// and no spurious gaps are reported.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionRevisionAdvanced {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
 }
 
 #[derive(Clone, Debug, Serialize)]

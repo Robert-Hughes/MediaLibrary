@@ -236,7 +236,6 @@ impl MediaLibrarySessionState {
                 detail,
             });
         }
-        snapshot.revision += 1;
         Ok(())
     }
     pub fn update_batch_operation_estimate_progress(
@@ -266,7 +265,6 @@ impl MediaLibrarySessionState {
         if error.is_some() {
             operation.error = error;
         }
-        snapshot.revision += 1;
         Ok(())
     }
 
@@ -296,6 +294,12 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         let revision = snapshot.revision;
+        self.notify(SessionEvent::RevisionAdvanced(
+            MediaLibrarySessionRevisionAdvanced {
+                session_id,
+                revision,
+            },
+        ));
         if entries.is_empty() {
             snapshot.drafts.remove(&relative_path);
         } else {
@@ -638,11 +642,20 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         let revision = snapshot.revision;
-        if matches!(
-            message,
-            crate::apply_batch::MetadataApplyStreamMessage::Complete { .. }
-        ) {
-            self.notify(SessionEvent::Snapshot(Box::new(snapshot.clone())));
+        match message {
+            crate::apply_batch::MetadataApplyStreamMessage::Complete { .. } => {
+                self.notify(SessionEvent::ApplyProgress(Box::new(message.clone())));
+                self.notify(SessionEvent::Snapshot(Box::new(snapshot.clone())));
+            }
+            _ => {
+                self.notify(SessionEvent::ApplyProgress(Box::new(message.clone())));
+                self.notify(SessionEvent::RevisionAdvanced(
+                    MediaLibrarySessionRevisionAdvanced {
+                        session_id,
+                        revision,
+                    },
+                ));
+            }
         }
         drop(snapshot);
         if !search_metadata.is_empty() {
@@ -1555,7 +1568,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_progress_does_not_queue_snapshots_but_completion_does() {
+    fn apply_progress_streams_through_the_ordered_channel() {
         let (notifier, receiver) = std::sync::mpsc::channel();
         let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
         let receiver = state.take_event_receiver().unwrap();
@@ -1589,11 +1602,23 @@ mod tests {
                 },
             )
             .unwrap();
+        let during: Vec<SessionEvent> = receiver.try_iter().collect();
+        assert_eq!(during.len(), 4, "started and progress push progress + tick");
         assert_eq!(
-            receiver.try_iter().count(),
-            0,
-            "apply progress must not queue session snapshots"
+            during
+                .iter()
+                .filter(|event| matches!(event, SessionEvent::ApplyProgress(_)))
+                .count(),
+            2
         );
+        let ticks: Vec<u64> = during
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::RevisionAdvanced(value) => Some(value.revision),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ticks, vec![5, 6], "progress revisions advance via ticks");
 
         state
             .update_apply_operation(
@@ -1616,8 +1641,96 @@ mod tests {
             )
             .unwrap();
         let after_complete: Vec<SessionEvent> = receiver.try_iter().collect();
-        assert_eq!(after_complete.len(), 1);
-        assert!(matches!(after_complete[0], SessionEvent::Snapshot(_)));
+        assert_eq!(after_complete.len(), 2);
+        assert!(matches!(after_complete[0], SessionEvent::ApplyProgress(_)));
+        assert!(matches!(after_complete[1], SessionEvent::Snapshot(_)));
+    }
+
+    #[test]
+    fn batch_progress_does_not_advance_the_session_revision() {
+        let (notifier, receiver) = std::sync::mpsc::channel();
+        let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
+        let receiver = state.take_event_receiver().unwrap();
+        let session_id = state.begin_open("C:/photos".into()).session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        let started = state
+            .begin_batch_operation(
+                session_id,
+                "describe",
+                MediaLibraryBatchOperationPhase::Running,
+                1,
+                vec!["a.jpg".into()],
+                None,
+            )
+            .unwrap();
+        let operation_id = started.batch_operations["describe"].operation_id.clone();
+        let revision_at_start = started.revision;
+        assert_eq!(receiver.try_iter().count(), 4);
+
+        state
+            .update_batch_operation_progress(
+                session_id,
+                &operation_id,
+                1,
+                1,
+                Some("a.jpg".into()),
+                Some("ok"),
+                None,
+            )
+            .unwrap();
+        state
+            .update_batch_operation_estimate_progress(
+                session_id,
+                &operation_id,
+                1,
+                1,
+                Some("a.jpg".into()),
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(
+            receiver.try_iter().count(),
+            0,
+            "batch progress must not queue session events"
+        );
+        assert_eq!(
+            state.snapshot().revision,
+            revision_at_start,
+            "per-row batch progress must not consume revisions"
+        );
+    }
+
+    #[test]
+    fn generated_draft_rows_advance_revision_with_a_tick() {
+        let (notifier, receiver) = std::sync::mpsc::channel();
+        let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
+        let receiver = state.take_event_receiver().unwrap();
+        let session_id = state.begin_open("C:/photos".into()).session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("a.jpg")])
+            .unwrap();
+        assert_eq!(receiver.try_iter().count(), 4);
+
+        state
+            .commit_generated_draft_row(session_id, "a.jpg".into(), Vec::new())
+            .unwrap();
+        let events: Vec<SessionEvent> = receiver.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            SessionEvent::RevisionAdvanced(value) => {
+                assert_eq!(value.session_id, session_id);
+                assert_eq!(value.revision, 5);
+            }
+            other => panic!("expected a revision tick, got {other:?}"),
+        }
     }
 
     #[test]

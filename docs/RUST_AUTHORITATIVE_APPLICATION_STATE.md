@@ -97,6 +97,14 @@ When the frontend sees a different session identity, an unexpected revision, or 
 
 Events describe changes to backend-retained state. They are not the sole surviving copy of scan or operation results.
 
+Every accepted transition that advances the revision must emit exactly one revisioned
+notification (a delta, an authoritative snapshot, or a `media_library_session_revision_advanced`
+tick) through the ordered session-event channel, so the frontend's revision sequence is
+dense and out-of-order delivery cannot masquerade as a missing event. Per-row batch
+progress and estimate progress update authoritative state without advancing the revision
+or emitting an event; the frontend tracks them through the unversioned `${prefix}_progress`
+projection events and phase-boundary snapshots.
+
 The protocol should support bounded batches so streaming scans and progress updates remain responsive without excessive IPC traffic.
 
 ### Concurrency and locking

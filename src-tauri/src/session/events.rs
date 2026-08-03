@@ -9,10 +9,13 @@
 
 use super::{
     MediaLibrarySessionFilesAdded, MediaLibrarySessionIssueAdded,
-    MediaLibrarySessionMetadataChanged, MediaLibrarySessionSnapshot,
-    MediaLibrarySessionThumbnailsChanged, SESSION_CHANGED_EVENT, SESSION_FILES_ADDED_EVENT,
-    SESSION_ISSUE_ADDED_EVENT, SESSION_METADATA_CHANGED_EVENT, SESSION_THUMBNAILS_CHANGED_EVENT,
+    MediaLibrarySessionMetadataChanged, MediaLibrarySessionRevisionAdvanced,
+    MediaLibrarySessionSnapshot, MediaLibrarySessionThumbnailsChanged,
+    SESSION_APPLY_PROGRESS_EVENT, SESSION_CHANGED_EVENT, SESSION_FILES_ADDED_EVENT,
+    SESSION_ISSUE_ADDED_EVENT, SESSION_METADATA_CHANGED_EVENT, SESSION_REVISION_ADVANCED_EVENT,
+    SESSION_THUMBNAILS_CHANGED_EVENT,
 };
+use crate::apply_batch::MetadataApplyStreamMessage;
 use std::sync::mpsc;
 use tauri::AppHandle;
 
@@ -24,6 +27,13 @@ pub enum SessionEvent {
     MetadataChanged(MediaLibrarySessionMetadataChanged),
     ThumbnailsChanged(MediaLibrarySessionThumbnailsChanged),
     IssueAdded(MediaLibrarySessionIssueAdded),
+    /// Apply-progress stream, emitted through the same ordered channel so it
+    /// always follows the operation's begin snapshot. Not revisioned itself.
+    ApplyProgress(Box<MetadataApplyStreamMessage>),
+    /// Revision-only advance for state changes that carry no delta payload
+    /// (per-row apply progress, generated-draft staging). Keeps the frontend
+    /// revision sequence dense so no spurious delta gaps are detected.
+    RevisionAdvanced(MediaLibrarySessionRevisionAdvanced),
 }
 
 impl SessionEvent {
@@ -34,10 +44,13 @@ impl SessionEvent {
             Self::MetadataChanged(_) => SESSION_METADATA_CHANGED_EVENT,
             Self::ThumbnailsChanged(_) => SESSION_THUMBNAILS_CHANGED_EVENT,
             Self::IssueAdded(_) => SESSION_ISSUE_ADDED_EVENT,
+            Self::ApplyProgress(_) => SESSION_APPLY_PROGRESS_EVENT,
+            Self::RevisionAdvanced(_) => SESSION_REVISION_ADVANCED_EVENT,
         }
     }
 
-    /// The session revision carried by this event.
+    /// The session revision carried by this event. Apply-progress events are
+    /// not revisioned and report `0`.
     pub fn revision(&self) -> u64 {
         match self {
             Self::Snapshot(value) => value.revision,
@@ -45,6 +58,8 @@ impl SessionEvent {
             Self::MetadataChanged(value) => value.revision,
             Self::ThumbnailsChanged(value) => value.revision,
             Self::IssueAdded(value) => value.revision,
+            Self::ApplyProgress(_) => 0,
+            Self::RevisionAdvanced(value) => value.revision,
         }
     }
 
@@ -55,6 +70,8 @@ impl SessionEvent {
             Self::MetadataChanged(payload) => serde_json::to_value(payload),
             Self::ThumbnailsChanged(payload) => serde_json::to_value(payload),
             Self::IssueAdded(payload) => serde_json::to_value(payload),
+            Self::ApplyProgress(payload) => serde_json::to_value(*payload),
+            Self::RevisionAdvanced(payload) => serde_json::to_value(payload),
         };
         serialized.unwrap_or_else(|error| {
             log::error!("[session-event] failed to serialize payload: {error}");
