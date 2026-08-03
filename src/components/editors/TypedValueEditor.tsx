@@ -88,6 +88,7 @@ interface Props {
   ) => void;
   onCancel: () => void;
   editorMode?: "single" | "gps";
+  forceReadOnly?: boolean;
 }
 
 /** Returns the inner BagInnerKind if `kind` is a Bag or Seq whose inner
@@ -137,6 +138,7 @@ export function TypedValueEditor({
   onSaveMetadataBatch,
   onCancel,
   editorMode = "single",
+  forceReadOnly = false,
 }: Props) {
   const tag = useTagInfo(schemaOverride ? null : propertyId);
   const propertyLabel =
@@ -163,9 +165,10 @@ export function TypedValueEditor({
     initialMetadataValue ??
     (kind ? defaultMetadataValueForKind(kind) : ({ kind: "Null" } as const));
   const readOnly =
-    schemaOverride?.readOnly ??
-    (propertyId !== null &&
-      (tag === null || tag === "loading" || !tag.writable));
+    forceReadOnly ||
+    (schemaOverride?.readOnly ??
+      (propertyId !== null &&
+        (tag === null || tag === "loading" || !tag.writable)));
   const schemaHint = (override?: string) => (
     <>
       <EditorMetaHint
