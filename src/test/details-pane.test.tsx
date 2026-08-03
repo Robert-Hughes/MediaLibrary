@@ -2009,6 +2009,35 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(screen.queryByTestId("gps-editor-overlay")).toBeNull();
   });
 
+  it("keeps the GPS editor open and reports a rejected apply", async () => {
+    const metadata = mockMetadata({
+      "GPS:GPSLatitude": 51.5,
+      "GPS:GPSLatitudeRef": "N",
+      "GPS:GPSLongitude": 0.12,
+      "GPS:GPSLongitudeRef": "W",
+    });
+    const onApplyGpsTargetDraftBatch = vi.fn(async () => {
+      throw new Error("save unavailable");
+    });
+    render(
+      <DetailsPane
+        file={file}
+        occurrences={occurrencesFor(metadata)}
+        onRemoveMetadataTargets={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+        onApplyGpsTargetDraftBatch={onApplyGpsTargetDraftBatch}
+      />,
+    );
+
+    openContextMenu("GPSLatitude");
+    fireEvent.click(screen.getByRole("button", { name: "Edit GPS…" }));
+    expect(await screen.findByTestId("gps-editor-overlay")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("gps-editor-save"));
+
+    expect(await screen.findByText("save unavailable")).toBeInTheDocument();
+    expect(screen.getByTestId("gps-editor-overlay")).toBeInTheDocument();
+  });
+
   // Stateful wrapper harness to simulate real DetailsPane parent
   function DetailsPaneStateHarness({
     initialMetadata,

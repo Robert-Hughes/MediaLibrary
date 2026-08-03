@@ -168,6 +168,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
   const recoveredSessionIdRef = useRef<number | undefined>(undefined);
   const pendingEstimateRef = useRef<null | (() => void)>(null);
   const listenersReadyRef = useRef(false);
+  const succeededPathsRef = useRef(new Set<string>());
+  const failureKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!open) return;
@@ -198,16 +200,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
       safeSetState((state) => {
         const failures = [...state.failures];
         const succeeded = [...state.succeeded];
-        const succeededPaths = new Set(succeeded);
-        const failureKeys = new Set(
-          failures.map((failure) =>
-            JSON.stringify([
-              failure.relativePath,
-              failure.kind,
-              failure.detail,
-            ]),
-          ),
-        );
+        const succeededPaths = succeededPathsRef.current;
+        const failureKeys = failureKeysRef.current;
         for (const item of items) {
           if (item.status === "ok") {
             if (!succeededPaths.has(item.relativePath)) {
@@ -264,6 +258,8 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
     void (async () => {
       const prefix = config.operationKind;
       await subscribe<{ total: number }>(`${prefix}_started`, ({ total }) => {
+        succeededPathsRef.current.clear();
+        failureKeysRef.current.clear();
         safeSetState((state) => ({
           ...state,
           phase: "running",
@@ -294,6 +290,16 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
         usageSummary: SummaryPayload;
       }>(`${prefix}_complete`, (payload) => {
         void progressQueue.then(() => {
+          succeededPathsRef.current = new Set(payload.succeeded);
+          failureKeysRef.current = new Set(
+            payload.failed.map((failure) =>
+              JSON.stringify([
+                failure.relativePath,
+                failure.kind,
+                failure.detail,
+              ]),
+            ),
+          );
           safeSetState((state) => ({
             ...state,
             phase: "done",
@@ -382,6 +388,12 @@ export function useBatchImageJob<StartArgs, EstimatePayload, SummaryPayload>(
           ? "done"
           : operation.phase;
       projectedOperationIdRef.current = operation.operation_id;
+      succeededPathsRef.current = new Set(operation.succeeded);
+      failureKeysRef.current = new Set(
+        operation.failures.map((failure) =>
+          JSON.stringify([failure.relative_path, failure.kind, failure.detail]),
+        ),
+      );
       setOpen(true);
       setState((current) => ({
         ...current,
