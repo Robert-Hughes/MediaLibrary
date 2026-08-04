@@ -1839,7 +1839,7 @@ pub fn run() {
                 .format(|out, message, record| {
                     out.finish(format_args!(
                         "[{}][{}][{}] {}",
-                        chrono::Utc::now().format("%Y-%m-%d][%H:%M:%S%.3f"),
+                        chrono::Local::now().format("%Y-%m-%d][%H:%M:%S%.3f"),
                         record.target(),
                         record.level(),
                         message

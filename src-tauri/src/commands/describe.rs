@@ -682,7 +682,7 @@ pub async fn describe_images_cmd(
     // Audit log — best-effort, never fails the command.
     if let Ok(dir) = app_data_dir(&app) {
         let entry = describe_log::DescribeLogEntry {
-            ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            ts: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
             model: s.openai_model.clone(),
             prompt_version: openai_describe::PROMPT_VERSION.to_string(),
             n_images: total,
