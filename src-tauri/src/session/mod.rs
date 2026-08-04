@@ -1418,6 +1418,7 @@ impl MediaLibrarySessionState {
         let metadata_count = snapshot.metadata.len();
         let thumbnail_count = snapshot.thumbnails.len();
         let draft_count = snapshot.drafts.len();
+        let verification_count = snapshot.verification_outcomes.len();
         let removed_cache_keys: Vec<String> = snapshot
             .thumbnails
             .iter()
@@ -1439,6 +1440,9 @@ impl MediaLibrarySessionState {
         snapshot
             .drafts
             .retain(|path, _| !paths.contains(path.as_str()));
+        snapshot
+            .verification_outcomes
+            .retain(|path, _| !paths.contains(path.as_str()));
         if !removed_cache_keys.is_empty() {
             let mut cache = self.thumbnail_cache.lock().unwrap();
             for key in removed_cache_keys {
@@ -1452,7 +1456,8 @@ impl MediaLibrarySessionState {
         let changed = snapshot.files.len() != file_count
             || snapshot.metadata.len() != metadata_count
             || snapshot.thumbnails.len() != thumbnail_count
-            || snapshot.drafts.len() != draft_count;
+            || snapshot.drafts.len() != draft_count
+            || snapshot.verification_outcomes.len() != verification_count;
         if changed {
             snapshot.revision += 1;
         }
@@ -2138,23 +2143,96 @@ mod tests {
     }
 
     #[test]
-    fn removed_files_reject_late_metadata_results() {
+    fn removed_files_clear_drafts_and_verification_outcomes() {
         let state = MediaLibrarySessionState::new();
         let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
         state
-            .mark_loaded(opened.session_id.unwrap(), "C:/photos")
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("gone.jpg")])
+            .unwrap();
+
+        let schema_id = crate::tag_schema::SchemaDefinitionId {
+            table: "XMP-test".into(),
+            tag_id: "AITags".into(),
+            index: None,
+        };
+        let target = crate::metadata_draft_target::MetadataDraftTarget::NewProperty {
+            schema_id: schema_id.clone(),
+            write_target: crate::metadata_occurrence::MetadataWriteTarget {
+                group1: "XMP-test".into(),
+                group7: "ID-Test".into(),
+                tag_name: "AITags".into(),
+            },
+        };
+        let entries = vec![MetadataTargetDraftEntry {
+            target: target.clone(),
+            edit: crate::draft_edits::MetadataDraftEdit {
+                value: Some(crate::metadata_value::MetadataValue::Text("draft".into())),
+                intent: crate::draft_edits::EditIntent::Set,
+            },
+        }];
+        state
+            .commit_draft_row(session_id, "gone.jpg".into(), entries.clone())
             .unwrap();
         state
-            .add_files(opened.session_id.unwrap(), vec![test_file("gone.jpg")])
+            .begin_apply_operation(session_id, "apply-remove".into(), None)
             .unwrap();
+        state
+            .update_apply_operation(
+                session_id,
+                &crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
+                    operation_id: "apply-remove".into(),
+                    sequence: 1,
+                    current: 1,
+                    total: 1,
+                    results: vec![crate::apply_batch::MetadataApplyFileResult {
+                        relative_path: "gone.jpg".into(),
+                        applied: true,
+                        error: None,
+                        warning: None,
+                        fresh_file_metadata: None,
+                        target_outcomes: vec![crate::apply_edits::MetadataTargetOutcome {
+                            target: target.clone(),
+                            draft_reconciliation:
+                                crate::apply_edits::MetadataDraftReconciliation::Blocked {
+                                    reason: "removed before resolution".into(),
+                                },
+                            display_name: "AITags".into(),
+                            kind: "NoMatch".into(),
+                            sent: None,
+                            before: None,
+                            observed: None,
+                            message: None,
+                        }],
+                        persisted_draft_entries: Some(entries.clone()),
+                    }],
+                },
+            )
+            .unwrap();
+        let before = state.snapshot();
+        assert_eq!(before.drafts.len(), 1);
+        assert_eq!(before.verification_outcomes.len(), 1);
+
         let removed = state
-            .remove_files(opened.session_id.unwrap(), &["gone.jpg".into()])
+            .remove_files(session_id, &["gone.jpg".into()])
             .unwrap();
         assert!(removed.files.is_empty());
         assert!(removed.metadata.is_empty());
+        assert!(
+            removed.drafts.is_empty(),
+            "removed files must not leave drafts in the snapshot"
+        );
+        assert!(
+            removed.verification_outcomes.is_empty(),
+            "removed files must not leave ghost verification outcomes in the snapshot"
+        );
         assert!(state
             .commit_metadata_results(
-                opened.session_id.unwrap(),
+                session_id,
                 vec![FileMetadata {
                     relative_path: "gone.jpg".into(),
                     occurrences: MetadataOccurrences::default(),
