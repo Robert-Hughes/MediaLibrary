@@ -941,7 +941,7 @@ pub async fn normalise_metadata_cmd(
             if !ai_calls.is_empty() || needs_conflict_rows {
                 if let Ok(app_dir) = app_data_dir(&app) {
                     let log_path = app_dir.join("normalise_audit.jsonl");
-                    let now = chrono::Utc::now().to_rfc3339();
+                    let now = chrono::Local::now().to_rfc3339();
                     // Conflict-counter rows (user-requested archaeology).
                     if loc_conflicts > 0 {
                         let entry = normalise::NormaliseAuditEntry {

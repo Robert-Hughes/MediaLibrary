@@ -223,40 +223,13 @@ fn append_target_metadata_entries(
     )
 }
 
-/// Tiny RFC3339-ish timestamp without pulling in `chrono`.  Format:
-/// `YYYY-MM-DDTHH:MM:SSZ` from system time, UTC.
+/// RFC3339 timestamp in the user's local timezone for the audit log,
+/// e.g. `2026-08-04T08:08:27+01:00`. Uses `chrono` (already a crate
+/// dependency) so logged times match the app's other logs.
 fn chrono_like_iso() -> String {
-    let now = std::time::SystemTime::now();
-    let secs = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // Convert seconds since epoch into a date.  Naïve but stable: days
-    // since epoch + time-of-day.  Good enough for an audit log — users
-    // can also see the file's mtime if absolute precision is needed.
-    let days = (secs / 86_400) as i64;
-    let secs_in_day = (secs % 86_400) as u32;
-    let h = secs_in_day / 3600;
-    let m = (secs_in_day % 3600) / 60;
-    let s = secs_in_day % 60;
-    let (y, mo, d) = days_to_ymd(days);
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", y, mo, d, h, m, s)
-}
-
-/// Civil-calendar conversion from days-since-1970-01-01.  Algorithm via
-/// Howard Hinnant's "date" library convertor.
-fn days_to_ymd(days: i64) -> (i32, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = (z - era * 146_097) as u32; // [0, 146096]
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
-    let y = (yoe as i64) + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
-    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
-    let y = if m <= 2 { y + 1 } else { y };
-    (y as i32, m, d)
+    chrono::Local::now()
+        .format("%Y-%m-%dT%H:%M:%S%:z")
+        .to_string()
 }
 
 #[cfg(test)]
@@ -267,24 +240,17 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn days_to_ymd_known_dates() {
-        // Epoch
-        assert_eq!(days_to_ymd(0), (1970, 1, 1));
-        // First day of 2000
-        assert_eq!(days_to_ymd(10957), (2000, 1, 1));
-        // Leap-day handling
-        assert_eq!(days_to_ymd(10957 + 31 + 28), (2000, 2, 29));
-    }
-
-    #[test]
     fn iso_timestamp_shape_is_correct() {
         let s = chrono_like_iso();
-        // YYYY-MM-DDTHH:MM:SSZ
-        assert_eq!(s.len(), 20);
-        assert!(s.ends_with('Z'));
-        assert_eq!(s.chars().nth(4), Some('-'));
-        assert_eq!(s.chars().nth(7), Some('-'));
-        assert_eq!(s.chars().nth(10), Some('T'));
+        // YYYY-MM-DDTHH:MM:SS±HH:MM — RFC3339 with local offset, e.g.
+        // 2026-08-04T08:08:27+01:00 (offsets with sub-minute precision
+        // may append an extra :SS segment).
+        assert_eq!(&s[4..5], "-");
+        assert_eq!(&s[7..8], "-");
+        assert_eq!(&s[10..11], "T");
+        assert_eq!(&s[13..14], ":");
+        assert_eq!(&s[16..17], ":");
+        assert!(s.as_bytes()[19] == b'+' || s.as_bytes()[19] == b'-');
     }
 
     fn target_schema(index: Option<u32>) -> SchemaDefinitionId {
