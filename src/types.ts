@@ -89,6 +89,14 @@ export type { MediaLibrarySessionFileMetadata } from "./types/generated/MediaLib
 export type { MediaLibrarySessionMetadataChanged } from "./types/generated/MediaLibrarySessionMetadataChanged";
 export type { MediaLibrarySessionMetadataState } from "./types/generated/MediaLibrarySessionMetadataState";
 export type { MediaLibrarySessionRevisionAdvanced } from "./types/generated/MediaLibrarySessionRevisionAdvanced";
+export type { MediaLibrarySessionBatchOperationChanged } from "./types/generated/MediaLibrarySessionBatchOperationChanged";
+export type { MediaLibrarySessionApplyOperationChanged } from "./types/generated/MediaLibrarySessionApplyOperationChanged";
+export type { MediaLibrarySessionVerificationOutcomesChanged } from "./types/generated/MediaLibrarySessionVerificationOutcomesChanged";
+export type { MediaLibrarySessionDraftsChanged } from "./types/generated/MediaLibrarySessionDraftsChanged";
+export type { MediaLibrarySessionDraftPersistenceChanged } from "./types/generated/MediaLibrarySessionDraftPersistenceChanged";
+export type { MediaLibrarySessionDiscoveryChanged } from "./types/generated/MediaLibrarySessionDiscoveryChanged";
+export type { MediaLibrarySessionFilesRemoved } from "./types/generated/MediaLibrarySessionFilesRemoved";
+export type { MediaLibrarySessionIssueRemoved } from "./types/generated/MediaLibrarySessionIssueRemoved";
 export type { MediaLibrarySearchRequest } from "./types/generated/MediaLibrarySearchRequest";
 export type { MediaLibrarySearchResult } from "./types/generated/MediaLibrarySearchResult";
 export type { MediaLibrarySessionDraftPersistenceState } from "./types/generated/MediaLibrarySessionDraftPersistenceState";

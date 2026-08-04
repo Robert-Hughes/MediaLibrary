@@ -8,12 +8,19 @@
 //! order even though many worker threads mutate the session concurrently.
 
 use super::{
-    MediaLibrarySessionFilesAdded, MediaLibrarySessionIssueAdded,
-    MediaLibrarySessionMetadataChanged, MediaLibrarySessionRevisionAdvanced,
-    MediaLibrarySessionSnapshot, MediaLibrarySessionThumbnailsChanged,
-    SESSION_APPLY_PROGRESS_EVENT, SESSION_CHANGED_EVENT, SESSION_FILES_ADDED_EVENT,
-    SESSION_ISSUE_ADDED_EVENT, SESSION_METADATA_CHANGED_EVENT, SESSION_REVISION_ADVANCED_EVENT,
-    SESSION_THUMBNAILS_CHANGED_EVENT,
+    MediaLibrarySessionApplyOperationChanged, MediaLibrarySessionBatchOperationChanged,
+    MediaLibrarySessionDiscoveryChanged, MediaLibrarySessionDraftPersistenceChanged,
+    MediaLibrarySessionDraftsChanged, MediaLibrarySessionFilesAdded,
+    MediaLibrarySessionFilesRemoved, MediaLibrarySessionIssueAdded,
+    MediaLibrarySessionIssueRemoved, MediaLibrarySessionMetadataChanged,
+    MediaLibrarySessionRevisionAdvanced, MediaLibrarySessionSnapshot,
+    MediaLibrarySessionThumbnailsChanged, MediaLibrarySessionVerificationOutcomesChanged,
+    SESSION_APPLY_OPERATION_CHANGED_EVENT, SESSION_APPLY_PROGRESS_EVENT,
+    SESSION_BATCH_OPERATION_CHANGED_EVENT, SESSION_CHANGED_EVENT, SESSION_DISCOVERY_CHANGED_EVENT,
+    SESSION_DRAFTS_CHANGED_EVENT, SESSION_DRAFT_PERSISTENCE_CHANGED_EVENT,
+    SESSION_FILES_ADDED_EVENT, SESSION_FILES_REMOVED_EVENT, SESSION_ISSUE_ADDED_EVENT,
+    SESSION_ISSUE_REMOVED_EVENT, SESSION_METADATA_CHANGED_EVENT, SESSION_REVISION_ADVANCED_EVENT,
+    SESSION_THUMBNAILS_CHANGED_EVENT, SESSION_VERIFICATION_OUTCOMES_CHANGED_EVENT,
 };
 use crate::apply_batch::MetadataApplyStreamMessage;
 use std::sync::mpsc;
@@ -31,9 +38,26 @@ pub enum SessionEvent {
     /// always follows the operation's begin snapshot. Not revisioned itself.
     ApplyProgress(Box<MetadataApplyStreamMessage>),
     /// Revision-only advance for state changes that carry no delta payload
-    /// (per-row apply progress, generated-draft staging). Keeps the frontend
-    /// revision sequence dense so no spurious delta gaps are detected.
+    /// Revision-only advance notification. See the wire-model doc comment.
     RevisionAdvanced(MediaLibrarySessionRevisionAdvanced),
+    /// One batch operation (describe / geocode / normalise) changed. Carries
+    /// only the affected operation instead of a full session snapshot.
+    BatchOperationChanged(Box<MediaLibrarySessionBatchOperationChanged>),
+    /// The apply operation changed. Carries only the apply operation instead
+    /// of a full session snapshot.
+    ApplyOperationChanged(Box<MediaLibrarySessionApplyOperationChanged>),
+    /// Verification outcomes (and any co-committed draft rows) changed.
+    VerificationOutcomesChanged(Box<MediaLibrarySessionVerificationOutcomesChanged>),
+    /// Draft rows were committed for a set of files.
+    DraftsChanged(Box<MediaLibrarySessionDraftsChanged>),
+    /// Draft persistence state changed.
+    DraftPersistenceChanged(Box<MediaLibrarySessionDraftPersistenceChanged>),
+    /// The discovery-running flag changed.
+    DiscoveryChanged(Box<MediaLibrarySessionDiscoveryChanged>),
+    /// Files were removed from the session.
+    FilesRemoved(Box<MediaLibrarySessionFilesRemoved>),
+    /// An issue was dismissed.
+    IssueRemoved(Box<MediaLibrarySessionIssueRemoved>),
     /// Disposable unversioned frontend projection (batch-job estimate
     /// telemetry, progress, completion summaries). Routed through the same
     /// ordered channel so it is delivered after the snapshot/mutation it
@@ -60,6 +84,14 @@ impl SessionEvent {
             Self::IssueAdded(_) => SESSION_ISSUE_ADDED_EVENT,
             Self::ApplyProgress(_) => SESSION_APPLY_PROGRESS_EVENT,
             Self::RevisionAdvanced(_) => SESSION_REVISION_ADVANCED_EVENT,
+            Self::BatchOperationChanged(_) => SESSION_BATCH_OPERATION_CHANGED_EVENT,
+            Self::ApplyOperationChanged(_) => SESSION_APPLY_OPERATION_CHANGED_EVENT,
+            Self::VerificationOutcomesChanged(_) => SESSION_VERIFICATION_OUTCOMES_CHANGED_EVENT,
+            Self::DraftsChanged(_) => SESSION_DRAFTS_CHANGED_EVENT,
+            Self::DraftPersistenceChanged(_) => SESSION_DRAFT_PERSISTENCE_CHANGED_EVENT,
+            Self::DiscoveryChanged(_) => SESSION_DISCOVERY_CHANGED_EVENT,
+            Self::FilesRemoved(_) => SESSION_FILES_REMOVED_EVENT,
+            Self::IssueRemoved(_) => SESSION_ISSUE_REMOVED_EVENT,
             Self::Projection(value) => &value.event,
         }
     }
@@ -75,6 +107,14 @@ impl SessionEvent {
             Self::IssueAdded(value) => value.revision,
             Self::ApplyProgress(_) => 0,
             Self::RevisionAdvanced(value) => value.revision,
+            Self::BatchOperationChanged(value) => value.revision,
+            Self::ApplyOperationChanged(value) => value.revision,
+            Self::VerificationOutcomesChanged(value) => value.revision,
+            Self::DraftsChanged(value) => value.revision,
+            Self::DraftPersistenceChanged(value) => value.revision,
+            Self::DiscoveryChanged(value) => value.revision,
+            Self::FilesRemoved(value) => value.revision,
+            Self::IssueRemoved(value) => value.revision,
             Self::Projection(_) => 0,
         }
     }
@@ -88,6 +128,14 @@ impl SessionEvent {
             Self::IssueAdded(payload) => serde_json::to_value(payload),
             Self::ApplyProgress(payload) => serde_json::to_value(*payload),
             Self::RevisionAdvanced(payload) => serde_json::to_value(payload),
+            Self::BatchOperationChanged(payload) => serde_json::to_value(*payload),
+            Self::ApplyOperationChanged(payload) => serde_json::to_value(*payload),
+            Self::VerificationOutcomesChanged(payload) => serde_json::to_value(*payload),
+            Self::DraftsChanged(payload) => serde_json::to_value(*payload),
+            Self::DraftPersistenceChanged(payload) => serde_json::to_value(*payload),
+            Self::DiscoveryChanged(payload) => serde_json::to_value(*payload),
+            Self::FilesRemoved(payload) => serde_json::to_value(*payload),
+            Self::IssueRemoved(payload) => serde_json::to_value(*payload),
             Self::Projection(value) => Ok(value.payload),
         };
         serialized.unwrap_or_else(|error| {

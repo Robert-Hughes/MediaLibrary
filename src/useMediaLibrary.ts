@@ -24,6 +24,14 @@ import type {
   MediaLibrarySessionMetadataChanged,
   MediaLibrarySessionIssueAdded,
   MediaLibrarySessionRevisionAdvanced,
+  MediaLibrarySessionBatchOperationChanged,
+  MediaLibrarySessionApplyOperationChanged,
+  MediaLibrarySessionVerificationOutcomesChanged,
+  MediaLibrarySessionDraftsChanged,
+  MediaLibrarySessionDraftPersistenceChanged,
+  MediaLibrarySessionDiscoveryChanged,
+  MediaLibrarySessionFilesRemoved,
+  MediaLibrarySessionIssueRemoved,
 } from "./types";
 import type { MetadataApplyStreamMessage } from "./types";
 import { loadColumnConfig, saveColumnConfig } from "./utils/columnConfig";
@@ -822,6 +830,241 @@ export function useMediaLibrary(
         },
       );
 
+      const unlistenBatchOperation = await api.listen(
+        "media_library_session_batch_operation_changed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionBatchOperationChanged;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_batch_operation_changed",
+            apply: () => {
+              setAppState((previous) => {
+                if (previous.kind !== "loaded") return previous;
+                const batchOperations = { ...previous.batchOperations };
+                if (delta.operation === null) {
+                  delete batchOperations[delta.kind];
+                } else {
+                  batchOperations[delta.kind] = delta.operation;
+                }
+                return { ...previous, batchOperations };
+              });
+            },
+          });
+        },
+      );
+
+      const unlistenApplyOperation = await api.listen(
+        "media_library_session_apply_operation_changed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionApplyOperationChanged;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_apply_operation_changed",
+            apply: () => {
+              activeApplyOperationIdRef.current =
+                delta.operation?.operation_id ?? null;
+              setAppState((previous) => {
+                if (previous.kind !== "loaded") return previous;
+                const projected = projectApplyOperation(delta.operation);
+                return {
+                  ...previous,
+                  applying: projected.applying,
+                  applyCompletion: projected.completion,
+                };
+              });
+            },
+          });
+        },
+      );
+
+      const unlistenVerificationOutcomes = await api.listen(
+        "media_library_session_verification_outcomes_changed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionVerificationOutcomesChanged;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_verification_outcomes_changed",
+            apply: () => {
+              const paths = new Set([
+                ...Object.keys(targetVerifyOutcomesStoreRef.current.getAll()),
+                ...Object.keys(delta.outcomes),
+              ]);
+              targetVerifyOutcomesStoreRef.current.replaceFiles(
+                [...paths].map((path) => ({
+                  path,
+                  outcomes: targetVerifyOutcomesFromBackend(
+                    path,
+                    delta.outcomes[path] ?? [],
+                  ),
+                })),
+              );
+              const draftRows = Object.entries(delta.draft_rows);
+              if (draftRows.length > 0) {
+                targetDraftEditsStoreRef.current.replaceMetadataFiles(
+                  draftRows.map(([path, persistedEntries]) => ({
+                    path,
+                    persistedEntries: persistedEntries ?? [],
+                  })),
+                );
+              }
+              setAppState((previous) =>
+                previous.kind === "loaded"
+                  ? {
+                      ...previous,
+                      targetVerifyOutcomes:
+                        targetVerifyOutcomesStoreRef.current.getAll(),
+                      targetDraftEdits:
+                        targetDraftEditsStoreRef.current.getAllMetadata(),
+                    }
+                  : previous,
+              );
+            },
+          });
+        },
+      );
+
+      const unlistenDrafts = await api.listen(
+        "media_library_session_drafts_changed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionDraftsChanged;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_drafts_changed",
+            apply: () => {
+              targetDraftEditsStoreRef.current.replaceMetadataFiles(
+                Object.entries(delta.rows).map(([path, persistedEntries]) => ({
+                  path,
+                  persistedEntries: persistedEntries ?? [],
+                })),
+              );
+              setAppState((previous) =>
+                previous.kind === "loaded"
+                  ? {
+                      ...previous,
+                      targetDraftEdits:
+                        targetDraftEditsStoreRef.current.getAllMetadata(),
+                    }
+                  : previous,
+              );
+            },
+          });
+        },
+      );
+
+      const unlistenDraftPersistence = await api.listen(
+        "media_library_session_draft_persistence_changed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionDraftPersistenceChanged;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_draft_persistence_changed",
+            apply: () => {
+              targetDraftPersistenceRef.current = delta.state;
+              setAppState((previous) =>
+                previous.kind === "loaded"
+                  ? { ...previous, targetDraftPersistence: delta.state }
+                  : previous,
+              );
+            },
+          });
+        },
+      );
+
+      const unlistenDiscovery = await api.listen(
+        "media_library_session_discovery_changed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionDiscoveryChanged;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_discovery_changed",
+            apply: () => {
+              setAppState((previous) =>
+                previous.kind === "loaded"
+                  ? { ...previous, scanning: delta.discovery_running }
+                  : previous,
+              );
+            },
+          });
+        },
+      );
+
+      const unlistenFilesRemoved = await api.listen(
+        "media_library_session_files_removed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionFilesRemoved;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_files_removed",
+            apply: () => {
+              for (const path of delta.paths) {
+                const metadataState =
+                  fileMetadataOccurrencesStoreRef.current.get(path);
+                metadataProgressStoreRef.current.removeFile(
+                  metadataState !== "loading",
+                );
+              }
+              thumbnailStoreRef.current.deletePaths(delta.paths);
+              fileMetadataOccurrencesStoreRef.current.deletePaths(delta.paths);
+              targetDraftEditsStoreRef.current.replaceMetadataFiles(
+                delta.paths.map((path) => ({ path, persistedEntries: [] })),
+              );
+              targetVerifyOutcomesStoreRef.current.replaceFiles(
+                delta.paths.map((path) => ({ path, outcomes: [] })),
+              );
+              const removedSet = new Set(delta.paths);
+              for (const path of delta.paths) {
+                sessionFilePathsRef.current.delete(path);
+              }
+              setAppState((previous) =>
+                previous.kind === "loaded"
+                  ? {
+                      ...previous,
+                      files: previous.files.filter(
+                        (file) => !removedSet.has(file.relative_path),
+                      ),
+                      targetDraftEdits:
+                        targetDraftEditsStoreRef.current.getAllMetadata(),
+                      targetVerifyOutcomes:
+                        targetVerifyOutcomesStoreRef.current.getAll(),
+                    }
+                  : previous,
+              );
+            },
+          });
+        },
+      );
+
+      const unlistenIssueRemoved = await api.listen(
+        "media_library_session_issue_removed",
+        (raw) => {
+          const delta = raw as MediaLibrarySessionIssueRemoved;
+          void deltaCoordinator.enqueue({
+            sessionId: delta.session_id,
+            revision: delta.revision,
+            source: "media_library_session_issue_removed",
+            apply: () => {
+              setAppState((previous) =>
+                previous.kind === "loaded"
+                  ? {
+                      ...previous,
+                      applicationErrors: previous.applicationErrors.filter(
+                        (error) => error.issue_id !== delta.issue_id,
+                      ),
+                    }
+                  : previous,
+              );
+            },
+          });
+        },
+      );
+
       unlisteners.push(
         unlistenSession,
         unlistenApplyProgress,
@@ -830,6 +1073,14 @@ export function useMediaLibrary(
         unlistenIssueAdded,
         unlistenThumbnail,
         unlistenRevisionAdvanced,
+        unlistenBatchOperation,
+        unlistenApplyOperation,
+        unlistenVerificationOutcomes,
+        unlistenDrafts,
+        unlistenDraftPersistence,
+        unlistenDiscovery,
+        unlistenFilesRemoved,
+        unlistenIssueRemoved,
       );
 
       // All listeners registered — unblock any startScan that was awaiting.
