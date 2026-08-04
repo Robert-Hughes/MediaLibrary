@@ -302,9 +302,9 @@ impl MediaLibrarySessionState {
     }
 
     /// Commit one generated-draft row without cloning the complete session.
-    /// Batch workers reconcile the frontend once at a phase boundary; cloning
-    /// files, metadata, thumbnails, and every draft for each item is both
-    /// unnecessary and prohibitively expensive for large runs.
+    /// The frontend receives a `DraftsChanged` delta carrying only this row
+    /// (mirroring the manual `commit_draft_rows` path), so the UI updates as
+    /// generated drafts land without shipping the whole snapshot per item.
     pub fn commit_generated_draft_row(
         &self,
         session_id: u64,
@@ -327,12 +327,6 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         let revision = snapshot.revision;
-        self.notify(SessionEvent::RevisionAdvanced(
-            MediaLibrarySessionRevisionAdvanced {
-                session_id,
-                revision,
-            },
-        ));
         if entries.is_empty() {
             snapshot.drafts.remove(&relative_path);
         } else {
@@ -340,6 +334,15 @@ impl MediaLibrarySessionState {
                 .drafts
                 .insert(relative_path.clone(), entries.clone());
         }
+        let mut rows = std::collections::HashMap::new();
+        rows.insert(relative_path.clone(), entries.clone());
+        self.notify(SessionEvent::DraftsChanged(Box::new(
+            MediaLibrarySessionDraftsChanged {
+                session_id,
+                revision,
+                rows,
+            },
+        )));
         drop(snapshot);
         self.search
             .set_drafts(session_id, revision, vec![(relative_path, entries)]);
@@ -1915,7 +1918,7 @@ mod tests {
     }
 
     #[test]
-    fn generated_draft_rows_advance_revision_with_a_tick() {
+    fn generated_draft_rows_emit_a_drafts_changed_delta() {
         let (notifier, receiver) = std::sync::mpsc::channel();
         let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
         let receiver = state.take_event_receiver().unwrap();
@@ -1929,18 +1932,44 @@ mod tests {
             .unwrap();
         assert_eq!(receiver.try_iter().count(), 4);
 
+        let entries = vec![MetadataTargetDraftEntry {
+            target: crate::metadata_draft_target::MetadataDraftTarget::NewProperty {
+                schema_id: crate::tag_schema::SchemaDefinitionId {
+                    table: "XMP-test".into(),
+                    tag_id: "AITags".into(),
+                    index: None,
+                },
+                write_target: crate::metadata_occurrence::MetadataWriteTarget {
+                    group1: "XMP-test".into(),
+                    group7: "ID-Test".into(),
+                    tag_name: "AITags".into(),
+                },
+            },
+            edit: crate::draft_edits::MetadataDraftEdit {
+                value: Some(crate::metadata_value::MetadataValue::Text(
+                    "generated draft".into(),
+                )),
+                intent: crate::draft_edits::EditIntent::Set,
+            },
+        }];
         state
-            .commit_generated_draft_row(session_id, "a.jpg".into(), Vec::new())
+            .commit_generated_draft_row(session_id, "a.jpg".into(), entries)
             .unwrap();
         let events: Vec<SessionEvent> = receiver.try_iter().collect();
         assert_eq!(events.len(), 1);
         match &events[0] {
-            SessionEvent::RevisionAdvanced(value) => {
+            SessionEvent::DraftsChanged(value) => {
                 assert_eq!(value.session_id, session_id);
                 assert_eq!(value.revision, 5);
+                assert_eq!(value.rows.get("a.jpg").map(Vec::len), Some(1));
             }
-            other => panic!("expected a revision tick, got {other:?}"),
+            other => panic!("expected a drafts-changed delta, got {other:?}"),
         }
+        assert_eq!(
+            state.snapshot().drafts.get("a.jpg").map(Vec::len),
+            Some(1),
+            "the generated draft row must land in the session snapshot"
+        );
     }
 
     #[test]
