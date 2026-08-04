@@ -122,7 +122,7 @@ describe("Rust-authoritative application boundary", () => {
     expect(rustLib).not.toContain("fn load_metadata_draft_edits(");
     expect(rustLib).not.toContain("            load_metadata_draft_edits,");
     expect(rustAuthority).toContain(
-      "ensure_session_draft_mutation_allowed(&snapshot)?",
+      "ensure_session_draft_mutation_allowed(snapshot)?",
     );
   });
 

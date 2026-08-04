@@ -1357,7 +1357,6 @@ export function useMediaLibrary(
     fileMetadataOccurrencesStoreRef,
     targetDraftEditsStoreRef,
     writableSchemaDefinitions,
-    applySessionSnapshot,
     pushApplicationError,
   });
 

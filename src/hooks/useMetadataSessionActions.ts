@@ -7,7 +7,6 @@ import type {
   MetadataDraftTarget,
   MetadataRemovalPreview,
   MetadataTargetDraftEntry,
-  MediaLibrarySessionSnapshot,
   SchemaDefinitionId,
   SchemaMetadataEdit,
   TagInfo,
@@ -40,7 +39,6 @@ interface UseMetadataSessionActionsOptions {
   fileMetadataOccurrencesStoreRef: RefObject<FileMetadataOccurrencesStore>;
   targetDraftEditsStoreRef: RefObject<TargetDraftEditsStore>;
   writableSchemaDefinitions: "loading" | TagInfo[];
-  applySessionSnapshot: (snapshot: MediaLibrarySessionSnapshot) => void;
   pushApplicationError: (
     errorType: string,
     error: unknown,
@@ -58,7 +56,6 @@ export function useMetadataSessionActions({
   fileMetadataOccurrencesStoreRef,
   targetDraftEditsStoreRef,
   writableSchemaDefinitions,
-  applySessionSnapshot,
   pushApplicationError,
 }: UseMetadataSessionActionsOptions) {
   // Caller-owned refs are stable for this hook's lifetime; keeping them behind
@@ -101,28 +98,19 @@ export function useMetadataSessionActions({
     ): Promise<void> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return;
       try {
-        const snapshot = (await api.invoke(
-          "resolve_media_library_session_verification_outcome",
-          {
-            sessionId: contextRef.current.activeScanIdRef.current,
-            relativePath,
-            currentTarget: structuredClone(currentTarget),
-            discardDraft,
-          },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        await api.invoke("resolve_media_library_session_verification_outcome", {
+          sessionId: contextRef.current.activeScanIdRef.current,
+          relativePath,
+          currentTarget: structuredClone(currentTarget),
+          discardDraft,
+        });
       } catch (error) {
         pushApplicationError("metadata-target-verification-resolve", error, [
           relativePath,
         ]);
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const acceptTargetVerifyOutcome = useCallback(
@@ -151,13 +139,10 @@ export function useMetadataSessionActions({
       .invoke("dismiss_media_library_session_verification_outcomes", {
         sessionId: contextRef.current.activeScanIdRef.current,
       })
-      .then((snapshot) =>
-        applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
-      )
       .catch((error) =>
         pushApplicationError("metadata-target-verification-dismiss", error),
       );
-  }, [api, applySessionSnapshot, pushApplicationError]);
+  }, [api, pushApplicationError]);
 
   const dismissError = useCallback(
     (index: number) => {
@@ -288,27 +273,18 @@ export function useMetadataSessionActions({
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       try {
-        const snapshot = (await api.invoke(
-          "stage_media_library_session_bulk_drafts",
-          {
-            sessionId: contextRef.current.activeScanIdRef.current,
-            relativePaths: paths,
-            request,
-          },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        await api.invoke("stage_media_library_session_bulk_drafts", {
+          sessionId: contextRef.current.activeScanIdRef.current,
+          relativePaths: paths,
+          request,
+        });
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-bulk-stage", error, paths);
         return false;
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const previewGpsTargetDraftBatch = useCallback(
@@ -340,15 +316,11 @@ export function useMetadataSessionActions({
     ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const snapshot = (await api.invoke(
-          "stage_media_library_session_gps_drafts",
-          {
-            sessionId: contextRef.current.activeScanIdRef.current,
-            relativePath,
-            edits,
-          },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        await api.invoke("stage_media_library_session_gps_drafts", {
+          sessionId: contextRef.current.activeScanIdRef.current,
+          relativePath,
+          edits,
+        });
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-gps-validate", error, [
@@ -357,12 +329,7 @@ export function useMetadataSessionActions({
         return false;
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const removeMetadataTargets = useCallback(
@@ -372,15 +339,11 @@ export function useMetadataSessionActions({
     ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const snapshot = (await api.invoke(
-          "remove_media_library_session_metadata_targets",
-          {
-            sessionId: contextRef.current.activeScanIdRef.current,
-            relativePath,
-            targets,
-          },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        await api.invoke("remove_media_library_session_metadata_targets", {
+          sessionId: contextRef.current.activeScanIdRef.current,
+          relativePath,
+          targets,
+        });
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-remove-exact", error, [
@@ -389,12 +352,7 @@ export function useMetadataSessionActions({
         return false;
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const previewMetadataTargetRemovals = useCallback(
@@ -429,27 +387,18 @@ export function useMetadataSessionActions({
     ): Promise<boolean> => {
       if (!requireTargetDraftPersistenceReady([relativePath])) return false;
       try {
-        const snapshot = (await api.invoke(
-          "remove_media_library_session_metadata_fields",
-          {
-            sessionId: contextRef.current.activeScanIdRef.current,
-            relativePath,
-            schemaIds,
-          },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        await api.invoke("remove_media_library_session_metadata_fields", {
+          sessionId: contextRef.current.activeScanIdRef.current,
+          relativePath,
+          schemaIds,
+        });
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-remove", error, [relativePath]);
         return false;
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
   const removeMetadataFieldFromFiles = useCallback(
     async (
@@ -459,27 +408,21 @@ export function useMetadataSessionActions({
       const paths = [...new Set(relativePaths)];
       if (!requireTargetDraftPersistenceReady(paths)) return false;
       try {
-        const snapshot = (await api.invoke(
+        await api.invoke(
           "remove_media_library_session_metadata_field_from_files",
           {
             sessionId: contextRef.current.activeScanIdRef.current,
             schemaId,
             relativePaths: paths,
           },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        );
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-remove-files", error, paths);
         return false;
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
   const setExistingOccurrenceDraft = useCallback(
     (
@@ -543,21 +486,13 @@ export function useMetadataSessionActions({
           target,
           edit,
         })
-        .then((snapshot) =>
-          applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
-        )
         .catch((error) =>
           pushApplicationError("metadata-target-save", error, [
             fileRelativePath,
           ]),
         );
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
 
   const setNewPropertyDraft = useCallback(
@@ -567,13 +502,12 @@ export function useMetadataSessionActions({
       edit: MetadataDraftEdit,
     ): Promise<boolean> => {
       try {
-        const snapshot = (await api.invoke("set_media_library_session_draft", {
+        await api.invoke("set_media_library_session_draft", {
           sessionId: contextRef.current.activeScanIdRef.current,
           relativePath: fileRelativePath,
           target,
           edit,
-        })) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        });
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-new-property-save", error, [
@@ -582,7 +516,7 @@ export function useMetadataSessionActions({
         return false;
       }
     },
-    [api, applySessionSnapshot, pushApplicationError],
+    [api, pushApplicationError],
   );
 
   const replaceNewPropertyDraftTarget = useCallback(
@@ -593,17 +527,13 @@ export function useMetadataSessionActions({
       originalEdit: MetadataDraftEdit,
     ): Promise<boolean> => {
       try {
-        const snapshot = (await api.invoke(
-          "replace_media_library_session_new_property_draft",
-          {
-            sessionId: contextRef.current.activeScanIdRef.current,
-            relativePath: fileRelativePath,
-            originalTarget,
-            replacementTarget,
-            originalEdit,
-          },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        await api.invoke("replace_media_library_session_new_property_draft", {
+          sessionId: contextRef.current.activeScanIdRef.current,
+          relativePath: fileRelativePath,
+          originalTarget,
+          replacementTarget,
+          originalEdit,
+        });
         return true;
       } catch (error) {
         pushApplicationError(
@@ -614,7 +544,7 @@ export function useMetadataSessionActions({
         return false;
       }
     },
-    [api, applySessionSnapshot, pushApplicationError],
+    [api, pushApplicationError],
   );
 
   const discardTargetPropertyDraft = useCallback(
@@ -637,21 +567,13 @@ export function useMetadataSessionActions({
           relativePath: fileRelativePath,
           target,
         })
-        .then((snapshot) =>
-          applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
-        )
         .catch((error) =>
           pushApplicationError("metadata-target-discard", error, [
             fileRelativePath,
           ]),
         );
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
   const discardTargetDraftValues = useCallback(
     async (
@@ -661,15 +583,11 @@ export function useMetadataSessionActions({
       if (targets.length === 0) return true;
       if (!requireTargetDraftPersistenceReady([fileRelativePath])) return false;
       try {
-        const snapshot = (await api.invoke(
-          "discard_media_library_session_drafts",
-          {
-            sessionId: contextRef.current.activeScanIdRef.current,
-            relativePath: fileRelativePath,
-            targets,
-          },
-        )) as MediaLibrarySessionSnapshot;
-        applySessionSnapshot(snapshot);
+        await api.invoke("discard_media_library_session_drafts", {
+          sessionId: contextRef.current.activeScanIdRef.current,
+          relativePath: fileRelativePath,
+          targets,
+        });
         return true;
       } catch (error) {
         pushApplicationError("metadata-target-discard-targets", error, [
@@ -678,12 +596,7 @@ export function useMetadataSessionActions({
         return false;
       }
     },
-    [
-      api,
-      applySessionSnapshot,
-      pushApplicationError,
-      requireTargetDraftPersistenceReady,
-    ],
+    [api, pushApplicationError, requireTargetDraftPersistenceReady],
   );
   const discardAllDraftEdits = useCallback(
     (fileRelativePath?: string | string[]) => {
@@ -752,13 +665,10 @@ export function useMetadataSessionActions({
         sessionId: current.sessionId,
         operationId: current.applyCompletion.operationId,
       })
-      .then((snapshot) =>
-        applySessionSnapshot(snapshot as MediaLibrarySessionSnapshot),
-      )
       .catch((error) =>
         pushApplicationError("metadata-target-dismiss-apply", error),
       );
-  }, [api, applySessionSnapshot, pushApplicationError]);
+  }, [api, pushApplicationError]);
 
   const cancelApplyEdits = useCallback(() => {
     const current = contextRef.current.appStateRef.current;
