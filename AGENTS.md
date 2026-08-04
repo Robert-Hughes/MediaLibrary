@@ -64,14 +64,14 @@ Two log locations exist, both keyed off the Tauri bundle identifier
   - macOS: `~/Library/Logs/com.xman2.medialibrary/medialibrary.log`
   - Linux: `$XDG_DATA_HOME/com.xman2.medialibrary/logs/medialibrary.log`
     (`$XDG_DATA_HOME` defaults to `~/.local/share`.)
-  Files rotate at 10 MB with `RotationStrategy::KeepAll`; rotated files are
-  kept beside the active one as `medialibrary_<timestamp>.log`.
+    Files rotate at 10 MB with `RotationStrategy::KeepAll`; rotated files are
+    kept beside the active one as `medialibrary_<timestamp>.log`.
 - JSONL audit logs under the app-data directory, resolved by
   `crate::commands::shared::app_data_dir`:
   - Windows: `%APPDATA%\com.xman2.medialibrary\`
   - macOS: `~/Library/Application Support/com.xman2.medialibrary/`
   - Linux: `$XDG_DATA_HOME/com.xman2.medialibrary/`
-  Append-only per-batch audit trails live here:
+    Append-only per-batch audit trails live here:
   - `MediaLibraryTargetApplyLog.jsonl` - target apply audit (schema v3); rotates
     at 10 MB per apply command (KeepAll, `_<UTC timestamp>.jsonl` suffix), see
     `src-tauri/src/apply_log.rs`.
