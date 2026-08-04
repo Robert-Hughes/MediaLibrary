@@ -40,6 +40,9 @@ export function useRowSelection(cfg: RowSelectionConfig) {
   const selectedPathsRef = useRef(selectedPaths);
   selectedPathsRef.current = selectedPaths;
   const anchorPathRef = useRef<string | null>(selectedPath);
+  // Set when an internal gesture (ctrl-click toggle) rewrites the selection;
+  // the selectedPath sync effect must not collapse the set it just changed.
+  const suppressSyncRef = useRef(false);
 
   const selectedIndices = useMemo(() => {
     const result = new Set<number>();
@@ -50,6 +53,7 @@ export function useRowSelection(cfg: RowSelectionConfig) {
   }, [paths, selectedPaths]);
 
   useEffect(() => {
+    if (suppressSyncRef.current) return;
     if (selectedPath === null) {
       setSelectedPaths(new Set());
       anchorPathRef.current = null;
@@ -60,6 +64,13 @@ export function useRowSelection(cfg: RowSelectionConfig) {
     );
     if (anchorPathRef.current === null) anchorPathRef.current = selectedPath;
   }, [selectedPath]);
+
+  // Runs after every commit so the flag never leaks into a later, unrelated
+  // selectedPath change (e.g. removing the primary row leaves onSelect a no-op
+  // and the sync effect above never runs to clear it).
+  useEffect(() => {
+    suppressSyncRef.current = false;
+  });
 
   useEffect(() => {
     onSelectionCountChange?.(selectedPaths.size);
@@ -107,12 +118,14 @@ export function useRowSelection(cfg: RowSelectionConfig) {
         return;
       }
       if (modifiers.ctrl) {
+        const removing = selectedPathsRef.current.has(path);
         setSelectedPaths((prev) => {
           const next = new Set(prev);
           if (next.has(path)) next.delete(path);
           else next.add(path);
           return next;
         });
+        if (removing) suppressSyncRef.current = true;
         anchorPathRef.current = path;
         onSelect(path);
         return;
