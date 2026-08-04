@@ -860,7 +860,7 @@ describe("NormaliseProgressDialog — done", () => {
     };
   }
 
-  it("renders 'Completed: K / N images' with per-group summary", () => {
+  it("renders 'Completed: K / N files' with per-group summary", () => {
     render(
       <NormaliseProgressDialog
         state={baseState({

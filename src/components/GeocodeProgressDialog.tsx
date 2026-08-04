@@ -1,5 +1,5 @@
 /**
- * Modal that drives the reverse-geocoding flow for a set of images.
+ * Modal that drives the reverse-geocoding flow for a set of files.
  *
  * Three phases (no estimating step — there's nothing to compute up
  * front, and no cost):
@@ -37,7 +37,7 @@ export interface GeocodeOverwriteInfo {
 interface Props {
   state: GeocodeProgressState;
   /**
-   * Pre-computed by the caller: how many of the selected images
+   * Pre-computed by the caller: how many of the selected files
    * already carry any §1 location target tag (in metadata or drafts).
    * When `existingCount > 0` the awaiting-confirm panel surfaces an
    * inline overwrite notice.
@@ -159,7 +159,7 @@ function AwaitingConfirmPanel({
   const nWithoutGps = state.items.filter(
     (i) => i.lat == null || i.lon == null,
   ).length;
-  const word = state.total === 1 ? "image" : "images";
+  const word = state.total === 1 ? "file" : "files";
   return (
     <>
       <div className="dialog-hint" data-testid="geocode-confirm-summary">
@@ -169,12 +169,12 @@ function AwaitingConfirmPanel({
       <div
         style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
       >
-        The <strong>GPS coordinates</strong> of each image will be sent to{" "}
-        <code>nominatim.openstreetmap.org</code>. The images themselves are{" "}
+        The <strong>GPS coordinates</strong> of each file will be sent to{" "}
+        <code>nominatim.openstreetmap.org</code>. The files themselves are{" "}
         <strong>not</strong> uploaded. There is no cost.
       </div>
       <div style={{ marginTop: 12, fontSize: 12 }}>
-        Two raw evidence tags will be proposed per image:
+        Two raw evidence tags will be proposed per file:
         <ul style={{ marginTop: 6, paddingLeft: 18, lineHeight: 1.5 }}>
           <li>
             <code>XMP-mlib:ReverseGeocodeGeocodeJSON</code>
@@ -199,13 +199,13 @@ function AwaitingConfirmPanel({
             existingCount: overwriteInfo.existingCount,
             totalCount: overwriteInfo.totalCount,
             title: "Overwrite reverse-geocode evidence?",
-            subjectSingular: "image",
-            subjectPlural: "images",
+            subjectSingular: "file",
+            subjectPlural: "files",
             dataPhrase: "reverse-geocode evidence",
             actionSingle:
               "Reverse-geocoding will replace the GeocodeJSON and JSONv2 evidence drafts; LocationCreated, EXIF GPS, and legacy location fields are not touched.",
             actionPluralPartial:
-              "Reverse-geocoding will replace the GeocodeJSON and JSONv2 evidence drafts for those images; LocationCreated, EXIF GPS, and legacy location fields are not touched.",
+              "Reverse-geocoding will replace the GeocodeJSON and JSONv2 evidence drafts for those files; LocationCreated, EXIF GPS, and legacy location fields are not touched.",
           }}
         />
       )}
@@ -285,7 +285,7 @@ export function GeocodeProgressDialog({
           testidPrefix="geocode-running"
           current={state.current}
           total={state.total}
-          noun="image"
+          noun="file"
           failureCount={failures.length}
           currentFile={state.currentFile}
           cancelling={state.cancelling}
