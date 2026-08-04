@@ -120,6 +120,11 @@ struct SearchIndex {
     session_id: Option<u64>,
     session_revision: u64,
     documents: HashMap<String, SearchDocument>,
+    /// Draft rows received for paths that have not been indexed yet (the
+    /// session loads persisted drafts before scanning adds any files). They
+    /// attach to the document when the file lands, so draft state is
+    /// independent of file/draft arrival order.
+    pending_drafts: HashMap<String, Vec<MetadataTargetDraftEntry>>,
 }
 
 impl SearchIndex {
@@ -127,6 +132,7 @@ impl SearchIndex {
         self.session_id = session_id;
         self.session_revision = session_revision;
         self.documents.clear();
+        self.pending_drafts.clear();
     }
 
     fn set_revision(&mut self, session_id: u64, revision: u64) -> bool {
@@ -142,18 +148,27 @@ impl SearchIndex {
             return false;
         }
         for file in files {
+            let path = file.relative_path.clone();
+            let pending_draft = self.pending_drafts.remove(&path);
             self.documents
-                .entry(file.relative_path.clone())
+                .entry(path)
                 .and_modify(|document| {
                     document.media_kind = file.media_kind.into();
                     document.file_text = file_text(file);
                 })
-                .or_insert_with(|| SearchDocument {
-                    media_kind: file.media_kind.into(),
-                    file_text: file_text(file),
-                    occurrence_text: String::new(),
-                    draft_text: String::new(),
-                    has_edits: false,
+                .or_insert_with(|| {
+                    let mut document = SearchDocument {
+                        media_kind: file.media_kind.into(),
+                        file_text: file_text(file),
+                        occurrence_text: String::new(),
+                        draft_text: String::new(),
+                        has_edits: false,
+                    };
+                    if let Some(entries) = pending_draft {
+                        document.has_edits = !entries.is_empty();
+                        document.draft_text = drafts_text(&entries);
+                    }
+                    document
                 });
         }
         true
@@ -192,6 +207,10 @@ impl SearchIndex {
             if let Some(document) = self.documents.get_mut(path) {
                 document.has_edits = !entries.is_empty();
                 document.draft_text = drafts_text(entries);
+            } else if entries.is_empty() {
+                self.pending_drafts.remove(path);
+            } else {
+                self.pending_drafts.insert(path.clone(), entries.clone());
             }
         }
         true
@@ -203,6 +222,7 @@ impl SearchIndex {
         }
         for path in paths {
             self.documents.remove(path);
+            self.pending_drafts.remove(path);
         }
         true
     }
@@ -963,6 +983,68 @@ mod tests {
             vec!["a.jpg"]
         );
         index.set_drafts(7, 4, &[("a.jpg".into(), vec![])]);
+        assert!(index
+            .query(&request("has:edits"))
+            .unwrap()
+            .matched_paths
+            .is_empty());
+    }
+
+    #[test]
+    fn drafts_received_before_files_still_drive_has_edits_and_draft_text() {
+        let mut index = SearchIndex::default();
+        index.reset(Some(7), 1);
+        let schema_id = SchemaDefinitionId {
+            table: "XMP::Main".into(),
+            tag_id: "title".into(),
+            index: None,
+        };
+        let target = MetadataDraftTarget::from_new_property(&TagInfo {
+            id: schema_id.clone(),
+            group0: Some("XMP".into()),
+            group: "XMP-dc".into(),
+            name: "Title".into(),
+            writable: true,
+            kind: TagKind::Text,
+            description: Some("Title".into()),
+            storage_count: None,
+        })
+        .unwrap();
+        let draft = |value: &str| {
+            vec![MetadataTargetDraftEntry {
+                target: target.clone(),
+                edit: MetadataDraftEdit {
+                    value: Some(MetadataValue::Text(value.into())),
+                    intent: EditIntent::Set,
+                },
+            }]
+        };
+        // Drafts land first, exactly like persisted drafts at session open,
+        // before any file has been added to the index.
+        index.set_drafts(7, 2, &[("a.jpg".into(), draft("pre-indexed needle"))]);
+        assert!(index
+            .query(&request("has:edits"))
+            .unwrap()
+            .matched_paths
+            .is_empty());
+        // The file arrives afterwards; the pending draft must attach to it.
+        index.add_files(7, 3, &[file("a.jpg", MediaKind::Image)]);
+        assert_eq!(
+            index.query(&request("has:edits")).unwrap().matched_paths,
+            vec!["a.jpg"]
+        );
+        assert_eq!(
+            index
+                .query(&request("pre-indexed needle"))
+                .unwrap()
+                .matched_paths,
+            vec!["a.jpg"]
+        );
+        // Discarding the draft before the file is indexed clears the pending
+        // state instead of leaving a stale "has edits" document behind.
+        index.remove_paths(7, 4, &["a.jpg".into()]);
+        index.set_drafts(7, 5, &[("a.jpg".into(), vec![])]);
+        index.add_files(7, 6, &[file("a.jpg", MediaKind::Image)]);
         assert!(index
             .query(&request("has:edits"))
             .unwrap()
