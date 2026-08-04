@@ -30,13 +30,13 @@ use crate::geocode_cache::{CachedResult, GeocodeCacheEntry, GeocodeCacheFile};
 use crate::metadata_value::MetadataValue;
 use crate::{known_ids, tag_schema::SchemaDefinitionId};
 
-// ── Wire types for the geocode_images_cmd Tauri command ─────────────────────
+// ── Wire types for the geocode_files_cmd Tauri command ─────────────────────
 //
 // Lives here (not lib.rs) so the batch runner can reference them
 // without a circular dependency. Public so integration tests can
 // build inputs.
 
-/// One item in a `geocode_images_cmd` invocation.
+/// One item in a `geocode_files_cmd` invocation.
 ///
 /// The frontend resolves draft-GPS-vs-metadata-GPS precedence (see
 /// plan §2) before sending; the backend trusts the lat/lon it
@@ -89,7 +89,7 @@ pub const RATE_LIMIT_INTERVAL: Duration = Duration::from_millis(1000);
 /// Nominatim token bucket for the geocode batch loop.
 ///
 /// One instance lives for the duration of a single batch (constructed
-/// in `geocode_images_cmd`, dropped at the end). Each host's last-call
+/// in `geocode_files_cmd`, dropped at the end). Each host's last-call
 #[derive(Default)]
 pub struct GeocodeRateLimiter {
     last_nominatim: Option<std::time::Instant>,
@@ -297,7 +297,7 @@ pub fn geocode_target_tags() -> [SchemaDefinitionId; 2] {
     ]
 }
 
-/// Compose the two raw-evidence drafts for a geocoded image.
+/// Compose the two raw-evidence drafts for a geocoded file.
 pub fn compose_geocode_edits(geocode_json: &str, json_v2: &str) -> SchemaMetadataEditMap {
     let mut edits = SchemaMetadataEditMap::new();
     edits.insert(
@@ -365,7 +365,7 @@ impl Default for GeocodeClient {
 /// `src/components/GeocodeProgressDialog.tsx`.
 #[derive(Debug, Clone)]
 pub enum GeocodeError {
-    /// The image had no usable GPS in metadata or drafts. Surfaced
+    /// The file had no usable GPS in metadata or drafts. Surfaced
     /// separately from network errors because it's expected and
     /// non-noisy.
     NoGps,
@@ -380,9 +380,9 @@ pub enum GeocodeError {
         body: String,
     },
     Network(String),
-    /// The cancellation flag was observed flipped while this image was
+    /// The cancellation flag was observed flipped while this file was
     /// in flight (between sub-calls, or right before a network call).
-    /// Plan §8: the in-flight image surfaces as a `cancelled` failure
+    /// Plan §8: the in-flight file surfaces as a `cancelled` failure
     /// rather than disappearing silently when the loop breaks.
     Cancelled,
     /// Cache file could not be read or written. Currently emitted only
@@ -576,7 +576,7 @@ pub async fn nominatim_reverse_jsonv2(
 ///
 /// `cancel_flag` is polled before every potentially-slow step
 /// (rate-limit sleep and network call) so a user pressing Cancel surfaces as a
-/// `Cancelled` failure for the in-flight image rather than waiting
+/// `Cancelled` failure for the in-flight file rather than waiting
 /// for the next image boundary. Plan §8.
 pub async fn geocode_one(
     client: &GeocodeClient,
@@ -721,7 +721,7 @@ impl GeocodeState {
 // for each item, decide GPS, call `geocode_one`, emit progress, build
 // a per-batch summary. The Tauri half is unreachable from integration
 // tests; the loop half is exactly where the plan deviations we care
-// about live (mid-pipeline cancel surfacing as a per-image
+// about live (mid-pipeline cancel surfacing as a per-file
 // `cancelled` failure row, end-of-batch `cache_io` synthesis, summary
 // accounting). Extracting the loop into `run_geocode_batch` lets us
 // drive it from a `tests/` integration test with a wiremock server
@@ -770,18 +770,18 @@ pub struct GeocodeBatchOutcome {
 /// Sequential per-item loop with per-host rate limiting (see
 /// `GeocodeRateLimiter`). Cache hits skip both buckets and the
 /// network entirely. Failures (no-GPS, network, Nominatim-empty,
-/// mid-pipeline cancellation) become per-image entries in the
+/// mid-pipeline cancellation) become per-file entries in the
 /// returned `failed` vec and are mirrored to the sink via
 /// `progress(..., status, ...)`. The cancel flag is polled at the
 /// top of every iteration **and** between sub-calls inside
-/// `geocode_one`; mid-image cancel surfaces as a `Cancelled` failure
-/// for the in-flight image so it shows up in the done panel rather
+/// `geocode_one`; mid-file cancel surfaces as a `Cancelled` failure
+/// for the in-flight file so it shows up in the done panel rather
 /// than the loop breaking silently.
 ///
 /// `save_cache` is invoked once after the loop drains. Failures
 /// there become a synthetic `cache_io` failure row attached to a
 /// sentinel `<geocache>` relative path so the user sees a labelled
-/// entry in the done panel; per-image drafts already emitted are not
+/// entry in the done panel; per-file drafts already emitted are not
 /// affected because the typed-draft store is independent of the
 /// network cache.
 pub async fn run_geocode_batch<S, F>(
@@ -1246,9 +1246,9 @@ mod tests {
 
     #[tokio::test]
     async fn geocode_one_returns_cancelled_when_flag_flips_before_nominatim() {
-        // Plan §8: cancel between sub-calls must surface as a per-image
+        // Plan §8: cancel between sub-calls must surface as a per-file
         // Cancelled failure rather than the loop breaking silently.
-        // Easiest mid-image cancel to verify: flag already true on
+        // Easiest mid-file cancel to verify: flag already true on
         // entry, cache miss, so the very first cancel check fires
         // before any network call. No mock server needed — if we
         // reached the network we'd hit "http://unused".

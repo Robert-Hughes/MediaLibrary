@@ -1,6 +1,6 @@
 //! Integration tests for `geocode::run_geocode_batch`.
 //!
-//! The reverse-geocoding Tauri command (`geocode_images_cmd`) is mostly
+//! The reverse-geocoding Tauri command (`geocode_files_cmd`) is mostly
 //! wiring — app handle, app_data_dir, event emitter, cancellation
 //! state. The interesting behaviour (loop accounting and end-of-batch
 //! `cache_io` synthesis) lives in `run_geocode_batch` so we can drive

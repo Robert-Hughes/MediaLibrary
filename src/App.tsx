@@ -328,7 +328,7 @@ function LoadedView({
 
   /**
    * Resolve the GPS payload for a set of rel-paths into the shape
-   * the geocode_images_cmd expects. The frontend owns the
+   * the geocode_files_cmd expects. The frontend owns the
    * "drafts win over metadata" precedence so the backend never has
    * to read the typed-draft store. See docs/REVERSE_GEOCODE_PLAN.md
    * §2. Items with no GPS are still included with `lat`/`lon` null —

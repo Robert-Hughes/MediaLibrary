@@ -3,7 +3,7 @@
 //! See `docs/NORMALISE_METADATA_PLAN.md` for the full design. This module
 //! holds:
 //!
-//! - The shared wire types passed from the frontend per image
+//! - The shared wire types passed from the frontend per file
 //!   ([`NormaliseRequestItem`], [`GroupInputs`]).
 //! - The per-group enum ([`NormaliseGroup`]) the user toggles in the
 //!   confirm dialog.
@@ -15,7 +15,7 @@
 //!   etc.) that consume their slice of [`GroupInputs`] and return either
 //!   `None` (idempotency no-op or all-empty) or `Some(GroupOutput)`.
 //! - The [`NormaliseJob`] driver that walks enabled groups in pass order
-//!   and assembles draft edits per image.
+//!   and assembles draft edits per file.
 //!
 //! The free-functions / no-state pattern keeps groups testable in
 //! isolation without spinning up a Tauri app, an HTTP client, or the
@@ -28,7 +28,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::metadata_value::{ListKind, MetadataValue};
 
-// Per-group implementation modules. The dispatcher (`process_image`)
+// Per-group implementation modules. The dispatcher (`process_item`)
 // composes these in the pass order documented in plan §2; each
 // submodule owns its target tags constant, canonical derivation,
 // idempotency detector, normaliser, and unit tests for that group.
@@ -63,8 +63,8 @@ pub use dates::{normalise_dates, DatesOutcome};
 mod ai;
 pub use ai::{
     AiCallUsage, CapturingAiClient, DescriptionMergePrompt, LocationAiResult,
-    LocationResolvePrompt, NormaliseAiClient, NormaliseAiError, NormaliseAuditEntry,
-    PerImageAiCall, TitleGenPrompt,
+    LocationResolvePrompt, NormaliseAiClient, NormaliseAiError, NormaliseAuditEntry, PerFileAiCall,
+    TitleGenPrompt,
 };
 
 mod description;
@@ -228,17 +228,17 @@ impl NormaliseState {
 
 // ── Dispatcher ─────────────────────────────────────────────────────────
 //
-// `process_image` is the per-image entrypoint called by the batch
+// `process_item` is the per-file entrypoint called by the batch
 // loop. It walks the enabled groups in pass order (plan §2), building
 // up a flat draft-edits map plus a stats struct.
 
-/// Per-group counters tracked for one image. Mirrors plan §10's
-/// `NormaliseSummary.perGroup[group]` shape, but at the per-image
+/// Per-group counters tracked for one file. Mirrors plan §10's
+/// `NormaliseSummary.perGroup[group]` shape, but at the per-file
 /// granularity that `NormaliseSummary::accumulate` later sums into
 /// the whole-batch breakdown.
 ///
-/// Each `u32` field is 0 or 1 at the per-image scale (a group fires
-/// at most once per image); they grow only after accumulation into
+/// Each `u32` field is 0 or 1 at the per-file scale (a group fires
+/// at most once per file); they grow only after accumulation into
 /// the batch-wide `NormaliseSummary.per_group` map.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -277,14 +277,14 @@ pub struct PerGroupStats {
     pub n_ai_errors: u32,
 }
 
-/// Per-image stats tracking from one `process_image` call. Aggregated
+/// Per-file stats tracking from one `process_item` call. Aggregated
 /// across the whole batch into `NormaliseSummary`. Keyed by enum so
 /// the wire format produces stable snake_case group names.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
-pub struct PerImageStats {
+pub struct PerFileStats {
     /// Per-group counter map. Entry is present only for groups that
     /// the dispatcher actually visited (i.e. enabled + bundle
     /// supplied).
@@ -296,7 +296,7 @@ pub struct PerImageStats {
     #[serde(skip)]
     #[cfg_attr(test, ts(skip))]
     pub iptc_output_groups: BTreeSet<NormaliseGroup>,
-    /// Per-image conflict details — every disagreement a group resolved by
+    /// Per-file conflict details — every disagreement a group resolved by
     /// preferring the primary source over a derivative. Consumed by the
     /// estimate preview and the application log; not part of the public
     /// progress wire shape.
@@ -307,7 +307,7 @@ pub struct PerImageStats {
 
 /// Structured detail of one disagreement a group resolved by preferring
 /// the primary source over a derivative (e.g. EXIF over XMP for Group H,
-/// XMP over IIM for Group G). Collected per image so the estimate preview
+/// XMP over IIM for Group G). Collected per file so the estimate preview
 /// and the application log can show exactly what would change and why.
 #[derive(Debug, Clone, Serialize)]
 pub struct GroupConflictDetail {
@@ -322,9 +322,9 @@ pub struct GroupConflictDetail {
     pub summary: String,
 }
 
-impl PerImageStats {
+impl PerFileStats {
     /// Mutable entry for a group; inserts a default `PerGroupStats`
-    /// the first time the group is visited on this image.
+    /// the first time the group is visited on this file.
     pub fn group(&mut self, g: NormaliseGroup) -> &mut PerGroupStats {
         self.per_group.entry(g).or_default()
     }
@@ -338,9 +338,9 @@ impl PerImageStats {
     }
 }
 
-/// Process one image. Walks the enabled groups in pass order; returns
-/// the aggregated draft-edit map plus per-image stats.
-/// Process one image. Walks the enabled groups in the plan's three-pass
+/// Process one file. Walks the enabled groups in pass order; returns
+/// the aggregated draft-edit map plus per-file stats.
+/// Process one file. Walks the enabled groups in the plan's three-pass
 /// order:
 ///   * Pass 1 (independents): Keywords, Creator, Copyright, Location,
 ///     Dates, Headline. Captures keywords / location / date context
@@ -355,11 +355,11 @@ impl PerImageStats {
 /// `ai` is the injected AI client. When `None`, any group whose
 /// conflict policy requires AI returns a typed failure rather than
 /// silently falling back. The first such failure is returned in the
-/// third tuple element and the dispatcher surfaces it as a per-image
-/// failure row; non-AI groups for the same image still emit their
+/// third tuple element and the dispatcher surfaces it as a per-file
+/// failure row; non-AI groups for the same file still emit their
 /// drafts.
 /// Shared dispatcher boilerplate for "simple" deterministic groups
-/// (Creator, Copyright, Headline) — those whose `process_image` block
+/// (Creator, Copyright, Headline) — those whose `process_item` block
 /// only needs to: skip if disabled, count noop if the bundle is
 /// absent, then merge the group's `GroupOutput` into the running
 /// edits map and bump the appropriate stat counter.
@@ -373,7 +373,7 @@ fn apply_simple_group<T>(
     enabled: bool,
     input: Option<&T>,
     edits: &mut SchemaMetadataEditMap,
-    stats: &mut PerImageStats,
+    stats: &mut PerFileStats,
     run: impl FnOnce(&T) -> Option<GroupOutput>,
 ) {
     if !enabled {
@@ -447,26 +447,26 @@ fn derive_date_context(input: &DatesInput) -> Option<String> {
         .and_then(date_context)
 }
 
-pub async fn process_image(
+pub async fn process_item(
     item: &NormaliseRequestItem,
     enabled: &[NormaliseGroup],
     ai: Option<&dyn NormaliseAiClient>,
     cancel: Option<&std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> (
     SchemaMetadataEditMap,
-    PerImageStats,
+    PerFileStats,
     Option<NormaliseAiError>,
-    Vec<PerImageAiCall>,
+    Vec<PerFileAiCall>,
 ) {
     let mut edits = SchemaMetadataEditMap::new();
-    let mut stats = PerImageStats::default();
+    let mut stats = PerFileStats::default();
     let mut first_ai_error: Option<NormaliseAiError> = None;
-    let mut ai_calls: Vec<PerImageAiCall> = Vec::new();
+    let mut ai_calls: Vec<PerFileAiCall> = Vec::new();
 
     // Plan §12: cancellation is checked between groups. A flip
     // mid-group does not abort an in-flight call (the HTTP layer
     // doesn't support that yet), but the next group's guard will see
-    // it and skip the rest of the image. Groups skipped by
+    // it and skip the rest of the file. Groups skipped by
     // cancellation are NOT recorded as noops — they're silently
     // absent from `per_group`, distinguishing user-cancel from
     // already-normalised.
@@ -566,7 +566,7 @@ pub async fn process_image(
             let outcome = normalise_location_with_ai(input, ai).await;
             if outcome.ai_fired {
                 if let Some(usage) = outcome.ai_usage.clone() {
-                    ai_calls.push(PerImageAiCall {
+                    ai_calls.push(PerFileAiCall {
                         group: "location",
                         usage,
                         error: None,
@@ -575,7 +575,7 @@ pub async fn process_image(
             }
             if let Some(error) = outcome.ai_error.clone() {
                 stats.group(NormaliseGroup::Location).n_ai_errors += 1;
-                ai_calls.push(PerImageAiCall {
+                ai_calls.push(PerFileAiCall {
                     group: "location",
                     usage: error.usage.clone().unwrap_or_default(),
                     error: Some(error.detail.clone()),
@@ -687,7 +687,7 @@ pub async fn process_image(
             let outcome = normalise_description(&augmented, ai).await;
             if outcome.ai_fired {
                 if let Some(u) = outcome.ai_usage.clone() {
-                    ai_calls.push(PerImageAiCall {
+                    ai_calls.push(PerFileAiCall {
                         group: "description",
                         usage: u,
                         error: None,
@@ -696,7 +696,7 @@ pub async fn process_image(
             }
             if let Some(err) = outcome.ai_error.clone() {
                 stats.group(NormaliseGroup::Description).n_ai_errors += 1;
-                ai_calls.push(PerImageAiCall {
+                ai_calls.push(PerFileAiCall {
                     group: "description",
                     usage: err.usage.clone().unwrap_or_default(),
                     error: Some(err.detail.clone()),
@@ -752,7 +752,7 @@ pub async fn process_image(
             let outcome = normalise_title(&augmented, ai).await;
             if outcome.ai_fired {
                 if let Some(u) = outcome.ai_usage.clone() {
-                    ai_calls.push(PerImageAiCall {
+                    ai_calls.push(PerFileAiCall {
                         group: "title",
                         usage: u,
                         error: None,
@@ -761,7 +761,7 @@ pub async fn process_image(
             }
             if let Some(err) = outcome.ai_error.clone() {
                 stats.group(NormaliseGroup::Title).n_ai_errors += 1;
-                ai_calls.push(PerImageAiCall {
+                ai_calls.push(PerFileAiCall {
                     group: "title",
                     usage: err.usage.clone().unwrap_or_default(),
                     error: Some(err.detail.clone()),
@@ -834,13 +834,13 @@ pub async fn process_image(
 pub struct NormaliseSummary {
     pub n_succeeded: u32,
     pub n_failed: u32,
-    /// Images for which every enabled group was a no-op
+    /// Files for which every enabled group was a no-op
     /// (idempotency). Counted toward `n_succeeded`.
     pub n_skipped_all_normalised: u32,
-    /// Per-group counters summed across every image in the batch.
+    /// Per-group counters summed across every file in the batch.
     /// Only includes entries for groups that the dispatcher actually
     /// visited; absent keys mean the group was disabled for every
-    /// image.
+    /// file.
     pub per_group: std::collections::BTreeMap<NormaliseGroup, PerGroupStats>,
     /// Sum of USD cost across every AI call (description + title + location)
     /// emitted by this batch. Driven by the audit-log writer in
@@ -853,8 +853,8 @@ pub struct NormaliseSummary {
 }
 
 impl NormaliseSummary {
-    pub fn accumulate(&mut self, per_image: &PerImageStats) {
-        for (group, src) in &per_image.per_group {
+    pub fn accumulate(&mut self, per_file: &PerFileStats) {
+        for (group, src) in &per_file.per_group {
             let dst = self.per_group.entry(*group).or_default();
             dst.n_noop += src.n_noop;
             dst.n_normalised_deterministic += src.n_normalised_deterministic;
@@ -870,7 +870,7 @@ impl NormaliseSummary {
         }
     }
 
-    /// Record a per-image audit-log row's cost. Called by the
+    /// Record a per-file audit-log row's cost. Called by the
     /// dispatcher in `lib.rs` for every AI call (success or failure)
     /// after it has computed the USD cost from the pricing table.
     pub fn record_ai_call(&mut self, cost_usd: f64) {
@@ -897,7 +897,7 @@ mod tests_dispatcher {
             },
         };
 
-        let (edits, stats, _err, _calls) = process_image(
+        let (edits, stats, _err, _calls) = process_item(
             &item,
             &[NormaliseGroup::Keywords, NormaliseGroup::IptcUtf8],
             None,
@@ -932,7 +932,7 @@ mod tests_dispatcher {
         };
 
         let (edits, stats, _err, _calls) =
-            process_image(&item, &[NormaliseGroup::Keywords], None, None).await;
+            process_item(&item, &[NormaliseGroup::Keywords], None, None).await;
 
         assert!(edits.contains_key(&crate::known_ids::iptc_keywords()));
         assert!(!edits.contains_key(&crate::known_ids::iptc_coded_character_set()));
@@ -955,7 +955,7 @@ mod tests_dispatcher {
             },
         };
 
-        let (edits, _stats, _err, _calls) = process_image(
+        let (edits, _stats, _err, _calls) = process_item(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::IptcUtf8],
             None,
@@ -990,7 +990,7 @@ mod tests_dispatcher {
             },
         };
         let (edits, stats, _err, _calls) =
-            process_image(&item, &[NormaliseGroup::Keywords], None, None).await;
+            process_item(&item, &[NormaliseGroup::Keywords], None, None).await;
         assert!(edits.contains_key(&crate::known_ids::xmp_subject()));
         assert!(!edits.contains_key(&crate::known_ids::xmp_creator()));
         let kw = stats.per_group.get(&NormaliseGroup::Keywords).unwrap();
@@ -1007,7 +1007,7 @@ mod tests_dispatcher {
             rel_path: "x.jpg".into(),
             group_inputs: GroupInputs::default(),
         };
-        let (edits, stats, _err, _calls) = process_image(
+        let (edits, stats, _err, _calls) = process_item(
             &item,
             &[
                 NormaliseGroup::Keywords,
@@ -1074,7 +1074,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let _ = process_image(
+        let _ = process_item(
             &item,
             &[NormaliseGroup::Keywords, NormaliseGroup::Description],
             Some(&ai),
@@ -1126,7 +1126,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, _, _err, _calls) = process_image(
+        let (edits, _, _err, _calls) = process_item(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
@@ -1194,7 +1194,7 @@ mod tests_dispatcher {
             },
         };
         let (edits, stats, _err, ai_calls) =
-            process_image(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
+            process_item(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
 
         assert_eq!(
             match &edits
@@ -1305,7 +1305,7 @@ mod tests_dispatcher {
             },
         };
         let (edits, stats, _err, ai_calls) =
-            process_image(&item, &[NormaliseGroup::Description], Some(&ai), None).await;
+            process_item(&item, &[NormaliseGroup::Description], Some(&ai), None).await;
 
         assert!(edits.contains_key(&crate::known_ids::xmp_description()));
         let desc = stats.per_group.get(&NormaliseGroup::Description).unwrap();
@@ -1379,7 +1379,7 @@ mod tests_dispatcher {
             },
         };
         let (_edits, stats, _err, ai_calls) =
-            process_image(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
+            process_item(&item, &[NormaliseGroup::Title], Some(&ai), None).await;
 
         let title = stats.per_group.get(&NormaliseGroup::Title).unwrap();
         assert_eq!(title.n_normalised_ai, 1);
@@ -1414,7 +1414,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, _err, _calls) = process_image(
+        let (edits, stats, _err, _calls) = process_item(
             &item,
             &[NormaliseGroup::Keywords, NormaliseGroup::Creator],
             None,
@@ -1425,7 +1425,7 @@ mod tests_dispatcher {
         assert!(stats.per_group.is_empty());
         // Sanity: clearing the flag and rerunning emits drafts.
         cancel.store(false, Ordering::Relaxed);
-        let (edits, stats, _err, _calls) = process_image(
+        let (edits, stats, _err, _calls) = process_item(
             &item,
             &[NormaliseGroup::Keywords, NormaliseGroup::Creator],
             None,
@@ -1437,12 +1437,12 @@ mod tests_dispatcher {
     }
 
     #[tokio::test]
-    async fn cancellation_mid_image_preserves_earlier_drafts() {
+    async fn cancellation_mid_file_preserves_earlier_drafts() {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
         // Mock AI that flips the cancel flag during the description
         // merge call. Title (next group) should then be skipped, but
-        // the description drafts from this image survive.
+        // the description drafts from this file survive.
         struct CancellingAi {
             cancel: Arc<AtomicBool>,
         }
@@ -1478,7 +1478,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, _err, _calls) = process_image(
+        let (edits, stats, _err, _calls) = process_item(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
@@ -1494,8 +1494,8 @@ mod tests_dispatcher {
         assert_eq!(d.n_normalised_ai, 1);
     }
 
-    fn make_per_image(entries: &[(NormaliseGroup, PerGroupStats)]) -> PerImageStats {
-        let mut p = PerImageStats::default();
+    fn make_per_file(entries: &[(NormaliseGroup, PerGroupStats)]) -> PerFileStats {
+        let mut p = PerFileStats::default();
         for (g, s) in entries {
             *p.group(*g) = s.clone();
         }
@@ -1503,9 +1503,9 @@ mod tests_dispatcher {
     }
 
     #[test]
-    fn summary_accumulates_per_image_stats() {
+    fn summary_accumulates_per_file_stats() {
         let mut summary = NormaliseSummary::default();
-        summary.accumulate(&make_per_image(&[
+        summary.accumulate(&make_per_file(&[
             (
                 NormaliseGroup::Keywords,
                 PerGroupStats {
@@ -1539,7 +1539,7 @@ mod tests_dispatcher {
                 },
             ),
         ]));
-        summary.accumulate(&make_per_image(&[
+        summary.accumulate(&make_per_file(&[
             (
                 NormaliseGroup::Keywords,
                 PerGroupStats {
@@ -1593,7 +1593,7 @@ mod tests_dispatcher {
     #[tokio::test]
     async fn audit_log_roundtrip_for_ai_calls() {
         // Integration check: a Group B AI success and a Group C AI
-        // failure both produce `PerImageAiCall` entries that write
+        // failure both produce `PerFileAiCall` entries that write
         // distinct, parseable JSONL rows when fed through
         // `batch_audit_log::append`, with cost rolling into the
         // batch-level summary totals. Mirrors what lib.rs does at
@@ -1650,7 +1650,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (_edits, stats, _err, ai_calls) = process_image(
+        let (_edits, stats, _err, ai_calls) = process_item(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&MixedAi),
@@ -1811,7 +1811,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, err, ai_calls) = process_image(
+        let (edits, stats, err, ai_calls) = process_item(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),
@@ -1870,7 +1870,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, _err, _calls) = process_image(
+        let (edits, stats, _err, _calls) = process_item(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&capturing as &dyn NormaliseAiClient),
@@ -1942,7 +1942,7 @@ mod tests_dispatcher {
                 ..Default::default()
             },
         };
-        let (edits, stats, err, ai_calls) = process_image(
+        let (edits, stats, err, ai_calls) = process_item(
             &item,
             &[NormaliseGroup::Description, NormaliseGroup::Title],
             Some(&ai),

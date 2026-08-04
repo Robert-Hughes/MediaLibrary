@@ -46,14 +46,14 @@ pub fn estimate_per_image_cost_cmd(model: String) -> Result<f64, String> {
 /// (worst case). Drives the per-model cost preview in the Settings
 /// dialog's normalise-model picker. Plan §6.
 #[tauri::command]
-pub fn estimate_per_image_normalise_cost_cmd(model: String) -> Result<f64, String> {
-    openai_normalise::typical_normalise_cost_per_image(&model)
+pub fn estimate_per_file_normalise_cost_cmd(model: String) -> Result<f64, String> {
+    openai_normalise::typical_normalise_cost_per_file(&model)
         .ok_or_else(|| format!("no pricing entry for model {}", model))
 }
 
 /// Ballpark cost for the distinct location-resolution AI call.
 #[tauri::command]
-pub fn estimate_per_image_location_normalise_cost_cmd(model: String) -> Result<f64, String> {
-    openai_normalise::typical_location_normalise_cost_per_image(&model)
+pub fn estimate_per_file_location_normalise_cost_cmd(model: String) -> Result<f64, String> {
+    openai_normalise::typical_location_normalise_cost_per_file(&model)
         .ok_or_else(|| format!("no pricing entry for model {}", model))
 }

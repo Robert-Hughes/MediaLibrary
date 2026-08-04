@@ -104,7 +104,7 @@ pub const HEURISTIC_LOCATION_INPUT_TOKENS: u32 = 1_565;
 /// dropdown. Plan §6: assumes the worst case (both Group B and Group C
 /// fire on the same photo) with median prompt sizes. The run-time
 /// estimator (§7) computes exact costs from real prompts.
-pub fn typical_normalise_cost_per_image(model: &str) -> Option<f64> {
+pub fn typical_normalise_cost_per_file(model: &str) -> Option<f64> {
     let p = crate::openai_describe::pricing_for(model)?;
     let b_in = HEURISTIC_DESCRIPTION_INPUT_TOKENS as f64;
     let b_out = EXPECTED_DESCRIPTION_OUTPUT_TOKENS as f64;
@@ -116,7 +116,7 @@ pub fn typical_normalise_cost_per_image(model: &str) -> Option<f64> {
     )
 }
 
-pub fn typical_location_normalise_cost_per_image(model: &str) -> Option<f64> {
+pub fn typical_location_normalise_cost_per_file(model: &str) -> Option<f64> {
     let pricing = crate::openai_describe::pricing_for(model)?;
     Some(
         (HEURISTIC_LOCATION_INPUT_TOKENS as f64 / 1_000_000.0) * pricing.input_per_1m

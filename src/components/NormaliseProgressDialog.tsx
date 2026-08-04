@@ -194,9 +194,9 @@ function computeCostForSelection(
   const breakdown = estimate.aiTokenBreakdown;
   const pricing = estimate.pricing;
   const locationPricing = estimate.locationPricing;
-  const descCalls = descEnabled ? estimate.nImagesWithAiB : 0;
-  const titleCalls = titleEnabled ? estimate.nImagesWithAiC : 0;
-  const locationCalls = locationEnabled ? estimate.nImagesWithAiG : 0;
+  const descCalls = descEnabled ? estimate.nFilesWithAiB : 0;
+  const titleCalls = titleEnabled ? estimate.nFilesWithAiC : 0;
+  const locationCalls = locationEnabled ? estimate.nFilesWithAiG : 0;
   const needsMetadataPricing = descCalls + titleCalls > 0;
   const needsLocationPricing = locationCalls > 0;
   if (

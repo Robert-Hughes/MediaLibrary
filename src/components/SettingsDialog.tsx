@@ -86,7 +86,7 @@ export function SettingsDialog({ onClose }: Props) {
         // Same allSettled pattern for the normaliser cost preview.
         const nResults = await Promise.allSettled(
           ms.map((m) =>
-            invoke<number>("estimate_per_image_normalise_cost_cmd", {
+            invoke<number>("estimate_per_file_normalise_cost_cmd", {
               model: m,
             }).then((cost) => [m, cost] as const),
           ),
@@ -103,7 +103,7 @@ export function SettingsDialog({ onClose }: Props) {
 
         const lResults = await Promise.allSettled(
           ms.map((m) =>
-            invoke<number>("estimate_per_image_location_normalise_cost_cmd", {
+            invoke<number>("estimate_per_file_location_normalise_cost_cmd", {
               model: m,
             }).then((cost) => [m, cost] as const),
           ),
