@@ -80,6 +80,9 @@ export interface MockTauriApi {
   emitFileFound: (file: FileInfo, scanId?: number) => void;
   foundPaths: Set<string>;
   emitScanComplete: (scanId?: number) => void;
+  emitDraftPersistenceChanged: (
+    state: MediaLibrarySessionSnapshot["draft_persistence"],
+  ) => void;
   emitFileMetadataReady: (
     relativePath: string,
     metadata: Record<string, MetadataValue>,
@@ -339,9 +342,21 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           discovery_running: false,
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDiscoveryChanged(false);
       }
       emit("scan_complete", { scan_id: sessionId });
+    },
+    emitDraftPersistenceChanged: (state) => {
+      sessionSnapshot = {
+        ...sessionSnapshot,
+        revision: sessionSnapshot.revision + 1,
+        draft_persistence: state,
+      };
+      emit("media_library_session_draft_persistence_changed", {
+        session_id: sessionSnapshot.session_id,
+        revision: sessionSnapshot.revision,
+        state,
+      });
     },
     emitFileMetadataReady: (relativePath, metadata, scanId, occurrences) => {
       mock.emitFileMetadataBatch(
@@ -924,7 +939,7 @@ export function createMockTauriApi(): MockTauriApi {
             (issue) => issue.issue_id !== issueId,
           ),
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitIssueRemoved(issueId);
         return { ...sessionSnapshot };
       }
       if (cmd === "record_media_library_session_issue") {
@@ -958,7 +973,7 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           lifecycle: "closing",
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitRevisionAdvanced();
         sessionSnapshot = {
           session_id: null,
           revision: sessionSnapshot.revision + 1,
@@ -1024,7 +1039,7 @@ export function createMockTauriApi(): MockTauriApi {
             ),
             drafts: targetDraftsToWire(drafts),
           };
-          emit("media_library_session_changed", { ...sessionSnapshot });
+          emitFilesRemoved([...recycled]);
         }
         return { results };
       }
@@ -1145,7 +1160,7 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           verification_outcomes: {},
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitVerificationOutcomesChanged({});
         return { ...sessionSnapshot };
       }
       if (cmd === "dismiss_media_library_session_batch_operation") {
@@ -1160,7 +1175,9 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           batch_operations,
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        if (kind) {
+          emitBatchOperationChanged(kind, null);
+        }
         return { ...sessionSnapshot };
       }
       if (cmd === "discard_media_library_session_drafts") {
@@ -1188,7 +1205,15 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged({
+          [relativePath]:
+            (
+              targetDraftsToWire(store.getAllMetadata()) as Record<
+                string,
+                MetadataTargetDraftEntry[]
+              >
+            )[relativePath] ?? [],
+        });
         return { ...sessionSnapshot };
       }
       if (cmd === "replace_media_library_session_new_property_draft") {
@@ -2052,7 +2077,7 @@ export function createMockTauriApi(): MockTauriApi {
             summary,
           },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitApplyOperationChanged(sessionSnapshot.apply_operation);
         return {
           summary,
           undelivered_files: undeliveredFiles,
@@ -2071,7 +2096,7 @@ export function createMockTauriApi(): MockTauriApi {
           revision: sessionSnapshot.revision + 1,
           apply_operation: null,
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitApplyOperationChanged(null);
         return { ...sessionSnapshot };
       }
       if (cmd === "cancel_apply_edits") {
@@ -2094,7 +2119,7 @@ export function createMockTauriApi(): MockTauriApi {
               cancelling: true,
             },
           };
-          emit("media_library_session_changed", { ...sessionSnapshot });
+          emitApplyOperationChanged(sessionSnapshot.apply_operation);
         }
         return;
       }
@@ -2145,7 +2170,10 @@ export function createMockTauriApi(): MockTauriApi {
             },
           },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitBatchOperationChanged(
+          "describe",
+          sessionSnapshot.batch_operations.describe,
+        );
         return;
       }
       if (cmd === "describe_images_cmd") {
@@ -2226,7 +2254,10 @@ export function createMockTauriApi(): MockTauriApi {
             },
           },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitBatchOperationChanged(
+          "describe",
+          sessionSnapshot.batch_operations.describe,
+        );
         return;
       }
       if (cmd === "cancel_describe_cmd") {
@@ -2264,7 +2295,10 @@ export function createMockTauriApi(): MockTauriApi {
             },
           },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitBatchOperationChanged(
+          "geocode",
+          sessionSnapshot.batch_operations.geocode,
+        );
         return;
       }
       if (cmd === "geocode_images_cmd") {
@@ -2353,7 +2387,10 @@ export function createMockTauriApi(): MockTauriApi {
             },
           },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitBatchOperationChanged(
+          "geocode",
+          sessionSnapshot.batch_operations.geocode,
+        );
         return;
       }
       if (cmd === "cancel_geocode_cmd") {
@@ -2447,7 +2484,10 @@ export function createMockTauriApi(): MockTauriApi {
             },
           },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitBatchOperationChanged(
+          "normalise",
+          sessionSnapshot.batch_operations.normalise,
+        );
         return;
       }
       if (cmd === "normalise_metadata_cmd") {
@@ -2560,7 +2600,10 @@ export function createMockTauriApi(): MockTauriApi {
             },
           },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitBatchOperationChanged(
+          "normalise",
+          sessionSnapshot.batch_operations.normalise,
+        );
         return;
       }
       if (cmd === "cancel_normalise_cmd") {
@@ -2587,6 +2630,72 @@ export function createMockTauriApi(): MockTauriApi {
     ) {
       emitActiveSearchRefresh();
     }
+  };
+
+  // Session delta emitters mirroring the Rust backend's small-payload
+  // `SessionEvent` variants. Each reads `sessionSnapshot.revision`, so callers
+  // must bump the snapshot revision first.
+  const emitDraftsChanged = (
+    rows: Record<string, MetadataTargetDraftEntry[]>,
+  ) => {
+    emit("media_library_session_drafts_changed", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+      rows,
+    });
+  };
+  const emitBatchOperationChanged = (kind: string, operation: unknown) => {
+    emit("media_library_session_batch_operation_changed", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+      kind,
+      operation,
+    });
+  };
+  const emitApplyOperationChanged = (operation: unknown) => {
+    emit("media_library_session_apply_operation_changed", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+      operation,
+    });
+  };
+  const emitVerificationOutcomesChanged = (
+    outcomes: Record<string, unknown>,
+    draftRows: Record<string, MetadataTargetDraftEntry[]> = {},
+  ) => {
+    emit("media_library_session_verification_outcomes_changed", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+      outcomes,
+      draft_rows: draftRows,
+    });
+  };
+  const emitIssueRemoved = (issueId: number) => {
+    emit("media_library_session_issue_removed", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+      issue_id: issueId,
+    });
+  };
+  const emitFilesRemoved = (paths: string[]) => {
+    emit("media_library_session_files_removed", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+      paths,
+    });
+  };
+  const emitDiscoveryChanged = (discoveryRunning: boolean) => {
+    emit("media_library_session_discovery_changed", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+      discovery_running: discoveryRunning,
+    });
+  };
+  const emitRevisionAdvanced = () => {
+    emit("media_library_session_revision_advanced", {
+      session_id: sessionSnapshot.session_id,
+      revision: sessionSnapshot.revision,
+    });
   };
 
   mock.api = api;

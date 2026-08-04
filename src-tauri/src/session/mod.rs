@@ -174,7 +174,14 @@ impl MediaLibrarySessionState {
             },
         );
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::BatchOperationChanged(Box::new(
+            MediaLibrarySessionBatchOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                kind: kind.to_owned(),
+                operation: snapshot.batch_operations.get(kind).cloned(),
+            },
+        )));
         Ok(result)
     }
 
@@ -208,9 +215,18 @@ impl MediaLibrarySessionState {
         if let Some(request) = confirmed_request {
             operation.request = Some(request);
         }
+        let kind = operation.kind.clone();
+        let changed = operation.clone();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::BatchOperationChanged(Box::new(
+            MediaLibrarySessionBatchOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                kind,
+                operation: Some(changed),
+            },
+        )));
         Ok(result)
     }
 
@@ -355,9 +371,18 @@ impl MediaLibrarySessionState {
         operation.cancelling = false;
         operation.estimate = Some(estimate);
         operation.error = None;
+        let kind = operation.kind.clone();
+        let changed = operation.clone();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::BatchOperationChanged(Box::new(
+            MediaLibrarySessionBatchOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                kind,
+                operation: Some(changed),
+            },
+        )));
         Ok(result)
     }
 
@@ -390,9 +415,18 @@ impl MediaLibrarySessionState {
         operation.failures = failures;
         operation.summary = Some(summary);
         operation.error = None;
+        let kind = operation.kind.clone();
+        let changed = operation.clone();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::BatchOperationChanged(Box::new(
+            MediaLibrarySessionBatchOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                kind,
+                operation: Some(changed),
+            },
+        )));
         Ok(result)
     }
 
@@ -415,9 +449,18 @@ impl MediaLibrarySessionState {
         operation.current_file = None;
         operation.cancelling = false;
         operation.error = Some(error);
+        let kind = operation.kind.clone();
+        let changed = operation.clone();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::BatchOperationChanged(Box::new(
+            MediaLibrarySessionBatchOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                kind,
+                operation: Some(changed),
+            },
+        )));
         Ok(result)
     }
 
@@ -438,9 +481,18 @@ impl MediaLibrarySessionState {
             .find(|operation| operation.operation_id == operation_id)
             .ok_or_else(|| "The batch operation identity changed".to_string())?;
         operation.cancelling = true;
+        let kind = operation.kind.clone();
+        let changed = operation.clone();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::BatchOperationChanged(Box::new(
+            MediaLibrarySessionBatchOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                kind,
+                operation: Some(changed),
+            },
+        )));
         Ok(result)
     }
 
@@ -467,7 +519,14 @@ impl MediaLibrarySessionState {
         {
             snapshot.revision += 1;
             let result = snapshot.clone();
-            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+            self.notify(SessionEvent::BatchOperationChanged(Box::new(
+                MediaLibrarySessionBatchOperationChanged {
+                    session_id,
+                    revision: snapshot.revision,
+                    kind: kind.clone().unwrap_or_default(),
+                    operation: None,
+                },
+            )));
             return Ok(result);
         }
         Ok(snapshot.clone())
@@ -504,8 +563,15 @@ impl MediaLibrarySessionState {
             issues: Vec::new(),
             summary: None,
         });
+        let operation = snapshot.apply_operation.clone();
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::ApplyOperationChanged(Box::new(
+            MediaLibrarySessionApplyOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                operation,
+            },
+        )));
         Ok(result)
     }
 
@@ -662,7 +728,14 @@ impl MediaLibrarySessionState {
         match message {
             crate::apply_batch::MetadataApplyStreamMessage::Complete { .. } => {
                 self.notify(SessionEvent::ApplyProgress(Box::new(message.clone())));
-                self.notify(SessionEvent::Snapshot(Box::new(snapshot.clone())));
+                let operation = snapshot.apply_operation.clone();
+                self.notify(SessionEvent::ApplyOperationChanged(Box::new(
+                    MediaLibrarySessionApplyOperationChanged {
+                        session_id,
+                        revision: snapshot.revision,
+                        operation,
+                    },
+                )));
             }
             _ => {
                 self.notify(SessionEvent::ApplyProgress(Box::new(message.clone())));
@@ -708,9 +781,16 @@ impl MediaLibrarySessionState {
             return Ok(snapshot.clone());
         }
         operation.cancelling = true;
+        let changed = operation.clone();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::ApplyOperationChanged(Box::new(
+            MediaLibrarySessionApplyOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                operation: Some(changed),
+            },
+        )));
         Ok(result)
     }
 
@@ -733,9 +813,16 @@ impl MediaLibrarySessionState {
         }
         operation.state = MediaLibraryApplyOperationState::Failed { error };
         operation.current_file = None;
+        let changed = operation.clone();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::ApplyOperationChanged(Box::new(
+            MediaLibrarySessionApplyOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                operation: Some(changed),
+            },
+        )));
         Ok(result)
     }
 
@@ -757,7 +844,13 @@ impl MediaLibrarySessionState {
         snapshot.apply_operation = None;
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::ApplyOperationChanged(Box::new(
+            MediaLibrarySessionApplyOperationChanged {
+                session_id,
+                revision: snapshot.revision,
+                operation: None,
+            },
+        )));
         Ok(result)
     }
 
@@ -794,16 +887,32 @@ impl MediaLibrarySessionState {
         if outcomes.is_empty() {
             snapshot.verification_outcomes.remove(relative_path);
         }
+        let mut draft_rows = HashMap::new();
         if let Some(entries) = persisted_entries {
             if entries.is_empty() {
                 snapshot.drafts.remove(relative_path);
             } else {
                 snapshot.drafts.insert(relative_path.to_owned(), entries);
             }
+            draft_rows.insert(
+                relative_path.to_owned(),
+                snapshot
+                    .drafts
+                    .get(relative_path)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
         }
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::VerificationOutcomesChanged(Box::new(
+            MediaLibrarySessionVerificationOutcomesChanged {
+                session_id,
+                revision: snapshot.revision,
+                outcomes: snapshot.verification_outcomes.clone(),
+                draft_rows,
+            },
+        )));
         Ok(result)
     }
 
@@ -825,7 +934,14 @@ impl MediaLibrarySessionState {
         snapshot.verification_outcomes.clear();
         snapshot.revision += 1;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::VerificationOutcomesChanged(Box::new(
+            MediaLibrarySessionVerificationOutcomesChanged {
+                session_id,
+                revision: snapshot.revision,
+                outcomes: HashMap::new(),
+                draft_rows: HashMap::new(),
+            },
+        )));
         Ok(result)
     }
 
@@ -968,8 +1084,16 @@ impl MediaLibrarySessionState {
                     .insert(relative_path.clone(), entries.clone());
             }
         }
+        let rows_map: HashMap<String, Vec<MetadataTargetDraftEntry>> =
+            rows.iter().cloned().collect();
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::DraftsChanged(Box::new(
+            MediaLibrarySessionDraftsChanged {
+                session_id,
+                revision: snapshot.revision,
+                rows: rows_map,
+            },
+        )));
         drop(snapshot);
         self.search.set_drafts(session_id, revision, rows);
         Ok(result)
@@ -1000,7 +1124,13 @@ impl MediaLibrarySessionState {
         snapshot.revision += 1;
         snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::SaveFailed { error };
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::DraftPersistenceChanged(Box::new(
+            MediaLibrarySessionDraftPersistenceChanged {
+                session_id,
+                revision: snapshot.revision,
+                state: snapshot.draft_persistence.clone(),
+            },
+        )));
         Ok(result)
     }
 
@@ -1326,7 +1456,13 @@ impl MediaLibrarySessionState {
         let revision = snapshot.revision;
         let result = snapshot.clone();
         if changed {
-            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+            self.notify(SessionEvent::FilesRemoved(Box::new(
+                MediaLibrarySessionFilesRemoved {
+                    session_id,
+                    revision,
+                    paths: relative_paths.to_vec(),
+                },
+            )));
         }
         drop(snapshot);
         if changed {
@@ -1347,7 +1483,13 @@ impl MediaLibrarySessionState {
             snapshot.revision += 1;
             snapshot.discovery_running = false;
             let result = snapshot.clone();
-            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+            self.notify(SessionEvent::DiscoveryChanged(Box::new(
+                MediaLibrarySessionDiscoveryChanged {
+                    session_id,
+                    revision: snapshot.revision,
+                    discovery_running: false,
+                },
+            )));
             return Ok(result);
         }
         Ok(snapshot.clone())
@@ -1425,7 +1567,13 @@ impl MediaLibrarySessionState {
         if snapshot.issues.len() != previous_len {
             snapshot.revision += 1;
             let result = snapshot.clone();
-            self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+            self.notify(SessionEvent::IssueRemoved(Box::new(
+                MediaLibrarySessionIssueRemoved {
+                    session_id: result.session_id.unwrap_or_default(),
+                    revision: snapshot.revision,
+                    issue_id,
+                },
+            )));
             return result;
         }
         snapshot.clone()
@@ -1441,7 +1589,12 @@ impl MediaLibrarySessionState {
         snapshot.revision += 1;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Closing;
         let result = snapshot.clone();
-        self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
+        self.notify(SessionEvent::RevisionAdvanced(
+            MediaLibrarySessionRevisionAdvanced {
+                session_id,
+                revision: snapshot.revision,
+            },
+        ));
         Ok(result)
     }
 
@@ -1529,7 +1682,7 @@ mod tests {
                 SESSION_CHANGED_EVENT,
                 SESSION_FILES_ADDED_EVENT,
                 SESSION_METADATA_CHANGED_EVENT,
-                SESSION_CHANGED_EVENT,
+                SESSION_DISCOVERY_CHANGED_EVENT,
             ]
         );
         let revisions: Vec<u64> = events.iter().map(SessionEvent::revision).collect();
@@ -1697,7 +1850,10 @@ mod tests {
         let after_complete: Vec<SessionEvent> = receiver.try_iter().collect();
         assert_eq!(after_complete.len(), 2);
         assert!(matches!(after_complete[0], SessionEvent::ApplyProgress(_)));
-        assert!(matches!(after_complete[1], SessionEvent::Snapshot(_)));
+        assert!(matches!(
+            after_complete[1],
+            SessionEvent::ApplyOperationChanged(_)
+        ));
     }
 
     #[test]

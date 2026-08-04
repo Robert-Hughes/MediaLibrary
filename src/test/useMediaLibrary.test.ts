@@ -1794,6 +1794,28 @@ describe("useMediaLibrary", () => {
     ).toHaveLength(1);
   });
 
+  it("projects draft persistence changes from the delta event", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => result.current[1].openFolder());
+    act(() => mock.emitScanComplete());
+
+    act(() => {
+      mock.emitDraftPersistenceChanged({
+        status: "save-failed",
+        error: "disk full",
+      });
+    });
+
+    const state = result.current[0];
+    if (state.kind !== "loaded") return;
+    expect(state.targetDraftPersistence).toEqual({
+      status: "save-failed",
+      error: "disk full",
+    });
+  });
+
   it("atomically moves a New Property draft and preserves its semantic edit", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");

@@ -14,6 +14,18 @@ pub const SESSION_THUMBNAILS_CHANGED_EVENT: &str = "media_library_session_thumbn
 pub const SESSION_ISSUE_ADDED_EVENT: &str = "media_library_session_issue_added";
 pub const SESSION_APPLY_PROGRESS_EVENT: &str = "media_library_session_apply_progress";
 pub const SESSION_REVISION_ADVANCED_EVENT: &str = "media_library_session_revision_advanced";
+pub const SESSION_BATCH_OPERATION_CHANGED_EVENT: &str =
+    "media_library_session_batch_operation_changed";
+pub const SESSION_APPLY_OPERATION_CHANGED_EVENT: &str =
+    "media_library_session_apply_operation_changed";
+pub const SESSION_VERIFICATION_OUTCOMES_CHANGED_EVENT: &str =
+    "media_library_session_verification_outcomes_changed";
+pub const SESSION_DRAFTS_CHANGED_EVENT: &str = "media_library_session_drafts_changed";
+pub const SESSION_DRAFT_PERSISTENCE_CHANGED_EVENT: &str =
+    "media_library_session_draft_persistence_changed";
+pub const SESSION_DISCOVERY_CHANGED_EVENT: &str = "media_library_session_discovery_changed";
+pub const SESSION_FILES_REMOVED_EVENT: &str = "media_library_session_files_removed";
+pub const SESSION_ISSUE_REMOVED_EVENT: &str = "media_library_session_issue_removed";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -253,4 +265,108 @@ pub struct MediaLibrarySessionFilesAdded {
     #[cfg_attr(test, ts(type = "number"))]
     pub revision: u64,
     pub files: Vec<FileInfo>,
+}
+
+/// One batch operation (describe / geocode / normalise) was created, advanced
+/// or removed. `operation` is `None` when the operation was dismissed.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionBatchOperationChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub kind: String,
+    pub operation: Option<MediaLibraryBatchOperation>,
+}
+
+/// The apply operation was created, advanced to a terminal state, or cleared.
+/// `operation` is `None` when the apply operation was dismissed.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionApplyOperationChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub operation: Option<MediaLibraryApplyOperation>,
+}
+
+/// Verification outcomes changed for a set of files. Carries the mutated
+/// outcomes map plus any draft rows committed alongside the resolution (the
+/// resolve command can persist draft entries in the same mutation).
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionVerificationOutcomesChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub outcomes: HashMap<String, Vec<MetadataTargetOutcome>>,
+    pub draft_rows: HashMap<String, Vec<crate::draft_edits::MetadataTargetDraftEntry>>,
+}
+
+/// Draft rows committed for a set of files. An empty entry value removes the
+/// file's drafts.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionDraftsChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub rows: HashMap<String, Vec<crate::draft_edits::MetadataTargetDraftEntry>>,
+}
+
+/// Draft persistence state changed (for example a save failure).
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionDraftPersistenceChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub state: MediaLibrarySessionDraftPersistenceState,
+}
+
+/// Discovery (scan) running flag changed.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionDiscoveryChanged {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub discovery_running: bool,
+}
+
+/// Files were removed from the session.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionFilesRemoved {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    pub paths: Vec<String>,
+}
+
+/// An issue was dismissed.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct MediaLibrarySessionIssueRemoved {
+    #[cfg_attr(test, ts(type = "number"))]
+    pub session_id: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub revision: u64,
+    #[cfg_attr(test, ts(type = "number"))]
+    pub issue_id: u64,
 }
