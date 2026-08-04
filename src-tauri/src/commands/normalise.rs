@@ -60,6 +60,37 @@ struct PerGroupOutcomeCounts {
     n_overwrites: u32,
 }
 
+/// One field-level overwrite: a non-empty effective value that the
+/// group's output would replace (or remove).
+struct OverwriteDetail {
+    tag: String,
+    current: String,
+    new: String,
+}
+
+/// Serialised per-file conflict detail for the estimate preview's
+/// expandable audit section.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EstimateConflictDetail {
+    relative_path: String,
+    group: String,
+    subunit: String,
+    summary: String,
+}
+
+/// Serialised per-file overwrite detail for the estimate preview's
+/// expandable audit section.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EstimateOverwriteDetail {
+    relative_path: String,
+    group: String,
+    tag: String,
+    current: String,
+    new: String,
+}
+
 #[derive(Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct EstimateAiTokenBreakdown {
@@ -111,6 +142,12 @@ struct NormaliseEstimateCompletePayload {
     /// effective marker was not already UTF-8. The frontend unions the
     /// selected groups to keep IPTC UTF-8 applicability selection-aware.
     iptc_utf8_output_paths_by_group: BTreeMap<normalise::NormaliseGroup, Vec<String>>,
+    /// Per-file conflict detail (group + subunit + rendered summary),
+    /// for the confirm dialog's expandable audit section.
+    conflict_details: Vec<EstimateConflictDetail>,
+    /// Per-file field overwrites (current value would be replaced or
+    /// removed), for the confirm dialog's expandable audit section.
+    overwrite_details: Vec<EstimateOverwriteDetail>,
     /// AI input-token totals split by which AI branch fires. Frontend
     /// uses this to recompute cost when the user toggles Description /
     /// Title rows. `None` when the API key is missing (we still walk
@@ -137,23 +174,80 @@ struct NormaliseEstimateErrorPayload {
     message: String,
 }
 
-/// Count fields in `group` whose current effective value (from the
-/// per-image input bundle) is non-empty AND would be replaced by a
-/// different value (or removed entirely) when the group fires. For
-/// AI-fired groups (Description case 4, Title case 3) the eventual
-/// value isn't known, so assume "always different" per spec.
+/// Render a `MetadataValue` for human-readable display in conflict and
+/// overwrite detail (application-log lines and the estimate preview).
+/// This is not the storage representation — just enough to see what
+/// would change.
+fn render_value_for_display(value: &crate::metadata_value::MetadataValue) -> String {
+    use crate::metadata_value::{MetadataValue, OffsetSign};
+
+    fn render_offset(offset: &crate::metadata_value::UtcOffsetValue) -> String {
+        let sign = match offset.sign {
+            OffsetSign::Plus => '+',
+            OffsetSign::Minus => '-',
+        };
+        format!("{sign}{:02}:{:02}", offset.hours, offset.minutes)
+    }
+
+    match value {
+        MetadataValue::Null => "«null»".into(),
+        MetadataValue::Text(s) => s.clone(),
+        MetadataValue::Bool(b) => b.to_string(),
+        MetadataValue::Integer(n) => n.to_string(),
+        MetadataValue::Real(f) => f.to_string(),
+        MetadataValue::Rational(r) => format!("{}/{}", r.numerator, r.denominator),
+        MetadataValue::Date(d) => format!("{:04}-{:02}-{:02}", d.year, d.month, d.day),
+        MetadataValue::Time(t) => {
+            let mut s = format!("{:02}:{:02}:{:02}", t.hour, t.minute, t.second);
+            if let Some(subsecond) = &t.subsecond {
+                s.push('.');
+                s.push_str(subsecond);
+            }
+            if let Some(offset) = &t.offset {
+                s.push_str(&render_offset(offset));
+            }
+            s
+        }
+        MetadataValue::DateTime(dt) => format!(
+            "{} {}",
+            render_value_for_display(&MetadataValue::Date(dt.date.clone())),
+            render_value_for_display(&MetadataValue::Time(dt.time.clone())),
+        ),
+        MetadataValue::TimeOffset(offset) => render_offset(offset),
+        MetadataValue::List { items, .. } => items
+            .iter()
+            .map(render_value_for_display)
+            .collect::<Vec<_>>()
+            .join(", "),
+        MetadataValue::LangAlt(_) => "«language alternative»".into(),
+        MetadataValue::Struct(fields) => fields
+            .iter()
+            .map(|(k, v)| format!("{k}={}", render_value_for_display(v)))
+            .collect::<Vec<_>>()
+            .join(", "),
+        MetadataValue::Binary => "«binary»".into(),
+        MetadataValue::Unknown { .. } => "«unknown»".into(),
+    }
+}
+
+/// Fields in `group` whose current effective value (from the per-image
+/// input bundle) is non-empty AND would be replaced by a different value
+/// (or removed entirely) when the group fires. For AI-fired groups
+/// (Description case 4, Title case 3) the eventual value isn't known, so
+/// we assume "always different" per spec and label the replacement
+/// `«AI-generated»`.
 ///
 /// `edits` is the full set of draft edits returned by
 /// `process_image`; tags from different groups don't collide so we
 /// pick out this group's writes by tag name.
-fn count_overwrites_for_group(
+fn overwrites_for_group(
     group: normalise::NormaliseGroup,
     inputs: &normalise::GroupInputs,
     edits: &crate::draft_edits::SchemaMetadataEditMap,
     fires_description_ai: bool,
     fires_title_ai: bool,
     fires_location_ai: bool,
-) -> u32 {
+) -> Vec<OverwriteDetail> {
     use crate::draft_edits::EditIntent;
     use crate::metadata_value::MetadataValue;
     use normalise::NormaliseGroup as G;
@@ -165,60 +259,115 @@ fn count_overwrites_for_group(
         _ => false,
     };
 
-    let scalar = |id: crate::tag_schema::SchemaDefinitionId, current: Option<&str>| -> u32 {
+    let registry = crate::tag_schema::get_registry().ok();
+    let tag_label = |id: &crate::tag_schema::SchemaDefinitionId| -> String {
+        registry
+            .as_ref()
+            .and_then(|r| r.lookup(id))
+            .map(|info| info.display_name())
+            .unwrap_or_else(|| format!("{}:{}", id.table, id.tag_id))
+    };
+
+    let mut out: Vec<OverwriteDetail> = Vec::new();
+
+    let scalar = |id: &crate::tag_schema::SchemaDefinitionId,
+                  current: Option<&str>,
+                  out: &mut Vec<OverwriteDetail>| {
         let current = match current.filter(|s| !s.is_empty()) {
             Some(s) => s,
-            None => return 0,
+            None => return,
         };
         if assume_ai {
-            return 1;
+            out.push(OverwriteDetail {
+                tag: tag_label(id),
+                current: current.to_string(),
+                new: "«AI-generated»".into(),
+            });
+            return;
         }
-        match edits.get(&id) {
-            None => 0,
+        match edits.get(id) {
+            None => {}
             Some(e) => match e.intent {
-                EditIntent::Delete => 1,
+                EditIntent::Delete => out.push(OverwriteDetail {
+                    tag: tag_label(id),
+                    current: current.to_string(),
+                    new: "«delete»".into(),
+                }),
                 EditIntent::Set => match e.value.as_ref() {
-                    Some(MetadataValue::Text(s)) if s == current => 0,
-                    None => 0,
-                    _ => 1,
+                    Some(MetadataValue::Text(s)) if s == current => {}
+                    None => {}
+                    Some(value) => out.push(OverwriteDetail {
+                        tag: tag_label(id),
+                        current: current.to_string(),
+                        new: render_value_for_display(value),
+                    }),
                 },
-                _ => 0,
+                _ => {}
             },
         }
     };
 
-    let scalar_value =
-        |id: crate::tag_schema::SchemaDefinitionId, current: Option<&MetadataValue>| -> u32 {
-            let current = match current {
-                Some(MetadataValue::Null) | None => return 0,
-                Some(MetadataValue::Text(s)) if s.is_empty() => return 0,
-                Some(v) => v,
-            };
-            match edits.get(&id) {
-                None => 0,
-                Some(e) => match e.intent {
-                    EditIntent::Delete => 1,
-                    EditIntent::Set => match e.value.as_ref() {
-                        Some(value) if value == current => 0,
-                        None => 0,
-                        _ => 1,
-                    },
-                    _ => 0,
-                },
-            }
+    let scalar_value = |id: &crate::tag_schema::SchemaDefinitionId,
+                        current: Option<&MetadataValue>,
+                        out: &mut Vec<OverwriteDetail>| {
+        let current = match current {
+            Some(MetadataValue::Null) | None => return,
+            Some(MetadataValue::Text(s)) if s.is_empty() => return,
+            Some(v) => v,
         };
-
-    let list = |id: crate::tag_schema::SchemaDefinitionId, current: &[String]| -> u32 {
-        if current.is_empty() {
-            return 0;
-        }
         if assume_ai {
-            return 1;
+            out.push(OverwriteDetail {
+                tag: tag_label(id),
+                current: render_value_for_display(current),
+                new: "«AI-generated»".into(),
+            });
+            return;
         }
-        match edits.get(&id) {
-            None => 0,
+        match edits.get(id) {
+            None => {}
             Some(e) => match e.intent {
-                EditIntent::Delete => 1,
+                EditIntent::Delete => out.push(OverwriteDetail {
+                    tag: tag_label(id),
+                    current: render_value_for_display(current),
+                    new: "«delete»".into(),
+                }),
+                EditIntent::Set => match e.value.as_ref() {
+                    Some(value) if value == current => {}
+                    None => {}
+                    Some(value) => out.push(OverwriteDetail {
+                        tag: tag_label(id),
+                        current: render_value_for_display(current),
+                        new: render_value_for_display(value),
+                    }),
+                },
+                _ => {}
+            },
+        }
+    };
+
+    let list = |id: &crate::tag_schema::SchemaDefinitionId,
+                current: &[String],
+                out: &mut Vec<OverwriteDetail>| {
+        if current.is_empty() {
+            return;
+        }
+        let current_display = current.join(", ");
+        if assume_ai {
+            out.push(OverwriteDetail {
+                tag: tag_label(id),
+                current: current_display,
+                new: "«AI-generated»".into(),
+            });
+            return;
+        }
+        match edits.get(id) {
+            None => {}
+            Some(e) => match e.intent {
+                EditIntent::Delete => out.push(OverwriteDetail {
+                    tag: tag_label(id),
+                    current: current_display,
+                    new: "«delete»".into(),
+                }),
                 EditIntent::Set => match e.value.as_ref() {
                     Some(MetadataValue::List { items, .. }) => {
                         let same = items.len() == current.len()
@@ -226,162 +375,239 @@ fn count_overwrites_for_group(
                                 .iter()
                                 .zip(current.iter())
                                 .all(|(v, c)| matches!(v, MetadataValue::Text(s) if s == c));
-                        if same {
-                            0
-                        } else {
-                            1
+                        if !same {
+                            out.push(OverwriteDetail {
+                                tag: tag_label(id),
+                                current: current_display,
+                                new: render_value_for_display(&MetadataValue::List {
+                                    list_kind: crate::metadata_value::ListKind::Unknown,
+                                    items: items.clone(),
+                                }),
+                            });
                         }
                     }
-                    None => 0,
-                    _ => 1,
+                    None => {}
+                    Some(value) => out.push(OverwriteDetail {
+                        tag: tag_label(id),
+                        current: current_display,
+                        new: render_value_for_display(value),
+                    }),
                 },
-                _ => 0,
+                _ => {}
             },
         }
     };
 
     match group {
         G::Keywords => match &inputs.keywords {
-            None => 0,
+            None => {}
             Some(b) => {
                 list(
-                    crate::known_ids::xmp_hierarchical_subject(),
+                    &crate::known_ids::xmp_hierarchical_subject(),
                     &b.hierarchical_subject,
-                ) + list(crate::known_ids::xmp_subject(), &b.dc_subject)
-                    + list(crate::known_ids::iptc_keywords(), &b.iptc_keywords)
+                    &mut out,
+                );
+                list(&crate::known_ids::xmp_subject(), &b.dc_subject, &mut out);
+                list(
+                    &crate::known_ids::iptc_keywords(),
+                    &b.iptc_keywords,
+                    &mut out,
+                );
             }
         },
         G::Creator => match &inputs.creator {
-            None => 0,
+            None => {}
             Some(b) => {
-                list(crate::known_ids::xmp_creator(), &b.creator)
-                    + scalar(crate::known_ids::artist(), b.artist.as_deref())
-                    + list(crate::known_ids::iptc_by_line(), &b.byline)
+                list(&crate::known_ids::xmp_creator(), &b.creator, &mut out);
+                scalar(&crate::known_ids::artist(), b.artist.as_deref(), &mut out);
+                list(&crate::known_ids::iptc_by_line(), &b.byline, &mut out);
             }
         },
         G::Copyright => match &inputs.copyright {
-            None => 0,
+            None => {}
             Some(b) => {
-                scalar(crate::known_ids::xmp_rights(), b.rights.as_deref())
-                    + scalar(crate::known_ids::copyright(), b.exif_copyright.as_deref())
-                    + scalar(
-                        crate::known_ids::iptc_copyright(),
-                        b.iptc_copyright.as_deref(),
-                    )
+                scalar(
+                    &crate::known_ids::xmp_rights(),
+                    b.rights.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::copyright(),
+                    b.exif_copyright.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_copyright(),
+                    b.iptc_copyright.as_deref(),
+                    &mut out,
+                );
             }
         },
         G::IptcUtf8 => match &inputs.iptc_utf8 {
             None
             | Some(normalise::IptcUtf8Input {
                 has_iptc: false, ..
-            }) => 0,
-            Some(b) if matches!(b.coded_character_set.as_deref(), Some("UTF8" | "\u{1b}%G")) => 0,
+            }) => {}
+            Some(b) if matches!(b.coded_character_set.as_deref(), Some("UTF8" | "\u{1b}%G")) => {}
             Some(b) => scalar(
-                crate::known_ids::iptc_coded_character_set(),
+                &crate::known_ids::iptc_coded_character_set(),
                 b.coded_character_set.as_deref(),
+                &mut out,
             ),
         },
         G::Headline => match &inputs.headline {
-            None => 0,
+            None => {}
             Some(b) => {
                 scalar(
-                    crate::known_ids::xmp_headline(),
+                    &crate::known_ids::xmp_headline(),
                     b.photoshop_headline.as_deref(),
-                ) + scalar(
-                    crate::known_ids::iptc_headline(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_headline(),
                     b.iptc_headline.as_deref(),
-                )
+                    &mut out,
+                );
             }
         },
         G::Title => match &inputs.title {
-            None => 0,
+            None => {}
             Some(b) => {
-                scalar(crate::known_ids::xmp_title(), b.title.as_deref())
-                    + scalar(
-                        crate::known_ids::iptc_object_name(),
-                        b.object_name.as_deref(),
-                    )
+                scalar(&crate::known_ids::xmp_title(), b.title.as_deref(), &mut out);
+                scalar(
+                    &crate::known_ids::iptc_object_name(),
+                    b.object_name.as_deref(),
+                    &mut out,
+                );
             }
         },
         G::Location => match &inputs.location {
-            None => 0,
+            None => {}
             Some(b) => {
                 scalar_value(
-                    crate::known_ids::xmp_location_created(),
+                    &crate::known_ids::xmp_location_created(),
                     b.location_created.as_ref(),
-                ) + scalar(crate::known_ids::xmp_location(), b.location_xmp.as_deref())
-                    + scalar(
-                        crate::known_ids::iptc_sub_location(),
-                        b.location_iptc.as_deref(),
-                    )
-                    + scalar(crate::known_ids::xmp_city(), b.city_xmp.as_deref())
-                    + scalar(crate::known_ids::iptc_city(), b.city_iptc.as_deref())
-                    + scalar(crate::known_ids::xmp_state(), b.state_xmp.as_deref())
-                    + scalar(
-                        crate::known_ids::iptc_province_state(),
-                        b.state_iptc.as_deref(),
-                    )
-                    + scalar(crate::known_ids::xmp_country(), b.country_xmp.as_deref())
-                    + scalar(
-                        crate::known_ids::iptc_country_name(),
-                        b.country_iptc.as_deref(),
-                    )
-                    + scalar(
-                        crate::known_ids::xmp_country_code(),
-                        b.country_code_xmp.as_deref(),
-                    )
-                    + scalar(
-                        crate::known_ids::iptc_country_code(),
-                        b.country_code_iptc.as_deref(),
-                    )
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::xmp_location(),
+                    b.location_xmp.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_sub_location(),
+                    b.location_iptc.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::xmp_city(),
+                    b.city_xmp.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_city(),
+                    b.city_iptc.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::xmp_state(),
+                    b.state_xmp.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_province_state(),
+                    b.state_iptc.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::xmp_country(),
+                    b.country_xmp.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_country_name(),
+                    b.country_iptc.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::xmp_country_code(),
+                    b.country_code_xmp.as_deref(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_country_code(),
+                    b.country_code_iptc.as_deref(),
+                    &mut out,
+                );
             }
         },
         G::Dates => match &inputs.dates {
-            None => 0,
+            None => {}
             Some(b) => {
                 scalar_value(
-                    crate::known_ids::date_time_original(),
+                    &crate::known_ids::date_time_original(),
                     b.date_time_original.as_ref(),
-                ) + scalar_value(
-                    crate::known_ids::xmp_date_created(),
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::xmp_date_created(),
                     b.photoshop_date_created.as_ref(),
-                ) + scalar_value(
-                    crate::known_ids::iptc_date_created(),
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::iptc_date_created(),
                     b.iptc_date_created.as_ref(),
-                ) + scalar_value(
-                    crate::known_ids::iptc_time_created(),
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::iptc_time_created(),
                     b.iptc_time_created.as_ref(),
-                ) + scalar_value(crate::known_ids::create_date(), b.create_date.as_ref())
-                    + scalar_value(
-                        crate::known_ids::xmp_create_date(),
-                        b.xmp_create_date.as_ref(),
-                    )
-                    + scalar_value(
-                        crate::known_ids::iptc_digital_creation_date(),
-                        b.iptc_digital_creation_date.as_ref(),
-                    )
-                    + scalar_value(
-                        crate::known_ids::iptc_digital_creation_time(),
-                        b.iptc_digital_creation_time.as_ref(),
-                    )
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::create_date(),
+                    b.create_date.as_ref(),
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::xmp_create_date(),
+                    b.xmp_create_date.as_ref(),
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::iptc_digital_creation_date(),
+                    b.iptc_digital_creation_date.as_ref(),
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::iptc_digital_creation_time(),
+                    b.iptc_digital_creation_time.as_ref(),
+                    &mut out,
+                );
             }
         },
         G::Description => match &inputs.description {
-            None => 0,
+            None => {}
             Some(b) => {
                 scalar(
-                    crate::known_ids::xmp_description(),
+                    &crate::known_ids::xmp_description(),
                     b.description.as_deref(),
-                ) + scalar(
-                    crate::known_ids::image_description(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::image_description(),
                     b.image_description.as_deref(),
-                ) + scalar(
-                    crate::known_ids::iptc_caption(),
+                    &mut out,
+                );
+                scalar(
+                    &crate::known_ids::iptc_caption(),
                     b.caption_abstract.as_deref(),
-                )
+                    &mut out,
+                );
             }
         },
     }
+    out
 }
 
 /// Preflight cost estimation for `normalise_metadata_cmd`. Walks every
@@ -470,6 +696,8 @@ pub async fn estimate_normalise_cost_cmd(
 
     let mut per_group_outcomes: BTreeMap<normalise::NormaliseGroup, PerGroupOutcomeCounts> =
         BTreeMap::new();
+    let mut conflict_details: Vec<EstimateConflictDetail> = Vec::new();
+    let mut overwrite_details: Vec<EstimateOverwriteDetail> = Vec::new();
     let mut description_input_tokens: u64 = 0;
     let mut title_input_tokens: u64 = 0;
     let mut location_input_tokens: u64 = 0;
@@ -537,7 +765,7 @@ pub async fn estimate_normalise_cost_cmd(
             // Only count overwrites when the group actually wrote
             // something (idempotency no-ops skip the comparison).
             if gs.n_normalised_deterministic + gs.n_normalised_ai > 0 {
-                entry.n_overwrites += count_overwrites_for_group(
+                let overwrites = overwrites_for_group(
                     *group,
                     &item.group_inputs,
                     &edits,
@@ -545,7 +773,41 @@ pub async fn estimate_normalise_cost_cmd(
                     fires_title_ai,
                     fires_location_ai,
                 );
+                entry.n_overwrites += overwrites.len() as u32;
+                for detail in &overwrites {
+                    log::info!(
+                        "[normalise] estimate overwrite path={} group={} tag={} current=\"{}\" new=\"{}\"",
+                        item.rel_path,
+                        group.as_wire(),
+                        detail.tag,
+                        detail.current,
+                        detail.new,
+                    );
+                    overwrite_details.push(EstimateOverwriteDetail {
+                        relative_path: item.rel_path.clone(),
+                        group: group.as_wire().to_string(),
+                        tag: detail.tag.clone(),
+                        current: detail.current.clone(),
+                        new: detail.new.clone(),
+                    });
+                }
             }
+        }
+
+        for conflict in &stats.conflicts {
+            log::info!(
+                "[normalise] estimate conflict path={} group={} subunit={} detail={}",
+                item.rel_path,
+                conflict.group.as_wire(),
+                conflict.subunit,
+                conflict.summary,
+            );
+            conflict_details.push(EstimateConflictDetail {
+                relative_path: item.rel_path.clone(),
+                group: conflict.group.as_wire().to_string(),
+                subunit: conflict.subunit.clone(),
+                summary: conflict.summary.clone(),
+            });
         }
 
         let mut per_image_input_tokens: u32 = 0;
@@ -734,6 +996,11 @@ pub async fn estimate_normalise_cost_cmd(
         n_images_with_ai_b, n_images_with_ai_c, n_images_with_ai_g, n_images_no_ai,
         total_input_tokens, predicted_cost, upper_bound,
     );
+    log::info!(
+        "[normalise] estimate conflicts={} overwrites={}",
+        conflict_details.len(),
+        overwrite_details.len()
+    );
     let estimate = NormaliseEstimateCompletePayload {
         n_images_with_ai_b,
         n_images_with_ai_c,
@@ -747,6 +1014,8 @@ pub async fn estimate_normalise_cost_cmd(
         per_group_outcomes,
         iptc_utf8_base_applicable_paths,
         iptc_utf8_output_paths_by_group,
+        conflict_details,
+        overwrite_details,
         ai_token_breakdown: breakdown_out,
         pricing: pricing_out,
         location_pricing: location_pricing_out,
@@ -923,6 +1192,44 @@ pub async fn normalise_metadata_cmd(
 
             summary.accumulate(&stats);
             let all_noop = edits.is_empty();
+
+            // Plan §7 §8: mirror the estimate preview into the
+            // application log so an apply is auditable on its own —
+            // which conflicts were resolved and which existing field
+            // values were replaced.
+            for conflict in &stats.conflicts {
+                log::info!(
+                    "[normalise] apply conflict path={} group={} subunit={} detail={}",
+                    rel,
+                    conflict.group.as_wire(),
+                    conflict.subunit,
+                    conflict.summary,
+                );
+            }
+            let fires_description_ai = ai_calls.iter().any(|c| c.group == "description");
+            let fires_title_ai = ai_calls.iter().any(|c| c.group == "title");
+            let fires_location_ai = ai_calls.iter().any(|c| c.group == "location");
+            for (group, gs) in &stats.per_group {
+                if gs.n_normalised_deterministic + gs.n_normalised_ai > 0 {
+                    for detail in overwrites_for_group(
+                        *group,
+                        &outcome.item.group_inputs,
+                        &edits,
+                        fires_description_ai,
+                        fires_title_ai,
+                        fires_location_ai,
+                    ) {
+                        log::info!(
+                            "[normalise] apply overwrite path={} group={} tag={} current=\"{}\" new=\"{}\"",
+                            rel,
+                            group.as_wire(),
+                            detail.tag,
+                            detail.current,
+                            detail.new,
+                        );
+                    }
+                }
+            }
 
             // Plan §6: append one audit-log row per AI call (success or
             // failure). Audit failures are logged-and-swallowed — they

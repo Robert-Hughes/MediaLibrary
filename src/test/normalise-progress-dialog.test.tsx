@@ -71,6 +71,8 @@ function mockEstimate(
     },
     iptcUtf8BaseApplicablePaths: ["a.jpg"],
     iptcUtf8OutputPathsByGroup: {},
+    conflictDetails: [],
+    overwriteDetails: [],
     aiTokenBreakdown: null,
     pricing: null,
     locationPricing: null,
@@ -339,6 +341,77 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
     );
     const cell = screen.getByTestId("normalise-group-location-conflict");
     expect(cell).toHaveStyle({ color: "var(--accent-error, #d33)" });
+  });
+
+  it("renders expandable per-group conflict and overwrite details", () => {
+    const est = mockEstimate({
+      perGroupOutcomes: {
+        dates: {
+          nNoop: 0,
+          nNormalisedDeterministic: 1,
+          nNormalisedAi: 0,
+          nConflict: 1,
+          nOverwrites: 1,
+        },
+      },
+      conflictDetails: [
+        {
+          relativePath: "Kitchen/P2080560.JPG",
+          group: "dates",
+          subunit: "H2",
+          summary:
+            "XMP 2024-06-16 11:30:38.850 diverges from primary EXIF 2024-06-16 11:30:38.85; primary wins",
+        },
+      ],
+      overwriteDetails: [
+        {
+          relativePath: "Kitchen/P2080560.JPG",
+          group: "dates",
+          tag: "XMP-xmp:CreateDate",
+          current: "2024-06-16 11:30:38.850",
+          new: "2024-06-16 11:30:38.85",
+        },
+      ],
+    });
+    render(
+      <NormaliseProgressDialog
+        state={baseState({ estimate: est })}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    // No other group has detail rows, so only the dates block exists.
+    const datesBlock = screen.getByTestId("normalise-detail-dates");
+    expect(
+      screen.queryByTestId("normalise-detail-location"),
+    ).not.toBeInTheDocument();
+    expect(datesBlock).toHaveTextContent("1 conflict");
+    expect(datesBlock).toHaveTextContent("1 overwrite");
+    expect(datesBlock).toHaveTextContent("Kitchen/P2080560.JPG");
+    expect(datesBlock).toHaveTextContent(
+      "XMP 2024-06-16 11:30:38.850 diverges from primary EXIF 2024-06-16 11:30:38.85; primary wins",
+    );
+    expect(datesBlock).toHaveTextContent("XMP-xmp:CreateDate");
+    expect(datesBlock).toHaveTextContent(
+      "“2024-06-16 11:30:38.850” → “2024-06-16 11:30:38.85”",
+    );
+  });
+
+  it("renders no audit details when none exist", () => {
+    render(
+      <NormaliseProgressDialog
+        state={baseState()}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+        onClose={() => {}}
+        onSetEnabledGroups={() => {}}
+      />,
+    );
+    for (const g of allGroups) {
+      expect(screen.queryByTestId(`normalise-detail-${g}`)).toBeNull();
+    }
   });
 
   it("auto-disables rows where every image is a no-op", () => {

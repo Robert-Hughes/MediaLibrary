@@ -4,7 +4,7 @@
 //! such as `ExifIFD:OffsetTimeOriginal` remain separate metadata values; they
 //! are used only as a local comparison/projection hint.
 
-use super::{DatesInput, GroupOutput};
+use super::{DatesInput, GroupConflictDetail, GroupOutput, NormaliseGroup};
 use crate::draft_edits::{EditIntent, MetadataDraftEdit, SchemaMetadataEditMap};
 use crate::known_ids;
 use crate::metadata_value::{
@@ -368,6 +368,10 @@ fn has_non_empty_value(value: Option<&MetadataValue>) -> bool {
 struct DateSubgroupResult {
     edits: SchemaMetadataEditMap,
     conflict: bool,
+    /// Winning source label + timestamp. `Some` only when `conflict`.
+    primary: Option<(String, ComparableTimestamp)>,
+    /// Secondary sources whose timestamps diverged from the primary.
+    diverged: Vec<(String, ComparableTimestamp)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -385,24 +389,30 @@ fn process_date_subgroup(
     iptc_fallback_offset: Option<&UtcOffsetValue>,
 ) -> DateSubgroupResult {
     let mut conflict = false;
-    let canonical = if let Some(p) = existing_exif.cloned() {
-        for other in [existing_xmp, existing_iptc].into_iter().flatten() {
+    let mut diverged: Vec<(String, ComparableTimestamp)> = Vec::new();
+    let (canonical, primary_source) = if let Some(p) = existing_exif.cloned() {
+        for (label, other) in [("XMP", existing_xmp), ("IPTC", existing_iptc)]
+            .into_iter()
+            .filter_map(|(label, ts)| ts.map(|ts| (label, ts)))
+        {
             if p.compare_for_dates_normaliser(other) == TimestampComparison::Conflict {
                 conflict = true;
+                diverged.push((label.to_string(), other.clone()));
             }
         }
-        p
+        (p, "EXIF")
     } else if let Some(p) = existing_xmp.cloned() {
         if let Some(other) = existing_iptc {
             if p.compare_for_dates_normaliser(other) == TimestampComparison::Conflict {
                 conflict = true;
+                diverged.push(("IPTC".to_string(), other.clone()));
             }
         }
-        p
+        (p, "XMP")
     } else if let Some(p) = existing_iptc.cloned() {
-        p
+        (p, "IPTC")
     } else if let Some(p) = canonical_override.cloned() {
-        p
+        (p, "filename")
     } else {
         return DateSubgroupResult::default();
     };
@@ -447,7 +457,62 @@ fn process_date_subgroup(
         edits.insert(iptc_time_id, set_edit(MetadataValue::Time(iptc_time)));
     }
 
-    DateSubgroupResult { edits, conflict }
+    DateSubgroupResult {
+        edits,
+        conflict,
+        primary: conflict.then(|| (primary_source.to_string(), canonical.clone())),
+        diverged: if conflict { diverged } else { Vec::new() },
+    }
+}
+
+fn render_offset(offset: &UtcOffsetValue) -> String {
+    let sign = match offset.sign {
+        OffsetSign::Plus => '+',
+        OffsetSign::Minus => '-',
+    };
+    format!("{sign}{:02}:{:02}", offset.hours, offset.minutes)
+}
+
+fn render_ts(ts: &ComparableTimestamp) -> String {
+    let dt = &ts.datetime;
+    let mut s = format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        dt.date.year, dt.date.month, dt.date.day, dt.time.hour, dt.time.minute, dt.time.second,
+    );
+    if let Some(subsecond) = &dt.time.subsecond {
+        s.push('.');
+        s.push_str(subsecond);
+    }
+    if let Some(offset) = ts.effective_offset() {
+        s.push_str(&render_offset(offset));
+    }
+    s
+}
+
+/// One rendered date-conflict row: which secondary source diverged from
+/// the primary (winning) source and by how much.
+fn date_conflict_detail(subunit: &str, result: &DateSubgroupResult) -> GroupConflictDetail {
+    let (primary_source, primary_ts) = result
+        .primary
+        .as_ref()
+        .expect("conflicting subgroup always records its primary");
+    let mut summary = String::new();
+    for (source, ts) in &result.diverged {
+        if !summary.is_empty() {
+            summary.push_str("; ");
+        }
+        summary.push_str(&format!(
+            "{source} {} diverges from primary {primary_source} {}",
+            render_ts(ts),
+            render_ts(primary_ts),
+        ));
+    }
+    summary.push_str("; primary wins");
+    GroupConflictDetail {
+        group: NormaliseGroup::Dates,
+        subunit: subunit.to_string(),
+        summary,
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -457,6 +522,9 @@ pub struct DatesOutcome {
     pub n_unparseable_inputs: u32,
     pub n_dto_from_filename: u32,
     pub n_dto_from_filename_date_only: u32,
+    /// Per-conflict detail (subgroup + which source diverged from the
+    /// primary). Empty when nothing conflicted.
+    pub conflicts: Vec<GroupConflictDetail>,
 }
 
 fn parse_filename_for_h1(stem: &str) -> Option<(ComparableTimestamp, bool)> {
@@ -568,6 +636,7 @@ fn normalise_dates_inner(
     let mut n_unparseable = 0;
     let mut n_from_filename = 0;
     let mut n_from_filename_date_only = 0;
+    let mut conflicts: Vec<GroupConflictDetail> = Vec::new();
 
     let offset_h1 = offset_from_value(input.offset_time_original.as_ref());
     let subsec_h1 = subsecond_from_value(input.sub_sec_time_original.as_ref());
@@ -625,6 +694,7 @@ fn normalise_dates_inner(
     );
     if h1.conflict {
         n_conflict += 1;
+        conflicts.push(date_conflict_detail("H1", &h1));
     }
     edits.extend(h1.edits);
 
@@ -667,6 +737,7 @@ fn normalise_dates_inner(
     );
     if h2.conflict {
         n_conflict += 1;
+        conflicts.push(date_conflict_detail("H2", &h2));
     }
     edits.extend(h2.edits);
 
@@ -680,6 +751,7 @@ fn normalise_dates_inner(
         n_unparseable_inputs: n_unparseable,
         n_dto_from_filename: n_from_filename,
         n_dto_from_filename_date_only: n_from_filename_date_only,
+        conflicts,
     }
 }
 

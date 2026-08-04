@@ -12,8 +12,10 @@
  * body frame and Escape handling live there.
  */
 import type {
+  NormaliseConflictDetail,
   NormaliseEstimate,
   NormaliseGroup,
+  NormaliseOverwriteDetail,
   NormaliseSummary,
 } from "../types";
 import { useRef } from "react";
@@ -387,6 +389,22 @@ function GroupOutcomeTable({
 }) {
   const iptcUtf8ExplicitlyDisabled = useRef(false);
 
+  const conflictsByGroup = new Map<NormaliseGroup, NormaliseConflictDetail[]>();
+  for (const detail of estimate.conflictDetails) {
+    const list = conflictsByGroup.get(detail.group) ?? [];
+    list.push(detail);
+    conflictsByGroup.set(detail.group, list);
+  }
+  const overwritesByGroup = new Map<
+    NormaliseGroup,
+    NormaliseOverwriteDetail[]
+  >();
+  for (const detail of estimate.overwriteDetails) {
+    const list = overwritesByGroup.get(detail.group) ?? [];
+    list.push(detail);
+    overwritesByGroup.set(detail.group, list);
+  }
+
   function toggle(g: NormaliseGroup) {
     const current = new Set(enabledGroups);
     if (g === "iptc_utf8") {
@@ -428,149 +446,211 @@ function GroupOutcomeTable({
   }
 
   return (
-    <table
-      style={{
-        marginTop: 12,
-        width: "100%",
-        borderCollapse: "collapse",
-        fontSize: 13,
-      }}
-      data-testid="normalise-group-outcome-table"
-    >
-      <thead>
-        <tr>
-          <th style={{ ...headStyle, textAlign: "left", paddingLeft: 0 }}>
-            Group
-          </th>
-          <th style={headStyle}>No change</th>
-          <th style={headStyle}>Normalize</th>
-          <th style={headStyle}>Normalize (AI)</th>
-          <th style={headStyle}>Conflict</th>
-          <th
-            style={headStyle}
-            title="Number of fields (across all selected images) where the current value would be replaced by a different value or removed. AI groups assume the output will always differ."
-          >
-            Overwrites
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {V1_GROUPS.map((g) => {
-          const estimatedCounts = estimate.perGroupOutcomes[g] ?? emptyCounts();
-          const prospectiveIptcCount =
-            g === "iptc_utf8"
-              ? iptcUtf8ApplicablePaths(estimate, new Set(enabledGroups)).size
-              : null;
-          const counts =
-            prospectiveIptcCount == null
-              ? estimatedCounts
-              : {
-                  ...estimatedCounts,
-                  nNoop: total - prospectiveIptcCount,
-                  nNormalisedDeterministic: prospectiveIptcCount,
-                  nNormalisedAi: 0,
-                  nConflict: 0,
-                  nOverwrites:
-                    prospectiveIptcCount === 0
-                      ? 0
-                      : estimatedCounts.nOverwrites,
-                };
-          const isAiGroup = AI_GROUPS.has(g);
-          const allNoop =
-            counts.nNormalisedDeterministic === 0 &&
-            counts.nNormalisedAi === 0 &&
-            counts.nConflict === 0;
-          const checked = enabledGroups.includes(g);
-          const disabled = allNoop;
-          return (
-            <tr
-              key={g}
-              data-testid={`normalise-group-row-${g}`}
+    <>
+      <table
+        style={{
+          marginTop: 12,
+          width: "100%",
+          borderCollapse: "collapse",
+          fontSize: 13,
+        }}
+        data-testid="normalise-group-outcome-table"
+      >
+        <thead>
+          <tr>
+            <th style={{ ...headStyle, textAlign: "left", paddingLeft: 0 }}>
+              Group
+            </th>
+            <th style={headStyle}>No change</th>
+            <th style={headStyle}>Normalize</th>
+            <th style={headStyle}>Normalize (AI)</th>
+            <th style={headStyle}>Conflict</th>
+            <th
+              style={headStyle}
+              title="Number of fields (across all selected images) where the current value would be replaced by a different value or removed. AI groups assume the output will always differ."
+            >
+              Overwrites
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {V1_GROUPS.map((g) => {
+            const estimatedCounts =
+              estimate.perGroupOutcomes[g] ?? emptyCounts();
+            const prospectiveIptcCount =
+              g === "iptc_utf8"
+                ? iptcUtf8ApplicablePaths(estimate, new Set(enabledGroups)).size
+                : null;
+            const counts =
+              prospectiveIptcCount == null
+                ? estimatedCounts
+                : {
+                    ...estimatedCounts,
+                    nNoop: total - prospectiveIptcCount,
+                    nNormalisedDeterministic: prospectiveIptcCount,
+                    nNormalisedAi: 0,
+                    nConflict: 0,
+                    nOverwrites:
+                      prospectiveIptcCount === 0
+                        ? 0
+                        : estimatedCounts.nOverwrites,
+                  };
+            const isAiGroup = AI_GROUPS.has(g);
+            const allNoop =
+              counts.nNormalisedDeterministic === 0 &&
+              counts.nNormalisedAi === 0 &&
+              counts.nConflict === 0;
+            const checked = enabledGroups.includes(g);
+            const disabled = allNoop;
+            return (
+              <tr
+                key={g}
+                data-testid={`normalise-group-row-${g}`}
+                style={{
+                  borderBottom: "1px solid var(--border-subtle, #eee)",
+                }}
+              >
+                <td style={{ padding: "4px 8px 4px 0", textAlign: "left" }}>
+                  <label style={{ cursor: disabled ? "default" : "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={checked && !disabled}
+                      disabled={disabled}
+                      onChange={() => toggle(g)}
+                      data-testid={`normalise-group-${g}-checkbox`}
+                    />{" "}
+                    <span
+                      title={groupTooltip(g)}
+                      style={{
+                        textDecoration: "underline dotted",
+                        textUnderlineOffset: 2,
+                        textDecorationColor: "var(--border-subtle, #bbb)",
+                        cursor: "help",
+                      }}
+                      data-testid={`normalise-group-${g}-label`}
+                    >
+                      {groupLabel(g)}
+                    </span>
+                  </label>
+                </td>
+                <td style={cellBase} data-testid={`normalise-group-${g}-noop`}>
+                  {renderCount(counts.nNoop)}
+                </td>
+                <td
+                  style={cellBase}
+                  data-testid={`normalise-group-${g}-deterministic`}
+                >
+                  {renderCount(counts.nNormalisedDeterministic)}
+                </td>
+                <td style={cellBase} data-testid={`normalise-group-${g}-ai`}>
+                  {isAiGroup ? (
+                    renderCount(counts.nNormalisedAi)
+                  ) : (
+                    <span>—</span>
+                  )}
+                </td>
+                <td
+                  style={{
+                    ...cellBase,
+                    color:
+                      counts.nConflict > 0
+                        ? "var(--accent-error, #d33)"
+                        : undefined,
+                    fontWeight: counts.nConflict > 0 ? 600 : undefined,
+                  }}
+                  data-testid={`normalise-group-${g}-conflict`}
+                >
+                  {renderCount(counts.nConflict)}
+                </td>
+                <td
+                  style={{
+                    ...cellBase,
+                    color:
+                      counts.nOverwrites > 0
+                        ? "var(--accent-warning, #c70)"
+                        : undefined,
+                    fontWeight: counts.nOverwrites > 0 ? 600 : undefined,
+                  }}
+                  data-testid={`normalise-group-${g}-overwrites`}
+                >
+                  {renderCount(counts.nOverwrites)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td
+              colSpan={6}
               style={{
-                borderBottom: "1px solid var(--border-subtle, #eee)",
+                padding: "6px 0 0",
+                fontSize: 12,
               }}
             >
-              <td style={{ padding: "4px 8px 4px 0", textAlign: "left" }}>
-                <label style={{ cursor: disabled ? "default" : "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={checked && !disabled}
-                    disabled={disabled}
-                    onChange={() => toggle(g)}
-                    data-testid={`normalise-group-${g}-checkbox`}
-                  />{" "}
-                  <span
-                    title={groupTooltip(g)}
-                    style={{
-                      textDecoration: "underline dotted",
-                      textUnderlineOffset: 2,
-                      textDecorationColor: "var(--border-subtle, #bbb)",
-                      cursor: "help",
-                    }}
-                    data-testid={`normalise-group-${g}-label`}
-                  >
-                    {groupLabel(g)}
-                  </span>
-                </label>
-              </td>
-              <td style={cellBase} data-testid={`normalise-group-${g}-noop`}>
-                {renderCount(counts.nNoop)}
-              </td>
-              <td
-                style={cellBase}
-                data-testid={`normalise-group-${g}-deterministic`}
-              >
-                {renderCount(counts.nNormalisedDeterministic)}
-              </td>
-              <td style={cellBase} data-testid={`normalise-group-${g}-ai`}>
-                {isAiGroup ? renderCount(counts.nNormalisedAi) : <span>—</span>}
-              </td>
-              <td
-                style={{
-                  ...cellBase,
-                  color:
-                    counts.nConflict > 0
-                      ? "var(--accent-error, #d33)"
-                      : undefined,
-                  fontWeight: counts.nConflict > 0 ? 600 : undefined,
-                }}
-                data-testid={`normalise-group-${g}-conflict`}
-              >
-                {renderCount(counts.nConflict)}
-              </td>
-              <td
-                style={{
-                  ...cellBase,
-                  color:
-                    counts.nOverwrites > 0
-                      ? "var(--accent-warning, #c70)"
-                      : undefined,
-                  fontWeight: counts.nOverwrites > 0 ? 600 : undefined,
-                }}
-                data-testid={`normalise-group-${g}-overwrites`}
-              >
-                {renderCount(counts.nOverwrites)}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-      <tfoot>
-        <tr>
-          <td
-            colSpan={6}
-            style={{
-              padding: "6px 0 0",
-              fontSize: 12,
-            }}
+              {total} {total === 1 ? "image" : "images"} · No change + Normalize
+              + Normalize (AI) sum to {total} per row. Overwrites counts
+              individual fields that would change. Rows with nothing to do are
+              disabled.
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      {V1_GROUPS.map((g) => {
+        const conflicts = conflictsByGroup.get(g) ?? [];
+        const overwrites = overwritesByGroup.get(g) ?? [];
+        if (conflicts.length === 0 && overwrites.length === 0) return null;
+        return (
+          <details
+            key={`detail-${g}`}
+            style={{ marginTop: 8 }}
+            data-testid={`normalise-detail-${g}`}
           >
-            {total} {total === 1 ? "image" : "images"} · No change + Normalize +
-            Normalize (AI) sum to {total} per row. Overwrites counts individual
-            fields that would change. Rows with nothing to do are disabled.
-          </td>
-        </tr>
-      </tfoot>
-    </table>
+            <summary
+              style={{ cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+            >
+              {groupLabel(g)} —{" "}
+              {conflicts.length > 0 && (
+                <span style={{ color: "var(--accent-error, #d33)" }}>
+                  {conflicts.length}{" "}
+                  {conflicts.length === 1 ? "conflict" : "conflicts"}
+                </span>
+              )}
+              {conflicts.length > 0 && overwrites.length > 0 && " · "}
+              {overwrites.length > 0 && (
+                <span style={{ color: "var(--accent-warning, #c70)" }}>
+                  {overwrites.length}{" "}
+                  {overwrites.length === 1 ? "overwrite" : "overwrites"}
+                </span>
+              )}
+            </summary>
+            <ul
+              style={{
+                marginTop: 6,
+                marginBottom: 0,
+                paddingLeft: 18,
+                fontSize: 12,
+              }}
+            >
+              {conflicts.map((c, i) => (
+                <li key={`conflict-${i}`} title={c.summary}>
+                  <strong>{c.relativePath}</strong>: {c.summary}
+                </li>
+              ))}
+              {overwrites.map((o, i) => (
+                <li
+                  key={`overwrite-${i}`}
+                  title={`${o.tag}: ${o.current} → ${o.new}`}
+                >
+                  <strong>{o.relativePath}</strong>: {o.tag} “{o.current}” → “
+                  {o.new}”
+                </li>
+              ))}
+            </ul>
+          </details>
+        );
+      })}
+    </>
   );
 }
 
