@@ -11,9 +11,9 @@
 //! padding. No AI or place-name normalization is used.
 
 use super::{
-    collapse_whitespace_single_line, text_edit, truncate_at_word, AiCallUsage, GroupOutput,
-    LocationAiResult, LocationContext, LocationInput, LocationResolvePrompt, NormaliseAiClient,
-    NormaliseAiError,
+    collapse_whitespace_single_line, text_edit, truncate_at_word, AiCallUsage, GroupConflictDetail,
+    GroupOutput, LocationAiResult, LocationContext, LocationInput, LocationResolvePrompt,
+    NormaliseAiClient, NormaliseAiError, NormaliseGroup,
 };
 use crate::country_code::{
     canonical_country_code, canonical_iptc_country_code_readback, iptc_country_code_projection,
@@ -44,6 +44,10 @@ struct PairResult {
     xmp_target: Option<String>,
     iptc_target: Option<String>,
     conflict: bool,
+    /// Canonicalised XMP value when present (conflict detail).
+    xmp_value: Option<String>,
+    /// Canonicalised IIM value when present (conflict detail).
+    iptc_value: Option<String>,
 }
 
 fn identity_projection(s: &str) -> String {
@@ -215,6 +219,11 @@ fn process_pair(
     let xc = xmp.map(xmp_canon).filter(|s| !s.is_empty());
     let ic = iptc.map(iptc_canon).filter(|s| !s.is_empty());
 
+    // Conflict detail: keep the canonicalised pair values for the
+    // per-pair summary even though the match below consumes them.
+    let xmp_value = xc.clone();
+    let iptc_value = ic.clone();
+
     let (canonical, conflict) = match (xc, ic) {
         (None, None) => (None, false),
         (Some(v), None) | (None, Some(v)) => (Some(v), false),
@@ -242,6 +251,8 @@ fn process_pair(
         xmp_target,
         iptc_target,
         conflict,
+        xmp_value,
+        iptc_value,
     }
 }
 
@@ -271,6 +282,9 @@ pub struct LocationOutcome {
     pub ai_error: Option<NormaliseAiError>,
     pub ai_usage: Option<AiCallUsage>,
     pub canonical: Option<LocationContext>,
+    /// Per-pair conflict detail (which XMP↔IIM mirror pair diverged and
+    /// the two values). Empty when nothing conflicted.
+    pub conflicts: Vec<GroupConflictDetail>,
 }
 
 fn evidence_text(value: &Option<String>) -> Option<String> {
@@ -852,6 +866,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
     }
 
     type LocationPair<'a> = (
+        &'static str,
         SchemaDefinitionId,
         SchemaDefinitionId,
         Option<&'a str>,
@@ -863,6 +878,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
     );
     let pairs: [LocationPair<'_>; 5] = [
         (
+            "Sublocation",
             known_ids::xmp_location(),
             known_ids::iptc_sub_location(),
             input.location_xmp.as_deref(),
@@ -873,6 +889,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             iptc_sub_location_projection,
         ),
         (
+            "City",
             known_ids::xmp_city(),
             known_ids::iptc_city(),
             input.city_xmp.as_deref(),
@@ -883,6 +900,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             identity_projection,
         ),
         (
+            "State",
             known_ids::xmp_state(),
             known_ids::iptc_province_state(),
             input.state_xmp.as_deref(),
@@ -893,6 +911,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             identity_projection,
         ),
         (
+            "Country",
             known_ids::xmp_country(),
             known_ids::iptc_country_name(),
             input.country_xmp.as_deref(),
@@ -903,6 +922,7 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             identity_projection,
         ),
         (
+            "Country code",
             known_ids::xmp_country_code(),
             known_ids::iptc_country_code(),
             input.country_code_xmp.as_deref(),
@@ -915,9 +935,19 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
     ];
 
     let mut edits = SchemaMetadataEditMap::new();
-    let mut conflicts: u32 = 0;
-    for (xmp_key, iptc_key, xmp, iptc, xmp_canon, iptc_canon, xmp_projection, iptc_projection) in
-        pairs
+    let mut n_conflicts: u32 = 0;
+    let mut conflict_details: Vec<GroupConflictDetail> = Vec::new();
+    for (
+        name,
+        xmp_key,
+        iptc_key,
+        xmp,
+        iptc,
+        xmp_canon,
+        iptc_canon,
+        xmp_projection,
+        iptc_projection,
+    ) in pairs
     {
         let result = process_pair(
             xmp,
@@ -928,7 +958,16 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
             iptc_projection,
         );
         if result.conflict {
-            conflicts += 1;
+            n_conflicts += 1;
+            conflict_details.push(GroupConflictDetail {
+                group: NormaliseGroup::Location,
+                subunit: name.to_string(),
+                summary: format!(
+                    "IIM {} diverges from XMP {}; XMP wins",
+                    result.iptc_value.as_deref().unwrap_or(""),
+                    result.xmp_value.as_deref().unwrap_or(""),
+                ),
+            });
         }
         if let Some(target) = result.xmp_target {
             edits.insert(xmp_key, text_edit(target));
@@ -960,7 +999,8 @@ pub fn normalise_location(input: &LocationInput) -> LocationOutcome {
         } else {
             Some(GroupOutput { edits })
         },
-        n_xmp_iim_conflict: conflicts,
+        n_xmp_iim_conflict: n_conflicts,
+        conflicts: conflict_details,
         ..Default::default()
     }
 }

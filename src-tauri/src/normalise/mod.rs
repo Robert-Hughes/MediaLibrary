@@ -296,6 +296,30 @@ pub struct PerImageStats {
     #[serde(skip)]
     #[cfg_attr(test, ts(skip))]
     pub iptc_output_groups: BTreeSet<NormaliseGroup>,
+    /// Per-image conflict details — every disagreement a group resolved by
+    /// preferring the primary source over a derivative. Consumed by the
+    /// estimate preview and the application log; not part of the public
+    /// progress wire shape.
+    #[serde(skip)]
+    #[cfg_attr(test, ts(skip))]
+    pub conflicts: Vec<GroupConflictDetail>,
+}
+
+/// Structured detail of one disagreement a group resolved by preferring
+/// the primary source over a derivative (e.g. EXIF over XMP for Group H,
+/// XMP over IIM for Group G). Collected per image so the estimate preview
+/// and the application log can show exactly what would change and why.
+#[derive(Debug, Clone, Serialize)]
+pub struct GroupConflictDetail {
+    /// The group that resolved the disagreement.
+    pub group: NormaliseGroup,
+    /// Sub-unit within the group: `H1`/`H2` for Dates, the mirror-pair
+    /// name for Location, empty otherwise.
+    pub subunit: String,
+    /// Human-readable one-liner describing the disagreement and the
+    /// winner, e.g. `XMP 2024-09-12 15:21:30.030 diverges from primary
+    /// EXIF 2024-09-12 15:21:30.03; primary wins`.
+    pub summary: String,
 }
 
 impl PerImageStats {
@@ -575,6 +599,7 @@ pub async fn process_image(
             if outcome.n_xmp_iim_conflict > 0 {
                 g.n_conflict_primary_won = 1;
             }
+            let loc_conflicts = outcome.conflicts;
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
@@ -586,6 +611,7 @@ pub async fn process_image(
                 }
                 None => g.n_noop += 1,
             }
+            stats.conflicts.extend(loc_conflicts);
         } else {
             log::warn!("[normalise] group location enabled but no input bundle supplied; counting as no-op");
             stats.group(NormaliseGroup::Location).n_noop += 1;
@@ -610,6 +636,7 @@ pub async fn process_image(
             if outcome.n_date_conflict > 0 {
                 g.n_conflict_primary_won = 1;
             }
+            let date_conflicts = outcome.conflicts;
             match outcome.output {
                 Some(out) => {
                     edits.extend(out.edits);
@@ -617,6 +644,7 @@ pub async fn process_image(
                 }
                 None => g.n_noop += 1,
             }
+            stats.conflicts.extend(date_conflicts);
         } else {
             log::warn!(
                 "[normalise] group dates enabled but no input bundle supplied; counting as no-op"

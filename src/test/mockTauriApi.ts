@@ -2463,6 +2463,8 @@ export function createMockTauriApi(): MockTauriApi {
           },
           iptcUtf8BaseApplicablePaths: [],
           iptcUtf8OutputPathsByGroup: {},
+          conflictDetails: [],
+          overwriteDetails: [],
           aiTokenBreakdown: null,
           pricing: null,
           locationPricing: null,

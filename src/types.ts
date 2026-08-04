@@ -652,6 +652,31 @@ export interface NormaliseEstimatePricing {
 }
 
 /**
+ * One disagreement a normalise group resolved by preferring the primary
+ * source over a derivative. `subunit` disambiguates within a group
+ * (e.g. `H1`/`H2` for Dates, the mirror-pair name for Location).
+ */
+export interface NormaliseConflictDetail {
+  relativePath: string;
+  group: NormaliseGroup;
+  subunit: string;
+  summary: string;
+}
+
+/**
+ * One field whose current non-empty value would be replaced (or removed)
+ * by the group's output. `new` is `"«AI-generated»"` when the group fires
+ * AI and the eventual value isn't known up-front.
+ */
+export interface NormaliseOverwriteDetail {
+  relativePath: string;
+  group: NormaliseGroup;
+  tag: string;
+  current: string;
+  new: string;
+}
+
+/**
  * Cost-estimate summary for the metadata-normaliser.
  *
  * `model` is the empty string and `pricing` / `aiTokenBreakdown` are
@@ -682,6 +707,17 @@ export interface NormaliseEstimate {
    * CodedCharacterSet is not already UTF-8.
    */
   iptcUtf8OutputPathsByGroup: Partial<Record<NormaliseGroup, string[]>>;
+  /**
+   * Per-file conflict detail (which sources diverged and the winner),
+   * shown in the confirm dialog's expandable audit section. Empty when
+   * no group resolved a disagreement.
+   */
+  conflictDetails: NormaliseConflictDetail[];
+  /**
+   * Per-file field overwrites (current value would be replaced or
+   * removed), shown in the confirm dialog's expandable audit section.
+   */
+  overwriteDetails: NormaliseOverwriteDetail[];
   aiTokenBreakdown: NormaliseEstimateAiTokenBreakdown | null;
   pricing: NormaliseEstimatePricing | null;
   locationPricing: NormaliseEstimatePricing | null;
