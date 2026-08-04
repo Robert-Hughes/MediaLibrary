@@ -70,7 +70,7 @@ export type { LocationInput } from "./types/generated/LocationInput";
 export type { DatesInput } from "./types/generated/DatesInput";
 export type { DescriptionInput } from "./types/generated/DescriptionInput";
 export type { LocationContext } from "./types/generated/LocationContext";
-export type { PerImageStats as NormalisePerImageStats } from "./types/generated/PerImageStats";
+export type { PerFileStats as NormalisePerFileStats } from "./types/generated/PerFileStats";
 export type { PerGroupStats as NormalisePerGroupStats } from "./types/generated/PerGroupStats";
 export type { NormaliseSummary } from "./types/generated/NormaliseSummary";
 export type { MediaLibrarySessionLifecycle } from "./types/generated/MediaLibrarySessionLifecycle";
@@ -626,7 +626,7 @@ export interface NormaliseGroupOutcomeCounts {
   nNormalisedAi: number;
   nConflict: number;
   /**
-   * Sum across all images of the count of target fields that have a
+   * Sum across all files of the count of target fields that have a
    * non-empty current effective value and would be replaced by a
    * different value (or removed). For AI-fired groups the eventual
    * value isn't known up-front, so the count assumes "always
@@ -685,10 +685,10 @@ export interface NormaliseOverwriteDetail {
  * because the outcome walk never needs the API.
  */
 export interface NormaliseEstimate {
-  nImagesWithAiB: number;
-  nImagesWithAiC: number;
-  nImagesWithAiG: number;
-  nImagesNoAi: number;
+  nFilesWithAiB: number;
+  nFilesWithAiC: number;
+  nFilesWithAiG: number;
+  nFilesNoAi: number;
   totalInputTokens: number;
   predictedCostUsd: number;
   upperBoundCostUsd: number;
@@ -858,10 +858,10 @@ export const GEOCODE_TARGET_TAGS: readonly SchemaDefinitionId[] = [
 
 export type GeocodePhase = "awaiting-confirm" | "running" | "done";
 
-/** One item in the geocode_images_cmd invocation. */
+/** One item in the geocode_files_cmd invocation. */
 export interface GeocodeRequestItem {
   relPath: string;
-  /** Decimal degrees; null when the image has no GPS. */
+  /** Decimal degrees; null when the file has no GPS. */
   lat: number | null;
   lon: number | null;
 }
@@ -874,9 +874,9 @@ export interface GeocodeFailure {
 
 /**
  * Per-source counters returned in the geocode_complete payload. Each
- * field is the count of images that reached that final outcome — they
+ * field is the count of files that reached that final outcome — they
  * sum to the batch total (no_gps is mutually exclusive with failed in
- * the sense that no_gps images are counted only in n_no_gps).
+ * the sense that no_gps files are counted only in n_no_gps).
  */
 export interface GeocodeSummary {
   nSucceededFromNominatim: number;

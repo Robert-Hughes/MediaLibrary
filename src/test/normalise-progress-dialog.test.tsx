@@ -45,10 +45,10 @@ function mockEstimate(
     nOverwrites: 0,
   };
   return {
-    nImagesWithAiB: 0,
-    nImagesWithAiC: 0,
-    nImagesWithAiG: 0,
-    nImagesNoAi: 1,
+    nFilesWithAiB: 0,
+    nFilesWithAiC: 0,
+    nFilesWithAiG: 0,
+    nFilesNoAi: 1,
     totalInputTokens: 0,
     predictedCostUsd: 0,
     upperBoundCostUsd: 0,
@@ -602,8 +602,8 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
 
   it("cost preview adapts to selection — toggling description off removes its cost", () => {
     const est = mockEstimate({
-      nImagesWithAiB: 4,
-      nImagesWithAiC: 0,
+      nFilesWithAiB: 4,
+      nFilesWithAiC: 0,
       aiTokenBreakdown: {
         descriptionInputTokens: 4000,
         titleInputTokens: 0,
@@ -651,7 +651,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
 
   it("prices location calls with the separately configured model", () => {
     const est = mockEstimate({
-      nImagesWithAiG: 2,
+      nFilesWithAiG: 2,
       locationModel: "gpt-location-test",
       aiTokenBreakdown: {
         descriptionInputTokens: 0,
@@ -684,8 +684,8 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
 
   it("cost preview shows missing-key notice when AI rows selected but no pricing", () => {
     const est = mockEstimate({
-      nImagesWithAiB: 3,
-      nImagesWithAiC: 0,
+      nFilesWithAiB: 3,
+      nFilesWithAiC: 0,
       aiTokenBreakdown: null,
       pricing: null,
     });

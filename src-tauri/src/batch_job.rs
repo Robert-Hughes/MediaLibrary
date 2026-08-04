@@ -1,4 +1,4 @@
-//! Shared primitives for per-image batch jobs.
+//! Shared primitives for per-file batch jobs.
 //!
 //! Several Media Library features run the same shape of operation:
 //! iterate a list of relative paths, process each one (network call,
@@ -36,7 +36,7 @@ use std::{future::Future, num::NonZeroUsize};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-/// Typed wire kind for a per-image batch-job failure.
+/// Typed wire kind for a per-file batch-job failure.
 ///
 /// Each variant serialises to the snake-case string that has historically
 /// been used as the stringly `kind` field on `BatchFailureRow`,
@@ -60,7 +60,7 @@ pub enum BatchFailureKind {
     /// The user cancelled the run before this item completed.
     Cancelled,
     /// Frontend-synthesised: the Tauri command itself threw before
-    /// reporting any per-image progress (rare; surfaces as a single
+    /// reporting any per-file progress (rare; surfaces as a single
     /// failure row with `relativePath = "(batch)"`).
     CommandFailed,
     /// Frontend-synthesised: the estimate-phase preflight (e.g.
@@ -89,7 +89,7 @@ pub enum BatchFailureKind {
     UsageParse,
 
     // ── Reverse-geocode ────────────────────────────────────────────────
-    /// Image had no resolvable GPS coordinates (neither draft nor
+    /// File had no resolvable GPS coordinates (neither draft nor
     /// metadata). Counted separately from real failures in the summary.
     NoGps,
     /// Nominatim returned no usable address fields for the GPS query.
@@ -108,7 +108,7 @@ pub enum BatchFailureKind {
     AiRateLimited,
     /// Appending to the normaliser audit JSONL log failed.
     AuditLogIo,
-    /// Bug in the normaliser surfaced as a per-image failure rather than
+    /// Bug in the normaliser surfaced as a per-file failure rather than
     /// crashing the whole batch. Detail string carries the message.
     Internal,
     /// Required by plan §6: no OpenAI API key configured but the user

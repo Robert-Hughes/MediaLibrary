@@ -193,7 +193,7 @@ export interface MockTauriApi {
   };
 
   // ── Reverse-geocoding mock state ─────────────────────────────────────
-  /** Records the most recent geocode_images_cmd arguments. */
+  /** Records the most recent geocode_files_cmd arguments. */
   lastGeocodeArgs: {
     folderPath: string;
     items: Array<{ relPath: string; lat: number | null; lon: number | null }>;
@@ -2340,7 +2340,7 @@ export function createMockTauriApi(): MockTauriApi {
         mock.cancelDescribeCalled = true;
         return;
       }
-      if (cmd === "prepare_geocode_images_cmd") {
+      if (cmd === "prepare_geocode_files_cmd") {
         const items =
           (args?.items as Array<{
             relPath: string;
@@ -2377,7 +2377,7 @@ export function createMockTauriApi(): MockTauriApi {
         );
         return;
       }
-      if (cmd === "geocode_images_cmd") {
+      if (cmd === "geocode_files_cmd") {
         const operation = sessionSnapshot.batch_operations.geocode;
         if (!operation || operation.operation_id !== args?.operationId) {
           throw new Error("stale geocode operation");
@@ -2509,10 +2509,10 @@ export function createMockTauriApi(): MockTauriApi {
           nOverwrites: 0,
         };
         const estimate = {
-          nImagesWithAiB: 0,
-          nImagesWithAiC: 0,
-          nImagesWithAiG: 0,
-          nImagesNoAi: total,
+          nFilesWithAiB: 0,
+          nFilesWithAiC: 0,
+          nFilesWithAiG: 0,
+          nFilesNoAi: total,
           totalInputTokens: 0,
           predictedCostUsd: 0,
           upperBoundCostUsd: 0,

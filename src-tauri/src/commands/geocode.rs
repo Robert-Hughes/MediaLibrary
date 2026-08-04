@@ -12,7 +12,7 @@ use crate::geocode::{self, GeocodeRequestItem, GeocodeSummary};
 use crate::geocode_cache;
 
 #[tauri::command]
-pub fn prepare_geocode_images_cmd(
+pub fn prepare_geocode_files_cmd(
     session_id: u64,
     items: Vec<GeocodeRequestItem>,
     app: AppHandle,
@@ -31,12 +31,12 @@ pub fn prepare_geocode_images_cmd(
     Ok(())
 }
 
-/// Reverse-geocode a batch of images. This command owns the Tauri
+/// Reverse-geocode a batch of files. This command owns the Tauri
 /// cancellation flag, loads/saves the on-disk cache, and adapts the
 /// shared `BatchProgressEmitter` to the runner's `GeocodeEventSink`
 /// trait.
 #[tauri::command]
-pub async fn geocode_images_cmd(
+pub async fn geocode_files_cmd(
     session_id: u64,
     operation_id: String,
     app: AppHandle,

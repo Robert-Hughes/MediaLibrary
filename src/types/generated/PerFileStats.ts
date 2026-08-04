@@ -3,11 +3,11 @@ import type { NormaliseGroup } from "./NormaliseGroup";
 import type { PerGroupStats } from "./PerGroupStats";
 
 /**
- * Per-image stats tracking from one `process_image` call. Aggregated
+ * Per-file stats tracking from one `process_item` call. Aggregated
  * across the whole batch into `NormaliseSummary`. Keyed by enum so
  * the wire format produces stable snake_case group names.
  */
-export type PerImageStats = { 
+export type PerFileStats = { 
 /**
  * Per-group counter map. Entry is present only for groups that
  * the dispatcher actually visited (i.e. enabled + bundle

@@ -8,14 +8,14 @@
 //! dispatching real HTTP calls.
 //!
 //! `NormaliseAuditEntry` is the JSONL row shape persisted by the
-//! dispatcher; `PerImageAiCall` is the in-memory record returned by
-//! the per-image walker so the dispatcher can append exactly one row
+//! dispatcher; `PerFileAiCall` is the in-memory record returned by
+//! the per-file walker so the dispatcher can append exactly one row
 //! per AI call.
 
 use serde::{Deserialize, Serialize};
 
 /// Typed AI failure surfaced by Groups B / C / G up to the dispatcher.
-/// Mapped to a `BatchFailureKind` so per-image failure rows preserve
+/// Mapped to a `BatchFailureKind` so per-file failure rows preserve
 /// the failure mode (rate-limit, transport, bad JSON, missing key).
 #[derive(Debug, Clone)]
 pub struct NormaliseAiError {
@@ -85,11 +85,11 @@ impl From<&str> for NormaliseAiError {
 /// response body so the audit log can record real cost.
 pub type AiCallUsage = crate::openai_describe::UsageStats;
 
-/// Per-AI-call record returned by `process_image` so the dispatcher
+/// Per-AI-call record returned by `process_item` so the dispatcher
 /// can append a row to the JSONL audit log for each one. Includes
 /// successful calls (with usage) and failed calls (with detail).
 #[derive(Debug, Clone)]
-pub struct PerImageAiCall {
+pub struct PerFileAiCall {
     /// `"description"` (Group B) or `"title"` (Group C).
     pub group: &'static str,
     pub usage: AiCallUsage,
@@ -178,7 +178,7 @@ pub struct LocationAiResult {
 pub trait NormaliseAiClient: Send + Sync {
     /// Returns the canonical merged/generated Description plus per-call token
     /// usage. Errors are surfaced to the caller and turned into
-    /// per-image failure rows.
+    /// per-file failure rows.
     async fn merge_description(
         &self,
         prompt: DescriptionMergePrompt,

@@ -1,9 +1,9 @@
 //! Metadata-normalisation commands.
 //!
 //! See `docs/NORMALISE_METADATA_PLAN.md` §8. `normalise_metadata_cmd`
-//! walks the supplied items through `normalise::process_image`, emits
+//! walks the supplied items through `normalise::process_item`, emits
 //! per-item progress events, and accumulates a `NormaliseSummary`. §7
-//! `estimate_normalise_cost_cmd` walks every image with a capturing
+//! `estimate_normalise_cost_cmd` walks every file with a capturing
 //! AI client that doesn't dispatch and preflights each fire-able AI
 //! prompt through `/responses/input_tokens` for an exact cost preview.
 
@@ -35,14 +35,14 @@ struct NormaliseEstimateProgressPayload {
     current: usize,
     total: usize,
     relative_path: String,
-    /// Token total preflighted for this image across any AI calls that
+    /// Token total preflighted for this file across any AI calls that
     /// would fire (Groups B, C, and G).
     input_tokens: u32,
-    /// True when this image would invoke Group B (description merge).
+    /// True when this file would invoke Group B (description merge).
     fires_description_ai: bool,
-    /// True when this image would invoke Group C (title generation).
+    /// True when this file would invoke Group C (title generation).
     fires_title_ai: bool,
-    /// True when this image would invoke Group G location resolution.
+    /// True when this file would invoke Group G location resolution.
     fires_location_ai: bool,
 }
 
@@ -53,7 +53,7 @@ struct PerGroupOutcomeCounts {
     n_normalised_deterministic: u32,
     n_normalised_ai: u32,
     n_conflict: u32,
-    /// Count of fields, summed across all images, that currently have
+    /// Count of fields, summed across all files, that currently have
     /// a non-empty effective value and would be replaced by a
     /// different value (or removed). For AI-fired groups we don't know
     /// the eventual value, so we assume "always different".
@@ -120,16 +120,16 @@ struct EstimatePricing {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct NormaliseEstimateCompletePayload {
-    n_images_with_ai_b: u32,
-    n_images_with_ai_c: u32,
-    n_images_with_ai_g: u32,
-    n_images_no_ai: u32,
+    n_files_with_ai_b: u32,
+    n_files_with_ai_c: u32,
+    n_files_with_ai_g: u32,
+    n_files_no_ai: u32,
     total_input_tokens: u64,
     predicted_cost_usd: f64,
     upper_bound_cost_usd: f64,
     model: String,
     location_model: String,
-    /// Per-group outcome counts collected by walking every image
+    /// Per-group outcome counts collected by walking every file
     /// through every group (regardless of user selection). Powers the
     /// confirm-phase outcome table; selection changes recompute cost
     /// client-side from `ai_token_breakdown` + `pricing` without
@@ -230,7 +230,7 @@ fn render_value_for_display(value: &crate::metadata_value::MetadataValue) -> Str
     }
 }
 
-/// Fields in `group` whose current effective value (from the per-image
+/// Fields in `group` whose current effective value (from the per-file
 /// input bundle) is non-empty AND would be replaced by a different value
 /// (or removed entirely) when the group fires. For AI-fired groups
 /// (Description case 4, Title case 3) the eventual value isn't known, so
@@ -238,7 +238,7 @@ fn render_value_for_display(value: &crate::metadata_value::MetadataValue) -> Str
 /// `«AI-generated»`.
 ///
 /// `edits` is the full set of draft edits returned by
-/// `process_image`; tags from different groups don't collide so we
+/// `process_item`; tags from different groups don't collide so we
 /// pick out this group's writes by tag name.
 fn overwrites_for_group(
     group: normalise::NormaliseGroup,
@@ -611,7 +611,7 @@ fn overwrites_for_group(
 }
 
 /// Preflight cost estimation for `normalise_metadata_cmd`. Walks every
-/// image with a `CapturingAiClient` so we know which AI calls would
+/// file with a `CapturingAiClient` so we know which AI calls would
 /// fire; preflights each captured prompt against
 /// `/responses/input_tokens` for an exact input-token count. Output
 /// tokens use the per-prompt expected and worst-case caps to bracket
@@ -701,10 +701,10 @@ pub async fn estimate_normalise_cost_cmd(
     let mut description_input_tokens: u64 = 0;
     let mut title_input_tokens: u64 = 0;
     let mut location_input_tokens: u64 = 0;
-    let mut n_images_with_ai_b: u32 = 0;
-    let mut n_images_with_ai_c: u32 = 0;
-    let mut n_images_with_ai_g: u32 = 0;
-    let mut n_images_no_ai: u32 = 0;
+    let mut n_files_with_ai_b: u32 = 0;
+    let mut n_files_with_ai_c: u32 = 0;
+    let mut n_files_with_ai_g: u32 = 0;
+    let mut n_files_no_ai: u32 = 0;
     let mut iptc_utf8_base_applicable_paths = Vec::new();
     let mut iptc_utf8_output_paths_by_group: BTreeMap<normalise::NormaliseGroup, Vec<String>> =
         BTreeMap::new();
@@ -717,7 +717,7 @@ pub async fn estimate_normalise_cost_cmd(
         let current = index + 1;
 
         let capturing = normalise::CapturingAiClient::default();
-        let (edits, stats, _err, _calls) = normalise::process_image(
+        let (edits, stats, _err, _calls) = normalise::process_item(
             item,
             &all_groups,
             Some(&capturing as &dyn normalise::NormaliseAiClient),
@@ -751,10 +751,10 @@ pub async fn estimate_normalise_cost_cmd(
             }
         }
 
-        // Roll per-image stats into the outcome map. PerGroupStats
-        // counters are 0/1 at the per-image scale; this turns them
+        // Roll per-file stats into the outcome map. PerGroupStats
+        // counters are 0/1 at the per-file scale; this turns them
         // into per-batch totals. Overwrites are computed here by
-        // diffing the emitted drafts against the per-image input
+        // diffing the emitted drafts against the per-file input
         // bundle.
         for (group, gs) in &stats.per_group {
             let entry = per_group_outcomes.entry(*group).or_default();
@@ -810,7 +810,7 @@ pub async fn estimate_normalise_cost_cmd(
             });
         }
 
-        let mut per_image_input_tokens: u32 = 0;
+        let mut per_file_input_tokens: u32 = 0;
         if let Some((normalise_client, _, _, _, _, estimate_mode)) = preflight.as_ref() {
             for prompt in &description_prompts {
                 let n = match estimate_mode {
@@ -837,7 +837,7 @@ pub async fn estimate_normalise_cost_cmd(
                     }
                 };
                 description_input_tokens += n as u64;
-                per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+                per_file_input_tokens = per_file_input_tokens.saturating_add(n);
             }
             for prompt in &title_prompts {
                 let n = match estimate_mode {
@@ -862,7 +862,7 @@ pub async fn estimate_normalise_cost_cmd(
                     }
                 };
                 title_input_tokens += n as u64;
-                per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+                per_file_input_tokens = per_file_input_tokens.saturating_add(n);
             }
             for prompt in &location_prompts {
                 let n = match estimate_mode {
@@ -889,21 +889,21 @@ pub async fn estimate_normalise_cost_cmd(
                     }
                 };
                 location_input_tokens += n as u64;
-                per_image_input_tokens = per_image_input_tokens.saturating_add(n);
+                per_file_input_tokens = per_file_input_tokens.saturating_add(n);
             }
         }
 
         if fires_description_ai {
-            n_images_with_ai_b += 1;
+            n_files_with_ai_b += 1;
         }
         if fires_title_ai {
-            n_images_with_ai_c += 1;
+            n_files_with_ai_c += 1;
         }
         if fires_location_ai {
-            n_images_with_ai_g += 1;
+            n_files_with_ai_g += 1;
         }
         if !fires_description_ai && !fires_title_ai && !fires_location_ai {
-            n_images_no_ai += 1;
+            n_files_no_ai += 1;
         }
 
         emitter.estimate_progress(current, total, &item.rel_path, None);
@@ -913,7 +913,7 @@ pub async fn estimate_normalise_cost_cmd(
                 current,
                 total,
                 relative_path: item.rel_path.clone(),
-                input_tokens: per_image_input_tokens,
+                input_tokens: per_file_input_tokens,
                 fires_description_ai,
                 fires_title_ai,
                 fires_location_ai,
@@ -946,8 +946,8 @@ pub async fn estimate_normalise_cost_cmd(
                 model,
                 description_input_tokens,
                 title_input_tokens,
-                n_images_with_ai_b,
-                n_images_with_ai_c,
+                n_files_with_ai_b,
+                n_files_with_ai_c,
             )
             .inspect_err(|error| {
                 emitter.fail(error.clone());
@@ -956,7 +956,7 @@ pub async fn estimate_normalise_cost_cmd(
             openai_normalise::estimate_location_cost_from_tokens(
                 location_model,
                 location_input_tokens,
-                n_images_with_ai_g,
+                n_files_with_ai_g,
             )
             .inspect_err(|error| {
                 emitter.fail(error.clone());
@@ -982,9 +982,9 @@ pub async fn estimate_normalise_cost_cmd(
                 description_input_tokens,
                 title_input_tokens,
                 location_input_tokens,
-                description_call_count: n_images_with_ai_b,
-                title_call_count: n_images_with_ai_c,
-                location_call_count: n_images_with_ai_g,
+                description_call_count: n_files_with_ai_b,
+                title_call_count: n_files_with_ai_c,
+                location_call_count: n_files_with_ai_g,
             }),
         )
     } else {
@@ -993,7 +993,7 @@ pub async fn estimate_normalise_cost_cmd(
 
     log::info!(
         "[normalise] estimate complete b={} c={} g={} no_ai={} input_tokens={} predicted=${:.6} upper=${:.6}",
-        n_images_with_ai_b, n_images_with_ai_c, n_images_with_ai_g, n_images_no_ai,
+        n_files_with_ai_b, n_files_with_ai_c, n_files_with_ai_g, n_files_no_ai,
         total_input_tokens, predicted_cost, upper_bound,
     );
     log::info!(
@@ -1002,10 +1002,10 @@ pub async fn estimate_normalise_cost_cmd(
         overwrite_details.len()
     );
     let estimate = NormaliseEstimateCompletePayload {
-        n_images_with_ai_b,
-        n_images_with_ai_c,
-        n_images_with_ai_g,
-        n_images_no_ai,
+        n_files_with_ai_b,
+        n_files_with_ai_c,
+        n_files_with_ai_g,
+        n_files_no_ai,
         total_input_tokens,
         predicted_cost_usd: predicted_cost,
         upper_bound_cost_usd: upper_bound,
@@ -1034,7 +1034,7 @@ pub async fn estimate_normalise_cost_cmd(
     Ok(())
 }
 
-/// Normalise metadata for a batch of images.
+/// Normalise metadata for a batch of files.
 #[tauri::command]
 pub async fn normalise_metadata_cmd(
     session_id: u64,
@@ -1112,7 +1112,7 @@ pub async fn normalise_metadata_cmd(
 
     // Plan §1 Groups B / C / G require an OpenAI key when their AI
     // branches fire. We construct the client up-front when either group
-    // is enabled; per-image AI failures surface as failure rows instead
+    // is enabled; per-file AI failures surface as failure rows instead
     // of aborting the batch.
     let wants_ai = enabled_groups.contains(&normalise::NormaliseGroup::Description)
         || enabled_groups.contains(&normalise::NormaliseGroup::Title)
@@ -1126,7 +1126,7 @@ pub async fn normalise_metadata_cmd(
             )),
             Err(e) => {
                 log::warn!(
-                    "[normalise] AI client unavailable ({}); per-image AI branches will fail",
+                    "[normalise] AI client unavailable ({}); per-file AI branches will fail",
                     e
                 );
                 None
@@ -1147,9 +1147,9 @@ pub async fn normalise_metadata_cmd(
     struct NormaliseItemOutcome {
         item: normalise::NormaliseRequestItem,
         edits: crate::draft_edits::SchemaMetadataEditMap,
-        stats: normalise::PerImageStats,
+        stats: normalise::PerFileStats,
         ai_err: Option<normalise::NormaliseAiError>,
-        ai_calls: Vec<normalise::PerImageAiCall>,
+        ai_calls: Vec<normalise::PerFileAiCall>,
     }
 
     let enabled_groups_arc = std::sync::Arc::new(enabled_groups);
@@ -1171,7 +1171,7 @@ pub async fn normalise_metadata_cmd(
                         .as_ref()
                         .map(|c| c as &dyn normalise::NormaliseAiClient);
                     let (edits, stats, ai_err, ai_calls) =
-                        normalise::process_image(&item, &enabled_groups, ai_ref, None).await;
+                        normalise::process_item(&item, &enabled_groups, ai_ref, None).await;
                     NormaliseItemOutcome {
                         item,
                         edits,
@@ -1362,8 +1362,8 @@ pub async fn normalise_metadata_cmd(
 
             if let Some(err) = ai_err {
                 // Plan §8: AI failures do not abort the batch; non-AI
-                // groups for the same image still wrote their drafts.
-                // Surface as a per-image failure row in addition to the
+                // groups for the same file still wrote their drafts.
+                // Surface as a per-file failure row in addition to the
                 // succeeded edits.
                 let detail = err.detail.clone();
                 let kind = err.kind;

@@ -8,15 +8,15 @@ import type { PerGroupStats } from "./PerGroupStats";
  */
 export type NormaliseSummary = { nSucceeded: number, nFailed: number, 
 /**
- * Images for which every enabled group was a no-op
+ * Files for which every enabled group was a no-op
  * (idempotency). Counted toward `n_succeeded`.
  */
 nSkippedAllNormalised: number, 
 /**
- * Per-group counters summed across every image in the batch.
+ * Per-group counters summed across every file in the batch.
  * Only includes entries for groups that the dispatcher actually
  * visited; absent keys mean the group was disabled for every
- * image.
+ * file.
  */
 perGroup: { [key in NormaliseGroup]?: PerGroupStats }, 
 /**

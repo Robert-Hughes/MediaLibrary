@@ -107,8 +107,8 @@ export function useGeocodeImages(options: UseGeocodeImagesOptions = {}): {
     () => ({
       operationKind: "geocode",
       commands: {
-        estimate: "prepare_geocode_images_cmd",
-        run: "geocode_images_cmd",
+        estimate: "prepare_geocode_files_cmd",
+        run: "geocode_files_cmd",
         cancel: "cancel_geocode_cmd",
       },
       buildEstimateArgs: (_folderPath, items) => ({ items }),
