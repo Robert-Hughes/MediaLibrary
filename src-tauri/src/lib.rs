@@ -296,8 +296,9 @@ fn search_media_library_session(
 fn dismiss_media_library_session_issue(
     issue_id: u64,
     session_state: State<'_, session::MediaLibrarySessionState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    Ok(session_state.dismiss_issue(issue_id))
+) -> Result<(), String> {
+    session_state.dismiss_issue(issue_id);
+    Ok(())
 }
 
 #[tauri::command]

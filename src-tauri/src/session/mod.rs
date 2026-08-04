@@ -130,7 +130,7 @@ impl MediaLibrarySessionState {
         total: usize,
         requested_paths: Vec<String>,
         request: Option<serde_json::Value>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<String, String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -157,7 +157,7 @@ impl MediaLibrarySessionState {
         snapshot.batch_operations.insert(
             kind.to_owned(),
             MediaLibraryBatchOperation {
-                operation_id,
+                operation_id: operation_id.clone(),
                 kind: kind.to_owned(),
                 requested_paths,
                 request,
@@ -173,7 +173,6 @@ impl MediaLibrarySessionState {
                 error: None,
             },
         );
-        let result = snapshot.clone();
         self.notify(SessionEvent::BatchOperationChanged(Box::new(
             MediaLibrarySessionBatchOperationChanged {
                 session_id,
@@ -182,7 +181,7 @@ impl MediaLibrarySessionState {
                 operation: snapshot.batch_operations.get(kind).cloned(),
             },
         )));
-        Ok(result)
+        Ok(operation_id)
     }
 
     pub fn start_batch_operation(
@@ -191,7 +190,7 @@ impl MediaLibrarySessionState {
         operation_id: &str,
         total: usize,
         confirmed_request: Option<serde_json::Value>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -218,7 +217,6 @@ impl MediaLibrarySessionState {
         let kind = operation.kind.clone();
         let changed = operation.clone();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::BatchOperationChanged(Box::new(
             MediaLibrarySessionBatchOperationChanged {
                 session_id,
@@ -227,7 +225,7 @@ impl MediaLibrarySessionState {
                 operation: Some(changed),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -354,7 +352,7 @@ impl MediaLibrarySessionState {
         session_id: u64,
         operation_id: &str,
         estimate: serde_json::Value,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -377,7 +375,6 @@ impl MediaLibrarySessionState {
         let kind = operation.kind.clone();
         let changed = operation.clone();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::BatchOperationChanged(Box::new(
             MediaLibrarySessionBatchOperationChanged {
                 session_id,
@@ -386,7 +383,7 @@ impl MediaLibrarySessionState {
                 operation: Some(changed),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn complete_batch_operation(
@@ -396,7 +393,7 @@ impl MediaLibrarySessionState {
         succeeded: Vec<String>,
         failures: Vec<MediaLibraryBatchOperationFailure>,
         summary: serde_json::Value,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -421,7 +418,6 @@ impl MediaLibrarySessionState {
         let kind = operation.kind.clone();
         let changed = operation.clone();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::BatchOperationChanged(Box::new(
             MediaLibrarySessionBatchOperationChanged {
                 session_id,
@@ -430,7 +426,7 @@ impl MediaLibrarySessionState {
                 operation: Some(changed),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn fail_batch_operation(
@@ -438,7 +434,7 @@ impl MediaLibrarySessionState {
         session_id: u64,
         operation_id: &str,
         error: String,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id) {
             return Err("The media-library session changed during the batch failure".into());
@@ -455,7 +451,6 @@ impl MediaLibrarySessionState {
         let kind = operation.kind.clone();
         let changed = operation.clone();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::BatchOperationChanged(Box::new(
             MediaLibrarySessionBatchOperationChanged {
                 session_id,
@@ -464,14 +459,14 @@ impl MediaLibrarySessionState {
                 operation: Some(changed),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn request_batch_operation_cancellation(
         &self,
         session_id: u64,
         operation_id: &str,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -487,7 +482,6 @@ impl MediaLibrarySessionState {
         let kind = operation.kind.clone();
         let changed = operation.clone();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::BatchOperationChanged(Box::new(
             MediaLibrarySessionBatchOperationChanged {
                 session_id,
@@ -496,14 +490,14 @@ impl MediaLibrarySessionState {
                 operation: Some(changed),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn dismiss_batch_operation(
         &self,
         session_id: u64,
         operation_id: &str,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id) {
             return Err(
@@ -521,7 +515,6 @@ impl MediaLibrarySessionState {
             .is_some_and(|kind| snapshot.batch_operations.remove(kind).is_some())
         {
             snapshot.revision += 1;
-            let result = snapshot.clone();
             self.notify(SessionEvent::BatchOperationChanged(Box::new(
                 MediaLibrarySessionBatchOperationChanged {
                     session_id,
@@ -530,9 +523,8 @@ impl MediaLibrarySessionState {
                     operation: None,
                 },
             )));
-            return Ok(result);
         }
-        Ok(snapshot.clone())
+        Ok(())
     }
 
     pub fn begin_apply_operation(
@@ -540,7 +532,7 @@ impl MediaLibrarySessionState {
         session_id: u64,
         operation_id: String,
         requested_paths: Option<Vec<String>>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -567,7 +559,6 @@ impl MediaLibrarySessionState {
             summary: None,
         });
         let operation = snapshot.apply_operation.clone();
-        let result = snapshot.clone();
         self.notify(SessionEvent::ApplyOperationChanged(Box::new(
             MediaLibrarySessionApplyOperationChanged {
                 session_id,
@@ -575,19 +566,18 @@ impl MediaLibrarySessionState {
                 operation,
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn begin_new_apply_operation(
         &self,
         session_id: u64,
         requested_paths: Option<Vec<String>>,
-    ) -> Result<(String, MediaLibrarySessionSnapshot), String> {
+    ) -> Result<String, String> {
         let sequence = self.next_apply_operation_id.fetch_add(1, Ordering::Relaxed);
         let operation_id = format!("target-apply-{sequence}");
-        let snapshot =
-            self.begin_apply_operation(session_id, operation_id.clone(), requested_paths)?;
-        Ok((operation_id, snapshot))
+        self.begin_apply_operation(session_id, operation_id.clone(), requested_paths)?;
+        Ok(operation_id)
     }
 
     pub fn update_apply_operation(
@@ -766,7 +756,7 @@ impl MediaLibrarySessionState {
         &self,
         session_id: u64,
         operation_id: &str,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -781,12 +771,11 @@ impl MediaLibrarySessionState {
             return Err("The metadata apply operation identity changed".into());
         }
         if !matches!(operation.state, MediaLibraryApplyOperationState::Running) {
-            return Ok(snapshot.clone());
+            return Ok(());
         }
         operation.cancelling = true;
         let changed = operation.clone();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::ApplyOperationChanged(Box::new(
             MediaLibrarySessionApplyOperationChanged {
                 session_id,
@@ -794,7 +783,7 @@ impl MediaLibrarySessionState {
                 operation: Some(changed),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn fail_apply_operation(
@@ -802,7 +791,7 @@ impl MediaLibrarySessionState {
         session_id: u64,
         operation_id: &str,
         error: String,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id) {
             return Err("The media-library session changed during apply failure".into());
@@ -818,7 +807,6 @@ impl MediaLibrarySessionState {
         operation.current_file = None;
         let changed = operation.clone();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::ApplyOperationChanged(Box::new(
             MediaLibrarySessionApplyOperationChanged {
                 session_id,
@@ -826,27 +814,26 @@ impl MediaLibrarySessionState {
                 operation: Some(changed),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn dismiss_apply_operation(
         &self,
         session_id: u64,
         operation_id: &str,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id) {
             return Err("The media-library session changed before apply was dismissed".into());
         }
         let Some(operation) = snapshot.apply_operation.as_ref() else {
-            return Ok(snapshot.clone());
+            return Ok(());
         };
         if operation.operation_id != operation_id {
             return Err("The metadata apply operation identity changed".into());
         }
         snapshot.apply_operation = None;
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::ApplyOperationChanged(Box::new(
             MediaLibrarySessionApplyOperationChanged {
                 session_id,
@@ -854,7 +841,7 @@ impl MediaLibrarySessionState {
                 operation: None,
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn resolve_verification_outcome(
@@ -1401,11 +1388,7 @@ impl MediaLibrarySessionState {
         Ok(delta)
     }
 
-    pub fn remove_files(
-        &self,
-        session_id: u64,
-        relative_paths: &[String],
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    pub fn remove_files(&self, session_id: u64, relative_paths: &[String]) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -1462,7 +1445,6 @@ impl MediaLibrarySessionState {
             snapshot.revision += 1;
         }
         let revision = snapshot.revision;
-        let result = snapshot.clone();
         if changed {
             self.notify(SessionEvent::FilesRemoved(Box::new(
                 MediaLibrarySessionFilesRemoved {
@@ -1477,10 +1459,10 @@ impl MediaLibrarySessionState {
             self.search
                 .remove_paths(session_id, revision, relative_paths.to_vec());
         }
-        Ok(result)
+        Ok(())
     }
 
-    pub fn finish_discovery(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
+    pub fn finish_discovery(&self, session_id: u64) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -1490,7 +1472,6 @@ impl MediaLibrarySessionState {
         if snapshot.discovery_running {
             snapshot.revision += 1;
             snapshot.discovery_running = false;
-            let result = snapshot.clone();
             self.notify(SessionEvent::DiscoveryChanged(Box::new(
                 MediaLibrarySessionDiscoveryChanged {
                     session_id,
@@ -1498,9 +1479,8 @@ impl MediaLibrarySessionState {
                     discovery_running: false,
                 },
             )));
-            return Ok(result);
         }
-        Ok(snapshot.clone())
+        Ok(())
     }
 
     pub fn add_issue(
@@ -1568,23 +1548,20 @@ impl MediaLibrarySessionState {
         Ok(delta)
     }
 
-    pub fn dismiss_issue(&self, issue_id: u64) -> MediaLibrarySessionSnapshot {
+    pub fn dismiss_issue(&self, issue_id: u64) {
         let mut snapshot = self.snapshot.lock().unwrap();
         let previous_len = snapshot.issues.len();
         snapshot.issues.retain(|issue| issue.issue_id != issue_id);
         if snapshot.issues.len() != previous_len {
             snapshot.revision += 1;
-            let result = snapshot.clone();
             self.notify(SessionEvent::IssueRemoved(Box::new(
                 MediaLibrarySessionIssueRemoved {
-                    session_id: result.session_id.unwrap_or_default(),
+                    session_id: snapshot.session_id.unwrap_or_default(),
                     revision: snapshot.revision,
                     issue_id,
                 },
             )));
-            return result;
         }
-        snapshot.clone()
     }
 
     pub fn begin_close(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
@@ -1792,7 +1769,7 @@ mod tests {
             .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
             .unwrap();
         state.mark_loaded(session_id, "C:/photos").unwrap();
-        let (operation_id, _) = state.begin_new_apply_operation(session_id, None).unwrap();
+        let operation_id = state.begin_new_apply_operation(session_id, None).unwrap();
         // Drain the four lifecycle snapshots queued so far.
         assert_eq!(receiver.try_iter().count(), 4);
 
@@ -1874,7 +1851,7 @@ mod tests {
             .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
             .unwrap();
         state.mark_loaded(session_id, "C:/photos").unwrap();
-        let started = state
+        let operation_id = state
             .begin_batch_operation(
                 session_id,
                 "describe",
@@ -1884,8 +1861,7 @@ mod tests {
                 None,
             )
             .unwrap();
-        let operation_id = started.batch_operations["describe"].operation_id.clone();
-        let revision_at_start = started.revision;
+        let revision_at_start = state.snapshot().revision;
         assert_eq!(receiver.try_iter().count(), 4);
 
         state
@@ -2022,7 +1998,8 @@ mod tests {
             MediaLibrarySessionMetadataState::Ready { .. }
         ));
 
-        let completed = state.finish_discovery(1).unwrap();
+        state.finish_discovery(1).unwrap();
+        let completed = state.snapshot();
         assert_eq!(completed.revision, 5);
         assert!(!completed.discovery_running);
 
@@ -2217,9 +2194,10 @@ mod tests {
         assert_eq!(before.drafts.len(), 1);
         assert_eq!(before.verification_outcomes.len(), 1);
 
-        let removed = state
+        state
             .remove_files(session_id, &["gone.jpg".into()])
             .unwrap();
+        let removed = state.snapshot();
         assert!(removed.files.is_empty());
         assert!(removed.metadata.is_empty());
         assert!(
@@ -2420,7 +2398,8 @@ mod tests {
         let issue_id = with_issue.issue.issue_id;
         assert_eq!(state.snapshot().issues[0].issue_id, issue_id);
 
-        let dismissed = state.dismiss_issue(issue_id);
+        state.dismiss_issue(issue_id);
+        let dismissed = state.snapshot();
         assert!(dismissed.issues.is_empty());
         assert!(dismissed.revision > with_issue.revision);
     }
@@ -2432,16 +2411,19 @@ mod tests {
         let session_id = opened.session_id.unwrap();
         state.mark_loaded(session_id, "C:/photos").unwrap();
 
-        let (first_id, first) = state
+        let first_id = state
             .begin_new_apply_operation(session_id, Some(vec!["a.jpg".into()]))
             .unwrap();
         assert_eq!(first_id, "target-apply-1");
-        assert_eq!(first.apply_operation.unwrap().operation_id, first_id);
+        assert_eq!(
+            state.snapshot().apply_operation.unwrap().operation_id,
+            first_id
+        );
         state
             .fail_apply_operation(session_id, &first_id, "done".into())
             .unwrap();
 
-        let (second_id, _) = state.begin_new_apply_operation(session_id, None).unwrap();
+        let second_id = state.begin_new_apply_operation(session_id, None).unwrap();
         assert_eq!(second_id, "target-apply-2");
     }
 
@@ -2563,7 +2545,7 @@ mod tests {
             .install_draft_load_result(first_id, Ok(MetadataTargetDraftsByFile::new()))
             .unwrap();
         state.mark_loaded(first_id, "C:/one").unwrap();
-        let started = state
+        let operation_id = state
             .begin_batch_operation(
                 first_id,
                 "describe",
@@ -2573,7 +2555,6 @@ mod tests {
                 Some(serde_json::json!(["one.jpg"])),
             )
             .unwrap();
-        let operation_id = started.batch_operations["describe"].operation_id.clone();
 
         let second = state.begin_open("C:/two".into());
         let second_id = second.session_id.unwrap();
@@ -2605,7 +2586,7 @@ mod tests {
             .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
             .unwrap();
         state.mark_loaded(session_id, "C:/media").unwrap();
-        let estimating = state
+        let operation_id = state
             .begin_batch_operation(
                 session_id,
                 "normalise",
@@ -2615,27 +2596,25 @@ mod tests {
                 Some(serde_json::json!([{"relPath": "image.jpg"}])),
             )
             .unwrap();
-        let operation_id = estimating.batch_operations["normalise"]
-            .operation_id
-            .clone();
-        let awaiting = state
+        state
             .complete_batch_operation_estimate(
                 session_id,
                 &operation_id,
                 serde_json::json!({"cost": 1}),
             )
             .unwrap();
-        let running = state
+        state
             .start_batch_operation(session_id, &operation_id, 1, None)
             .unwrap();
 
+        let running = state.snapshot();
         assert_eq!(
             running.batch_operations["normalise"].operation_id,
             operation_id
         );
         assert_eq!(
             running.batch_operations["normalise"].estimate,
-            awaiting.batch_operations["normalise"].estimate
+            Some(serde_json::json!({"cost": 1}))
         );
         assert!(state
             .start_batch_operation(session_id, "stale", 1, None)
