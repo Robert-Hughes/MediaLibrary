@@ -2366,6 +2366,64 @@ mod tests {
     }
 
     #[test]
+    fn drafts_loaded_at_open_drive_has_edits_after_files_are_indexed() {
+        // Regression: persisted drafts are installed before the scan adds any
+        // files, and they used to be dropped by the search index, so
+        // `has:edits` and draft-text search found nothing at open.
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
+        let schema_id = crate::tag_schema::SchemaDefinitionId {
+            table: "XMP::Main".into(),
+            tag_id: "title".into(),
+            index: None,
+        };
+        let target = crate::metadata_draft_target::MetadataDraftTarget::NewProperty {
+            schema_id: schema_id.clone(),
+            write_target: crate::metadata_occurrence::MetadataWriteTarget {
+                group1: "XMP".into(),
+                group7: "XMP-dc".into(),
+                tag_name: "Title".into(),
+            },
+        };
+        let mut drafts = MetadataTargetDraftsByFile::new();
+        drafts.insert(
+            "a.jpg".into(),
+            vec![MetadataTargetDraftEntry {
+                target,
+                edit: crate::draft_edits::MetadataDraftEdit {
+                    value: Some(crate::metadata_value::MetadataValue::Text(
+                        "persisted draft needle".into(),
+                    )),
+                    intent: crate::draft_edits::EditIntent::Set,
+                },
+            }],
+        );
+        state
+            .install_draft_load_result(session_id, Ok(drafts))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("a.jpg")])
+            .unwrap();
+
+        let search = |query: &str| {
+            state
+                .search()
+                .submit(crate::search_service::MediaLibrarySearchRequest {
+                    session_id,
+                    request_id: 1,
+                    query: query.into(),
+                })
+        };
+        assert_eq!(search("has:edits").unwrap().matched_paths, vec!["a.jpg"]);
+        assert_eq!(
+            search("persisted draft needle").unwrap().matched_paths,
+            vec!["a.jpg"]
+        );
+    }
+
+    #[test]
     fn issues_are_session_owned_and_dismissed_by_stable_id() {
         let state = MediaLibrarySessionState::new();
         let opened = state.begin_open("C:/photos".into());
