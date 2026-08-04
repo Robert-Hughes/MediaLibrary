@@ -185,6 +185,27 @@ describe("FileList multi-select", () => {
     expect(selected).toEqual(["1"]);
   });
 
+  it("ctrl-click removing a non-primary row keeps the rest selected", async () => {
+    // Regression: ctrl-clicking an already-selected row that is not the
+    // current primary selection used to collapse the whole selection to
+    // that one row instead of just removing it.  Needs real parent state
+    // (setupStateful) because the bug needs onSelect to actually change
+    // selectedPath.
+    const user = userEvent.setup();
+    setupStateful({ initialIndex: 1 });
+    await user.keyboard("{Control>}");
+    await user.click(rows()[2]);
+    await user.click(rows()[3]);
+    await user.click(rows()[2]);
+    await user.keyboard("{/Control}");
+    const selected = Array.from(
+      document.querySelectorAll(".file-row--selected"),
+    )
+      .map((el) => el.getAttribute("data-index"))
+      .sort();
+    expect(selected).toEqual(["1", "3"]);
+  });
+
   it("shift-click selects a contiguous range from the anchor", async () => {
     setup();
     const user = userEvent.setup();
