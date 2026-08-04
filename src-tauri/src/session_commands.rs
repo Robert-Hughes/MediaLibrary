@@ -1825,8 +1825,7 @@ pub(super) async fn apply_metadata_draft_edits_cmd(
         .folder
         .clone()
         .ok_or_else(|| "The active media-library session has no folder".to_string())?;
-    let (operation_id, _begun) =
-        session_state.begin_new_apply_operation(session_id, rel_paths.clone())?;
+    let operation_id = session_state.begin_new_apply_operation(session_id, rel_paths.clone())?;
 
     let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;
     let batch_size = usize::from(app_settings.metadata_apply_batch_size);
@@ -1883,7 +1882,7 @@ pub(super) fn dismiss_media_library_session_apply_operation(
     session_id: u64,
     operation_id: String,
     session_state: State<'_, session::MediaLibrarySessionState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
+) -> Result<(), String> {
     session_state.dismiss_apply_operation(session_id, &operation_id)
 }
 #[tauri::command]
@@ -1891,6 +1890,6 @@ pub(super) fn dismiss_media_library_session_batch_operation(
     session_id: u64,
     operation_id: String,
     session_state: State<'_, session::MediaLibrarySessionState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
+) -> Result<(), String> {
     session_state.dismiss_batch_operation(session_id, &operation_id)
 }

@@ -446,15 +446,9 @@ impl<'a> BatchProgressEmitter<'a> {
         producer: Option<GeneratedDraftProducer>,
     ) -> Result<Self, String> {
         let total = requested_paths.len();
-        let snapshot = app
+        let operation_id = app
             .state::<crate::session::MediaLibrarySessionState>()
             .begin_batch_operation(session_id, prefix, phase, total, requested_paths, request)?;
-        let operation_id = snapshot
-            .batch_operations
-            .get(prefix)
-            .expect("the operation was inserted above")
-            .operation_id
-            .clone();
         Ok(Self {
             app,
             prefix,
