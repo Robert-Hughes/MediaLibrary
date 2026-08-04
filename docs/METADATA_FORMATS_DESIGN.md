@@ -77,7 +77,12 @@ transaction commits.
 
 The sole active apply audit is `<app-data>/MediaLibraryTargetApplyLog.jsonl`. Its identity marker is unchanged. Schema-version 3 rows use canonical absolute `photo_path` and retain complete targets, semantic values, the single ordered raw-write argument vector and
 status, verification results and reconciliation decisions. Existing rows are
-append-only and are never rewritten.
+append-only and are never rewritten. Rotation mirrors `medialibrary.log`
+(`RotationStrategy::KeepAll`, 10 MB): when the active file reaches the limit,
+the next apply command rotates it to
+`MediaLibraryTargetApplyLog_<UTC timestamp>.jsonl` and starts a fresh file.
+Rotation happens only at the start of an apply command, never between per-file
+appends, so one command's lines are never split across files.
 
 The historical `MediaLibraryDraftEdits.jsonl` and
 `MediaLibraryApplyLog.jsonl` files are ignored. They are not parsed, migrated,

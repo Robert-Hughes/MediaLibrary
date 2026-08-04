@@ -3,6 +3,13 @@
 //! Append-only by design: never truncated, never read by the app. The files are
 //! supplemental forensic evidence users can inspect after a write looks wrong.
 //!
+//! Rotation mirrors `tauri-plugin-log` (`RotationStrategy::KeepAll`, 10 MB):
+//! once the active file reaches [`TARGET_LOG_MAX_SIZE`], the next apply command
+//! rotates it to `MediaLibraryTargetApplyLog_<UTC timestamp>.jsonl` and starts a
+//! fresh file. Rotation is allowed only at the start of an apply command (see
+//! `crate::apply_batch::TargetApplyLogger::begin_batch`), never between
+//! per-file appends, so a command's lines are never split across files.
+//!
 //! See `docs/METADATA_FORMATS_DESIGN.md` §6.
 
 use crate::apply_edits::MetadataDraftReconciliation;
@@ -14,13 +21,15 @@ use crate::tag_schema::SchemaDefinitionId;
 use serde::Serialize;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 const TARGET_LOG_FILE_NAME: &str = "MediaLibraryTargetApplyLog.jsonl";
 const TARGET_LOG_SCHEMA_VERSION: u32 = 3;
 const TARGET_LOG_IDENTITY_MODEL: &str = "TargetDraft";
-const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only. Each line is one exact target outcome and carries its own schema_version.";
+/// Active-file rotation threshold, matching `medialibrary.log` (10 MB).
+const TARGET_LOG_MAX_SIZE: u64 = 10 * 1024 * 1024;
+const TARGET_HEADER_COMMENT: &str = "// Target-aware apply audit log. Append-only; rotates at 10 MB per apply command. Each line is one exact target outcome and carries its own schema_version.";
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub(crate) struct TargetApplyAuditRecord {
@@ -205,6 +214,61 @@ pub(crate) fn append_target_metadata_entries_with_state(
             path.display()
         )
     })
+}
+
+/// Rotate the active target apply log if it has reached [`TARGET_LOG_MAX_SIZE`].
+///
+/// Only ever called once per apply command (via
+/// `TargetApplyLogger::begin_batch`) so a command's lines can never be split
+/// across files; appends themselves never rotate. Mirrors `medialibrary.log`:
+/// keep-all timestamped copies named `MediaLibraryTargetApplyLog_<YYYY-MM-DD_HH-MM-SS>.jsonl`
+/// (UTC, matching `tauri-plugin-log`'s default `UseUtc`).
+pub(crate) fn rotate_target_apply_log_if_needed(
+    app_data_dir: &Path,
+    state: &ApplyLogState,
+) -> Result<(), String> {
+    let _guard = state.operation.try_lock().map_err(|_| {
+        "Concurrent central target apply log access detected; MediaLibrary operation ordering is invalid".to_string()
+    })?;
+    let path = app_data_dir.join(TARGET_LOG_FILE_NAME);
+    let metadata = match std::fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "Could not inspect target apply log {}: {error}",
+                path.display()
+            ))
+        }
+    };
+    if metadata.len() < TARGET_LOG_MAX_SIZE {
+        return Ok(());
+    }
+    let rotated_path = next_rotated_path(app_data_dir)?;
+    std::fs::rename(&path, &rotated_path).map_err(|error| {
+        format!(
+            "Could not rotate target apply log {} to {}: {error}",
+            path.display(),
+            rotated_path.display()
+        )
+    })
+}
+
+/// Pick the next free rotated-file name, mirroring the plugin's
+/// `{file_name}_{timestamp}.log` scheme with a `.jsonl` extension. A suffix
+/// counter avoids ever clobbering an existing rotated file.
+fn next_rotated_path(app_data_dir: &Path) -> Result<PathBuf, String> {
+    let prefix = TARGET_LOG_FILE_NAME
+        .strip_suffix(".jsonl")
+        .expect("target log file name ends in .jsonl");
+    let timestamp = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S");
+    let mut candidate = app_data_dir.join(format!("{prefix}_{timestamp}.jsonl"));
+    let mut collision = 1;
+    while candidate.exists() {
+        candidate = app_data_dir.join(format!("{prefix}_{timestamp}_{collision}.jsonl"));
+        collision += 1;
+    }
+    Ok(candidate)
 }
 
 #[cfg(test)]
@@ -625,5 +689,102 @@ mod tests {
         );
         assert!(legacy_path.exists());
         assert!(target_path.exists());
+    }
+
+    fn rotated_logs(dir: &Path) -> Vec<PathBuf> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+                let name = path.file_name()?.to_string_lossy();
+                name.starts_with("MediaLibraryTargetApplyLog_")
+                    .then_some(path)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn rotation_is_noop_below_threshold_and_renames_at_or_above_it() {
+        let dir = tempdir().unwrap();
+        let log_path = dir.path().join(TARGET_LOG_FILE_NAME);
+        let state = ApplyLogState::default();
+
+        // Below threshold: untouched.
+        std::fs::write(&log_path, "// header\n{\"small\":true}\n").unwrap();
+        rotate_target_apply_log_if_needed(dir.path(), &state).unwrap();
+        assert!(log_path.exists());
+        assert_eq!(rotated_logs(dir.path()).len(), 0);
+
+        // At threshold: renamed to the plugin-style timestamped name.
+        std::fs::write(&log_path, vec![b'x'; TARGET_LOG_MAX_SIZE as usize]).unwrap();
+        rotate_target_apply_log_if_needed(dir.path(), &state).unwrap();
+        assert!(!log_path.exists());
+        let rotated = rotated_logs(dir.path());
+        assert_eq!(rotated.len(), 1);
+        let name = rotated[0].file_name().unwrap().to_string_lossy();
+        assert!(
+            name.starts_with("MediaLibraryTargetApplyLog_"),
+            "unexpected rotated name: {name}"
+        );
+        assert!(name.ends_with(".jsonl"));
+        // Date-and-time suffix mirrors medialibrary_YYYY-MM-DD_HH-MM-SS.log.
+        let suffix = name
+            .strip_prefix("MediaLibraryTargetApplyLog_")
+            .unwrap()
+            .strip_suffix(".jsonl")
+            .unwrap();
+        assert!(
+            chrono::NaiveDateTime::parse_from_str(suffix, "%Y-%m-%d_%H-%M-%S").is_ok(),
+            "rotated suffix is not a timestamp: {suffix}"
+        );
+        assert_eq!(
+            std::fs::metadata(&rotated[0]).unwrap().len(),
+            TARGET_LOG_MAX_SIZE
+        );
+    }
+
+    #[test]
+    fn next_append_after_rotation_starts_a_fresh_header_file() {
+        let dir = tempdir().unwrap();
+        let state = ApplyLogState::default();
+        let log_path = dir.path().join(TARGET_LOG_FILE_NAME);
+
+        std::fs::write(&log_path, vec![b'x'; TARGET_LOG_MAX_SIZE as usize]).unwrap();
+        rotate_target_apply_log_if_needed(dir.path(), &state).unwrap();
+
+        append_target_metadata_entries(
+            dir.path().to_str().unwrap(),
+            "after-rotation.jpg",
+            &[existing_audit(None, "after rotation")],
+            &TargetDraftPersistenceOutcome::Persisted,
+        )
+        .unwrap();
+
+        let contents = std::fs::read_to_string(&log_path).unwrap();
+        assert!(contents.starts_with(&format!("{TARGET_HEADER_COMMENT}\n")));
+        assert_eq!(target_entries(&log_path).len(), 1);
+    }
+
+    #[test]
+    fn appends_never_rotate_so_a_command_cannot_split_across_files() {
+        let dir = tempdir().unwrap();
+        let log_path = dir.path().join(TARGET_LOG_FILE_NAME);
+
+        // Even an append that pushes the active file far past the threshold
+        // stays in the same file: rotation happens only at begin_batch.
+        let mut oversized = vec![b'x'; TARGET_LOG_MAX_SIZE as usize];
+        oversized.push(b'\n');
+        std::fs::write(&log_path, oversized).unwrap();
+        append_target_metadata_entries(
+            dir.path().to_str().unwrap(),
+            "oversized.jpg",
+            &[existing_audit(None, "oversized")],
+            &TargetDraftPersistenceOutcome::Unchanged,
+        )
+        .unwrap();
+
+        assert!(log_path.exists());
+        assert_eq!(rotated_logs(dir.path()).len(), 0);
+        assert_eq!(target_entries(&log_path).len(), 1);
     }
 }

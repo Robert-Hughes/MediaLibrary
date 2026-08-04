@@ -68,6 +68,14 @@ where
         log::warn!("[apply_batch] Failed to emit started event: {error}");
     }
 
+    // Rotate the target apply log once per command, before any append, so a
+    // command's audit lines are never split across files.
+    if total > 0 {
+        if let Err(error) = target_logger.begin_batch() {
+            log::warn!("[apply_batch] Failed to rotate target apply log: {error}");
+        }
+    }
+
     #[cfg(test)]
     let mut files = Vec::with_capacity(total);
     let mut undelivered_files = Vec::new();

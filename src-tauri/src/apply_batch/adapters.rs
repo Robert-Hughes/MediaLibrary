@@ -205,6 +205,12 @@ pub(super) struct RealTargetApplyLogger {
 }
 
 impl TargetApplyLogger for RealTargetApplyLogger {
+    fn begin_batch(&self) -> Result<(), String> {
+        let app_data_dir = crate::commands::shared::app_data_dir(&self.app)?;
+        let state = self.app.state::<ApplyLogState>();
+        rotate_target_apply_log_if_needed(&app_data_dir, &state)
+    }
+
     fn append(
         &self,
         folder_path: &str,
