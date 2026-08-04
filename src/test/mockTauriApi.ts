@@ -2234,10 +2234,19 @@ export function createMockTauriApi(): MockTauriApi {
           }
         }
         mock.targetDraftEditsByFolder[folderPath] = store.getAllMetadata();
+        const stagedRows: Record<string, MetadataTargetDraftEntry[]> = {};
+        for (const path of succeeded) {
+          stagedRows[path] = Object.values(store.getMetadataFile(path) ?? {});
+        }
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           drafts: targetDraftsToWire(store.getAllMetadata()),
+        };
+        emitDraftsChanged(stagedRows);
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
           batch_operations: {
             ...sessionSnapshot.batch_operations,
             describe: {
@@ -2362,10 +2371,19 @@ export function createMockTauriApi(): MockTauriApi {
           }
         }
         mock.targetDraftEditsByFolder[folderPath] = store.getAllMetadata();
+        const stagedRows: Record<string, MetadataTargetDraftEntry[]> = {};
+        for (const path of succeeded) {
+          stagedRows[path] = Object.values(store.getMetadataFile(path) ?? {});
+        }
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           drafts: targetDraftsToWire(store.getAllMetadata()),
+        };
+        emitDraftsChanged(stagedRows);
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
           batch_operations: {
             ...sessionSnapshot.batch_operations,
             geocode: {
@@ -2576,10 +2594,19 @@ export function createMockTauriApi(): MockTauriApi {
           }
         }
         mock.targetDraftEditsByFolder[folderPath] = store.getAllMetadata();
+        const stagedRows: Record<string, MetadataTargetDraftEntry[]> = {};
+        for (const path of succeeded) {
+          stagedRows[path] = Object.values(store.getMetadataFile(path) ?? {});
+        }
         sessionSnapshot = {
           ...sessionSnapshot,
           revision: sessionSnapshot.revision + 1,
           drafts: targetDraftsToWire(store.getAllMetadata()),
+        };
+        emitDraftsChanged(stagedRows);
+        sessionSnapshot = {
+          ...sessionSnapshot,
+          revision: sessionSnapshot.revision + 1,
           batch_operations: {
             ...sessionSnapshot.batch_operations,
             normalise: {

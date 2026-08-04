@@ -446,6 +446,23 @@ describe("AI-description flow", () => {
         ({ target }) => target.kind === "NewProperty",
       ),
     ).toBe(true);
+
+    // Regression: the staged drafts must also reach the frontend draft store
+    // (via the session `drafts_changed` delta) so the UI shows them — the
+    // Rust search index alone is not enough.
+    await screen.findByText("2 edits");
+    const draftRows = screen
+      .getAllByTestId("details-row")
+      .filter((row) => row.getAttribute("data-row-kind") === "NewPropertyRow");
+    expect(draftRows).toHaveLength(2);
+    expect(draftRows[0]).toHaveAttribute(
+      "data-schema-id",
+      JSON.stringify(["UserDefined::mlib", "AIDescription", null]),
+    );
+    expect(draftRows[1]).toHaveAttribute(
+      "data-schema-id",
+      JSON.stringify(["UserDefined::mlib", "AITags", null]),
+    );
   });
 
   it("compares done actual cost against the confirmation estimate", async () => {
