@@ -163,38 +163,46 @@ pub(super) fn set_media_library_session_draft(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the draft was saved".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    if target.is_new_property() {
-        ensure_session_target_has_no_pending_verification(&snapshot, &relative_path, &target)?;
-    }
-    validate_exact_session_draft_target(&snapshot, &relative_path, &target)?;
-    let mut entries = snapshot
-        .drafts
-        .get(&relative_path)
-        .cloned()
-        .unwrap_or_default();
-    let slot = target.slot();
-    let replacement = draft_edits::MetadataTargetDraftEntry { target, edit };
-    if let Some(existing) = entries.iter_mut().find(|entry| entry.target.slot() == slot) {
-        *existing = replacement;
-    } else {
-        entries.push(replacement);
-    }
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+) -> Result<(), String> {
+    let (folder, entries) = session_state.inspect(
+        |snapshot| -> Result<(String, Vec<draft_edits::MetadataTargetDraftEntry>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err("The media-library session changed before the draft was saved".into());
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            if target.is_new_property() {
+                ensure_session_target_has_no_pending_verification(
+                    snapshot,
+                    &relative_path,
+                    &target,
+                )?;
+            }
+            validate_exact_session_draft_target(snapshot, &relative_path, &target)?;
+            let mut entries = snapshot
+                .drafts
+                .get(&relative_path)
+                .cloned()
+                .unwrap_or_default();
+            let slot = target.slot();
+            let replacement = draft_edits::MetadataTargetDraftEntry { target, edit };
+            if let Some(existing) = entries.iter_mut().find(|entry| entry.target.slot() == slot) {
+                *existing = replacement;
+            } else {
+                entries.push(replacement);
+            }
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, entries))
+        },
+    )?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         entries.clone(),
     ) {
@@ -212,29 +220,35 @@ pub(super) fn discard_media_library_session_draft(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the draft was discarded".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let slot = target.slot();
-    let mut entries = snapshot
-        .drafts
-        .get(&relative_path)
-        .cloned()
-        .unwrap_or_default();
-    entries.retain(|entry| entry.target.slot() != slot);
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+) -> Result<(), String> {
+    let (folder, entries) = session_state.inspect(
+        |snapshot| -> Result<(String, Vec<draft_edits::MetadataTargetDraftEntry>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before the draft was discarded".into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            let slot = target.slot();
+            let mut entries = snapshot
+                .drafts
+                .get(&relative_path)
+                .cloned()
+                .unwrap_or_default();
+            entries.retain(|entry| entry.target.slot() != slot);
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, entries))
+        },
+    )?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         entries.clone(),
     ) {
@@ -253,50 +267,61 @@ pub(super) fn resolve_media_library_session_verification_outcome(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before verification was resolved".into());
-    }
-    let pending = snapshot
-        .verification_outcomes
-        .get(&relative_path)
-        .is_some_and(|outcomes| {
-            outcomes.iter().any(|outcome| {
-                let target = match &outcome.draft_reconciliation {
-                    apply_edits::MetadataDraftReconciliation::Replace { target } => target,
-                    _ => &outcome.target,
-                };
-                target == &current_target
-            })
-        });
-    if !pending {
-        return Err("The verification outcome is no longer pending".into());
-    }
+) -> Result<(), String> {
+    let persisted = session_state.inspect(
+        |snapshot| -> Result<Option<(String, Vec<draft_edits::MetadataTargetDraftEntry>)>, String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before verification was resolved".into(),
+                );
+            }
+            let pending = snapshot
+                .verification_outcomes
+                .get(&relative_path)
+                .is_some_and(|outcomes| {
+                    outcomes.iter().any(|outcome| {
+                        let target = match &outcome.draft_reconciliation {
+                            apply_edits::MetadataDraftReconciliation::Replace { target } => target,
+                            _ => &outcome.target,
+                        };
+                        target == &current_target
+                    })
+                });
+            if !pending {
+                return Err("The verification outcome is no longer pending".into());
+            }
 
-    let persisted_entries = if discard_draft {
-        ensure_session_draft_mutation_allowed(&snapshot)?;
-        let slot = current_target.slot();
-        let mut entries = snapshot
-            .drafts
-            .get(&relative_path)
-            .cloned()
-            .unwrap_or_default();
-        let previous_len = entries.len();
-        entries.retain(|entry| entry.target.slot() != slot);
-        if entries.len() == previous_len {
-            return Err("The verification draft is no longer pending".into());
-        }
-        let folder = snapshot
-            .folder
-            .as_deref()
-            .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            let persisted_entries = if discard_draft {
+                ensure_session_draft_mutation_allowed(snapshot)?;
+                let slot = current_target.slot();
+                let mut entries = snapshot
+                    .drafts
+                    .get(&relative_path)
+                    .cloned()
+                    .unwrap_or_default();
+                let previous_len = entries.len();
+                entries.retain(|entry| entry.target.slot() != slot);
+                if entries.len() == previous_len {
+                    return Err("The verification draft is no longer pending".into());
+                }
+                let folder = snapshot
+                    .folder
+                    .clone()
+                    .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+                Some((folder, entries))
+            } else {
+                None
+            };
+            Ok(persisted_entries)
+        },
+    )?;
+    let persisted_entries = if let Some((folder, entries)) = persisted {
         if let Err(error) = persist_exact_session_draft_row(
             &app,
             &repository_state,
-            folder,
+            &folder,
             relative_path.clone(),
             entries.clone(),
         ) {
@@ -320,7 +345,7 @@ pub(super) fn resolve_media_library_session_verification_outcome(
 pub(super) fn dismiss_media_library_session_verification_outcomes(
     session_id: u64,
     session_state: State<'_, session::MediaLibrarySessionState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
+) -> Result<(), String> {
     session_state.dismiss_all_verification_outcomes(session_id)
 }
 
@@ -351,30 +376,37 @@ pub(super) fn discard_media_library_session_drafts(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the drafts were discarded".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let current_entries = snapshot
-        .drafts
-        .get(&relative_path)
-        .cloned()
-        .unwrap_or_default();
-    let Some(entries) = discard_exact_session_draft_targets(&current_entries, &targets) else {
-        return Ok(snapshot);
+) -> Result<(), String> {
+    let (folder, entries) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before the drafts were discarded".into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            let current_entries = snapshot
+                .drafts
+                .get(&relative_path)
+                .cloned()
+                .unwrap_or_default();
+            let entries = discard_exact_session_draft_targets(&current_entries, &targets);
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, entries))
+        },
+    )?;
+    let Some(entries) = entries else {
+        return Ok(());
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         entries.clone(),
     ) {
@@ -446,38 +478,46 @@ pub(super) fn replace_media_library_session_new_property_draft(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the draft was moved".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    ensure_session_target_has_no_pending_verification(&snapshot, &relative_path, &original_target)?;
-    validate_exact_session_draft_target(&snapshot, &relative_path, &replacement_target)?;
-    let current_entries = snapshot
-        .drafts
-        .get(&relative_path)
-        .cloned()
-        .unwrap_or_default();
-    let Some(entries) = replace_exact_new_property_session_draft(
-        &current_entries,
-        &original_target,
-        &replacement_target,
-        &original_edit,
-    )?
-    else {
-        return Ok(snapshot);
+) -> Result<(), String> {
+    let (folder, entries) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err("The media-library session changed before the draft was moved".into());
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            ensure_session_target_has_no_pending_verification(
+                snapshot,
+                &relative_path,
+                &original_target,
+            )?;
+            validate_exact_session_draft_target(snapshot, &relative_path, &replacement_target)?;
+            let current_entries = snapshot
+                .drafts
+                .get(&relative_path)
+                .cloned()
+                .unwrap_or_default();
+            let entries = replace_exact_new_property_session_draft(
+                &current_entries,
+                &original_target,
+                &replacement_target,
+                &original_edit,
+            )?;
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, entries))
+        },
+    )?;
+    let Some(entries) = entries else {
+        return Ok(());
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         entries.clone(),
     ) {
@@ -592,24 +632,29 @@ pub(super) fn preview_media_library_session_metadata_target_removals(
     targets: Vec<metadata_draft_target::MetadataDraftTarget>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<draft_edits::MetadataRemovalPreview, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err(
-            "The media-library session changed before metadata removal was previewed".into(),
-        );
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    for target in &targets {
-        validate_exact_session_draft_target(&snapshot, &relative_path, target)?;
-    }
-    let current_entries = snapshot
-        .drafts
-        .get(&relative_path)
-        .cloned()
-        .unwrap_or_default();
-    preview_exact_session_target_removals(&current_entries, &targets)
+    let preview = session_state.inspect(
+        |snapshot| -> Result<draft_edits::MetadataRemovalPreview, String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before metadata removal was previewed"
+                        .into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            for target in &targets {
+                validate_exact_session_draft_target(snapshot, &relative_path, target)?;
+            }
+            let current_entries = snapshot
+                .drafts
+                .get(&relative_path)
+                .cloned()
+                .unwrap_or_default();
+            preview_exact_session_target_removals(&current_entries, &targets)
+        },
+    )?;
+    Ok(preview)
 }
 
 #[tauri::command]
@@ -620,33 +665,38 @@ pub(super) fn remove_media_library_session_metadata_targets(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before metadata was removed".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    for target in &targets {
-        validate_exact_session_draft_target(&snapshot, &relative_path, target)?;
-    }
-    let current_entries = snapshot
-        .drafts
-        .get(&relative_path)
-        .cloned()
-        .unwrap_or_default();
-    let Some(entries) = plan_exact_session_target_removals(&current_entries, &targets)? else {
-        return Ok(snapshot);
+) -> Result<(), String> {
+    let (folder, entries) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err("The media-library session changed before metadata was removed".into());
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            for target in &targets {
+                validate_exact_session_draft_target(snapshot, &relative_path, target)?;
+            }
+            let current_entries = snapshot
+                .drafts
+                .get(&relative_path)
+                .cloned()
+                .unwrap_or_default();
+            let entries = plan_exact_session_target_removals(&current_entries, &targets)?;
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, entries))
+        },
+    )?;
+    let Some(entries) = entries else {
+        return Ok(());
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         entries.clone(),
     ) {
@@ -704,6 +754,14 @@ pub(super) fn plan_session_schema_removal(
     plan_exact_session_target_removals(entries, &targets)
 }
 
+/// Planned rows for a multi-file draft mutation: folder, per-file mutations
+/// for the persistence layer, and the committed rows for the session delta.
+type MultiFileDraftPlan = (
+    String,
+    Vec<draft_repository::MetadataDraftRowMutation>,
+    Vec<(String, Vec<draft_edits::MetadataTargetDraftEntry>)>,
+);
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(super) fn remove_media_library_session_metadata_field_from_files(
@@ -713,76 +771,87 @@ pub(super) fn remove_media_library_session_metadata_field_from_files(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before metadata was removed".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    if relative_paths.is_empty() {
-        return Err("At least one selected file is required".into());
-    }
-    let mut seen = std::collections::HashSet::new();
-    if let Some(duplicate) = relative_paths
-        .iter()
-        .find(|path| !seen.insert(path.as_str()))
-    {
-        return Err(format!(
-            "The selected file list contains '{duplicate}' more than once"
-        ));
-    }
+) -> Result<(), String> {
+    let (folder, mutations, committed_rows) = session_state.inspect(
+        |snapshot| -> Result<MultiFileDraftPlan, String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err("The media-library session changed before metadata was removed".into());
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            if relative_paths.is_empty() {
+                return Err("At least one selected file is required".into());
+            }
+            let mut seen = std::collections::HashSet::new();
+            if let Some(duplicate) = relative_paths
+                .iter()
+                .find(|path| !seen.insert(path.as_str()))
+            {
+                return Err(format!(
+                    "The selected file list contains '{duplicate}' more than once"
+                ));
+            }
 
-    let mut mutations = Vec::new();
-    let mut committed_rows = Vec::new();
-    for relative_path in &relative_paths {
-        let metadata = snapshot
-            .metadata
-            .iter()
-            .find(|entry| entry.relative_path == *relative_path)
-            .ok_or_else(|| {
-                format!("Authoritative metadata is unavailable for '{relative_path}'")
-            })?;
-        let occurrences = match &metadata.state {
-            session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
-            session::MediaLibrarySessionMetadataState::Loading => {
-                return Err(format!(
-                    "Authoritative metadata occurrences are still loading for '{relative_path}'"
-                ));
+            let mut mutations = Vec::new();
+            let mut committed_rows = Vec::new();
+            for relative_path in &relative_paths {
+                let metadata = snapshot
+                    .metadata
+                    .iter()
+                    .find(|entry| entry.relative_path == *relative_path)
+                    .ok_or_else(|| {
+                        format!("Authoritative metadata is unavailable for '{relative_path}'")
+                    })?;
+                let occurrences = match &metadata.state {
+                    session::MediaLibrarySessionMetadataState::Ready { occurrences } => {
+                        occurrences
+                    }
+                    session::MediaLibrarySessionMetadataState::Loading => {
+                        return Err(format!(
+                            "Authoritative metadata occurrences are still loading for '{relative_path}'"
+                        ));
+                    }
+                    session::MediaLibrarySessionMetadataState::Failed { error } => {
+                        return Err(format!(
+                            "Metadata could not be loaded for '{relative_path}': {error}"
+                        ));
+                    }
+                };
+                let current_entries = snapshot
+                    .drafts
+                    .get(relative_path)
+                    .cloned()
+                    .unwrap_or_default();
+                let Some(entries) =
+                    plan_session_schema_removal(occurrences, &current_entries, &schema_id)
+                        .map_err(|error| {
+                            format!(
+                                "Cannot remove metadata from '{relative_path}': {error}"
+                            )
+                        })?
+                else {
+                    continue;
+                };
+                mutations.push(draft_repository::MetadataDraftRowMutation {
+                    relative_path: relative_path.clone(),
+                    entries: entries.clone(),
+                });
+                committed_rows.push((relative_path.clone(), entries));
             }
-            session::MediaLibrarySessionMetadataState::Failed { error } => {
-                return Err(format!(
-                    "Metadata could not be loaded for '{relative_path}': {error}"
-                ));
-            }
-        };
-        let current_entries = snapshot
-            .drafts
-            .get(relative_path)
-            .cloned()
-            .unwrap_or_default();
-        let Some(entries) = plan_session_schema_removal(occurrences, &current_entries, &schema_id)
-            .map_err(|error| format!("Cannot remove metadata from '{relative_path}': {error}"))?
-        else {
-            continue;
-        };
-        mutations.push(draft_repository::MetadataDraftRowMutation {
-            relative_path: relative_path.clone(),
-            entries: entries.clone(),
-        });
-        committed_rows.push((relative_path.clone(), entries));
-    }
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, mutations, committed_rows))
+        },
+    )?;
     if mutations.is_empty() {
-        return Ok(snapshot);
+        return Ok(());
     }
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     let app_data_dir = commands::shared::app_data_dir(&app)?;
     if let Err(error) =
-        draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
+        draft_repository::apply_row_mutations(&app_data_dir, &folder, &mutations, &repository_state)
     {
         let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
@@ -798,60 +867,73 @@ pub(super) fn remove_media_library_session_metadata_fields(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before metadata was removed".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    if schema_ids.is_empty() {
-        return Err("At least one exact metadata schema is required".into());
-    }
-    for (index, schema_id) in schema_ids.iter().enumerate() {
-        if schema_ids[..index].contains(schema_id) {
-            return Err("The removal request contains the same exact schema more than once".into());
-        }
-    }
-    let metadata = snapshot
-        .metadata
-        .iter()
-        .find(|entry| entry.relative_path == relative_path)
-        .ok_or_else(|| format!("Authoritative metadata is unavailable for '{relative_path}'"))?;
-    let occurrences = match &metadata.state {
-        session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
-        session::MediaLibrarySessionMetadataState::Loading => {
-            return Err("Authoritative metadata occurrences are still loading".into());
-        }
-        session::MediaLibrarySessionMetadataState::Failed { error } => {
-            return Err(format!("Metadata could not be loaded: {error}"));
-        }
+) -> Result<(), String> {
+    let (folder, entries) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err("The media-library session changed before metadata was removed".into());
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            if schema_ids.is_empty() {
+                return Err("At least one exact metadata schema is required".into());
+            }
+            for (index, schema_id) in schema_ids.iter().enumerate() {
+                if schema_ids[..index].contains(schema_id) {
+                    return Err(
+                        "The removal request contains the same exact schema more than once".into(),
+                    );
+                }
+            }
+            let metadata = snapshot
+                .metadata
+                .iter()
+                .find(|entry| entry.relative_path == relative_path)
+                .ok_or_else(|| {
+                    format!("Authoritative metadata is unavailable for '{relative_path}'")
+                })?;
+            let occurrences = match &metadata.state {
+                session::MediaLibrarySessionMetadataState::Ready { occurrences } => occurrences,
+                session::MediaLibrarySessionMetadataState::Loading => {
+                    return Err("Authoritative metadata occurrences are still loading".into());
+                }
+                session::MediaLibrarySessionMetadataState::Failed { error } => {
+                    return Err(format!("Metadata could not be loaded: {error}"));
+                }
+            };
+            let original_entries = snapshot
+                .drafts
+                .get(&relative_path)
+                .cloned()
+                .unwrap_or_default();
+            let mut entries = original_entries.clone();
+            for schema_id in &schema_ids {
+                if let Some(next) = plan_session_schema_removal(occurrences, &entries, schema_id)
+                    .map_err(|error| {
+                        format!("Cannot remove metadata from '{relative_path}': {error}")
+                    })?
+                {
+                    entries = next;
+                }
+            }
+            if entries == original_entries {
+                return Ok((String::new(), None));
+            }
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, Some(entries)))
+        },
+    )?;
+    let Some(entries) = entries else {
+        return Ok(());
     };
-    let original_entries = snapshot
-        .drafts
-        .get(&relative_path)
-        .cloned()
-        .unwrap_or_default();
-    let mut entries = original_entries.clone();
-    for schema_id in &schema_ids {
-        if let Some(next) = plan_session_schema_removal(occurrences, &entries, schema_id)
-            .map_err(|error| format!("Cannot remove metadata from '{relative_path}': {error}"))?
-        {
-            entries = next;
-        }
-    }
-    if entries == original_entries {
-        return Ok(snapshot);
-    }
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         entries.clone(),
     ) {
@@ -1011,15 +1093,21 @@ pub(super) fn preview_media_library_session_gps_drafts(
     edits: Vec<draft_edits::SchemaMetadataEdit>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<Vec<draft_edits::MetadataTargetDraftEntry>, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the GPS edit was previewed".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let entries = plan_session_gps_drafts(&snapshot, &relative_path, &edits)?;
-    merge_session_gps_drafts(&snapshot, &relative_path, &entries)?;
+    let entries = session_state.inspect(
+        |snapshot| -> Result<Vec<draft_edits::MetadataTargetDraftEntry>, String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before the GPS edit was previewed".into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            let entries = plan_session_gps_drafts(snapshot, &relative_path, &edits)?;
+            merge_session_gps_drafts(snapshot, &relative_path, &entries)?;
+            Ok(entries)
+        },
+    )?;
     Ok(entries)
 }
 
@@ -1031,26 +1119,33 @@ pub(super) fn stage_media_library_session_gps_drafts(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the GPS drafts were saved".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let entries = plan_session_gps_drafts(&snapshot, &relative_path, &edits)?;
-    let Some(planned) = merge_session_gps_drafts(&snapshot, &relative_path, &entries)? else {
-        return Ok(snapshot);
+) -> Result<(), String> {
+    let (folder, planned) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before the GPS drafts were saved".into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            let entries = plan_session_gps_drafts(snapshot, &relative_path, &edits)?;
+            let planned = merge_session_gps_drafts(snapshot, &relative_path, &entries)?;
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, planned))
+        },
+    )?;
+    let Some(planned) = planned else {
+        return Ok(());
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         planned.clone(),
     ) {
@@ -1631,27 +1726,32 @@ pub(super) fn stage_media_library_session_describe_drafts(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err(
-            "The media-library session changed before description drafts were saved".into(),
-        );
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let Some(planned) = plan_session_describe_drafts(&snapshot, &relative_path, &edits)? else {
-        return Ok(snapshot);
+) -> Result<(), String> {
+    let (folder, planned) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before description drafts were saved".into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            let planned = plan_session_describe_drafts(snapshot, &relative_path, &edits)?;
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, planned))
+        },
+    )?;
+    let Some(planned) = planned else {
+        return Ok(());
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         planned.clone(),
     ) {
@@ -1669,27 +1769,33 @@ pub(super) fn stage_media_library_session_geocode_drafts(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err(
-            "The media-library session changed before reverse-geocode drafts were saved".into(),
-        );
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let Some(planned) = plan_session_geocode_drafts(&snapshot, &relative_path, &edits)? else {
-        return Ok(snapshot);
+) -> Result<(), String> {
+    let (folder, planned) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before reverse-geocode drafts were saved"
+                        .into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            let planned = plan_session_geocode_drafts(snapshot, &relative_path, &edits)?;
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, planned))
+        },
+    )?;
+    let Some(planned) = planned else {
+        return Ok(());
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         planned.clone(),
     ) {
@@ -1707,27 +1813,33 @@ pub(super) fn stage_media_library_session_normalise_drafts(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before normalise drafts were saved".into());
-    }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let Some(planned) =
-        plan_session_normalise_drafts(&snapshot, &relative_path, &edits, &enabled_groups)?
-    else {
-        return Ok(snapshot);
+) -> Result<(), String> {
+    let (folder, planned) = session_state.inspect(
+        |snapshot| -> Result<(String, Option<Vec<draft_edits::MetadataTargetDraftEntry>>), String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before normalise drafts were saved".into(),
+                );
+            }
+            ensure_session_draft_mutation_allowed(snapshot)?;
+            let planned =
+                plan_session_normalise_drafts(snapshot, &relative_path, &edits, &enabled_groups)?;
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((folder, planned))
+        },
+    )?;
+    let Some(planned) = planned else {
+        return Ok(());
     };
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
     if let Err(error) = persist_exact_session_draft_row(
         &app,
         &repository_state,
-        folder,
+        &folder,
         relative_path.clone(),
         planned.clone(),
     ) {
@@ -1744,23 +1856,34 @@ pub(super) fn preview_media_library_session_bulk_drafts(
     request: bulk_metadata::BulkMetadataDraftRequest,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<bulk_metadata::BulkMetadataDraftPreviewPlan, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the bulk edit was previewed".into());
-    }
-    if !matches!(
-        snapshot.draft_persistence,
-        session::MediaLibrarySessionDraftPersistenceState::Ready
-    ) {
-        return Err("Draft persistence is not ready".into());
-    }
-    let plan = bulk_metadata::plan_bulk_metadata_drafts(&snapshot, &relative_paths, &request)?;
+    let plan = session_state.inspect(
+        |snapshot| -> Result<bulk_metadata::BulkMetadataDraftPlan, String> {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before the bulk edit was previewed".into(),
+                );
+            }
+            if !matches!(
+                snapshot.draft_persistence,
+                session::MediaLibrarySessionDraftPersistenceState::Ready
+            ) {
+                return Err("Draft persistence is not ready".into());
+            }
+            bulk_metadata::plan_bulk_metadata_drafts(snapshot, &relative_paths, &request)
+        },
+    )?;
     Ok(bulk_metadata::BulkMetadataDraftPreviewPlan {
         preview: plan.preview,
     })
 }
+
+/// Planned rows for a bulk draft stage: the folder and the rows to commit.
+type StagedDraftRows = (
+    String,
+    Vec<(String, Vec<draft_edits::MetadataTargetDraftEntry>)>,
+);
 
 #[tauri::command]
 pub(super) fn stage_media_library_session_bulk_drafts(
@@ -1770,24 +1893,25 @@ pub(super) fn stage_media_library_session_bulk_drafts(
     app: AppHandle,
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
-) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    let snapshot = session_state.snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before the bulk edit was staged".into());
+) -> Result<(), String> {
+    let (folder, rows) = session_state.inspect(|snapshot| -> Result<StagedDraftRows, String> {
+        if snapshot.session_id != Some(session_id)
+            || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Loaded
+        {
+            return Err("The media-library session changed before the bulk edit was staged".into());
+        }
+        ensure_session_draft_mutation_allowed(snapshot)?;
+        let plan = bulk_metadata::plan_bulk_metadata_drafts(snapshot, &relative_paths, &request)?;
+        let folder = snapshot
+            .folder
+            .clone()
+            .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+        Ok((folder, plan.rows))
+    })?;
+    if rows.is_empty() {
+        return Ok(());
     }
-    ensure_session_draft_mutation_allowed(&snapshot)?;
-    let plan = bulk_metadata::plan_bulk_metadata_drafts(&snapshot, &relative_paths, &request)?;
-    if plan.rows.is_empty() {
-        return Ok(snapshot);
-    }
-    let folder = snapshot
-        .folder
-        .as_deref()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
-    let mutations = plan
-        .rows
+    let mutations = rows
         .iter()
         .map(
             |(relative_path, entries)| draft_repository::MetadataDraftRowMutation {
@@ -1798,12 +1922,12 @@ pub(super) fn stage_media_library_session_bulk_drafts(
         .collect::<Vec<_>>();
     let app_data_dir = commands::shared::app_data_dir(&app)?;
     if let Err(error) =
-        draft_repository::apply_row_mutations(&app_data_dir, folder, &mutations, &repository_state)
+        draft_repository::apply_row_mutations(&app_data_dir, &folder, &mutations, &repository_state)
     {
         let _ = session_state.mark_draft_save_failed(session_id, error.clone());
         return Err(error);
     }
-    session_state.commit_draft_rows(session_id, plan.rows)
+    session_state.commit_draft_rows(session_id, rows)
 }
 
 /// Production occurrence-aware metadata apply.
@@ -1816,15 +1940,16 @@ pub(super) async fn apply_metadata_draft_edits_cmd(
     apply_state: State<'_, apply_batch::ApplyEditsState>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<apply_batch::MetadataApplyResult, String> {
-    let session_snapshot = session_state.snapshot();
-    if session_snapshot.session_id != Some(session_id) {
-        return Err("The media-library session changed before apply started".into());
-    }
-    ensure_session_draft_mutation_allowed(&session_snapshot)?;
-    let folder_path = session_snapshot
-        .folder
-        .clone()
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+    let folder_path = session_state.inspect(|snapshot| {
+        if snapshot.session_id != Some(session_id) {
+            return Err("The media-library session changed before apply started".into());
+        }
+        ensure_session_draft_mutation_allowed(snapshot)?;
+        snapshot
+            .folder
+            .clone()
+            .ok_or_else(|| "The active media-library session has no folder".to_string())
+    })?;
     let operation_id = session_state.begin_new_apply_operation(session_id, rel_paths.clone())?;
 
     let app_settings = settings::load_settings(&commands::shared::app_data_dir(&app)?)?;

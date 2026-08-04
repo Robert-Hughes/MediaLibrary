@@ -850,7 +850,7 @@ impl MediaLibrarySessionState {
         relative_path: &str,
         current_target: &crate::metadata_draft_target::MetadataDraftTarget,
         persisted_entries: Option<Vec<MetadataTargetDraftEntry>>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -894,7 +894,6 @@ impl MediaLibrarySessionState {
             );
         }
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::VerificationOutcomesChanged(Box::new(
             MediaLibrarySessionVerificationOutcomesChanged {
                 session_id,
@@ -903,13 +902,10 @@ impl MediaLibrarySessionState {
                 draft_rows,
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
-    pub fn dismiss_all_verification_outcomes(
-        &self,
-        session_id: u64,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    pub fn dismiss_all_verification_outcomes(&self, session_id: u64) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -919,11 +915,10 @@ impl MediaLibrarySessionState {
             );
         }
         if snapshot.verification_outcomes.is_empty() {
-            return Ok(snapshot.clone());
+            return Ok(());
         }
         snapshot.verification_outcomes.clear();
         snapshot.revision += 1;
-        let result = snapshot.clone();
         self.notify(SessionEvent::VerificationOutcomesChanged(Box::new(
             MediaLibrarySessionVerificationOutcomesChanged {
                 session_id,
@@ -932,7 +927,7 @@ impl MediaLibrarySessionState {
                 draft_rows: HashMap::new(),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn begin_open(&self, folder: String) -> MediaLibrarySessionSnapshot {
@@ -1045,7 +1040,7 @@ impl MediaLibrarySessionState {
         &self,
         session_id: u64,
         rows: Vec<(String, Vec<MetadataTargetDraftEntry>)>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -1061,7 +1056,7 @@ impl MediaLibrarySessionState {
             return Err("Draft persistence is not ready".into());
         }
         if rows.is_empty() {
-            return Ok(snapshot.clone());
+            return Ok(());
         }
         snapshot.revision += 1;
         let revision = snapshot.revision;
@@ -1076,7 +1071,6 @@ impl MediaLibrarySessionState {
         }
         let rows_map: HashMap<String, Vec<MetadataTargetDraftEntry>> =
             rows.iter().cloned().collect();
-        let result = snapshot.clone();
         self.notify(SessionEvent::DraftsChanged(Box::new(
             MediaLibrarySessionDraftsChanged {
                 session_id,
@@ -1086,7 +1080,7 @@ impl MediaLibrarySessionState {
         )));
         drop(snapshot);
         self.search.set_drafts(session_id, revision, rows);
-        Ok(result)
+        Ok(())
     }
 
     pub fn commit_draft_row(
@@ -1094,7 +1088,7 @@ impl MediaLibrarySessionState {
         session_id: u64,
         relative_path: String,
         entries: Vec<MetadataTargetDraftEntry>,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    ) -> Result<(), String> {
         self.commit_draft_rows(session_id, vec![(relative_path, entries)])
     }
 

@@ -1078,7 +1078,15 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged({
+          [relativePath]:
+            (
+              targetDraftsToWire(store.getAllMetadata()) as Record<
+                string,
+                MetadataTargetDraftEntry[]
+              >
+            )[relativePath] ?? [],
+        });
         return { ...sessionSnapshot };
       }
       if (cmd === "discard_media_library_session_draft") {
@@ -1104,7 +1112,15 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged({
+          [relativePath]:
+            (
+              targetDraftsToWire(store.getAllMetadata()) as Record<
+                string,
+                MetadataTargetDraftEntry[]
+              >
+            )[relativePath] ?? [],
+        });
         return { ...sessionSnapshot };
       }
       if (cmd === "resolve_media_library_session_verification_outcome") {
@@ -1152,6 +1168,20 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(drafts),
           verification_outcomes,
         };
+        emitVerificationOutcomesChanged(
+          verification_outcomes,
+          discardDraft
+            ? {
+                [relativePath]:
+                  (
+                    targetDraftsToWire(drafts) as Record<
+                      string,
+                      MetadataTargetDraftEntry[]
+                    >
+                  )[relativePath] ?? [],
+              }
+            : {},
+        );
         return { ...sessionSnapshot };
       }
       if (cmd === "dismiss_media_library_session_verification_outcomes") {
@@ -1288,7 +1318,15 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged({
+          [relativePath]:
+            (
+              targetDraftsToWire(store.getAllMetadata()) as Record<
+                string,
+                MetadataTargetDraftEntry[]
+              >
+            )[relativePath] ?? [],
+        });
         return { ...sessionSnapshot };
       }
       if (cmd === "preview_media_library_session_metadata_target_removals") {
@@ -1355,7 +1393,15 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged({
+          [relativePath]:
+            (
+              targetDraftsToWire(store.getAllMetadata()) as Record<
+                string,
+                MetadataTargetDraftEntry[]
+              >
+            )[relativePath] ?? [],
+        });
         return { ...sessionSnapshot };
       }
       if (
@@ -1402,7 +1448,15 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged({
+          [relativePath]:
+            (
+              targetDraftsToWire(store.getAllMetadata()) as Record<
+                string,
+                MetadataTargetDraftEntry[]
+              >
+            )[relativePath] ?? [],
+        });
         return { ...sessionSnapshot };
       }
       if (cmd === "remove_media_library_session_metadata_field_from_files") {
@@ -1464,7 +1518,12 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged(
+          targetDraftsToWire(store.getAllMetadata()) as Record<
+            string,
+            MetadataTargetDraftEntry[]
+          >,
+        );
         return { ...sessionSnapshot };
       }
       if (cmd === "remove_media_library_session_metadata_fields") {
@@ -1526,7 +1585,15 @@ export function createMockTauriApi(): MockTauriApi {
           drafts: targetDraftsToWire(store.getAllMetadata()),
           draft_persistence: { status: "ready" },
         };
-        emit("media_library_session_changed", { ...sessionSnapshot });
+        emitDraftsChanged({
+          [relativePath]:
+            (
+              targetDraftsToWire(store.getAllMetadata()) as Record<
+                string,
+                MetadataTargetDraftEntry[]
+              >
+            )[relativePath] ?? [],
+        });
         return { ...sessionSnapshot };
       }
       if (cmd === "stage_media_library_session_describe_drafts") {
