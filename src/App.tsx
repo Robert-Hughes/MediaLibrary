@@ -481,6 +481,7 @@ function LoadedView({
           onDiscardAllEdits={actions.discardAllDraftEdits}
           onApplyEdits={(path) => actions.applyDraftEdits(path)}
           onGenerateAiDescription={(relPath) => {
+            if (!arePathsImageOnly(state.files, [relPath])) return;
             if (!actions.canStageGeneratedMetadata([relPath])) return;
             setDescribeOverwrite(
               countDescribeOverwrites(

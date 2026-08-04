@@ -137,7 +137,7 @@ function EstimatingPanel({
     <div data-testid="normalise-estimating-panel">
       <div className="dialog-hint">
         {state.preparing ? "Preparing metadata for" : "Walking"} {state.total}{" "}
-        {state.total === 1 ? "image" : "images"}
+        {state.total === 1 ? "file" : "files"}
         {state.preparing ? "…" : " to estimate AI cost…"}
       </div>
       <RunningProgressPanel
@@ -147,7 +147,7 @@ function EstimatingPanel({
         currentFile={state.currentFile}
         cancelling={state.cancelling}
         onCancel={onCancel}
-        noun="image"
+        noun="file"
       />
       {state.estimateError && (
         <div
@@ -467,7 +467,7 @@ function GroupOutcomeTable({
             <th style={headStyle}>Conflict</th>
             <th
               style={headStyle}
-              title="Number of fields (across all selected images) where the current value would be replaced by a different value or removed. AI groups assume the output will always differ."
+              title="Number of fields (across all selected files) where the current value would be replaced by a different value or removed. AI groups assume the output will always differ."
             >
               Overwrites
             </th>
@@ -588,8 +588,8 @@ function GroupOutcomeTable({
                 fontSize: 12,
               }}
             >
-              {total} {total === 1 ? "image" : "images"} · No change + Normalize
-              + Normalize (AI) sum to {total} per row. Overwrites counts
+              {total} {total === 1 ? "file" : "files"} · No change + Normalize +
+              Normalize (AI) sum to {total} per row. Overwrites counts
               individual fields that would change. Rows with nothing to do are
               disabled.
             </td>
@@ -665,7 +665,7 @@ function AwaitingConfirmPanel({
   onConfirm: () => void;
   onSetEnabledGroups: (groups: NormaliseGroup[]) => void;
 }) {
-  const word = state.total === 1 ? "image" : "images";
+  const word = state.total === 1 ? "file" : "files";
 
   const noneEnabled = state.enabledGroups.length === 0;
 
@@ -900,7 +900,7 @@ export function NormaliseProgressDialog({
           cancelling={state.cancelling}
           onCancel={onCancel}
           testidPrefix="normalise"
-          noun="image"
+          noun="file"
           footer="Each result lands in drafts as soon as it arrives. Cancelling preserves results already returned."
         />
       )}
@@ -909,7 +909,7 @@ export function NormaliseProgressDialog({
           <div className="dialog-hint" data-testid="normalise-done-summary">
             Completed: <strong>{state.succeeded.length}</strong> /{" "}
             <strong>{state.total}</strong>{" "}
-            {state.total === 1 ? "image" : "images"}
+            {state.total === 1 ? "file" : "files"}
             {state.summary != null &&
               state.summary.nSkippedAllNormalised > 0 && (
                 <>
