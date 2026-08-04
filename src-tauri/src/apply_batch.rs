@@ -24,8 +24,8 @@ use crate::apply_edits::{
     MetadataTargetOutcome,
 };
 use crate::apply_log::{
-    append_target_metadata_entries_with_state, ApplyLogState, TargetApplyAuditRecord,
-    TargetDraftPersistenceOutcome,
+    append_target_metadata_entries_with_state, rotate_target_apply_log_if_needed, ApplyLogState,
+    TargetApplyAuditRecord, TargetDraftPersistenceOutcome,
 };
 use crate::draft_edits::{
     resolve_canonical_photo_path, DraftRepositoryState, MetadataTargetDraftEntry,
@@ -104,6 +104,13 @@ pub trait ApplyEvents {
 }
 
 pub(crate) trait TargetApplyLogger {
+    /// Marks the start of one apply command. The target apply log rotates only
+    /// here, never between per-file appends, so a single command's lines are
+    /// never split across files. Default: no-op.
+    fn begin_batch(&self) -> Result<(), String> {
+        Ok(())
+    }
+
     fn append(
         &self,
         folder_path: &str,

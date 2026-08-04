@@ -72,7 +72,9 @@ Two log locations exist, both keyed off the Tauri bundle identifier
   - macOS: `~/Library/Application Support/com.xman2.medialibrary/`
   - Linux: `$XDG_DATA_HOME/com.xman2.medialibrary/`
   Append-only per-batch audit trails live here:
-  - `MediaLibraryTargetApplyLog.jsonl` - target apply audit (schema v3), see `src-tauri/src/apply_log.rs`.
+  - `MediaLibraryTargetApplyLog.jsonl` - target apply audit (schema v3); rotates
+    at 10 MB per apply command (KeepAll, `_<UTC timestamp>.jsonl` suffix), see
+    `src-tauri/src/apply_log.rs`.
   - `MediaLibraryApplyLog.jsonl` - legacy apply log; preserved if present, no longer written.
   - `describe_log.jsonl` - describe cost/usage audit, see `src-tauri/src/describe_log.rs`.
   - `normalise_audit.jsonl` - normalise AI-call audit and conflict counters, see `src-tauri/src/commands/normalise.rs`.
