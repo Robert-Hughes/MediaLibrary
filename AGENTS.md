@@ -52,6 +52,35 @@ The integration tier requires `exiftool` on `PATH` and write access to a temp di
 
 Any change touching `scanner.rs`, `apply_edits.rs`, `draft_edits.rs`, `tag_schema.rs`, `src/metadata/`, or `src/components/editors/` should run the Rust integration tier before review. There is no separate frontend integration project configured.
 
+## Logs And Diagnostics
+
+Two log locations exist, both keyed off the Tauri bundle identifier
+`com.xman2.medialibrary` from `src-tauri/tauri.conf.json`:
+
+- Runtime logs (the `log` crate, wired via `tauri-plugin-log` in
+  `src-tauri/src/lib.rs::run`): mirrored to stdout and to
+  `medialibrary.log` in the platform log directory:
+  - Windows: `%LOCALAPPDATA%\com.xman2.medialibrary\logs\medialibrary.log`
+  - macOS: `~/Library/Logs/com.xman2.medialibrary/medialibrary.log`
+  - Linux: `$XDG_DATA_HOME/com.xman2.medialibrary/logs/medialibrary.log`
+    (`$XDG_DATA_HOME` defaults to `~/.local/share`.)
+  Files rotate at 10 MB with `RotationStrategy::KeepAll`; rotated files are
+  kept beside the active one as `medialibrary_<timestamp>.log`.
+- JSONL audit logs under the app-data directory, resolved by
+  `crate::commands::shared::app_data_dir`:
+  - Windows: `%APPDATA%\com.xman2.medialibrary\`
+  - macOS: `~/Library/Application Support/com.xman2.medialibrary/`
+  - Linux: `$XDG_DATA_HOME/com.xman2.medialibrary/`
+  Append-only per-batch audit trails live here:
+  - `MediaLibraryTargetApplyLog.jsonl` - target apply audit (schema v3), see `src-tauri/src/apply_log.rs`.
+  - `MediaLibraryApplyLog.jsonl` - legacy apply log; preserved if present, no longer written.
+  - `describe_log.jsonl` - describe cost/usage audit, see `src-tauri/src/describe_log.rs`.
+  - `normalise_audit.jsonl` - normalise AI-call audit and conflict counters, see `src-tauri/src/commands/normalise.rs`.
+
+Non-log state in the app-data directory: `settings.json`,
+`MediaLibraryTargetDraftEdits.sqlite3` (draft repository), and the geocode
+cache (`geocache.json`).
+
 ## Generated Code
 
 Rust types annotated for `ts-rs` export regenerate TypeScript bindings as a side effect of:
