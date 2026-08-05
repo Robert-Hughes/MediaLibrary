@@ -894,14 +894,25 @@ impl MediaLibrarySessionState {
             );
         }
         snapshot.revision += 1;
+        let revision = snapshot.revision;
         self.notify(SessionEvent::VerificationOutcomesChanged(Box::new(
             MediaLibrarySessionVerificationOutcomesChanged {
                 session_id,
-                revision: snapshot.revision,
+                revision,
                 outcomes: snapshot.verification_outcomes.clone(),
-                draft_rows,
+                draft_rows: draft_rows.clone(),
             },
         )));
+        drop(snapshot);
+        // Keep the search index's draft state in lockstep with the snapshot:
+        // accepting/discarding a verification outcome removes the draft, so
+        // `has:edits` and draft-text matches must follow (mirrors
+        // `commit_draft_rows`). A `None` row (keep-draft resolution) leaves
+        // the drafts unchanged and requires no index update.
+        if !draft_rows.is_empty() {
+            self.search
+                .set_drafts(session_id, revision, draft_rows.into_iter().collect());
+        }
         Ok(())
     }
 
@@ -2363,6 +2374,113 @@ mod tests {
         state.begin_close(session_id).unwrap();
         state.finish_close(session_id).unwrap();
         assert!(search("a.jpg").is_err());
+    }
+
+    #[test]
+    fn resolving_a_verification_outcome_clears_has_edits_from_the_search_index() {
+        // Regression: accepting (or discarding) a verification outcome removes
+        // the draft from the snapshot and repository but used to leave stale
+        // `has:edits`/draft-text matches in the search index until reopen.
+        let state = MediaLibrarySessionState::new();
+        let opened = state.begin_open("C:/photos".into());
+        let session_id = opened.session_id.unwrap();
+        state
+            .install_draft_load_result(session_id, Ok(MetadataTargetDraftsByFile::new()))
+            .unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        state
+            .add_files(session_id, vec![test_file("a.jpg")])
+            .unwrap();
+
+        let schema_id = crate::tag_schema::SchemaDefinitionId {
+            table: "XMP-test".into(),
+            tag_id: "AITags".into(),
+            index: None,
+        };
+        let target = crate::metadata_draft_target::MetadataDraftTarget::NewProperty {
+            schema_id: schema_id.clone(),
+            write_target: crate::metadata_occurrence::MetadataWriteTarget {
+                group1: "XMP-test".into(),
+                group7: "ID-Test".into(),
+                tag_name: "AITags".into(),
+            },
+        };
+        let entries = vec![MetadataTargetDraftEntry {
+            target: target.clone(),
+            edit: crate::draft_edits::MetadataDraftEdit {
+                value: Some(crate::metadata_value::MetadataValue::Text(
+                    "draft needle".into(),
+                )),
+                intent: crate::draft_edits::EditIntent::Set,
+            },
+        }];
+        state
+            .commit_draft_row(session_id, "a.jpg".into(), entries.clone())
+            .unwrap();
+
+        let search = |query: &str| {
+            state
+                .search()
+                .submit(crate::search_service::MediaLibrarySearchRequest {
+                    session_id,
+                    request_id: 1,
+                    query: query.into(),
+                })
+        };
+        assert_eq!(search("has:edits").unwrap().matched_paths, vec!["a.jpg"]);
+        assert_eq!(search("draft needle").unwrap().matched_paths, vec!["a.jpg"]);
+
+        // The file applied but verification mismatched: the draft stays
+        // pending and a verification outcome is recorded for the target.
+        state
+            .begin_apply_operation(session_id, "apply-verify".into(), None)
+            .unwrap();
+        state
+            .update_apply_operation(
+                session_id,
+                &crate::apply_batch::MetadataApplyStreamMessage::ProgressBatch {
+                    operation_id: "apply-verify".into(),
+                    sequence: 1,
+                    current: 1,
+                    total: 1,
+                    results: vec![crate::apply_batch::MetadataApplyFileResult {
+                        relative_path: "a.jpg".into(),
+                        applied: true,
+                        error: None,
+                        warning: None,
+                        fresh_file_metadata: None,
+                        target_outcomes: vec![crate::apply_edits::MetadataTargetOutcome {
+                            target: target.clone(),
+                            draft_reconciliation:
+                                crate::apply_edits::MetadataDraftReconciliation::Keep,
+                            display_name: "AITags".into(),
+                            kind: "Mismatch".into(),
+                            sent: None,
+                            before: None,
+                            observed: None,
+                            message: None,
+                        }],
+                        persisted_draft_entries: Some(entries.clone()),
+                    }],
+                },
+            )
+            .unwrap();
+        assert_eq!(state.snapshot().verification_outcomes.len(), 1);
+        assert_eq!(state.snapshot().drafts.len(), 1);
+        assert_eq!(search("has:edits").unwrap().matched_paths, vec!["a.jpg"]);
+
+        // Accept the written/current file state: discard the pending draft.
+        state
+            .resolve_verification_outcome(session_id, "a.jpg", &target, Some(Vec::new()))
+            .unwrap();
+        let resolved = state.snapshot();
+        assert!(resolved.verification_outcomes.is_empty());
+        assert!(resolved.drafts.is_empty());
+        assert!(
+            search("has:edits").unwrap().matched_paths.is_empty(),
+            "resolving the outcome must not leave a stale has:edits match"
+        );
+        assert!(search("draft needle").unwrap().matched_paths.is_empty());
     }
 
     #[test]
