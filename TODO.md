@@ -1,13 +1,16 @@
 Current
 =======
 
-- Continue from 2025
+- Continue from 2026
 
 - Check all photos at the end
   - Any missing GPS?
   - Any missing description/keywords?
   - Any missing dates?
+    - Svet and Kay wedding photos have wrong date! Check others?
   - Move out of Unknown folder?
+  - Try out some searches across fuill collection!
+  - Try out the GPS view across the full collection!
 
 Bugs/quirks/tweaks/improvements
 =================================
