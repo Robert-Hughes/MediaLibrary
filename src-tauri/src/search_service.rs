@@ -1254,8 +1254,27 @@ mod tests {
                 )
             })
             .collect();
+
+        // The 2_000-entry metadata batch must schedule exactly one coalesced
+        // refresh. Assert that synchronously so the invariant does not depend
+        // on how quickly the background refresh thread is scheduled.
+        let generation_before = service.inner.refresh_generation.load(Ordering::Acquire);
         service.set_metadata(7, 3, entries);
-        std::thread::sleep(REFRESH_COALESCE_DELAY * 3);
+        let generation_after = service.inner.refresh_generation.load(Ordering::Acquire);
+        assert_eq!(
+            generation_after - generation_before,
+            1,
+            "one metadata batch must schedule exactly one refresh"
+        );
+
+        // Wait with a deadline for the coalesced refresh to emit instead of
+        // racing it with a fixed sleep: a descheduled thread must not flake
+        // the assertion. Exactly one emission is possible for this request, so
+        // polling until it lands and asserting the exact count is sound.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while service.effective_refresh_count() == 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert_eq!(service.effective_refresh_count(), 1);
         assert_eq!(service.event_count(), 0);
     }

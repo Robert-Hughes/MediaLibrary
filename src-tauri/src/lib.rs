@@ -1713,28 +1713,45 @@ mod tests {
     #[test]
     fn wait_until_finished_wakes_promptly_when_mark_finished_called() {
         // The old implementation polled every 50ms.  This test proves the new
-        // condvar-based wait wakes immediately, not on a polling tick.
+        // condvar-based wait wakes immediately, not on a polling tick. The wake
+        // latency is measured from a timestamp recorded inside the waker thread
+        // right before mark_finished, so the helper thread's own scheduling
+        // delay cannot flake the promptness assertion.
         let state = Arc::new(ScanState::new());
         state.mark_running();
 
         let waker = state.clone();
+        let waker_ts = Arc::new(Mutex::new(None::<Instant>));
+        let waker_ts_clone = waker_ts.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(20));
+            *waker_ts_clone.lock().unwrap() = Some(Instant::now());
             waker.mark_finished();
         });
 
         let start = std::time::Instant::now();
         assert!(state.wait_until_finished(Duration::from_secs(5)));
         let elapsed = start.elapsed();
+        let mark_finished_at = waker_ts
+            .lock()
+            .unwrap()
+            .expect("waker thread must have recorded its timestamp");
+        let wake_latency = mark_finished_at.elapsed();
 
-        // Wake-up should be prompt. Windows CI/dev machines can schedule
-        // the helper thread late, so avoid making this a sub-50ms
-        // scheduler benchmark.
+        // The wait must block until mark_finished is observed; a regression
+        // that returned immediately while running would miss this bound. The
+        // waker sleeps 20ms first, so the bound is safe under scheduler load.
         assert!(
-            elapsed < Duration::from_millis(150),
-            "wait_until_finished took {elapsed:?}, expected immediate wake"
+            elapsed >= Duration::from_millis(15),
+            "wait_until_finished returned without waiting: {elapsed:?}"
         );
-        assert!(elapsed >= Duration::from_millis(15));
+        // A condvar notify wakes in microseconds; a reverted 50ms poll loop
+        // would add up to one poll tick. Only the wake itself is timed, so a
+        // late-scheduled waker thread cannot flake this assertion.
+        assert!(
+            wake_latency < Duration::from_millis(150),
+            "wait_until_finished took {wake_latency:?} after mark_finished, expected immediate wake"
+        );
     }
 
     // ── ActiveQueues race-condition tests ─────────────────────────────────────
