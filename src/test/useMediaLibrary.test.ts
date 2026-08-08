@@ -446,15 +446,34 @@ describe("useMediaLibrary", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let logMessages: string[];
+    let warnMessages: string[];
     try {
       await act(async () => {
         await result.current[1].recycleFiles(["a.jpg", "b.mov"]);
       });
+      logMessages = consoleLog.mock.calls.map((args) =>
+        args.map((value) => String(value)).join(" "),
+      );
+      warnMessages = consoleWarn.mock.calls.map((args) =>
+        args.map((value) => String(value)).join(" "),
+      );
     } finally {
       consoleError.mockRestore();
+      consoleLog.mockRestore();
+      consoleWarn.mockRestore();
     }
 
     const state = result.current[0];
+    expect(logMessages).toEqual([
+      "[recycleFiles] requesting 2 file(s)",
+      "[recycleFiles] removed 1 file(s) from UI state: a.jpg",
+    ]);
+    expect(warnMessages).toEqual([
+      "[recycleFiles] 1 file(s) failed to recycle: b.mov: The file is locked",
+    ]);
     expect(mock.lastRecycleArgs).toEqual({
       folder: "/files",
       relativePaths: ["a.jpg", "b.mov"],

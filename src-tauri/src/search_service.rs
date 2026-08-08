@@ -376,15 +376,19 @@ impl MediaLibrarySearchService {
     }
 
     pub fn remove_paths(&self, session_id: u64, revision: u64, paths: Vec<String>) {
-        if self
+        let accepted = self
             .inner
             .index
             .lock()
             .unwrap()
-            .remove_paths(session_id, revision, &paths)
-        {
+            .remove_paths(session_id, revision, &paths);
+        if accepted {
             self.schedule_refresh();
         }
+        log::debug!(
+            "[search] remove_paths session_id={session_id} revision={revision} paths={} accepted={accepted}",
+            paths.len()
+        );
     }
 
     pub fn submit(
