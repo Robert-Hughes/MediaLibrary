@@ -1175,6 +1175,7 @@ export function useMediaLibrary(
       );
       if (requested.length === 0) return { results: [] };
 
+      console.log(`[recycleFiles] requesting ${requested.length} file(s)`);
       let result: RecycleFilesResult;
       try {
         result = (await api.invoke("recycle_media_files", {
@@ -1219,7 +1220,20 @@ export function useMediaLibrary(
       }
 
       const failures = result.results.filter((item) => !item.recycled);
+      if (successful.length > 0) {
+        console.log(
+          `[recycleFiles] removed ${successful.length} file(s) from UI state: ${successful.join(", ")}`,
+        );
+      }
       if (failures.length > 0) {
+        console.warn(
+          `[recycleFiles] ${failures.length} file(s) failed to recycle: ${failures
+            .map(
+              (item) =>
+                `${item.relative_path}: ${item.error ?? "Unknown error"}`,
+            )
+            .join("; ")}`,
+        );
         pushApplicationError(
           "recycle-files",
           `${failures.length} ${failures.length === 1 ? "file" : "files"} could not be moved to the Recycle Bin:\n${failures

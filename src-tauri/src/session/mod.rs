@@ -1398,6 +1398,11 @@ impl MediaLibrarySessionState {
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
         {
+            log::warn!(
+                "[session] remove_files rejected session_id={session_id} current_session={:?} lifecycle={:?}",
+                snapshot.session_id,
+                snapshot.lifecycle
+            );
             return Err("The media-library session changed before files were removed".into());
         }
         let paths: std::collections::BTreeSet<&str> =
@@ -1433,14 +1438,15 @@ impl MediaLibrarySessionState {
             .retain(|path, _| !paths.contains(path.as_str()));
         if !removed_cache_keys.is_empty() {
             let mut cache = self.thumbnail_cache.lock().unwrap();
-            for key in removed_cache_keys {
-                cache.remove(&key);
+            for key in &removed_cache_keys {
+                cache.remove(key);
             }
         }
-        self.superseded_scan_metadata
-            .lock()
-            .unwrap()
-            .retain(|path| !paths.contains(path.as_str()));
+        let mut superseded = self.superseded_scan_metadata.lock().unwrap();
+        let superseded_before = superseded.len();
+        superseded.retain(|path| !paths.contains(path.as_str()));
+        let superseded_after = superseded.len();
+        drop(superseded);
         let changed = snapshot.files.len() != file_count
             || snapshot.metadata.len() != metadata_count
             || snapshot.thumbnails.len() != thumbnail_count
@@ -1450,6 +1456,16 @@ impl MediaLibrarySessionState {
             snapshot.revision += 1;
         }
         let revision = snapshot.revision;
+        log::info!(
+            "[session] remove_files session_id={session_id} requested={} files={file_count}->{} metadata={metadata_count}->{} thumbnails={thumbnail_count}->{} drafts={draft_count}->{} verification={verification_count}->{} superseded={superseded_before}->{superseded_after} cache_keys_removed={} changed={changed} revision={revision}",
+            relative_paths.len(),
+            snapshot.files.len(),
+            snapshot.metadata.len(),
+            snapshot.thumbnails.len(),
+            snapshot.drafts.len(),
+            snapshot.verification_outcomes.len(),
+            removed_cache_keys.len()
+        );
         if changed {
             self.notify(SessionEvent::FilesRemoved(Box::new(
                 MediaLibrarySessionFilesRemoved {

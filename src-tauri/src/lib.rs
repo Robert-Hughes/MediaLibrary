@@ -792,27 +792,72 @@ fn recycle_media_files(
     session_state: State<'_, session::MediaLibrarySessionState>,
     repository_state: State<'_, draft_edits::DraftRepositoryState>,
 ) -> Result<recycle::RecycleFilesResult, String> {
-    let result = recycle::recycle_files_with(&folder, relative_paths, |path| {
+    log::info!(
+        "[recycle] command folder={folder} requested={} paths={relative_paths:?}",
+        relative_paths.len()
+    );
+    let result = match recycle::recycle_files_with(&folder, relative_paths, |path| {
         trash::delete(path).map_err(|error| error.to_string())
-    })?;
+    }) {
+        Ok(result) => result,
+        Err(error) => {
+            log::error!(
+                "[recycle] aborted before any file was touched folder={folder} error={error}"
+            );
+            return Err(error);
+        }
+    };
     let recycled_paths: Vec<String> = result
         .results
         .iter()
         .filter(|item| item.recycled)
         .map(|item| item.relative_path.clone())
         .collect();
+    for item in result.results.iter().filter(|item| !item.recycled) {
+        log::warn!(
+            "[recycle] failed relative_path={} error={}",
+            item.relative_path,
+            item.error.as_deref().unwrap_or("unknown error")
+        );
+    }
+    log::info!(
+        "[recycle] result recycled={} failed={} requested={}",
+        recycled_paths.len(),
+        result.results.len() - recycled_paths.len(),
+        result.results.len()
+    );
     if let Some(queue) = active_queues.thumbnails() {
+        let pending_before = queue.len();
         queue.remove_paths(&recycled_paths);
+        log::info!(
+            "[recycle] thumbnail queue removed_requested={} pending={pending_before}->{}",
+            recycled_paths.len(),
+            queue.len()
+        );
     }
     if let Some(queue) = active_queues.file_metadata() {
+        let pending_before = queue.len();
         queue.remove_paths(&recycled_paths);
+        log::info!(
+            "[recycle] metadata queue removed_requested={} pending={pending_before}->{}",
+            recycled_paths.len(),
+            queue.len()
+        );
     }
     if !recycled_paths.is_empty() {
         let active = session_state.snapshot();
-        let session_id = active
-            .session_id
-            .ok_or_else(|| "No active media-library session".to_string())?;
+        let session_id = match active.session_id {
+            Some(session_id) => session_id,
+            None => {
+                log::error!("[recycle] no active media-library session to update");
+                return Err("No active media-library session".to_string());
+            }
+        };
         if active.folder.as_deref() != Some(folder.as_str()) {
+            log::error!(
+                "[recycle] session folder changed session_folder={:?} command_folder={folder}",
+                active.folder
+            );
             return Err(
                 "The media-library session changed before recycled drafts were removed".into(),
             );
@@ -826,6 +871,10 @@ fn recycle_media_files(
             })
             .collect::<Vec<_>>();
         if !draft_mutations.is_empty() {
+            let draft_paths: Vec<&str> = draft_mutations
+                .iter()
+                .map(|mutation| mutation.relative_path.as_str())
+                .collect();
             let app_data_dir = commands::shared::app_data_dir(&app)?;
             if let Err(error) = draft_repository::apply_row_mutations(
                 &app_data_dir,
@@ -833,11 +882,25 @@ fn recycle_media_files(
                 &draft_mutations,
                 &repository_state,
             ) {
+                log::error!(
+                    "[recycle] draft repository mutation failed paths={draft_paths:?} error={error}"
+                );
                 let _ = session_state.mark_draft_save_failed(session_id, error.clone());
                 return Err(error);
             }
+            log::info!(
+                "[recycle] draft rows cleared count={} paths={draft_paths:?}",
+                draft_mutations.len()
+            );
         }
-        session_state.remove_files(session_id, &recycled_paths)?;
+        if let Err(error) = session_state.remove_files(session_id, &recycled_paths) {
+            log::error!(
+                "[recycle] session remove_files failed paths={recycled_paths:?} error={error}"
+            );
+            return Err(error);
+        }
+    } else {
+        log::info!("[recycle] nothing was recycled; no state stores to update");
     }
     Ok(result)
 }
