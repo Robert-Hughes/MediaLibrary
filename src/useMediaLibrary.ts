@@ -1202,19 +1202,24 @@ export function useMediaLibrary(
           if (prev.kind !== "loaded" || prev.folder !== current.folder) {
             return prev;
           }
+          const filesChanged = prev.files.some((file) =>
+            successfulSet.has(file.relative_path),
+          );
+          const selectionChanged =
+            prev.selectedPath !== null &&
+            successfulSet.has(prev.selectedPath);
+          const galleryChanged =
+            prev.galleryPath !== null && successfulSet.has(prev.galleryPath);
+          if (!filesChanged && !selectionChanged && !galleryChanged) return prev;
           return {
             ...prev,
-            files: prev.files.filter(
-              (file) => !successfulSet.has(file.relative_path),
-            ),
-            selectedPath:
-              prev.selectedPath !== null && successfulSet.has(prev.selectedPath)
-                ? null
-                : prev.selectedPath,
-            galleryPath:
-              prev.galleryPath !== null && successfulSet.has(prev.galleryPath)
-                ? null
-                : prev.galleryPath,
+            files: filesChanged
+              ? prev.files.filter(
+                  (file) => !successfulSet.has(file.relative_path),
+                )
+              : prev.files,
+            selectedPath: selectionChanged ? null : prev.selectedPath,
+            galleryPath: galleryChanged ? null : prev.galleryPath,
           };
         });
       }
