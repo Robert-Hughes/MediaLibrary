@@ -186,6 +186,31 @@ export function buildSchemaValueResolutionIndex(
   );
 }
 
+/** Resolve only the requested schemas without projecting unrelated metadata. */
+export function buildSelectedSchemaValueResolutionIndex(
+  occurrences: readonly MetadataOccurrence[],
+  ids: readonly SchemaDefinitionId[],
+): SchemaValueResolutionIndex {
+  const requested = new Map(
+    ids.map((id) => [schemaDefinitionIdToken(id), id] as const),
+  );
+  const groups = new Map<string, MetadataOccurrence[]>();
+  for (const occurrence of occurrences) {
+    const token = schemaDefinitionIdToken(occurrence.schema_id);
+    if (!requested.has(token)) continue;
+    const group = groups.get(token);
+    if (group) group.push(occurrence);
+    else groups.set(token, [occurrence]);
+  }
+
+  const resolutions: SchemaValueResolutionIndex = new Map();
+  for (const [token, id] of requested) {
+    const group = groups.get(token);
+    if (group) resolutions.set(token, resolveGroup(id, group));
+  }
+  return resolutions;
+}
+
 export function resolveSchemaValue(
   occurrences: readonly MetadataOccurrence[],
   id: SchemaDefinitionId,

@@ -11,7 +11,7 @@ import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./schemaDefinitionId";
-import { buildSchemaValueResolutionIndex } from "./schemaMetadataProjection";
+import { buildSelectedSchemaValueResolutionIndex } from "./schemaMetadataProjection";
 
 export type SortTarget =
   | { kind: "path" }
@@ -50,7 +50,10 @@ function precomputeImageSortValues(
     const occurrences = occurrencesStore.get(file.relative_path);
     const fileValues = new Map<string, string>();
     if (Array.isArray(occurrences)) {
-      const projection = buildSchemaValueResolutionIndex(occurrences);
+      const projection = buildSelectedSchemaValueResolutionIndex(
+        occurrences,
+        ids,
+      );
       for (const id of ids) {
         const token = schemaDefinitionIdToken(id);
         const resolution = projection.get(token);

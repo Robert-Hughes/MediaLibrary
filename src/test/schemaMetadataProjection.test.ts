@@ -5,6 +5,7 @@ import type {
   SchemaDefinitionId,
 } from "../types";
 import {
+  buildSelectedSchemaValueResolutionIndex,
   buildSchemaValueResolutionIndex,
   resolveSchemaValue,
   resolutionOccurrenceTokens,
@@ -179,6 +180,24 @@ describe("schemaMetadataProjection", () => {
     expect(index.get(schemaDefinitionIdToken(zero))).toMatchObject({
       kind: "value",
       value: text("zero"),
+    });
+  });
+
+  it("resolves only selected schema identities", () => {
+    const selected = schema("selected");
+    const unrelated = schema("unrelated");
+    const index = buildSelectedSchemaValueResolutionIndex(
+      [
+        occurrence(selected, text("wanted")),
+        occurrence(unrelated, text("ignored")),
+      ],
+      [selected],
+    );
+
+    expect([...index.keys()]).toEqual([schemaDefinitionIdToken(selected)]);
+    expect(index.get(schemaDefinitionIdToken(selected))).toMatchObject({
+      kind: "value",
+      value: text("wanted"),
     });
   });
 
