@@ -18,6 +18,11 @@ export type SortTarget =
   | { kind: "os"; key: "date_modified" | "date_created" }
   | { kind: "image"; id: SchemaDefinitionId };
 
+const sortCollator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: "base",
+});
+
 function getMetadataValueAsString(v: MetadataValue | undefined): string {
   if (v === undefined) return "";
   return formatMetadataValue({ value: v });
@@ -98,10 +103,7 @@ function compareByKey(
   if (typeof valA === "number" && typeof valB === "number") {
     cmp = valA - valB;
   } else {
-    cmp = String(valA).localeCompare(String(valB), undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
+    cmp = sortCollator.compare(String(valA), String(valB));
   }
 
   return key.direction === "asc" ? cmp : -cmp;
