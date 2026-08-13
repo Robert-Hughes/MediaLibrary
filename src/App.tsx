@@ -719,7 +719,7 @@ export default function App() {
             </div>
             <div className="dialog-body">
               <div className="dialog-hint">
-                Building tag schema from ExifTool. This only happens once.
+                Loading the tag schema from ExifTool.
               </div>
             </div>
           </div>
