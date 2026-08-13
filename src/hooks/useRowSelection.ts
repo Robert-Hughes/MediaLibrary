@@ -22,6 +22,21 @@ export interface RowSelectionConfig {
   listRef: React.RefObject<HTMLDivElement | null>;
   rowHeight: number;
   onSelectionCountChange?: (count: number) => void;
+  onRecycleSelection?: (relativePaths: string[]) => void;
+}
+
+function isFileListShortcutEventSafe(event: KeyboardEvent): boolean {
+  if (event.defaultPrevented || event.isComposing) return false;
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+  if (
+    target.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+    )
+  ) {
+    return false;
+  }
+  return !target.closest("dialog, .context-menu");
 }
 
 export function useRowSelection(cfg: RowSelectionConfig) {
@@ -33,6 +48,7 @@ export function useRowSelection(cfg: RowSelectionConfig) {
     listRef,
     rowHeight,
     onSelectionCountChange,
+    onRecycleSelection,
   } = cfg;
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(() =>
     selectedPath === null ? new Set() : new Set([selectedPath]),
@@ -157,19 +173,12 @@ export function useRowSelection(cfg: RowSelectionConfig) {
   rowHeightRef.current = rowHeight;
   const onFileOpenRef = useRef(onFileOpen);
   onFileOpenRef.current = onFileOpen;
+  const onRecycleSelectionRef = useRef(onRecycleSelection);
+  onRecycleSelectionRef.current = onRecycleSelection;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (
-        target &&
-        (target.tagName === "INPUT" ||
-          target.tagName === "TEXTAREA" ||
-          target.tagName === "SELECT" ||
-          target.isContentEditable)
-      )
-        return;
-      if ((e.target as Element | null)?.closest?.("dialog")) return;
+      if (!isFileListShortcutEventSafe(e)) return;
       const currentPaths = pathsRef.current;
       if (currentPaths.length === 0) return;
       const currentPath = selectedPathRef.current;
@@ -223,6 +232,22 @@ export function useRowSelection(cfg: RowSelectionConfig) {
       } else if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")) {
         e.preventDefault();
         selectAll();
+      } else if (
+        e.key === "Delete" &&
+        !e.repeat &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        onRecycleSelectionRef.current
+      ) {
+        const selected = selectedPathsRef.current;
+        const selectedInListOrder = currentPaths.filter((path) =>
+          selected.has(path),
+        );
+        if (selectedInListOrder.length === 0) return;
+        e.preventDefault();
+        onRecycleSelectionRef.current(selectedInListOrder);
       }
     };
     document.addEventListener("keydown", handler);

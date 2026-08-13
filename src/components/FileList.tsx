@@ -38,6 +38,7 @@ import {
   visibleColumnToken,
   sortKeyMatchesColumn,
 } from "../utils/columnIdentity";
+import { confirmRecycleFiles } from "../utils/recyclePrompts";
 
 export type ColumnContextTarget =
   | { kind: "path"; key: "relative_path"; label: "Path" }
@@ -394,6 +395,38 @@ function FileListImpl(
     () => files.map((file) => file.relative_path),
     [files],
   );
+  const recyclePendingRef = useRef(false);
+  const recycleSelection = useCallback(
+    async (relativePaths: string[]) => {
+      if (!onRecycleFiles || recyclePendingRef.current) return;
+      const selectedFiles = relativePaths
+        .map((path) => files.find((file) => file.relative_path === path))
+        .filter((file): file is FileInfo => file !== undefined);
+      if (selectedFiles.length === 0) return;
+      recyclePendingRef.current = true;
+      try {
+        const editablePaths = relativePaths.filter(
+          (path) => Object.keys(targetDraftEdits[path] ?? {}).length > 0,
+        );
+        const editCount = editablePaths.reduce(
+          (count, path) =>
+            count + Object.keys(targetDraftEdits[path] ?? {}).length,
+          0,
+        );
+        const confirmed = await confirmRecycleFiles({
+          fileCount: selectedFiles.length,
+          singleFilename:
+            selectedFiles.length === 1 ? selectedFiles[0].filename : undefined,
+          draftFileCount: editablePaths.length,
+          editCount,
+        });
+        if (confirmed) await onRecycleFiles(relativePaths);
+      } finally {
+        recyclePendingRef.current = false;
+      }
+    },
+    [files, onRecycleFiles, targetDraftEdits],
+  );
   const openFileAtIndex = useCallback(
     (index: number) => {
       const opened = files[index];
@@ -509,6 +542,9 @@ function FileListImpl(
       listRef,
       rowHeight,
       onSelectionCountChange,
+      onRecycleSelection: onRecycleFiles
+        ? (relativePaths) => void recycleSelection(relativePaths)
+        : undefined,
     });
   useImperativeHandle(
     selectionHandleRef,
