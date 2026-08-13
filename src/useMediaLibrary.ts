@@ -1206,11 +1206,11 @@ export function useMediaLibrary(
             successfulSet.has(file.relative_path),
           );
           const selectionChanged =
-            prev.selectedPath !== null &&
-            successfulSet.has(prev.selectedPath);
+            prev.selectedPath !== null && successfulSet.has(prev.selectedPath);
           const galleryChanged =
             prev.galleryPath !== null && successfulSet.has(prev.galleryPath);
-          if (!filesChanged && !selectionChanged && !galleryChanged) return prev;
+          if (!filesChanged && !selectionChanged && !galleryChanged)
+            return prev;
           return {
             ...prev,
             files: filesChanged
