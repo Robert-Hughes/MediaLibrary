@@ -13,6 +13,7 @@ import type {
   TargetDraftPersistenceState,
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
+import { confirmRecycleFiles } from "../utils/recyclePrompts";
 import { ModalDialog } from "./ModalDialog";
 
 const GALLERY_DETAILS_VISIBLE_KEY = "media_library_gallery_details_visible";
@@ -141,6 +142,34 @@ interface Props {
   onShowInFileExplorer?: (fileRelativePath: string) => void;
   /** Open the current file in the app-level full map view. */
   onOpenFullMap?: (fileRelativePath: string) => void;
+  /** Move the currently-displayed file to the host recycle bin. */
+  onRecycleFile?: (fileRelativePath: string) => void | Promise<void>;
+}
+
+function isGalleryShortcutEventSafe(
+  event: React.KeyboardEvent<HTMLDialogElement>,
+): boolean {
+  if (
+    event.defaultPrevented ||
+    event.nativeEvent.isComposing ||
+    event.ctrlKey ||
+    event.metaKey ||
+    event.altKey
+  ) {
+    return false;
+  }
+
+  const target = event.target;
+  if (!(target instanceof Element)) return true;
+  if (
+    target.closest(
+      "input, textarea, select, [contenteditable]:not([contenteditable='false'])",
+    )
+  ) {
+    return false;
+  }
+  if (target.closest(".context-menu")) return false;
+  return target.closest("dialog") === event.currentTarget;
 }
 
 export function GalleryView({
@@ -169,6 +198,7 @@ export function GalleryView({
   onNormalise,
   onShowInFileExplorer,
   onOpenFullMap,
+  onRecycleFile,
 }: Props) {
   const file = files[currentIndex];
   const [mediaSource, setMediaSource] = useState<{
@@ -181,6 +211,7 @@ export function GalleryView({
     useState<boolean>(loadDetailsVisible);
   const [detailsWidth, setDetailsWidth] = useState(loadDetailsWidth);
   const detailsResizeDragRef = useRef<DetailsResizeDrag | null>(null);
+  const recyclePendingRef = useRef(false);
   const setDetailsVisible = (
     update: boolean | ((prev: boolean) => boolean),
   ) => {
@@ -309,24 +340,39 @@ export function GalleryView({
     setFailedPath(currentPath);
     setMediaSource((source) => (source?.path === currentPath ? null : source));
   };
-  const onKey = (e: React.KeyboardEvent<HTMLDialogElement>) => {
-    const target = e.target as HTMLElement | null;
-    if (
-      target?.closest?.("input, textarea, select, [contenteditable='true']")
-    ) {
-      return;
+  const recycleCurrentFile = async () => {
+    if (!file || !onRecycleFile || recyclePendingRef.current) return;
+    recyclePendingRef.current = true;
+    try {
+      const editCount = Object.keys(targetDraftEdits ?? {}).length;
+      const confirmed = await confirmRecycleFiles({
+        fileCount: 1,
+        singleFilename: file.filename,
+        draftFileCount: editCount > 0 ? 1 : 0,
+        editCount,
+      });
+      if (confirmed) await onRecycleFile(file.relative_path);
+    } finally {
+      recyclePendingRef.current = false;
     }
+  };
+
+  const onKey = (e: React.KeyboardEvent<HTMLDialogElement>) => {
+    if (!isGalleryShortcutEventSafe(e)) return;
     if (e.key === "ArrowLeft") {
       e.preventDefault();
       onNavigate(-1);
-    }
-    if (e.key === "ArrowRight") {
+    } else if (e.key === "ArrowRight") {
       e.preventDefault();
       onNavigate(1);
-    }
-    if (e.key === "i" || e.key === "I") {
+    } else if (e.key === "i" || e.key === "I") {
       e.preventDefault();
+      if (e.repeat) return;
       setDetailsVisible((v) => !v);
+    } else if (e.key === "Delete" && onRecycleFile) {
+      e.preventDefault();
+      if (e.repeat || recyclePendingRef.current) return;
+      void recycleCurrentFile();
     }
   };
 
