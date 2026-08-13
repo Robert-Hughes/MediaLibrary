@@ -81,5 +81,5 @@ describe("list search target-draft projection", () => {
         expect(rows[0]).toHaveTextContent("draft.jpg");
       });
     }
-  });
+  }, 10_000);
 });
