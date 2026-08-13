@@ -845,28 +845,34 @@ fn recycle_media_files(
         );
     }
     if !recycled_paths.is_empty() {
-        let active = session_state.snapshot();
-        let session_id = match active.session_id {
+        let (active_session_id, active_folder, draft_paths) = session_state.inspect(|active| {
+            let draft_paths = recycled_paths
+                .iter()
+                .filter(|path| active.drafts.contains_key(path.as_str()))
+                .cloned()
+                .collect::<Vec<_>>();
+            (active.session_id, active.folder.clone(), draft_paths)
+        });
+        let session_id = match active_session_id {
             Some(session_id) => session_id,
             None => {
                 log::error!("[recycle] no active media-library session to update");
                 return Err("No active media-library session".to_string());
             }
         };
-        if active.folder.as_deref() != Some(folder.as_str()) {
+        if active_folder.as_deref() != Some(folder.as_str()) {
             log::error!(
                 "[recycle] session folder changed session_folder={:?} command_folder={folder}",
-                active.folder
+                active_folder
             );
             return Err(
                 "The media-library session changed before recycled drafts were removed".into(),
             );
         }
-        let draft_mutations = recycled_paths
-            .iter()
-            .filter(|path| active.drafts.contains_key(path.as_str()))
+        let draft_mutations = draft_paths
+            .into_iter()
             .map(|relative_path| draft_repository::MetadataDraftRowMutation {
-                relative_path: relative_path.clone(),
+                relative_path,
                 entries: Vec::new(),
             })
             .collect::<Vec<_>>();
