@@ -311,8 +311,22 @@ for (let i2 = 0; i2 < n; i2++) {
 }
 if (drop.length !== 2) throw new Error("expected exactly 513 and 514");
 // Safety: no kept entry may store data inside the region that gets zeroed.
-const zeroFrom = ifd0 + 2 + 12 * (n - 2) + 4, zeroTo = ifd0 + 2 + 12 * n + 4;
-const sizes = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 };
+const zeroFrom = ifd0 + 2 + 12 * (n - 2) + 4,
+  zeroTo = ifd0 + 2 + 12 * n + 4;
+const sizes = {
+  1: 1,
+  2: 1,
+  3: 2,
+  4: 4,
+  5: 8,
+  6: 1,
+  7: 1,
+  8: 2,
+  9: 4,
+  10: 8,
+  11: 4,
+  12: 8,
+};
 for (let i2 = 0; i2 < n; i2++) {
   if (drop.includes(i2)) continue;
   const e = ifd0 + 2 + 12 * i2;
@@ -320,7 +334,8 @@ for (let i2 = 0; i2 < n; i2++) {
   const cnt = u32(e + 4);
   if (size > 0 && size * cnt > 4) {
     const abs = tiff + u32(e + 8);
-    if (abs >= zeroFrom && abs < zeroTo) throw new Error(`tag ${u16(e)} stores data in zeroed region`);
+    if (abs >= zeroFrom && abs < zeroTo)
+      throw new Error(`tag ${u16(e)} stores data in zeroed region`);
   }
 }
 const next = u32(ifd0 + 2 + 12 * n);
@@ -328,7 +343,8 @@ w16(ifd0, n - 2);
 let k = 0;
 for (let i2 = 0; i2 < n; i2++) {
   if (drop.includes(i2)) continue;
-  const src = ifd0 + 2 + 12 * i2, dst = ifd0 + 2 + 12 * k++;
+  const src = ifd0 + 2 + 12 * i2,
+    dst = ifd0 + 2 + 12 * k++;
   if (dst !== src) b.copy(b, dst, src, src + 12);
 }
 w32(ifd0 + 2 + 12 * (n - 2), next);
