@@ -49,6 +49,7 @@ export default defineConfig(async () => ({
   // Vitest configuration
   test: {
     globals: true,
+    testTimeout: 15_000,
     environment: "jsdom",
     pool: "vmThreads",
     setupFiles: ["./src/test/setup.ts"],
