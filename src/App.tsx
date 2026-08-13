@@ -526,6 +526,9 @@ function LoadedView({
             if (idx >= 0) void onShowInExplorer(idx);
           }}
           onOpenFullMap={(relPath) => setFullMapPaths([relPath])}
+          onRecycleFile={async (relPath) => {
+            await actions.recycleFiles([relPath]);
+          }}
         />
       )}
       {fullMapPaths && (

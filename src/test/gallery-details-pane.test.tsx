@@ -16,9 +16,15 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { ComponentProps } from "react";
 import { GalleryView } from "../components/GalleryView";
+import { ask } from "@tauri-apps/plugin-dialog";
 
 import { FileMetadataOccurrencesStore } from "../types";
-import { makeFiles, mockMetadata } from "./factories";
+import {
+  makeFiles,
+  mockMetadata,
+  mockTargetDraftsByFile,
+  newPropertyTargetDraft,
+} from "./factories";
 import type { FileInfo } from "../types";
 import {
   _clearTagInfoCache,
@@ -26,6 +32,10 @@ import {
 } from "./tagInfoTestHelpers";
 
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  ask: vi.fn(() => Promise.resolve(true)),
+}));
 // ── Test helpers ─────────────────────────────────────────────────────────────
 
 const PHOTOS: FileInfo[] = makeFiles([
@@ -72,6 +82,7 @@ async function renderGallery(
 
 beforeEach(() => {
   localStorage.clear();
+  vi.mocked(ask).mockReset().mockResolvedValue(true);
   _clearTagInfoCache();
   const commonTags = [
     "IFD0:Make",
@@ -244,6 +255,75 @@ describe("Gallery details pane toggle", () => {
   });
 });
 
+describe("Gallery keyboard shortcuts", () => {
+  it("recycles the current file after the existing confirmation", async () => {
+    const onRecycleFile = vi.fn().mockResolvedValue(undefined);
+    const drafts = mockTargetDraftsByFile({
+      "2024/a.jpg": [newPropertyTargetDraft("Title", "pending title")],
+    });
+    await renderGallery({
+      onRecycleFile,
+      targetDraftEdits: drafts["2024/a.jpg"],
+    });
+
+    await userEvent.keyboard("{Delete}");
+
+    await waitFor(() => expect(onRecycleFile).toHaveBeenCalledOnce());
+    expect(onRecycleFile).toHaveBeenCalledWith("2024/a.jpg");
+    expect(ask).toHaveBeenCalledWith(
+      expect.stringContaining("Move “a.jpg” to the Recycle Bin?"),
+      { title: "Move to Recycle Bin", kind: "warning" },
+    );
+    expect(ask).toHaveBeenCalledWith(
+      expect.stringContaining("1 file has 1 pending metadata edit"),
+      expect.anything(),
+    );
+  });
+
+  it("does not recycle after cancellation or repeated Delete events", async () => {
+    let resolveConfirmation!: (confirmed: boolean) => void;
+    vi.mocked(ask).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveConfirmation = resolve;
+        }),
+    );
+    const onRecycleFile = vi.fn();
+    await renderGallery({ onRecycleFile });
+    const gallery = screen.getByRole("dialog", { name: "File gallery" });
+
+    fireEvent.keyDown(gallery, { key: "Delete" });
+    fireEvent.keyDown(gallery, { key: "Delete" });
+    fireEvent.keyDown(gallery, { key: "Delete", repeat: true });
+
+    expect(ask).toHaveBeenCalledOnce();
+    await act(async () => resolveConfirmation(false));
+    expect(onRecycleFile).not.toHaveBeenCalled();
+  });
+
+  it("shares shortcut suppression across editable targets", async () => {
+    const onNavigate = vi.fn();
+    const onRecycleFile = vi.fn();
+    await renderGallery({ onNavigate, onRecycleFile });
+    await userEvent.click(screen.getByTestId("gallery-info-toggle"));
+    const search = document.getElementById("details-search-input");
+    expect(search).toBeInstanceOf(HTMLInputElement);
+
+    fireEvent.keyDown(search!, { key: "ArrowRight" });
+    fireEvent.keyDown(search!, { key: "Delete" });
+
+    const editable = document.createElement("div");
+    editable.setAttribute("contenteditable", "true");
+    screen.getByRole("dialog", { name: "File gallery" }).append(editable);
+    fireEvent.keyDown(editable, { key: "ArrowLeft" });
+    fireEvent.keyDown(editable, { key: "Delete" });
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+    expect(onRecycleFile).not.toHaveBeenCalled();
+  });
+});
+
 describe("Gallery details pane content", () => {
   it("displays OS metadata for the current file", async () => {
     await renderGallery({ currentIndex: 0 });
@@ -275,6 +355,8 @@ describe("Gallery details pane content", () => {
 
   it("shows grouped image metadata when available", async () => {
     const onClose = vi.fn();
+    const onNavigate = vi.fn();
+    const onRecycleFile = vi.fn();
     const occurrences = new FileMetadataOccurrencesStore();
     occurrences.add("2024/a.jpg");
     occurrences.set("2024/a.jpg", [
@@ -312,15 +394,27 @@ describe("Gallery details pane content", () => {
       fileMetadataOccurrences: occurrences,
       onSetExistingOccurrenceDraft: vi.fn(),
       onClose,
+      onNavigate,
+      onRecycleFile,
     });
     const user = userEvent.setup();
     await user.click(screen.getByTestId("gallery-info-toggle"));
 
     fireEvent.contextMenu(screen.getByText("Canon"));
-    await user.click(await screen.findByRole("button", { name: /^Edit/ }));
+    const editButton = await screen.findByRole("button", { name: /^Edit/ });
+    fireEvent.keyDown(editButton, { key: "ArrowRight" });
+    fireEvent.keyDown(editButton, { key: "Delete" });
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
+    await user.click(editButton);
 
     const gallery = screen.getByRole("dialog", { name: "File gallery" });
     const editor = screen.getByRole("dialog", { name: "Edit IFD0:Make" });
+    const cancel = within(editor).getByRole("button", { name: "Cancel" });
+    fireEvent.keyDown(cancel, { key: "ArrowLeft" });
+    fireEvent.keyDown(cancel, { key: "Delete" });
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(ask).not.toHaveBeenCalled();
     act(() => {
       editor.dispatchEvent(
         new Event("cancel", { bubbles: true, cancelable: true }),
