@@ -52,6 +52,7 @@ import { computeEffectiveMetadataKeyFrequency } from "./utils/metadataKeyFrequen
 import { arePathsImageOnly } from "./utils/mediaKind";
 import { useSearchService } from "./hooks/useSearchService";
 import { parseSearchQuery } from "./search/searchQuery";
+import { galleryPathAfterRemoval } from "./utils/galleryNavigation";
 import "./App.css";
 
 const tauriApi: TauriApi = {
@@ -527,7 +528,15 @@ function LoadedView({
           }}
           onOpenFullMap={(relPath) => setFullMapPaths([relPath])}
           onRecycleFile={async (relPath) => {
-            await actions.recycleFiles([relPath]);
+            const adjacentPath = galleryPathAfterRemoval(
+              displayFiles,
+              galleryIndex,
+            );
+            const result = await actions.recycleFiles([relPath]);
+            const recycled = result.results.some(
+              (item) => item.relative_path === relPath && item.recycled,
+            );
+            if (recycled && adjacentPath) actions.openGallery(adjacentPath);
           }}
         />
       )}

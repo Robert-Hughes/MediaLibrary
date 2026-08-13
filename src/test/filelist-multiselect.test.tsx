@@ -749,6 +749,81 @@ describe("FileList keyboard navigation", () => {
     document.body.removeChild(input);
   });
 
+  it("recycles the selected files with the existing draft-aware confirmation", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(ask).mockClear().mockResolvedValue(true);
+    const onRecycleFiles = vi.fn().mockResolvedValue(undefined);
+    const targetDraftEdits = mockTargetDraftsByFile({
+      "2.jpg": [newPropertyTargetDraft("Title", textDraft("pending"))],
+    });
+    setup({
+      targetDraftEdits,
+      onRecycleFiles,
+    });
+    fireEvent.click(rows()[0]);
+    fireEvent.click(rows()[2], { ctrlKey: true });
+
+    fireEvent.keyDown(document, { key: "Delete" });
+
+    await vi.waitFor(() => expect(onRecycleFiles).toHaveBeenCalledOnce());
+    expect(onRecycleFiles).toHaveBeenCalledWith(["0.jpg", "2.jpg"]);
+    expect(ask).toHaveBeenCalledWith(
+      expect.stringContaining("Move 2 files to the Recycle Bin?"),
+      { title: "Move to Recycle Bin", kind: "warning" },
+    );
+    expect(ask).toHaveBeenCalledWith(
+      expect.stringContaining("1 file has 1 pending metadata edit"),
+      expect.anything(),
+    );
+  });
+
+  it("ignores Delete while typing in the list search field", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    vi.mocked(ask).mockClear();
+    const onRecycleFiles = vi.fn();
+    setup({ selectedPath: "1.jpg", onRecycleFiles });
+    const input = document.createElement("input");
+    input.id = "list-search-input";
+    document.body.appendChild(input);
+
+    fireEvent.keyDown(input, { key: "Delete" });
+
+    expect(ask).not.toHaveBeenCalled();
+    expect(onRecycleFiles).not.toHaveBeenCalled();
+    input.remove();
+  });
+
+  it("suppresses repeated, modified, pending, and context-menu Delete events", async () => {
+    const { ask } = await import("@tauri-apps/plugin-dialog");
+    let resolveConfirmation!: (confirmed: boolean) => void;
+    vi.mocked(ask)
+      .mockClear()
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveConfirmation = resolve;
+          }),
+      );
+    const onRecycleFiles = vi.fn();
+    setup({ selectedPath: "1.jpg", onRecycleFiles });
+
+    fireEvent.keyDown(document, { key: "Delete", repeat: true });
+    fireEvent.keyDown(document, { key: "Delete", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "Delete" });
+    fireEvent.keyDown(document, { key: "Delete" });
+    expect(ask).toHaveBeenCalledOnce();
+
+    fireEvent.contextMenu(rows()[1]);
+    const menuButton = await screen.findByRole("button", {
+      name: "Move to Recycle Bin…",
+    });
+    fireEvent.keyDown(menuButton, { key: "Delete" });
+    expect(ask).toHaveBeenCalledOnce();
+
+    await act(async () => resolveConfirmation(false));
+    expect(onRecycleFiles).not.toHaveBeenCalled();
+  });
+
   it("PageDown jumps roughly one page down and clamps at the last row", () => {
     const { onSelect } = setup({ selectedPath: "1.jpg" });
     // jsdom reports clientHeight=0, so the handler falls back to a 10-row page step.
