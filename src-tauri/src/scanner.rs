@@ -4,7 +4,7 @@
 ///  - `scan_folder` — fast directory walk, path + OS metadata only. Calls a
 ///    callback per file so callers can stream results.
 ///  - `read_file_metadata` — reads metadata for a single file using ExifTool.
-///  - `thumbnail_for` — generates a thumbnail.
+///  - `thumbnail_for_media` — returns a real thumbnail or media placeholder.
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -22,6 +22,23 @@ pub use media::{placeholder_thumbnail, MediaKind};
 use thumbnail::extract_exif_thumbnail;
 pub use thumbnail::thumbnail_for;
 
+fn media_kind_for_path(path: &Path) -> Option<MediaKind> {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .and_then(|extension| media_kind_from_extension(&extension))
+}
+
+/// Return the thumbnail representation for any supported media file.
+/// Images are decoded into real thumbnails; audio and video return their
+/// built-in placeholders.
+pub fn thumbnail_for_media(path: &Path) -> Option<String> {
+    let media_kind = media_kind_for_path(path)?;
+    match media_kind {
+        MediaKind::Image => thumbnail_for(path),
+        MediaKind::Audio | MediaKind::Video => placeholder_thumbnail(media_kind).map(str::to_owned),
+    }
+}
 use crate::metadata_occurrence::{
     family7_group_from_runtime_tag_id, MetadataObservedSelector, MetadataOccurrence,
     MetadataOccurrenceId, MetadataOccurrences, MetadataSelectorKey, MetadataWriteTarget,
@@ -128,14 +145,8 @@ pub fn scan_folder<P, E>(
         }
 
         let path = entry.path();
-        let media_kind = match path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .map(str::to_ascii_lowercase)
-            .and_then(|extension| media_kind_from_extension(&extension))
-        {
-            Some(media_kind) => media_kind,
-            None => continue,
+        let Some(media_kind) = media_kind_for_path(path) else {
+            continue;
         };
 
         let rel = match path.strip_prefix(folder) {
@@ -2167,6 +2178,31 @@ mod tests {
             assert_eq!(image.width(), 64);
             assert_eq!(image.height(), 64);
         }
+    }
+
+    #[test]
+    fn thumbnail_for_media_dispatches_images_and_placeholders() {
+        let dir = tempdir().unwrap();
+        let image_path = dir.path().join("pixel.png");
+        image::RgbImage::new(1, 1).save(&image_path).unwrap();
+
+        let image_thumbnail =
+            thumbnail_for_media(&image_path).expect("image should produce a thumbnail");
+        assert_eq!(image_thumbnail, thumbnail_for(&image_path).unwrap());
+
+        let audio_thumbnail = thumbnail_for_media(&dir.path().join("track.MP3"))
+            .expect("audio should produce a placeholder");
+        let video_thumbnail = thumbnail_for_media(&dir.path().join("clip.MP4"))
+            .expect("video should produce a placeholder");
+        assert_eq!(
+            audio_thumbnail,
+            placeholder_thumbnail(MediaKind::Audio).unwrap()
+        );
+        assert_eq!(
+            video_thumbnail,
+            placeholder_thumbnail(MediaKind::Video).unwrap()
+        );
+        assert!(thumbnail_for_media(&dir.path().join("notes.txt")).is_none());
     }
 
     #[test]

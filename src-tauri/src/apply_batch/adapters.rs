@@ -231,6 +231,51 @@ impl TargetApplyLogger for RealTargetApplyLogger {
     }
 }
 
+fn applied_thumbnail_paths(results: &[MetadataApplyFileResult]) -> Vec<String> {
+    results
+        .iter()
+        .filter(|result| result.applied)
+        .map(|result| result.relative_path.clone())
+        .collect()
+}
+
+fn refresh_applied_thumbnails(
+    state: &crate::session::MediaLibrarySessionState,
+    session_id: u64,
+    results: &[MetadataApplyFileResult],
+) {
+    let relative_paths = applied_thumbnail_paths(results);
+    if relative_paths.is_empty() {
+        return;
+    }
+
+    let folder = state.inspect(|snapshot| {
+        if snapshot.session_id == Some(session_id) {
+            snapshot.folder.clone()
+        } else {
+            None
+        }
+    });
+    let Some(folder) = folder else {
+        log::debug!("[apply-thumbnails] skipped refresh because the session changed");
+        return;
+    };
+
+    let refreshed = relative_paths
+        .into_iter()
+        .map(|relative_path| {
+            let absolute_path =
+                Path::new(&folder).join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+            let thumbnail = scanner::thumbnail_for_media(&absolute_path);
+            (relative_path, thumbnail)
+        })
+        .collect();
+
+    if let Err(error) = state.commit_thumbnail_results(session_id, refreshed) {
+        log::debug!("[apply-thumbnails] discarded stale refresh results: {error}");
+    }
+}
+
 pub(super) struct SessionApplyEvents {
     pub(super) app: AppHandle,
     pub(super) session_id: u64,
@@ -240,6 +285,85 @@ impl ApplyEvents for SessionApplyEvents {
     fn send(&self, message: &MetadataApplyStreamMessage) -> Result<(), String> {
         let state = self.app.state::<crate::session::MediaLibrarySessionState>();
         state.update_apply_operation(self.session_id, message)?;
+        if let MetadataApplyStreamMessage::ProgressBatch { results, .. } = message {
+            refresh_applied_thumbnails(&state, self.session_id, results);
+        }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn apply_result(relative_path: &str, applied: bool) -> MetadataApplyFileResult {
+        MetadataApplyFileResult {
+            relative_path: relative_path.into(),
+            applied,
+            error: None,
+            warning: None,
+            fresh_file_metadata: None,
+            target_outcomes: Vec::new(),
+            persisted_draft_entries: None,
+        }
+    }
+
+    #[test]
+    fn applied_thumbnail_paths_only_include_successful_writes() {
+        let results = vec![
+            apply_result("changed.jpg", true),
+            apply_result("failed.jpg", false),
+            apply_result("unchanged.jpg", false),
+        ];
+
+        assert_eq!(
+            applied_thumbnail_paths(&results),
+            vec!["changed.jpg".to_string()]
+        );
+    }
+
+    #[test]
+    fn refresh_applied_thumbnails_replaces_cached_thumbnail() {
+        let dir = tempfile::tempdir().unwrap();
+        let relative_path = "changed.png";
+        let absolute_path = dir.path().join(relative_path);
+        image::RgbImage::new(1, 1).save(&absolute_path).unwrap();
+
+        let state = crate::session::MediaLibrarySessionState::new();
+        let folder = dir.path().to_string_lossy().into_owned();
+        let opened = state.begin_open(folder.clone());
+        let session_id = opened.session_id.unwrap();
+        state.mark_loaded(session_id, &folder).unwrap();
+        state
+            .add_files(
+                session_id,
+                vec![scanner::FileInfo {
+                    relative_path: relative_path.into(),
+                    filename: relative_path.into(),
+                    media_kind: scanner::MediaKind::Image,
+                    date_modified: None,
+                    date_created: None,
+                }],
+            )
+            .unwrap();
+        state
+            .commit_thumbnail_results(
+                session_id,
+                vec![(relative_path.into(), Some("old-thumbnail".into()))],
+            )
+            .unwrap();
+
+        refresh_applied_thumbnails(&state, session_id, &[apply_result(relative_path, true)]);
+
+        let snapshot = state.snapshot();
+        let cache_key = match &snapshot.thumbnails[0].state {
+            crate::session::MediaLibrarySessionThumbnailState::Ready { cache_key } => {
+                cache_key.clone()
+            }
+            state => panic!("expected refreshed thumbnail, got {state:?}"),
+        };
+        let payloads = state.thumbnail_payloads(session_id, &[cache_key]).unwrap();
+        assert_ne!(payloads[0].thumbnail, "old-thumbnail");
+        assert!(!payloads[0].thumbnail.is_empty());
     }
 }
