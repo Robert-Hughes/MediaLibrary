@@ -126,4 +126,19 @@ describe("metadata write-kind support", () => {
     ).toBe(true);
     expect(tagInfoSupportsMetadataWrite(xmp, "image.webp", "Set")).toBe(false);
   });
+
+  it("supports QuickTime and XMP for mp4 but not EXIF", () => {
+    const exif = info({ kind: "Text" });
+    const xmp = { ...info({ kind: "Text" }), group0: "XMP" };
+    const quicktime = { ...info({ kind: "Text" }), group0: "QuickTime" };
+
+    expect(tagInfoSupportsMetadataWrite(xmp, "clip.mp4", "Set")).toBe(true);
+    expect(tagInfoSupportsMetadataWrite(quicktime, "clip.mp4", "Set")).toBe(
+      true,
+    );
+    expect(tagInfoSupportsMetadataWrite(exif, "clip.mp4", "Set")).toBe(false);
+    expect(
+      tagInfoSupportsMetadataWrite(exif, "clip.mp4", "DeleteExisting"),
+    ).toBe(true);
+  });
 });
