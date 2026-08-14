@@ -564,9 +564,9 @@ fn start_scan(
             })
             .collect();
         // ── Phase 3: thumbnail workers ────────────────────────────────────
-        // All thumbnail producers send results through one channel. A single
-        // emitter batches both extracted image thumbnails and immediate
-        // audio/video placeholders before notifying the frontend.
+        // Every supported media path is resolved by the same thumbnail dispatcher.
+        // A single emitter batches real image thumbnails and non-image placeholders
+        // before notifying the frontend.
         let (thumbnail_result_tx, thumbnail_result_rx) = mpsc::channel::<ThumbnailResult>();
         let thumbnail_emitter = {
             let app = app_clone.clone();
@@ -612,7 +612,7 @@ fn start_scan(
                         let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
                         let _ = result_tx.send(ThumbnailResult {
                             relative_path: rel_path,
-                            thumbnail: scanner::thumbnail_for(&abs),
+                            thumbnail: scanner::thumbnail_for_media(&abs),
                         });
                     }
                 })
@@ -629,7 +629,6 @@ fn start_scan(
         let file_metadata_queue_walk = file_metadata_queue.clone();
         let thumb_queue_walk = thumb_queue.clone();
 
-        let thumbnail_result_tx_walk = thumbnail_result_tx.clone();
         let app_walk_err = app_clone.clone();
         let walk_handle = std::thread::spawn(move || {
             scanner::scan_folder(
@@ -637,18 +636,7 @@ fn start_scan(
                 cancel_walk,
                 |file| {
                     file_metadata_queue_walk.push(file.relative_path.clone());
-                    match file.media_kind {
-                        scanner::MediaKind::Image => {
-                            thumb_queue_walk.push(file.relative_path.clone());
-                        }
-                        scanner::MediaKind::Audio | scanner::MediaKind::Video => {
-                            let _ = thumbnail_result_tx_walk.send(ThumbnailResult {
-                                relative_path: file.relative_path.clone(),
-                                thumbnail: scanner::placeholder_thumbnail(file.media_kind)
-                                    .map(str::to_owned),
-                            });
-                        }
-                    }
+                    thumb_queue_walk.push(file.relative_path.clone());
                     file_queue_clone.lock().unwrap().push(file);
                 },
                 |err| {
