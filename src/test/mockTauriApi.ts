@@ -19,19 +19,252 @@ import {
   type TargetDraftEditsByFile,
 } from "../targetDraftEdits";
 import type { BulkMetadataDraftRequest } from "../bulkMetadataDrafts";
-import { planBulkMetadataDraftBatch } from "./backendBulkMetadataDraftPlanner";
-import { planGeneratedTargetDraftBatch } from "./backendGeneratedTargetDraftPlanner";
-import { planGpsTargetDraftBatch } from "./backendGpsTargetDraftPlanner";
-import { planMetadataTargetRemovals } from "./backendMetadataRemovalPlanner";
 import {
   existingOccurrenceTargetFromOccurrence,
   newPropertyDraftTarget,
+  metadataDraftTargetSlotToken,
 } from "../utils/metadataDraftTarget";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import { testId } from "./testIds";
 import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
 import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
 import { validateFamily1Group } from "../utils/metadataWriteTarget";
+
+function mockPlanGeneratedTargetDraftBatch({
+  edits,
+  occurrences,
+  writableSchemaDefinitions,
+}: {
+  edits: SchemaMetadataEdit[];
+  occurrences: MetadataOccurrences;
+  targetDrafts?: Record<string, MetadataTargetDraftEntry>;
+  writableSchemaDefinitions: TagInfo[];
+}): { upserts: MetadataTargetDraftEntry[]; deletes: MetadataDraftTarget[] } {
+  const upserts: MetadataTargetDraftEntry[] = [];
+  const deletes: MetadataDraftTarget[] = [];
+
+  for (const { schema_id, edit } of edits) {
+    const occ = occurrences.find((o) =>
+      schemaDefinitionIdEquals(o.schema_id, schema_id),
+    );
+    if (occ) {
+      const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+      if (targetRes.kind === "targetable") {
+        if (
+          edit.intent === "Set" &&
+          JSON.stringify(edit.value) === JSON.stringify(occ.value)
+        ) {
+          deletes.push(targetRes.target);
+        } else {
+          upserts.push({ target: targetRes.target, edit });
+        }
+      }
+    } else if (edit.intent === "Set") {
+      const info = writableSchemaDefinitions.find((ti) =>
+        schemaDefinitionIdEquals(ti.id, schema_id),
+      );
+      if (info) {
+        const targetRes = newPropertyDraftTarget(info);
+        if (targetRes.kind === "available") {
+          upserts.push({ target: targetRes.target, edit });
+        }
+      }
+    }
+  }
+  return { upserts, deletes };
+}
+
+function mockPlanMetadataTargetRemovals({
+  targets,
+  occurrences,
+  targetDrafts = {},
+}: {
+  targets: MetadataDraftTarget[];
+  occurrences: MetadataOccurrences;
+  targetDrafts?: Record<string, MetadataTargetDraftEntry>;
+}): {
+  upserts: MetadataTargetDraftEntry[];
+  deletes: MetadataDraftTarget[];
+  noops: MetadataDraftTarget[];
+} {
+  const upserts: MetadataTargetDraftEntry[] = [];
+  const deletes: MetadataDraftTarget[] = [];
+  const noops: MetadataDraftTarget[] = [];
+
+  for (const target of targets) {
+    if (target.kind === "ExistingOccurrence") {
+      const occ = occurrences.find(
+        (o) =>
+          schemaDefinitionIdEquals(o.schema_id, target.schema_id) &&
+          o.id.path === target.occurrence_id.path,
+      );
+      if (occ) {
+        upserts.push({
+          target,
+          edit: { intent: "Delete", value: null },
+        });
+      } else {
+        noops.push(target);
+      }
+    } else if (target.kind === "NewProperty") {
+      const slot = metadataDraftTargetSlotToken(target);
+      if (targetDrafts[slot]) {
+        deletes.push(target);
+      } else {
+        noops.push(target);
+      }
+    } else {
+      noops.push(target);
+    }
+  }
+
+  return { upserts, deletes, noops };
+}
+
+function mockPlanGpsTargetDraftBatch(
+  edits: Array<{
+    id: import("../types").SchemaDefinitionId;
+    edit: MetadataDraftEdit;
+  }>,
+  occurrences: MetadataOccurrences,
+  _targetDrafts?: Record<string, MetadataTargetDraftEntry>,
+): MetadataTargetDraftEntry[] {
+  const entries: MetadataTargetDraftEntry[] = [];
+  for (const { id, edit } of edits) {
+    const occ = occurrences.find((o) =>
+      schemaDefinitionIdEquals(o.schema_id, id),
+    );
+    if (occ) {
+      const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+      if (targetRes.kind === "targetable") {
+        entries.push({ target: targetRes.target, edit });
+      }
+    } else {
+      entries.push({
+        target: {
+          kind: "NewProperty",
+          schema_id: { ...id },
+          write_target: {
+            group1: "GPS",
+            group7: "ID-" + id.tag_id,
+            tag_name: id.tag_id,
+          },
+        },
+        edit,
+      });
+    }
+  }
+  return entries;
+}
+
+function mockPlanBulkMetadataDraftBatch({
+  files,
+  request,
+}: {
+  files: Array<{
+    relativePath: string;
+    occurrences: MetadataOccurrences;
+    targetDrafts?: Record<string, MetadataTargetDraftEntry>;
+  }>;
+  request: BulkMetadataDraftRequest;
+}): {
+  preview: import("../bulkMetadataDrafts").BulkMetadataDraftPreview;
+  mutations: Array<{
+    path: string;
+    upserts: MetadataTargetDraftEntry[];
+    deletes: MetadataDraftTarget[];
+  }>;
+} {
+  let existingOccurrencesSet = 0;
+  let newPropertiesSet = 0;
+  let existingOccurrencesDeleted = 0;
+  let stagedCreationsCancelled = 0;
+  let draftsCleared = 0;
+  let affectedFileCount = 0;
+  let noOpFileCount = 0;
+
+  const mutations: Array<{
+    path: string;
+    upserts: MetadataTargetDraftEntry[];
+    deletes: MetadataDraftTarget[];
+  }> = [];
+
+  for (const { relativePath, occurrences, targetDrafts = {} } of files) {
+    const upserts: MetadataTargetDraftEntry[] = [];
+    const deletes: MetadataDraftTarget[] = [];
+
+    if (request.operation === "Set") {
+      const occ = occurrences.find((o) =>
+        schemaDefinitionIdEquals(o.schema_id, request.tagInfo.id),
+      );
+      if (occ) {
+        const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+        if (targetRes.kind === "targetable") {
+          if (
+            JSON.stringify(request.edit.value) === JSON.stringify(occ.value)
+          ) {
+            deletes.push(targetRes.target);
+            draftsCleared++;
+          } else {
+            upserts.push({ target: targetRes.target, edit: request.edit });
+            existingOccurrencesSet++;
+          }
+        }
+      } else {
+        const targetRes = newPropertyDraftTarget(request.tagInfo);
+        if (targetRes.kind === "available") {
+          upserts.push({ target: targetRes.target, edit: request.edit });
+          newPropertiesSet++;
+        }
+      }
+    } else if (request.operation === "Delete") {
+      const occ = occurrences.find((o) =>
+        schemaDefinitionIdEquals(o.schema_id, request.schemaId),
+      );
+      if (occ) {
+        const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+        if (targetRes.kind === "targetable") {
+          upserts.push({
+            target: targetRes.target,
+            edit: { intent: "Delete", value: null },
+          });
+          existingOccurrencesDeleted++;
+        }
+      } else {
+        const staged = Object.values(targetDrafts).find(
+          (e) =>
+            e.target.kind === "NewProperty" &&
+            schemaDefinitionIdEquals(e.target.schema_id, request.schemaId),
+        );
+        if (staged) {
+          deletes.push(staged.target);
+          stagedCreationsCancelled++;
+        }
+      }
+    }
+
+    if (upserts.length > 0 || deletes.length > 0) {
+      affectedFileCount++;
+      mutations.push({ path: relativePath, upserts, deletes });
+    } else {
+      noOpFileCount++;
+    }
+  }
+
+  return {
+    preview: {
+      fileCount: files.length,
+      affectedFileCount,
+      noOpFileCount,
+      existingOccurrencesSet,
+      newPropertiesSet,
+      existingOccurrencesDeleted,
+      stagedCreationsCancelled,
+      draftsCleared,
+    },
+    mutations,
+  };
+}
 type EventHandler = (payload: unknown) => void;
 
 type MockTargetDraftEditsByFolder = Record<string, TargetDraftEditsByFile>;
@@ -633,7 +866,7 @@ export function createMockTauriApi(): MockTauriApi {
   const stageGeneratedDrafts = (
     relativePath: string,
     edits: SchemaMetadataEdit[],
-    producer: Parameters<typeof planGeneratedTargetDraftBatch>[0]["producer"],
+    _producer: unknown,
     store: TargetDraftEditsStore,
   ) => {
     if (edits.length === 0) return;
@@ -643,9 +876,7 @@ export function createMockTauriApi(): MockTauriApi {
     if (!metadata || metadata.state.status !== "ready") {
       throw new Error("Authoritative metadata is unavailable");
     }
-    const plan = planGeneratedTargetDraftBatch({
-      producer,
-      fileName: relativePath,
+    const plan = mockPlanGeneratedTargetDraftBatch({
       edits,
       occurrences: metadata.state.occurrences,
       targetDrafts: store.getMetadataFile(relativePath),
@@ -1347,7 +1578,7 @@ export function createMockTauriApi(): MockTauriApi {
         if (metadata?.state.status !== "ready") {
           throw new Error("Authoritative metadata is unavailable");
         }
-        const plan = planMetadataTargetRemovals({
+        const plan = mockPlanMetadataTargetRemovals({
           targets,
           occurrences: metadata.state.occurrences,
           targetDrafts: store.getMetadataFile(relativePath),
@@ -1429,11 +1660,11 @@ export function createMockTauriApi(): MockTauriApi {
             "Authoritative metadata occurrences are still loading",
           );
         }
-        const entries = planGpsTargetDraftBatch(
+        const entries = mockPlanGpsTargetDraftBatch(
           edits.map(({ schema_id: id, edit }) => ({ id, edit })),
           metadata.state.occurrences,
           store.getMetadataFile(relativePath),
-        ).map(({ target, edit }) => ({ target, edit }));
+        );
         if (cmd === "preview_media_library_session_gps_drafts") {
           return entries;
         }
@@ -1738,9 +1969,7 @@ export function createMockTauriApi(): MockTauriApi {
             >,
           ),
         );
-        const plan = planGeneratedTargetDraftBatch({
-          producer: { kind: "geocode" },
-          fileName: relativePath,
+        const plan = mockPlanGeneratedTargetDraftBatch({
           edits,
           occurrences: metadata.state.occurrences,
           targetDrafts: store.getMetadataFile(relativePath),
@@ -1770,8 +1999,6 @@ export function createMockTauriApi(): MockTauriApi {
         if (sessionId !== mock.currentScanId) throw new Error("stale session");
         const relativePath = args?.relativePath as string;
         const edits = args?.edits as SchemaMetadataEdit[];
-        const enabledGroups =
-          args?.enabledGroups as import("../types").NormaliseGroup[];
         const metadata = sessionSnapshot.metadata.find(
           (entry) => entry.relative_path === relativePath,
         );
@@ -1789,9 +2016,7 @@ export function createMockTauriApi(): MockTauriApi {
             >,
           ),
         );
-        const plan = planGeneratedTargetDraftBatch({
-          producer: { kind: "normalise", enabledGroups },
-          fileName: relativePath,
+        const plan = mockPlanGeneratedTargetDraftBatch({
           edits,
           occurrences: metadata.state.occurrences,
           targetDrafts: store.getMetadataFile(relativePath),
@@ -1827,7 +2052,7 @@ export function createMockTauriApi(): MockTauriApi {
         const drafts = targetDraftsFromWire(
           sessionSnapshot.drafts as Record<string, MetadataTargetDraftEntry[]>,
         );
-        const plan = planBulkMetadataDraftBatch({
+        const plan = mockPlanBulkMetadataDraftBatch({
           files: relativePaths.map((relativePath) => {
             const metadata = sessionSnapshot.metadata.find(
               (entry) => entry.relative_path === relativePath,
@@ -2630,13 +2855,7 @@ export function createMockTauriApi(): MockTauriApi {
               if (!metadata || metadata.state.status !== "ready") {
                 throw new Error("Authoritative metadata is unavailable");
               }
-              const plan = planGeneratedTargetDraftBatch({
-                producer: {
-                  kind: "normalise",
-                  enabledGroups:
-                    enabledGroups as import("../types").NormaliseGroup[],
-                },
-                fileName: rp,
+              const plan = mockPlanGeneratedTargetDraftBatch({
                 edits: sched.edits ?? [],
                 occurrences: metadata.state.occurrences,
                 targetDrafts: store.getMetadataFile(rp),
