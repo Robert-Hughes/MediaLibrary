@@ -89,6 +89,35 @@ describe("Gallery occurrence-store subscription", () => {
     expect(screen.getByText("72")).toBeInTheDocument();
   });
 
+  it("reloads the preview when the current file's metadata is replaced", async () => {
+    const occurrences = new FileMetadataOccurrencesStore();
+    occurrences.add("a.jpg");
+    occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 300, "IFD0")]);
+
+    render(
+      <GalleryView
+        {...props(occurrences)}
+        files={[files[0]]}
+        currentIndex={0}
+        loadMedia={async () => "asset://a.jpg"}
+      />,
+    );
+
+    const image = await screen.findByTestId("gallery-image");
+    expect(image).toHaveAttribute("src", "asset://a.jpg?v=0");
+
+    act(() => {
+      // Apply-style replacement: the ready snapshot is swapped for a new one,
+      // which is how the app signals that the file was rewritten in place.
+      occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 600, "IFD0")]);
+    });
+
+    expect(await screen.findByTestId("gallery-image")).toHaveAttribute(
+      "src",
+      "asset://a.jpg?v=1",
+    );
+  });
+
   it("reacts when loading changes to an empty authoritative set", async () => {
     const occurrences = new FileMetadataOccurrencesStore();
     occurrences.add("a.jpg");

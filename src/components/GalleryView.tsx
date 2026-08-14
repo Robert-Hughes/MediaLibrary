@@ -172,6 +172,21 @@ function isGalleryShortcutEventSafe(
   return target.closest("dialog") === event.currentTarget;
 }
 
+/**
+ * Append a cache-busting query parameter so a rewritten file is fetched again.
+ *
+ * The gallery preview serves the file through Tauri's asset protocol, whose URL
+ * is derived only from the path. When apply rewrites the file in place (for
+ * example a corrected EXIF Orientation tag), the URL is byte-identical and the
+ * WebView may serve a cached copy. `data:`/`blob:` URLs are inline and have no
+ * cache, so they are left untouched.
+ */
+function cacheBustedSrc(src: string, nonce: number): string {
+  if (src.startsWith("data:") || src.startsWith("blob:")) return src;
+  const separator = src.includes("?") ? "&" : "?";
+  return `${src}${separator}v=${nonce}`;
+}
+
 export function GalleryView({
   files,
   currentIndex,
@@ -207,6 +222,10 @@ export function GalleryView({
   } | null>(null);
   const [readyPath, setReadyPath] = useState<string | null>(null);
   const [failedPath, setFailedPath] = useState<string | null>(null);
+  // Monotonic bump that forces the preview <img> to remount and re-fetch when
+  // the current file is rewritten in place. Kept as transient local state rather
+  // than a stored revision: it only needs to change to invalidate the URL/key.
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [detailsVisible, setDetailsVisibleState] =
     useState<boolean>(loadDetailsVisible);
   const [detailsWidth, setDetailsWidth] = useState(loadDetailsWidth);
@@ -301,6 +320,44 @@ export function GalleryView({
   const metadataFailure = useSyncExternalStore(subscribeMetadata, () =>
     fileMetadataOccurrences.getFailure(file?.relative_path ?? ""),
   );
+
+  // Refresh the preview when apply rewrites the current file in place.
+  //
+  // The preview URL is derived only from the path, so a metadata-only rewrite
+  // (for example a corrected IFD0:Orientation tag) leaves the URL unchanged and
+  // the raw pixels would otherwise stay stale. Applying commits the fresh
+  // metadata into `fileMetadataOccurrences`, which replaces this path's ready
+  // snapshot with a new array. We treat that "ready -> different ready"
+  // replacement as the rewrite signal (as opposed to the initial
+  // "loading -> ready" scan load, or a navigation to another file) and bump
+  // `reloadNonce`, which is folded into the <img> key and cache-busting query
+  // string below so the element remounts and fetches fresh bytes.
+  const previousOccurrencesRef = useRef<{
+    path: string | null;
+    state: FileMetadataOccurrencesState;
+  }>({
+    path: file?.relative_path ?? null,
+    state: occurrencesState,
+  });
+  useEffect(() => {
+    const path = file?.relative_path ?? null;
+    const previous = previousOccurrencesRef.current;
+    previousOccurrencesRef.current = { path, state: occurrencesState };
+
+    if (previous.path !== path) return; // navigation, not an in-place rewrite
+    if (previous.state === occurrencesState) return;
+    // Only a ready -> different-ready replacement means the file was rewritten.
+    // Requiring both ends to be arrays skips the initial scan load and the
+    // "loading" dip from a full snapshot rebuild, which would otherwise reload
+    // an extra time after apply.
+    if (Array.isArray(previous.state) && Array.isArray(occurrencesState)) {
+      // Re-enter the loading state so the spinner shows instead of a stale
+      // frame while the freshly-written pixels are re-fetched.
+      setReadyPath(null);
+      setFailedPath(null);
+      setReloadNonce((nonce) => nonce + 1);
+    }
+  }, [occurrencesState, file]);
 
   // Resolve the asset URL whenever the current file changes. The media remains
   // in its loading state until the newly-mounted element reports readiness.
@@ -520,8 +577,8 @@ export function GalleryView({
           {mediaSrc &&
             (file.media_kind === "image" ? (
               <img
-                key={currentPath}
-                src={mediaSrc}
+                key={`${currentPath}:${reloadNonce}`}
+                src={cacheBustedSrc(mediaSrc, reloadNonce)}
                 alt={file.relative_path}
                 className="gallery-image"
                 data-testid="gallery-image"

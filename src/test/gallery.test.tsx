@@ -199,14 +199,14 @@ describe("GalleryView", () => {
 
     resolveSecond("asset://b.jpg");
     const current = await screen.findByTestId("gallery-image");
-    expect(current).toHaveAttribute("src", "asset://b.jpg");
+    expect(current).toHaveAttribute("src", "asset://b.jpg?v=0");
 
     resolveFirst("asset://a.jpg");
     await Promise.resolve();
 
     expect(screen.getByTestId("gallery-image")).toHaveAttribute(
       "src",
-      "asset://b.jpg",
+      "asset://b.jpg?v=0",
     );
   });
 
