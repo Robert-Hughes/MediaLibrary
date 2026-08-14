@@ -780,6 +780,11 @@ pub fn plan_bulk_metadata_drafts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metadata_occurrence::{
+        self, MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
+    };
+    use crate::session;
+    use std::collections::HashMap;
 
     #[test]
     fn gps_group_rejects_missing_or_duplicate_members() {
@@ -829,6 +834,229 @@ mod tests {
                     MetadataValue::Text("b".into())
                 ]
             }
+        );
+    }
+
+    fn test_schema(id: SchemaDefinitionId) -> (SchemaDefinitionId, TagInfo) {
+        let registry = crate::tag_schema::get_registry().unwrap();
+        let info = registry.lookup(&id).unwrap().clone();
+        (id, info)
+    }
+
+    fn test_occurrence(
+        path: &str,
+        schema_id: SchemaDefinitionId,
+        info: TagInfo,
+        val: &str,
+    ) -> MetadataOccurrence {
+        let write_target = MetadataWriteTarget {
+            group1: info.group.clone(),
+            group7: metadata_occurrence::family7_group_from_schema_id(&schema_id),
+            tag_name: info.name.clone(),
+        };
+        MetadataOccurrence {
+            id: MetadataOccurrenceId {
+                document: None,
+                path: path.to_owned(),
+                runtime_tag_id: schema_id.tag_id.clone(),
+                tag_id_scope: metadata_occurrence::RuntimeTagIdScope {
+                    table: schema_id.table.clone(),
+                    tag_id: schema_id.tag_id.clone(),
+                    index: None,
+                },
+                copy: 0,
+            },
+            schema_id,
+            value: MetadataValue::Text(val.to_owned()),
+            tag_info: Some(info),
+            observed_selector: Some(metadata_occurrence::MetadataObservedSelector {
+                group1: write_target.group1.clone(),
+                group7: write_target.group7.clone(),
+                tag_name: write_target.tag_name.clone(),
+            }),
+            write_target: Some(write_target),
+        }
+    }
+
+    fn test_snapshot(
+        files: Vec<(&str, Vec<MetadataOccurrence>, Vec<MetadataTargetDraftEntry>)>,
+    ) -> MediaLibrarySessionSnapshot {
+        let mut drafts = HashMap::new();
+        let mut metadata = Vec::new();
+        for (path, occs, d) in files {
+            if !d.is_empty() {
+                drafts.insert(path.to_owned(), d);
+            }
+            metadata.push(session::MediaLibrarySessionFileMetadata {
+                relative_path: path.to_owned(),
+                state: session::MediaLibrarySessionMetadataState::Ready {
+                    occurrences: MetadataOccurrences(occs),
+                },
+            });
+        }
+        MediaLibrarySessionSnapshot {
+            session_id: Some(1),
+            revision: 1,
+            lifecycle: session::MediaLibrarySessionLifecycle::Loaded,
+            folder: Some("/test".to_owned()),
+            files: Vec::new(),
+            discovery_running: false,
+            issues: Vec::new(),
+            metadata,
+            thumbnails: Vec::new(),
+            drafts,
+            draft_persistence: session::MediaLibrarySessionDraftPersistenceState::Ready,
+            apply_operation: None,
+            verification_outcomes: HashMap::new(),
+            batch_operations: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn bulk_plan_rejects_empty_or_duplicate_paths() {
+        let snapshot = test_snapshot(vec![]);
+        let (id, info) = test_schema(crate::known_ids::xmp_title());
+        let req = BulkMetadataDraftRequest::Set {
+            tag_info: info,
+            edit: MetadataDraftEdit {
+                intent: EditIntent::Set,
+                value: Some(MetadataValue::Text("A".into())),
+            },
+            merge: false,
+        };
+        assert!(plan_bulk_metadata_drafts(&snapshot, &[], &req).is_err());
+        assert!(plan_bulk_metadata_drafts(
+            &snapshot,
+            &["a.jpg".to_string(), "a.jpg".to_string()],
+            &req
+        )
+        .is_err());
+        let _ = id;
+    }
+
+    #[test]
+    fn bulk_plan_set_updates_existing_and_creates_new_property() {
+        let (id, info) = test_schema(crate::known_ids::xmp_description());
+        let occ = test_occurrence("a.jpg", id.clone(), info.clone(), "Old Description");
+        let snapshot = test_snapshot(vec![
+            ("a.jpg", vec![occ], vec![]),
+            ("b.jpg", vec![], vec![]),
+        ]);
+
+        let req = BulkMetadataDraftRequest::Set {
+            tag_info: info,
+            edit: MetadataDraftEdit {
+                intent: EditIntent::Set,
+                value: Some(MetadataValue::Text("New Description".into())),
+            },
+            merge: false,
+        };
+        let paths = vec!["a.jpg".to_string(), "b.jpg".to_string()];
+        let plan = plan_bulk_metadata_drafts(&snapshot, &paths, &req).unwrap();
+
+        assert_eq!(plan.preview.file_count, 2);
+        assert_eq!(plan.preview.affected_file_count, 2);
+        assert_eq!(plan.preview.no_op_file_count, 0);
+        assert_eq!(plan.preview.existing_occurrences_set, 1);
+        assert_eq!(plan.preview.new_properties_set, 1);
+        assert_eq!(plan.rows.len(), 2);
+
+        // a.jpg has existing occurrence updated
+        let a_row = &plan.rows.iter().find(|(p, _)| p == "a.jpg").unwrap().1;
+        assert_eq!(a_row.len(), 1);
+        assert!(a_row[0].target.is_existing_occurrence());
+
+        // b.jpg has new property created
+        let b_row = &plan.rows.iter().find(|(p, _)| p == "b.jpg").unwrap().1;
+        assert_eq!(b_row.len(), 1);
+        assert!(!b_row[0].target.is_existing_occurrence());
+    }
+
+    #[test]
+    fn bulk_plan_set_clears_draft_when_matching_current_value() {
+        let (id, info) = test_schema(crate::known_ids::xmp_description());
+        let occ = test_occurrence("a.jpg", id.clone(), info.clone(), "Same Description");
+        let existing_target = MetadataDraftTarget::from_existing_occurrence(&occ).unwrap();
+        let staged_draft = MetadataTargetDraftEntry {
+            target: existing_target,
+            edit: MetadataDraftEdit {
+                intent: EditIntent::Set,
+                value: Some(MetadataValue::Text("Staged Value".into())),
+            },
+        };
+        let snapshot = test_snapshot(vec![("a.jpg", vec![occ], vec![staged_draft])]);
+
+        let req = BulkMetadataDraftRequest::Set {
+            tag_info: info,
+            edit: MetadataDraftEdit {
+                intent: EditIntent::Set,
+                value: Some(MetadataValue::Text("Same Description".into())),
+            },
+            merge: false,
+        };
+        let paths = vec!["a.jpg".to_string()];
+        let plan = plan_bulk_metadata_drafts(&snapshot, &paths, &req).unwrap();
+
+        assert_eq!(plan.preview.drafts_cleared, 1);
+        assert_eq!(plan.preview.affected_file_count, 1);
+        assert_eq!(plan.rows[0].1.len(), 0);
+    }
+
+    #[test]
+    fn bulk_plan_delete_stages_deletion_and_cancels_staged_creation() {
+        let (id, info) = test_schema(crate::known_ids::xmp_title());
+        let occ = test_occurrence("a.jpg", id.clone(), info.clone(), "Title");
+        let new_target = MetadataDraftTarget::from_new_property(&info).unwrap();
+        let staged_creation = MetadataTargetDraftEntry {
+            target: new_target,
+            edit: MetadataDraftEdit {
+                intent: EditIntent::Set,
+                value: Some(MetadataValue::Text("Staged Creation".into())),
+            },
+        };
+        let snapshot = test_snapshot(vec![
+            ("a.jpg", vec![occ], vec![]),
+            ("b.jpg", vec![], vec![staged_creation]),
+            ("c.jpg", vec![], vec![]),
+        ]);
+
+        let req = BulkMetadataDraftRequest::Delete { schema_id: id };
+        let paths = vec![
+            "a.jpg".to_string(),
+            "b.jpg".to_string(),
+            "c.jpg".to_string(),
+        ];
+        let plan = plan_bulk_metadata_drafts(&snapshot, &paths, &req).unwrap();
+
+        assert_eq!(plan.preview.file_count, 3);
+        assert_eq!(plan.preview.affected_file_count, 2);
+        assert_eq!(plan.preview.no_op_file_count, 1);
+        assert_eq!(plan.preview.existing_occurrences_deleted, 1);
+        assert_eq!(plan.preview.staged_creations_cancelled, 1);
+    }
+
+    #[test]
+    fn bulk_plan_rejects_read_only_schema() {
+        let registry = crate::tag_schema::get_registry().unwrap();
+        let mut info = registry
+            .lookup(&crate::known_ids::xmp_description())
+            .unwrap()
+            .clone();
+        info.writable = false;
+        let snapshot = test_snapshot(vec![("a.jpg", vec![], vec![])]);
+        let req = BulkMetadataDraftRequest::Set {
+            tag_info: info,
+            edit: MetadataDraftEdit {
+                intent: EditIntent::Set,
+                value: Some(MetadataValue::Text("A".into())),
+            },
+            merge: false,
+        };
+        let error = plan_bulk_metadata_drafts(&snapshot, &["a.jpg".to_string()], &req).unwrap_err();
+        assert!(
+            error.contains("not writable")
+                || error.contains("read-only")
+                || error.contains("changed before bulk staging")
         );
     }
 }

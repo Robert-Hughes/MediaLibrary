@@ -28,7 +28,6 @@ import {
   TargetDraftEditsStore,
   type TargetDraftCollection,
 } from "../targetDraftEdits";
-import { planGpsTargetDraftBatch } from "./backendGpsTargetDraftPlanner";
 import { knownMetadataWriteTarget } from "../metadata/knownIds";
 import {
   formatMetadataValue,
@@ -54,7 +53,10 @@ import type {
   SchemaDefinitionId,
   TagKind,
 } from "../types";
-import { metadataDraftTargetSlotToken } from "../utils/metadataDraftTarget";
+import {
+  metadataDraftTargetSlotToken,
+  existingOccurrenceTargetFromOccurrence,
+} from "../utils/metadataDraftTarget";
 function mockOccurrences(
   values: Parameters<typeof mockMetadata>[0],
   readOnly: string[] = [],
@@ -1782,31 +1784,27 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       "GPS:GPSLongitudeRef": "E",
     });
     const occurrences = occurrencesFor(metadata);
-    const planned = planGpsTargetDraftBatch(
-      [
-        {
-          id: testId("GPS:GPSLatitudeRef"),
-          edit: {
-            intent: "Set",
-            value: { kind: "Text", value: "S" },
-          },
-        },
-        {
-          id: testId("GPS:GPSLongitudeRef"),
-          edit: {
-            intent: "Set",
-            value: { kind: "Text", value: "W" },
-          },
-        },
-      ],
-      occurrences,
-    );
-    const targetDraftEdits: TargetDraftCollection = Object.fromEntries(
-      planned.map(({ target, edit }) => [
-        metadataDraftTargetSlotToken(target),
-        { target, edit },
-      ]),
-    );
+    const latRefOcc = occurrences.find(
+      (o) => o.tag_info?.name === "GPSLatitudeRef",
+    )!;
+    const lonRefOcc = occurrences.find(
+      (o) => o.tag_info?.name === "GPSLongitudeRef",
+    )!;
+    const latTarget = existingOccurrenceTargetFromOccurrence(latRefOcc);
+    const lonTarget = existingOccurrenceTargetFromOccurrence(lonRefOcc);
+    if (latTarget.kind !== "targetable" || lonTarget.kind !== "targetable") {
+      throw new Error("expected targetable");
+    }
+    const targetDraftEdits: TargetDraftCollection = {
+      [metadataDraftTargetSlotToken(latTarget.target)]: {
+        target: latTarget.target,
+        edit: { intent: "Set", value: { kind: "Text", value: "S" } },
+      },
+      [metadataDraftTargetSlotToken(lonTarget.target)]: {
+        target: lonTarget.target,
+        edit: { intent: "Set", value: { kind: "Text", value: "W" } },
+      },
+    };
     const onRemoveMetadataTargets = vi.fn();
     const onApplyGpsTargetDraftBatch = vi.fn(
       (_entries: SchemaMetadataEdit[]) => true,
@@ -2074,11 +2072,21 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
             if (Object.keys(drafts).length > 0) {
               store.resetMetadata({ [file.relative_path]: drafts });
             }
-            const entries = planGpsTargetDraftBatch(
-              semanticEdits.map(({ schema_id: id, edit }) => ({ id, edit })),
-              occurrences,
-              drafts,
-            ).map(({ target, edit }) => ({ target, edit }));
+            const entries: MetadataTargetDraftEntry[] = semanticEdits.map(
+              ({ schema_id: id, edit }) => {
+                const occ = occurrences.find((o) =>
+                  schemaDefinitionIdEquals(o.schema_id, id),
+                );
+                if (!occ) {
+                  throw new Error("expected occurrence in test");
+                }
+                const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+                if (targetRes.kind !== "targetable") {
+                  throw new Error("expected targetable");
+                }
+                return { target: targetRes.target, edit };
+              },
+            );
             store.setMetadataBatch(file.relative_path, entries);
             setDrafts(store.getMetadataFile(file.relative_path) ?? {});
             return true;

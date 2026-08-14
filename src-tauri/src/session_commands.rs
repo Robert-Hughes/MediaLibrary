@@ -2293,4 +2293,184 @@ mod tests {
         assert_eq!(planned[0].target.occurrence_id(), Some(&occurrence_id));
         assert_eq!(planned[0].target.write_target(), Some(&write_target));
     }
+
+    fn describe_registry() -> tag_schema::TagRegistry {
+        tag_schema::TagRegistry::from_listx_xml(
+            r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='UserDefined::mlib' g0='XMP' g1='XMP-mlib' g2='Image'>
+ <tag id='AIDescription' name='AIDescription' type='string' writable='true' g1='XMP-mlib'>
+  <desc lang='en'>AI Description</desc>
+ </tag>
+ <tag id='ReverseGeocodeJSONv2' name='ReverseGeocodeJSONv2' type='string' writable='true' g1='XMP-mlib'>
+  <desc lang='en'>Reverse Geocode JSON</desc>
+ </tag>
+</table>
+<table name='Exif::Main' g0='EXIF' g1='IFD0' g2='Image'>
+ <tag id='270' name='ImageDescription' type='string' writable='true' g1='IFD0'>
+  <desc lang='en'>Image Description</desc>
+ </tag>
+</table>
+</taginfo>"#,
+        )
+        .expect("parse describe/geocode test fixture")
+    }
+
+    #[test]
+    fn describe_stages_new_property_for_allowed_tags() {
+        let registry = describe_registry();
+        let schema_id = crate::known_ids::mlib_ai_description();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id: schema_id.clone(),
+            edit: set_edit("A scenic sunset over the mountains"),
+        }];
+
+        let planned = plan_session_describe_drafts(&snapshot, "photo.jpg", &edits, &registry)
+            .unwrap()
+            .expect("should stage new property");
+
+        assert_eq!(planned.len(), 1);
+        assert_eq!(
+            planned[0].edit.value,
+            Some(metadata_value::MetadataValue::Text(
+                "A scenic sunset over the mountains".to_owned()
+            ))
+        );
+        assert!(!planned[0].target.is_existing_occurrence());
+    }
+
+    #[test]
+    fn describe_rejects_unallowed_schema() {
+        let registry = describe_registry();
+        let schema_id = crate::known_ids::image_description();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id,
+            edit: set_edit("Unallowed"),
+        }];
+
+        let error =
+            plan_session_describe_drafts(&snapshot, "photo.jpg", &edits, &registry).unwrap_err();
+        assert!(error.contains("AI description is not allowed"));
+    }
+
+    #[test]
+    fn geocode_stages_new_property() {
+        let registry = describe_registry();
+        let schema_id = crate::known_ids::mlib_reverse_geocode_json_v2();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id: schema_id.clone(),
+            edit: set_edit(r#"{"city":"London"}"#),
+        }];
+
+        let planned = plan_session_geocode_drafts(&snapshot, "photo.jpg", &edits, &registry)
+            .unwrap()
+            .expect("should stage new property");
+
+        assert_eq!(planned.len(), 1);
+        assert_eq!(
+            planned[0].edit.value,
+            Some(metadata_value::MetadataValue::Text(
+                r#"{"city":"London"}"#.to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn geocode_rejects_unallowed_schema() {
+        let registry = describe_registry();
+        let schema_id = crate::known_ids::mlib_ai_description();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id,
+            edit: set_edit("Wrong"),
+        }];
+
+        let error =
+            plan_session_geocode_drafts(&snapshot, "photo.jpg", &edits, &registry).unwrap_err();
+        assert!(error.contains("Reverse geocoding is not allowed"));
+    }
+
+    #[test]
+    fn gps_drafts_plan_and_merge_coordinate_batch() {
+        let lat_id = crate::known_ids::gps_latitude();
+        let lat_ref_id = crate::known_ids::gps_latitude_ref();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![
+            draft_edits::SchemaMetadataEdit {
+                schema_id: lat_id.clone(),
+                edit: draft_edits::MetadataDraftEdit {
+                    intent: draft_edits::EditIntent::Set,
+                    value: Some(metadata_value::MetadataValue::Real(51.5)),
+                },
+            },
+            draft_edits::SchemaMetadataEdit {
+                schema_id: lat_ref_id.clone(),
+                edit: set_edit("N"),
+            },
+        ];
+
+        let entries = plan_session_gps_drafts(&snapshot, "photo.jpg", &edits).unwrap();
+        assert_eq!(entries.len(), 2);
+
+        let merged = merge_session_gps_drafts(&snapshot, "photo.jpg", &entries).unwrap();
+        assert_eq!(merged.expect("merged entries").len(), 2);
+    }
+
+    #[test]
+    fn gps_drafts_rejects_duplicate_or_non_gps_schema() {
+        let lat_id = crate::known_ids::gps_latitude();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let duplicate_edits = vec![
+            draft_edits::SchemaMetadataEdit {
+                schema_id: lat_id.clone(),
+                edit: draft_edits::MetadataDraftEdit {
+                    intent: draft_edits::EditIntent::Set,
+                    value: Some(metadata_value::MetadataValue::Real(51.5)),
+                },
+            },
+            draft_edits::SchemaMetadataEdit {
+                schema_id: lat_id.clone(),
+                edit: draft_edits::MetadataDraftEdit {
+                    intent: draft_edits::EditIntent::Set,
+                    value: Some(metadata_value::MetadataValue::Real(51.5)),
+                },
+            },
+        ];
+        let error = plan_session_gps_drafts(&snapshot, "photo.jpg", &duplicate_edits).unwrap_err();
+        assert!(error.contains("same exact schema"));
+
+        let non_gps = vec![draft_edits::SchemaMetadataEdit {
+            schema_id: crate::known_ids::image_description(),
+            edit: set_edit("Non-GPS"),
+        }];
+        let error2 = plan_session_gps_drafts(&snapshot, "photo.jpg", &non_gps).unwrap_err();
+        assert!(error2.contains("only exact GPS"));
+    }
 }
