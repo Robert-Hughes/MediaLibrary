@@ -1180,10 +1180,28 @@ pub(super) fn selector_matches_write_target(
         && selector.tag_name.eq_ignore_ascii_case(&target.tag_name)
 }
 
+/// A generated `Set` is format-incompatible when its schema is writable in
+/// general (so deleting an existing occurrence is safe) but the target file
+/// format has no write allow-list entry for the schema's family-0 section.
+/// This restores the pre-Rust `planGeneratedTargetDraftBatch` behaviour:
+/// an incompatible Set becomes a no-op, or clears a previously staged draft,
+/// rather than staging a write that can never apply.
+fn generated_set_is_format_incompatible(info: &tag_schema::TagInfo, file_name: &str) -> bool {
+    info.metadata_write_eligibility(
+        file_name,
+        tag_schema::MetadataWriteOperation::DeleteExisting,
+    )
+    .is_ok()
+        && info
+            .metadata_write_eligibility(file_name, tag_schema::MetadataWriteOperation::Set)
+            .is_err()
+}
+
 pub(super) fn plan_session_describe_drafts(
     snapshot: &session::MediaLibrarySessionSnapshot,
     relative_path: &str,
     edits: &[draft_edits::SchemaMetadataEdit],
+    registry: &tag_schema::TagRegistry,
 ) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
     if edits.is_empty() {
         return Ok(None);
@@ -1204,7 +1222,6 @@ pub(super) fn plan_session_describe_drafts(
             ))
         }
     };
-    let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
     let mut seen = std::collections::HashSet::new();
     let mut planned = snapshot
         .drafts
@@ -1271,15 +1288,26 @@ pub(super) fn plan_session_describe_drafts(
         }) {
             return Err("Another exact draft target owns the generated destination".into());
         }
+        let owner_index = planned.iter().position(|entry| entry.target.slot() == slot);
+        if let Some(index) = owner_index {
+            if planned[index].target != target {
+                return Err("A stale complete target owns the generated metadata slot".into());
+            }
+        }
+        if generated.edit.intent == draft_edits::EditIntent::Set
+            && generated_set_is_format_incompatible(info, relative_path)
+        {
+            if let Some(index) = owner_index {
+                planned.remove(index);
+            }
+            continue;
+        }
         let replacement = draft_edits::MetadataTargetDraftEntry {
             target: target.clone(),
             edit: generated.edit.clone(),
         };
-        if let Some(existing) = planned.iter_mut().find(|entry| entry.target.slot() == slot) {
-            if existing.target != target {
-                return Err("A stale complete target owns the generated metadata slot".into());
-            }
-            *existing = replacement;
+        if let Some(index) = owner_index {
+            planned[index] = replacement;
         } else {
             planned.push(replacement);
         }
@@ -1371,6 +1399,7 @@ pub(super) fn plan_session_geocode_drafts(
     snapshot: &session::MediaLibrarySessionSnapshot,
     relative_path: &str,
     edits: &[draft_edits::SchemaMetadataEdit],
+    registry: &tag_schema::TagRegistry,
 ) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
     if edits.is_empty() {
         return Ok(None);
@@ -1391,7 +1420,6 @@ pub(super) fn plan_session_geocode_drafts(
             ))
         }
     };
-    let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
     let mut seen = std::collections::HashSet::new();
     let mut planned = snapshot
         .drafts
@@ -1466,6 +1494,14 @@ pub(super) fn plan_session_geocode_drafts(
                 return Err("A stale complete target owns the generated metadata slot".into());
             }
         }
+        if generated.edit.intent == draft_edits::EditIntent::Set
+            && generated_set_is_format_incompatible(info, relative_path)
+        {
+            if let Some(index) = owner_index {
+                planned.remove(index);
+            }
+            continue;
+        }
         match generated.edit.intent {
             draft_edits::EditIntent::Set => {
                 let replacement = draft_edits::MetadataTargetDraftEntry {
@@ -1514,6 +1550,7 @@ pub(super) fn plan_session_normalise_drafts(
     relative_path: &str,
     edits: &[draft_edits::SchemaMetadataEdit],
     enabled_groups: &[normalise::NormaliseGroup],
+    registry: &tag_schema::TagRegistry,
 ) -> Result<Option<Vec<draft_edits::MetadataTargetDraftEntry>>, String> {
     if edits.is_empty() {
         return Ok(None);
@@ -1534,7 +1571,6 @@ pub(super) fn plan_session_normalise_drafts(
             ))
         }
     };
-    let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
     let mut seen = std::collections::HashSet::new();
     let mut planned = snapshot
         .drafts
@@ -1611,6 +1647,14 @@ pub(super) fn plan_session_normalise_drafts(
                 return Err("A stale complete target owns the generated metadata slot".into());
             }
         }
+        if generated.edit.intent == draft_edits::EditIntent::Set
+            && generated_set_is_format_incompatible(info, relative_path)
+        {
+            if let Some(index) = owner_index {
+                planned.remove(index);
+            }
+            continue;
+        }
         match generated.edit.intent {
             draft_edits::EditIntent::Set => {
                 let replacement = draft_edits::MetadataTargetDraftEntry {
@@ -1684,15 +1728,22 @@ pub(crate) fn stage_batch_generated_metadata_drafts(
             return Err("The generated-metadata batch operation identity changed".into());
         }
         ensure_session_draft_mutation_allowed(snapshot)?;
+        let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
         let planned = match producer {
             batch_job::GeneratedDraftProducer::Describe => {
-                plan_session_describe_drafts(snapshot, relative_path, edits)?
+                plan_session_describe_drafts(snapshot, relative_path, edits, registry)?
             }
             batch_job::GeneratedDraftProducer::Geocode => {
-                plan_session_geocode_drafts(snapshot, relative_path, edits)?
+                plan_session_geocode_drafts(snapshot, relative_path, edits, registry)?
             }
             batch_job::GeneratedDraftProducer::Normalise { enabled_groups } => {
-                plan_session_normalise_drafts(snapshot, relative_path, edits, enabled_groups)?
+                plan_session_normalise_drafts(
+                    snapshot,
+                    relative_path,
+                    edits,
+                    enabled_groups,
+                    registry,
+                )?
             }
         };
         let folder = snapshot
@@ -1737,7 +1788,8 @@ pub(super) fn stage_media_library_session_describe_drafts(
                 );
             }
             ensure_session_draft_mutation_allowed(snapshot)?;
-            let planned = plan_session_describe_drafts(snapshot, &relative_path, &edits)?;
+            let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
+            let planned = plan_session_describe_drafts(snapshot, &relative_path, &edits, registry)?;
             let folder = snapshot
                 .folder
                 .clone()
@@ -1781,7 +1833,8 @@ pub(super) fn stage_media_library_session_geocode_drafts(
                 );
             }
             ensure_session_draft_mutation_allowed(snapshot)?;
-            let planned = plan_session_geocode_drafts(snapshot, &relative_path, &edits)?;
+            let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
+            let planned = plan_session_geocode_drafts(snapshot, &relative_path, &edits, registry)?;
             let folder = snapshot
                 .folder
                 .clone()
@@ -1824,8 +1877,14 @@ pub(super) fn stage_media_library_session_normalise_drafts(
                 );
             }
             ensure_session_draft_mutation_allowed(snapshot)?;
-            let planned =
-                plan_session_normalise_drafts(snapshot, &relative_path, &edits, &enabled_groups)?;
+            let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
+            let planned = plan_session_normalise_drafts(
+                snapshot,
+                &relative_path,
+                &edits,
+                &enabled_groups,
+                registry,
+            )?;
             let folder = snapshot
                 .folder
                 .clone()
@@ -2017,4 +2076,221 @@ pub(super) fn dismiss_media_library_session_batch_operation(
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<(), String> {
     session_state.dismiss_batch_operation(session_id, &operation_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn exif_datetime_original_schema() -> tag_schema::SchemaDefinitionId {
+        tag_schema::SchemaDefinitionId {
+            table: "Exif::Main".to_owned(),
+            tag_id: "36867".to_owned(),
+            index: None,
+        }
+    }
+
+    fn fixture_registry() -> tag_schema::TagRegistry {
+        tag_schema::TagRegistry::from_listx_xml(
+            r#"<?xml version='1.0' encoding='UTF-8'?>
+<taginfo>
+<table name='Exif::Main' g0='EXIF' g1='IFD0' g2='Image'>
+ <tag id='36867' name='DateTimeOriginal' type='string' writable='true' g1='ExifIFD'>
+  <desc lang='en'>Date/Time Original</desc>
+ </tag>
+</table>
+</taginfo>"#,
+        )
+        .expect("parse EXIF DateTimeOriginal fixture")
+    }
+
+    fn set_edit(value: &str) -> draft_edits::MetadataDraftEdit {
+        draft_edits::MetadataDraftEdit {
+            intent: draft_edits::EditIntent::Set,
+            value: Some(metadata_value::MetadataValue::Text(value.to_owned())),
+        }
+    }
+
+    fn delete_edit() -> draft_edits::MetadataDraftEdit {
+        draft_edits::MetadataDraftEdit {
+            intent: draft_edits::EditIntent::Delete,
+            value: None,
+        }
+    }
+
+    fn snapshot_with(
+        relative_path: &str,
+        occurrences: metadata_occurrence::MetadataOccurrences,
+        drafts: Vec<draft_edits::MetadataTargetDraftEntry>,
+    ) -> session::MediaLibrarySessionSnapshot {
+        let mut drafts_by_file = HashMap::new();
+        if !drafts.is_empty() {
+            drafts_by_file.insert(relative_path.to_owned(), drafts);
+        }
+        session::MediaLibrarySessionSnapshot {
+            session_id: Some(1),
+            revision: 0,
+            lifecycle: session::MediaLibrarySessionLifecycle::Loaded,
+            folder: Some("/tmp".to_owned()),
+            files: Vec::new(),
+            discovery_running: false,
+            issues: Vec::new(),
+            metadata: vec![session::MediaLibrarySessionFileMetadata {
+                relative_path: relative_path.to_owned(),
+                state: session::MediaLibrarySessionMetadataState::Ready { occurrences },
+            }],
+            thumbnails: Vec::new(),
+            drafts: drafts_by_file,
+            draft_persistence: session::MediaLibrarySessionDraftPersistenceState::Ready,
+            apply_operation: None,
+            verification_outcomes: HashMap::new(),
+            batch_operations: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn normalise_does_not_stage_format_incompatible_set() {
+        let registry = fixture_registry();
+        let schema_id = exif_datetime_original_schema();
+        let snapshot = snapshot_with(
+            "animation.gif",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id: schema_id.clone(),
+            edit: set_edit("2026:02:27 13:03:54"),
+        }];
+
+        let planned = plan_session_normalise_drafts(
+            &snapshot,
+            "animation.gif",
+            &edits,
+            &[normalise::NormaliseGroup::Dates],
+            &registry,
+        )
+        .unwrap();
+
+        assert_eq!(planned, None);
+    }
+
+    #[test]
+    fn normalise_does_not_stage_exif_datetime_original_set_for_mp4() {
+        let registry = fixture_registry();
+        let schema_id = exif_datetime_original_schema();
+        let snapshot = snapshot_with(
+            "20260227_130349.mp4",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id: schema_id.clone(),
+            edit: set_edit("2026:02:27 13:03:54"),
+        }];
+
+        let planned = plan_session_normalise_drafts(
+            &snapshot,
+            "20260227_130349.mp4",
+            &edits,
+            &[normalise::NormaliseGroup::Dates],
+            &registry,
+        )
+        .unwrap();
+
+        assert_eq!(planned, None);
+    }
+
+    #[test]
+    fn normalise_clears_previously_staged_format_incompatible_set() {
+        let registry = fixture_registry();
+        let schema_id = exif_datetime_original_schema();
+        let info = registry.lookup(&schema_id).unwrap();
+        let new_target =
+            metadata_draft_target::MetadataDraftTarget::from_new_property(info).unwrap();
+        let staged = draft_edits::MetadataTargetDraftEntry {
+            target: new_target.clone(),
+            edit: set_edit("Previously generated"),
+        };
+        let snapshot = snapshot_with(
+            "animation.gif",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            vec![staged],
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id: schema_id.clone(),
+            edit: set_edit("2026:02:27 13:03:54"),
+        }];
+
+        let planned = plan_session_normalise_drafts(
+            &snapshot,
+            "animation.gif",
+            &edits,
+            &[normalise::NormaliseGroup::Dates],
+            &registry,
+        )
+        .unwrap();
+
+        assert_eq!(planned, Some(Vec::new()));
+    }
+
+    #[test]
+    fn normalise_still_stages_delete_of_existing_format_incompatible_metadata() {
+        let registry = fixture_registry();
+        let schema_id = exif_datetime_original_schema();
+        let info = registry.lookup(&schema_id).unwrap().clone();
+        let write_target = metadata_occurrence::MetadataWriteTarget {
+            group1: info.group.clone(),
+            group7: metadata_occurrence::family7_group_from_schema_id(&schema_id),
+            tag_name: info.name.clone(),
+        };
+        let occurrence_id = metadata_occurrence::MetadataOccurrenceId {
+            document: None,
+            path: "Test-Path".to_owned(),
+            runtime_tag_id: "36867".to_owned(),
+            tag_id_scope: metadata_occurrence::RuntimeTagIdScope {
+                table: "Exif::Main".to_owned(),
+                tag_id: "36867".to_owned(),
+                index: None,
+            },
+            copy: 0,
+        };
+        let occurrence = metadata_occurrence::MetadataOccurrence {
+            id: occurrence_id.clone(),
+            schema_id: schema_id.clone(),
+            value: metadata_value::MetadataValue::Text("2026:02:27 13:03:54".to_owned()),
+            tag_info: Some(info.clone()),
+            observed_selector: Some(metadata_occurrence::MetadataObservedSelector {
+                group1: write_target.group1.clone(),
+                group7: write_target.group7.clone(),
+                tag_name: write_target.tag_name.clone(),
+            }),
+            write_target: Some(write_target.clone()),
+        };
+        let snapshot = snapshot_with(
+            "animation.gif",
+            metadata_occurrence::MetadataOccurrences(vec![occurrence]),
+            Vec::new(),
+        );
+        let edits = vec![draft_edits::SchemaMetadataEdit {
+            schema_id: schema_id.clone(),
+            edit: delete_edit(),
+        }];
+
+        let planned = plan_session_normalise_drafts(
+            &snapshot,
+            "animation.gif",
+            &edits,
+            &[normalise::NormaliseGroup::Dates],
+            &registry,
+        )
+        .unwrap()
+        .expect("delete should stage a draft");
+
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].edit.intent, draft_edits::EditIntent::Delete);
+        assert!(planned[0].target.is_existing_occurrence());
+        assert_eq!(planned[0].target.occurrence_id(), Some(&occurrence_id));
+        assert_eq!(planned[0].target.write_target(), Some(&write_target));
+    }
 }

@@ -31,6 +31,10 @@ const FORMAT_GROUP0_SUPPORT: &[FormatGroup0Support] = &[
         extensions: &["gif"],
         allowed_group0: &["GIF", "XMP", "ICC_Profile"],
     },
+    FormatGroup0Support {
+        extensions: &["mp4"],
+        allowed_group0: &["QuickTime", "XMP"],
+    },
 ];
 
 pub(super) fn allowed_group0_for_file_name(file_name: &str) -> Option<&'static [&'static str]> {

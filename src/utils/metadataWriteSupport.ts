@@ -63,6 +63,7 @@ const FORMAT_GROUP0_SUPPORT: Readonly<Record<string, ReadonlySet<string>>> = {
   ]),
   png: new Set(["PNG", "EXIF", "XMP", "ICC_Profile"]),
   gif: new Set(["GIF", "XMP", "ICC_Profile"]),
+  mp4: new Set(["QuickTime", "XMP"]),
 };
 
 function extensionOf(fileName: string): string | null {
