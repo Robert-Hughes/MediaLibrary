@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import type { TargetDraftCollection } from "../targetDraftEdits";
 import { confirmRecycleFiles } from "../utils/recyclePrompts";
+import { isMacOS } from "../utils/platform";
 import { ModalDialog } from "./ModalDialog";
 
 const GALLERY_DETAILS_VISIBLE_KEY = "media_library_gallery_details_visible";
@@ -426,7 +427,10 @@ export function GalleryView({
       e.preventDefault();
       if (e.repeat) return;
       setDetailsVisible((v) => !v);
-    } else if (e.key === "Delete" && onRecycleFile) {
+    } else if (
+      (e.key === "Delete" || (isMacOS() && e.key === "Backspace")) &&
+      onRecycleFile
+    ) {
       e.preventDefault();
       if (e.repeat || recyclePendingRef.current) return;
       void recycleCurrentFile();
