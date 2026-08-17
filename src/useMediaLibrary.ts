@@ -1289,14 +1289,16 @@ export function useMediaLibrary(
       const file = current.files[index];
       if (!file) return;
 
-      api
-        .invoke("show_in_explorer", {
+      try {
+        await api.invoke("show_in_explorer", {
           folder: current.folder,
           relativePath: file.relative_path,
-        })
-        .catch(() => {});
+        });
+      } catch (error) {
+        pushApplicationError("show-in-file-manager", error, [file.relative_path]);
+      }
     },
-    [api],
+    [api, pushApplicationError],
   );
 
   const openGallery = useCallback((relativePath: string) => {

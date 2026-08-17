@@ -347,6 +347,7 @@ export interface MockTauriApi {
   lastWindowTitle: string | null;
   lastRecycleArgs: { folder: string; relativePaths: string[] } | null;
   recycleFailuresByPath: Record<string, string>;
+  showInExplorerError: string | null;
   /** All invoke calls recorded in order. */
   invocations: Array<{ cmd: string; args?: Record<string, unknown> }>;
   /** The scan_id returned by the most recent start_scan call. */
@@ -780,6 +781,7 @@ export function createMockTauriApi(): MockTauriApi {
     lastWindowTitle: null,
     lastRecycleArgs: null,
     recycleFailuresByPath: {},
+    showInExplorerError: null,
     invocations: [],
     currentScanId: 1,
     applyEditsProgressGate: null,
@@ -1230,6 +1232,7 @@ export function createMockTauriApi(): MockTauriApi {
         return;
       }
       if (cmd === "show_in_explorer") {
+        if (mock.showInExplorerError) throw new Error(mock.showInExplorerError);
         return;
       }
       if (cmd === "recycle_media_files") {
