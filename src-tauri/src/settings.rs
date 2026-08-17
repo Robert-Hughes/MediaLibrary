@@ -96,10 +96,17 @@ fn available_parallelism_capped(cap: u16) -> u16 {
         .min(usize::from(cap)) as u16
 }
 
+pub fn default_exiftool_command() -> String {
+    "exiftool".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct Settings {
+    /// ExifTool executable or absolute path used for metadata operations.
+    #[serde(default = "default_exiftool_command")]
+    pub exiftool_command: String,
     /// OpenAI API key. Empty string when unset.
     #[serde(default)]
     pub openai_api_key: String,
@@ -149,6 +156,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            exiftool_command: default_exiftool_command(),
             openai_api_key: String::new(),
             openai_model: default_model(),
             normalise_metadata_model: default_normalise_model(),
@@ -251,6 +259,9 @@ fn clamp_loaded_batch_size(name: &str, value: &mut u16) {
 }
 
 fn validate_settings(settings: &Settings) -> Result<(), String> {
+    if settings.exiftool_command.trim().is_empty() {
+        return Err("exiftool_command must not be empty".into());
+    }
     for (name, model) in [
         ("openai_model", settings.openai_model.as_str()),
         (

@@ -68,16 +68,6 @@ use crate::metadata_value::{
 };
 use crate::tag_schema::{normalize_runtime_tag_id, SchemaDefinitionId, TagKind, TagRegistry};
 
-// ── ExifTool executable name ──────────────────────────────────────────────────
-
-pub(crate) fn find_exiftool() -> &'static str {
-    if cfg!(target_os = "windows") {
-        "exiftool.exe"
-    } else {
-        "exiftool"
-    }
-}
-
 /// A single file entry from the directory walk.
 /// Contains only path, media category and OS metadata — detailed metadata arrives separately.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize)]

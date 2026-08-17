@@ -2004,6 +2004,14 @@ pub fn run() {
             commands::normalise::estimate_normalise_cost_cmd
         ])
         .setup(|app| {
+            if let Ok(dir) = commands::shared::app_data_dir(app.handle()) {
+                match settings::load_settings(&dir) {
+                    Ok(settings) => {
+                        exiftool_config::set_exiftool_command(settings.exiftool_command)
+                    }
+                    Err(error) => log::warn!("[startup] Could not load ExifTool setting: {error}"),
+                }
+            }
             {
                 let session = app.state::<session::MediaLibrarySessionState>();
                 session.search().install_app_handle(app.handle().clone());
