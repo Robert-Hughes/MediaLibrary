@@ -1,3 +1,4 @@
+import { recycleBinName } from "./utils/platform";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ThumbnailStore,
@@ -1241,7 +1242,7 @@ export function useMediaLibrary(
         );
         pushApplicationError(
           "recycle-files",
-          `${failures.length} ${failures.length === 1 ? "file" : "files"} could not be moved to the Recycle Bin:\n${failures
+          `${failures.length} ${failures.length === 1 ? "file" : "files"} could not be moved to the ${recycleBinName()}:\n${failures
             .map(
               (item) =>
                 `${item.relative_path}: ${item.error ?? "Unknown error"}`,
