@@ -344,7 +344,7 @@ pub(super) fn try_parse_exiftool_pass_json_raw_with_registry_and_context(
             continue;
         };
 
-        let normalized_path = s.replace('\\', "/");
+        let normalized_path = super::path_identity(std::path::Path::new(&s));
 
         let exiftool_error = obj.iter().find_map(|(key, value)| {
             let parsed_key = parse_runtime_property_key(key).ok()?;
@@ -405,7 +405,7 @@ pub(super) fn assemble_batch_outcome(
 
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
-        let key = abs_path.to_string_lossy().replace('\\', "/");
+        let key = super::path_identity(abs_path);
 
         let display_failure = display_pass.failures_by_source.remove(&key);
         let raw_failure = raw_pass.failures_by_source.remove(&key);

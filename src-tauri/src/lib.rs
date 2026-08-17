@@ -902,7 +902,7 @@ fn recycle_media_files(
 #[tauri::command]
 fn show_in_explorer(folder: String, relative_path: String) -> Result<(), String> {
     let mut path = std::path::PathBuf::from(folder);
-    for component in relative_path.split(['/', '\\']) {
+    for component in relative_path.split('/') {
         if !component.is_empty() {
             path.push(component);
         }
