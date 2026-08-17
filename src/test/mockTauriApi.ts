@@ -367,6 +367,7 @@ export interface MockTauriApi {
   tagInfos: TagInfo[];
   /** Stored settings; defaults to empty API key + gpt-4o + heuristic estimates. */
   settings: {
+    exiftool_command: string;
     openai_api_key: string;
     openai_model: string;
     normalise_metadata_model: string;
@@ -788,6 +789,7 @@ export function createMockTauriApi(): MockTauriApi {
     targetApplyFinalResultsByPath: {},
     tagInfos: [],
     settings: {
+      exiftool_command: "exiftool",
       openai_api_key: "",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",

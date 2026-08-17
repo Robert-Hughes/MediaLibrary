@@ -10,13 +10,17 @@ use crate::{openai_describe, openai_normalise, settings};
 #[tauri::command]
 pub fn load_settings_cmd(app: AppHandle) -> Result<settings::Settings, String> {
     let dir = app_data_dir(&app)?;
-    settings::load_settings(&dir)
+    let loaded = settings::load_settings(&dir)?;
+    crate::exiftool_config::set_exiftool_command(loaded.exiftool_command.clone());
+    Ok(loaded)
 }
 
 #[tauri::command]
 pub fn save_settings_cmd(app: AppHandle, settings_data: settings::Settings) -> Result<(), String> {
     let dir = app_data_dir(&app)?;
-    settings::save_settings(&dir, &settings_data)
+    settings::save_settings(&dir, &settings_data)?;
+    crate::exiftool_config::set_exiftool_command(settings_data.exiftool_command);
+    Ok(())
 }
 
 /// Returns the static list of vision models we recommend for image

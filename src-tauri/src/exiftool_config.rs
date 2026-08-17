@@ -14,9 +14,7 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::OnceLock;
-
-use crate::scanner::find_exiftool;
+use std::sync::{OnceLock, RwLock};
 
 const EMBEDDED_CONFIG: &[u8] = include_bytes!("../resources/mlib.ExifTool_config");
 
@@ -26,6 +24,22 @@ const EMBEDDED_CONFIG: &[u8] = include_bytes!("../resources/mlib.ExifTool_config
 /// invoking exiftool without `-config`, which still works for every tag
 /// outside the `XMP-mlib` namespace.
 static CONFIG_PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
+static EXIFTOOL_COMMAND: OnceLock<RwLock<String>> = OnceLock::new();
+
+pub fn set_exiftool_command(command: impl Into<String>) {
+    let command = command.into();
+    let lock =
+        EXIFTOOL_COMMAND.get_or_init(|| RwLock::new(crate::settings::default_exiftool_command()));
+    *lock.write().expect("ExifTool command lock poisoned") = command;
+}
+
+fn configured_exiftool_command() -> String {
+    EXIFTOOL_COMMAND
+        .get_or_init(|| RwLock::new(crate::settings::default_exiftool_command()))
+        .read()
+        .expect("ExifTool command lock poisoned")
+        .clone()
+}
 
 /// Return the materialised config path, writing it to disk on first call.
 ///
@@ -80,7 +94,7 @@ fn materialise_config() -> Result<PathBuf, String> {
 /// exiftool command — the user's exiftool install still handles every
 /// non-`XMP-mlib` tag normally.
 pub fn exiftool_command() -> Command {
-    let mut cmd = Command::new(find_exiftool());
+    let mut cmd = Command::new(configured_exiftool_command());
     if let Some(path) = config_path() {
         cmd.arg("-config").arg(path);
     }

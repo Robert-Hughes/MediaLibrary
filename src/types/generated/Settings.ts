@@ -3,6 +3,10 @@ import type { AiCostEstimateMode } from "./AiCostEstimateMode";
 
 export type Settings = { 
 /**
+ * ExifTool executable or absolute path used for metadata operations.
+ */
+exiftool_command: string,
+/**
  * OpenAI API key. Empty string when unset.
  */
 openai_api_key: string, 

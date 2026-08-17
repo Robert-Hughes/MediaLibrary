@@ -82,6 +82,7 @@ afterEach(() => {
 describe("SettingsDialog", () => {
   it("loads stored API key and model on open, and persists edits", async () => {
     mockApiInstance.settings = {
+      exiftool_command: "/opt/homebrew/bin/exiftool",
       openai_api_key: "sk-existing",
       openai_model: "gpt-5.4",
       normalise_metadata_model: "gpt-5.4-nano",
@@ -98,6 +99,8 @@ describe("SettingsDialog", () => {
     const { user } = await openFolderWithFile();
 
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
+    const exiftoolInput = await screen.findByTestId("settings-exiftool-command-input");
+    expect((exiftoolInput as HTMLInputElement).value).toBe("/opt/homebrew/bin/exiftool");
     const apiKeyInput = await screen.findByTestId("settings-api-key-input");
     // The input is type=password so we assert .value rather than visible text.
     await waitFor(() =>
@@ -282,6 +285,7 @@ describe("AI-description flow", () => {
 
   it("walks through estimating → awaiting-confirm → running → done", async () => {
     mockApiInstance.settings = {
+      exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
@@ -382,6 +386,7 @@ describe("AI-description flow", () => {
     // semantic draft batch setter — proven here by inspecting the mock's draft store
     // after the run.
     mockApiInstance.settings = {
+      exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
@@ -507,6 +512,7 @@ describe("AI-description flow", () => {
 
   it("renders per-image failures in the done panel", async () => {
     mockApiInstance.settings = {
+      exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
@@ -556,6 +562,7 @@ describe("AI-description flow", () => {
     // in the awaiting-confirm panel only when the selection includes
     // files whose AIDescription is already set in metadata or drafts.
     mockApiInstance.settings = {
+      exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
@@ -612,6 +619,7 @@ describe("AI-description flow", () => {
 
   it("cancel during awaiting-confirm closes the dialog and signals backend", async () => {
     mockApiInstance.settings = {
+      exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",
@@ -642,6 +650,7 @@ describe("AI-description flow", () => {
 
   it("Escape key in pre-run phase closes the dialog and signals backend", async () => {
     mockApiInstance.settings = {
+      exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
       normalise_metadata_model: "gpt-5.4-nano",

@@ -156,6 +156,29 @@ export function SettingsDialog({ onClose }: Props) {
           {settings && (
             <>
               <section style={{ marginBottom: 16 }}>
+                <h3 style={{ marginBottom: 6 }}>ExifTool</h3>
+                <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>
+                  ExifTool command
+                </label>
+                <input
+                  type="text"
+                  data-testid="settings-exiftool-command-input"
+                  value={settings.exiftool_command}
+                  onChange={(e) =>
+                    setSettings({ ...settings, exiftool_command: e.target.value })
+                  }
+                  onBlur={() => persist(settings)}
+                  placeholder="exiftool"
+                  style={{ width: "100%", padding: 6, fontFamily: "monospace" }}
+                />
+                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
+                  Executable name or absolute path used for metadata reads and writes.
+                  The default is <code>exiftool</code>. Restart MediaLibrary after changing
+                  this so the tag schema is rebuilt with the selected executable.
+                </div>
+              </section>
+
+              <section style={{ marginBottom: 16 }}>
                 <h3 style={{ marginBottom: 6 }}>AI image description</h3>
                 <label
                   style={{ display: "block", fontSize: 12, marginBottom: 4 }}
