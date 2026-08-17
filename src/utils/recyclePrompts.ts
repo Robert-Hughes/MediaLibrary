@@ -1,4 +1,5 @@
 import { ask } from "@tauri-apps/plugin-dialog";
+import { recycleBinName } from "./platform";
 
 export async function confirmRecycleFiles({
   fileCount,
@@ -23,8 +24,9 @@ export async function confirmRecycleFiles({
         } ${editCount} pending metadata ${
           editCount === 1 ? "edit" : "edits"
         }. Pending edits for successfully recycled files will be discarded.`;
-  return ask(`Move ${target} to the Recycle Bin?${draftWarning}`, {
-    title: "Move to Recycle Bin",
+  const recycleBin = recycleBinName();
+  return ask(`Move ${target} to the ${recycleBin}?${draftWarning}`, {
+    title: `Move to ${recycleBin}`,
     kind: "warning",
   });
 }

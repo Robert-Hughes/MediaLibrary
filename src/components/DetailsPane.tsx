@@ -47,6 +47,7 @@ import {
 } from "../utils/effectiveMetadata";
 import { metadataGet } from "../utils/metadataCollection";
 import { schemaMetadataCollectionFromOccurrences } from "../utils/schemaMetadataProjection";
+import { fileManagerName } from "../utils/platform";
 import { resolveExactMetadataOccurrence } from "../utils/metadataOccurrences";
 import {
   existingOccurrenceTargetFromOccurrence,
@@ -1277,7 +1278,7 @@ export function DetailsPane({
               title="Reveal this image in the host file manager"
               onClick={() => onShowInFileExplorer()}
             >
-              Show in File Explorer
+              Show in {fileManagerName()}
             </button>
           )}
           {onGenerateAiDescription && (

@@ -15,6 +15,7 @@ import {
   confirmDiscardEdits,
 } from "../utils/applyDiscardPrompts";
 import { confirmRecycleFiles } from "../utils/recyclePrompts";
+import { fileManagerName, recycleBinName } from "../utils/platform";
 
 interface Props {
   x: number;
@@ -89,6 +90,8 @@ export function FileListContextMenu({
   const count = selectedPaths.length;
   const noun = count === 1 ? "file" : "files";
   const firstIndex = effectiveIndices[0];
+  const fileManager = fileManagerName();
+  const recycleBin = recycleBinName();
   return (
     <ContextMenu
       x={x}
@@ -104,8 +107,8 @@ export function FileListContextMenu({
         {
           label:
             count > 1
-              ? `Show in File Explorer (${files[firstIndex]?.filename ?? "first"})`
-              : "Show in File Explorer",
+              ? `Show in ${fileManager} (${files[firstIndex]?.filename ?? "first"})`
+              : `Show in ${fileManager}`,
           onClick: () => onShowInExplorer(firstIndex),
         },
         ...(onCopyPaths && selectedPaths.length > 0
@@ -255,8 +258,8 @@ export function FileListContextMenu({
               {
                 label:
                   count > 1
-                    ? `Move to Recycle Bin… (${count} ${noun})`
-                    : "Move to Recycle Bin…",
+                    ? `Move to ${recycleBin}… (${count} ${noun})`
+                    : `Move to ${recycleBin}…`,
                 onClick: async () => {
                   const confirmed = await confirmRecycleFiles({
                     fileCount: count,
