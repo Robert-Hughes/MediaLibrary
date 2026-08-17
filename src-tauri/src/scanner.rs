@@ -22,6 +22,24 @@ pub use media::{placeholder_thumbnail, MediaKind};
 use thumbnail::extract_exif_thumbnail;
 pub use thumbnail::thumbnail_for;
 
+fn path_identity(path: &Path) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        path.to_string_lossy().replace('\\', "/")
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        path.to_string_lossy().into_owned()
+    }
+}
+
+fn frontend_relative_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 fn media_kind_for_path(path: &Path) -> Option<MediaKind> {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -150,7 +168,7 @@ pub fn scan_folder<P, E>(
         };
 
         let rel = match path.strip_prefix(folder) {
-            Ok(r) => r.to_string_lossy().replace('\\', "/"),
+            Ok(r) => frontend_relative_path(r),
             Err(_) => continue,
         };
 
@@ -268,7 +286,7 @@ fn parse_exiftool_batch_json(
     let mut results = Vec::with_capacity(rel_paths.len());
     for (i, rel_path) in rel_paths.iter().enumerate() {
         let abs_path = &abs_paths[i];
-        let normalized_abs = abs_path.to_string_lossy().replace('\\', "/");
+        let normalized_abs = path_identity(abs_path);
         let display_values = map_by_source
             .values_by_source
             .remove(&normalized_abs)
@@ -2327,6 +2345,23 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn scan_preserves_literal_backslash_in_filename() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("album\\edited.jpg"), b"not-an-image").unwrap();
+        let files = collect(dir.path());
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].relative_path, "album\\edited.jpg");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn exiftool_source_matching_preserves_literal_backslash() {
+        let abs = std::path::PathBuf::from("/tmp/album\\edited.jpg");
+        assert_eq!(path_identity(&abs), "/tmp/album\\edited.jpg");
+    }
+
     #[test]
     fn walk_errors_are_reported_via_on_error_callback() {
         // Walking a path that doesn't exist produces one WalkDir error.
@@ -2435,8 +2470,13 @@ mod tests {
         ]"#;
         let map = parse_exiftool_pass_json_raw(json);
         assert_eq!(map.len(), 2);
+        let first_key = if cfg!(target_os = "windows") {
+            "D:/a.jpg"
+        } else {
+            r"D:\a.jpg"
+        };
         assert_eq!(
-            map.get("D:/a.jpg").and_then(|m| m.get("Fixture:Tag")),
+            map.get(first_key).and_then(|m| m.get("Fixture:Tag")),
             Some(&serde_json::json!("X"))
         );
         assert_eq!(
