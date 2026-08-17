@@ -280,6 +280,19 @@ describe("Gallery keyboard shortcuts", () => {
     );
   });
 
+  it("treats Backspace as delete on macOS", async () => {
+    const platform = vi
+      .spyOn(navigator, "platform", "get")
+      .mockReturnValue("MacIntel");
+    const onRecycleFile = vi.fn().mockResolvedValue(undefined);
+    await renderGallery({ onRecycleFile });
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "File gallery" }), {
+      key: "Backspace",
+    });
+    await waitFor(() => expect(onRecycleFile).toHaveBeenCalledOnce());
+    platform.mockRestore();
+  });
+
   it("does not recycle after cancellation or repeated Delete events", async () => {
     let resolveConfirmation!: (confirmed: boolean) => void;
     vi.mocked(ask).mockImplementationOnce(
