@@ -626,6 +626,44 @@ describe("useMediaLibrary", () => {
       relativePath: "nature/sunset.jpg",
     });
   });
+  it("surfaces show-in-file-manager failures as application issues", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    mock.showInExplorerError = "Finder could not reveal the file";
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+    act(() => {
+      mock.emitFileFound(makeFile({ relative_path: "nature/sunset.jpg" }));
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => {
+        await Promise.resolve();
+        await result.current[1].showInExplorer(0);
+        await Promise.resolve();
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+
+    const issueCall = mock.invocations.find(
+      (call) =>
+        call.cmd === "record_media_library_session_issue" &&
+        call.args?.errorType === "show-in-file-manager",
+    );
+    expect(issueCall?.args).toMatchObject({
+      severity: "error",
+      errorType: "show-in-file-manager",
+      affectedFiles: ["nature/sunset.jpg"],
+    });
+    expect(String(issueCall?.args?.errorMessage)).toContain(
+      "Finder could not reveal the file",
+    );
+  });
+
   it("projects an authoritative failed scan session", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
