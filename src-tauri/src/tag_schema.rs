@@ -17,7 +17,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 mod cache;
 #[cfg(test)]
@@ -253,24 +253,54 @@ impl TagInfo {
 }
 
 /// Errors that can occur while building the registry.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind")]
 pub enum SchemaError {
-    ExifToolFailed(String),
-    XmlParseError(String),
+    #[serde(rename = "exiftool_failed")]
+    ExifToolFailed {
+        command: String,
+        stdout: String,
+        stderr: String,
+    },
+    #[serde(rename = "xml_parse_error")]
+    XmlParseError { detail: String },
+}
+
+impl SchemaError {
+    fn exiftool_failed(
+        command: &std::process::Command,
+        stdout: impl Into<String>,
+        stderr: impl Into<String>,
+    ) -> Self {
+        Self::ExifToolFailed {
+            command: crate::exiftool_config::describe_command(command),
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+        }
+    }
 }
 
 impl std::fmt::Display for SchemaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SchemaError::ExifToolFailed(s) => write!(f, "exiftool -listx failed: {}", s),
-            SchemaError::XmlParseError(s) => write!(f, "listx XML parse error: {}", s),
+            SchemaError::ExifToolFailed {
+                command,
+                stdout,
+                stderr,
+            } => write!(
+                f,
+                "ExifTool command failed.\nCommand: {command}\nstdout: {stdout}\nstderr/error: {stderr}"
+            ),
+            SchemaError::XmlParseError { detail } => {
+                write!(f, "listx XML parse error: {detail}")
+            }
         }
     }
 }
 
 impl std::error::Error for SchemaError {}
 
-/// In-memory registry. Build once per process.
+/// In-memory registry. A successful build is cached for the process lifetime.
 #[derive(Debug, Clone, Default)]
 pub struct TagRegistry {
     tags: BTreeMap<SchemaDefinitionId, TagInfo>,
@@ -313,13 +343,15 @@ impl TagRegistry {
 
     /// Build by running `exiftool -listx -f -lang en`.
     pub fn build() -> Result<Self, SchemaError> {
-        let output = crate::exiftool_config::exiftool_command()
-            .args(["-listx", "-f", "-lang", "en"])
+        let mut command = crate::exiftool_config::exiftool_command();
+        command.args(["-listx", "-f", "-lang", "en"]);
+        let output = command
             .output()
-            .map_err(|e| SchemaError::ExifToolFailed(e.to_string()))?;
+            .map_err(|error| SchemaError::exiftool_failed(&command, "", error.to_string()))?;
         if !output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
             let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-            return Err(SchemaError::ExifToolFailed(stderr));
+            return Err(SchemaError::exiftool_failed(&command, stdout, stderr));
         }
         let xml = String::from_utf8_lossy(&output.stdout);
         Self::from_listx_xml(&xml)
@@ -374,35 +406,125 @@ use parser::*;
 mod overrides;
 use overrides::{allowed_group0_for_file_name, apply_overrides};
 
-/// Process-wide registry. Built lazily on first access.
-static REGISTRY: OnceLock<Result<TagRegistry, String>> = OnceLock::new();
+/// Process-wide registry. Built lazily on first successful access.
+static REGISTRY: OnceLock<TagRegistry> = OnceLock::new();
+static REGISTRY_BUILD_LOCK: Mutex<()> = Mutex::new(());
 
-/// Get the registry, building it on first call.
-///
-/// Returns a reference into the static so callers don't pay clone cost.
-/// On build failure, returns an error message; subsequent calls return the
-/// same error (no retry within a process).
-pub fn get_registry() -> Result<&'static TagRegistry, &'static str> {
-    let entry = REGISTRY.get_or_init(|| {
-        log::info!("[tag_schema] Initialising registry (cache-first)");
-        match TagRegistry::build_cached() {
-            Ok(r) => {
-                log::info!("[tag_schema] Registry ready with {} tags", r.len());
-                Ok(r)
-            }
-            Err(e) => {
-                let msg = e.to_string();
-                log::error!("[tag_schema] {}", msg);
-                Err(msg)
+fn cache_successful_registry_build<E>(
+    registry: &OnceLock<TagRegistry>,
+    build_result: Result<TagRegistry, E>,
+) -> Result<&TagRegistry, E> {
+    if let Some(existing) = registry.get() {
+        return Ok(existing);
+    }
+
+    match build_result {
+        Ok(built) => {
+            // Another caller may have won the race while this build was in
+            // progress. Either way, the OnceLock now contains the registry we
+            // should use for the rest of the process.
+            let _ = registry.set(built);
+            Ok(registry
+                .get()
+                .expect("successful schema build must initialise registry"))
+        }
+        Err(error) => {
+            // Do not cache failures: Settings can change the ExifTool command
+            // and a later preload must be able to retry in this process.
+            if let Some(existing) = registry.get() {
+                Ok(existing)
+            } else {
+                Err(error)
             }
         }
-    });
-    entry.as_ref().map_err(|e| e.as_str())
+    }
+}
+
+/// Get the registry, building it on first successful call.
+///
+/// Returns a reference into the static so callers don't pay clone cost. A
+/// failed build is deliberately not cached, allowing a corrected ExifTool
+/// setting to be retried without restarting MediaLibrary.
+pub fn get_registry() -> Result<&'static TagRegistry, SchemaError> {
+    if let Some(existing) = REGISTRY.get() {
+        return Ok(existing);
+    }
+
+    let _build_guard = REGISTRY_BUILD_LOCK
+        .lock()
+        .expect("tag-schema registry build lock poisoned");
+    if let Some(existing) = REGISTRY.get() {
+        return Ok(existing);
+    }
+
+    log::info!("[tag_schema] Initialising registry (cache-first)");
+    let result = TagRegistry::build_cached();
+    match cache_successful_registry_build(&REGISTRY, result) {
+        Ok(registry) => {
+            log::info!("[tag_schema] Registry ready with {} tags", registry.len());
+            Ok(registry)
+        }
+        Err(error) => {
+            log::error!("[tag_schema] {}", error);
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exiftool_failure_preserves_command_stdout_and_stderr() {
+        let mut command = std::process::Command::new("/opt/homebrew/bin/exiftool");
+        command.args(["-config", "/tmp/mlib config", "-ver"]);
+
+        let error =
+            SchemaError::exiftool_failed(&command, "partial stdout\n", "permission denied\n");
+        match error {
+            SchemaError::ExifToolFailed {
+                command,
+                stdout,
+                stderr,
+            } => {
+                assert_eq!(
+                    command,
+                    "/opt/homebrew/bin/exiftool -config '/tmp/mlib config' -ver"
+                );
+                assert_eq!(stdout, "partial stdout\n");
+                assert_eq!(stderr, "permission denied\n");
+            }
+            SchemaError::XmlParseError { .. } => panic!("expected ExifTool failure"),
+        }
+    }
+
+    #[test]
+    fn failed_registry_build_can_be_retried_until_success() {
+        let registry = OnceLock::new();
+
+        let first = cache_successful_registry_build(
+            &registry,
+            Err::<TagRegistry, String>("missing exiftool".into()),
+        );
+        assert_eq!(first.unwrap_err(), "missing exiftool");
+        assert!(registry.get().is_none());
+
+        let second = cache_successful_registry_build(
+            &registry,
+            Ok::<TagRegistry, String>(TagRegistry::default()),
+        )
+        .unwrap();
+        assert_eq!(second.len(), 0);
+        assert!(registry.get().is_some());
+
+        let third = cache_successful_registry_build(
+            &registry,
+            Err::<TagRegistry, String>("should be ignored".into()),
+        )
+        .unwrap();
+        assert!(std::ptr::eq(second, third));
+    }
 
     #[test]
     fn metadata_write_support_matrix_rejects_only_binary_unknown_and_read_only() {

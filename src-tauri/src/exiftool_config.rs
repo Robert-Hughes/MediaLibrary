@@ -86,6 +86,27 @@ fn materialise_config() -> Result<PathBuf, String> {
     Ok(path)
 }
 
+pub(crate) fn describe_command(command: &Command) -> String {
+    std::iter::once(command.get_program())
+        .chain(command.get_args())
+        .map(display_command_arg)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn display_command_arg(arg: &std::ffi::OsStr) -> String {
+    let value = arg.to_string_lossy();
+    if !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || "/._-:=+@".contains(ch))
+    {
+        return value.into_owned();
+    }
+
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
 /// Build a `Command` that runs exiftool with `-config <embedded-path>` already
 /// applied.  Use everywhere we shell out to exiftool so the `XMP-mlib`
 /// namespace is always registered.
@@ -129,6 +150,17 @@ mod tests {
         assert!(
             s.contains("medialibrary.local/ns/"),
             "namespace URI must be present"
+        );
+    }
+
+    #[test]
+    fn describe_command_includes_program_and_exact_arguments() {
+        let mut command = Command::new("/path with spaces/exiftool");
+        command.args(["-config", "/tmp/config with spaces", "-ver"]);
+
+        assert_eq!(
+            describe_command(&command),
+            "'/path with spaces/exiftool' -config '/tmp/config with spaces' -ver"
         );
     }
 

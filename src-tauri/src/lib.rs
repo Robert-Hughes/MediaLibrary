@@ -980,16 +980,14 @@ fn get_tag_infos(
 /// instant.  Called once at startup; the front-end blocks its UI until this
 /// resolves so editors never see a missing-schema flash.
 #[tauri::command]
-fn preload_schema() -> Result<(), String> {
+fn preload_schema() -> Result<(), tag_schema::SchemaError> {
     log::info!(
         "[startup] preload_schema enter +{}ms wall={}ms",
         since_startup_ms(),
         wall_ms()
     );
     let t = Instant::now();
-    let r = tag_schema::get_registry()
-        .map(|_| ())
-        .map_err(|e| e.to_string());
+    let r = tag_schema::get_registry().map(|_| ());
     log::info!(
         "[startup] preload_schema exit took={}ms +{}ms wall={}ms",
         t.elapsed().as_millis(),

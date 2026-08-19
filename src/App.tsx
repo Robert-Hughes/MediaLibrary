@@ -68,6 +68,86 @@ async function loadMedia(path: string): Promise<string | null> {
   }
 }
 
+type SchemaPreloadError =
+  | {
+      kind: "exiftool_failed";
+      command: string;
+      stdout: string;
+      stderr: string;
+    }
+  | { kind: "xml_parse_error"; detail: string }
+  | { kind: "unknown"; detail: string };
+
+function normaliseSchemaPreloadError(error: unknown): SchemaPreloadError {
+  if (typeof error === "object" && error !== null) {
+    const candidate = error as Record<string, unknown>;
+    if (
+      candidate.kind === "exiftool_failed" &&
+      typeof candidate.command === "string" &&
+      typeof candidate.stdout === "string" &&
+      typeof candidate.stderr === "string"
+    ) {
+      return {
+        kind: "exiftool_failed",
+        command: candidate.command,
+        stdout: candidate.stdout,
+        stderr: candidate.stderr,
+      };
+    }
+    if (
+      candidate.kind === "xml_parse_error" &&
+      typeof candidate.detail === "string"
+    ) {
+      return { kind: "xml_parse_error", detail: candidate.detail };
+    }
+  }
+
+  return {
+    kind: "unknown",
+    detail:
+      typeof error === "string"
+        ? error
+        : error instanceof Error
+          ? error.message
+          : String(error),
+  };
+}
+
+function SchemaDiagnosticBlock({
+  label,
+  testId,
+  value,
+}: {
+  label: string;
+  testId: string;
+  value: string;
+}) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+        {label}
+      </div>
+      <pre
+        data-testid={testId}
+        style={{
+          margin: 0,
+          padding: 8,
+          background: "var(--color-bg-subtle, #f5f5f5)",
+          border: "1px solid var(--color-border, #ddd)",
+          borderRadius: 4,
+          fontSize: 12,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          maxHeight: 140,
+          overflow: "auto",
+        }}
+      >
+        {value || "(no output)"}
+      </pre>
+    </div>
+  );
+}
+
 // Separated component so useMemo can depend on loaded state without conditional hooks.
 type LoadedState = Extract<AppState, { kind: "loaded" }> & {
   recentFolders: string[];
@@ -608,7 +688,9 @@ export default function App() {
     undefined,
   );
   const [schemaReady, setSchemaReady] = useState(false);
-  const [schemaError, setSchemaError] = useState<string | null>(null);
+  const [schemaError, setSchemaError] = useState<SchemaPreloadError | null>(
+    null,
+  );
   const cliCheckedRef = useRef(false);
   // Overwrite counts computed at flow-start time and shown as an inline
   // notice in each dialog's awaiting-confirm panel. Stored at App level
@@ -662,33 +744,31 @@ export default function App() {
     });
   }, []);
 
-  // Warm the tag-schema registry before the UI becomes interactive so editors
-  // never see a missing-schema flash on first use.
-  useEffect(() => {
+  const preloadSchema = useCallback(async () => {
     const t0 =
       (window as unknown as { __startupT0?: number }).__startupT0 ?? Date.now();
-    console.log(
-      `[startup] App useEffect (preload_schema invoke) +${Date.now() - t0}ms`,
-    );
+    console.log(`[startup] App preload_schema invoke +${Date.now() - t0}ms`);
+    setSchemaReady(false);
+    setSchemaError(null);
     const callStart = Date.now();
-    invoke("preload_schema")
-      .then(() => {
-        console.log(
-          `[startup] preload_schema resolved +${Date.now() - t0}ms (invoke took ${Date.now() - callStart}ms)`,
-        );
-        setSchemaReady(true);
-      })
-      .catch((err) => {
-        console.error("[App] preload_schema failed:", err);
-        setSchemaError(
-          typeof err === "string"
-            ? err
-            : err instanceof Error
-              ? err.message
-              : String(err),
-        );
-      });
+    try {
+      await invoke("preload_schema");
+      console.log(
+        `[startup] preload_schema resolved +${Date.now() - t0}ms (invoke took ${Date.now() - callStart}ms)`,
+      );
+      setSchemaReady(true);
+    } catch (err) {
+      console.error("[App] preload_schema failed:", err);
+      setSchemaError(normaliseSchemaPreloadError(err));
+    }
   }, []);
+
+  // Warm the tag-schema registry before the UI becomes interactive so editors
+  // never see a missing-schema flash on first use. Failed startup attempts can
+  // be retried after correcting the ExifTool executable in Settings.
+  useEffect(() => {
+    void preloadSchema();
+  }, [preloadSchema]);
 
   // Check for CLI folder argument on mount (before first render)
   useEffect(() => {
@@ -749,27 +829,45 @@ export default function App() {
             </div>
             <div className="dialog-body">
               <div className="dialog-hint">
-                Could not build the tag schema from ExifTool. Make sure
-                <code> exiftool </code> is installed and available on your
-                <code> PATH</code>, then restart the application.
+                Could not build the tag schema from ExifTool. Open Settings and
+                set the ExifTool command to an executable name or absolute path.
+                MediaLibrary will retry schema loading after that setting is
+                saved.
               </div>
-              <pre
-                data-testid="schema-error-message"
-                style={{
-                  marginTop: 12,
-                  padding: 8,
-                  background: "var(--color-bg-subtle, #f5f5f5)",
-                  border: "1px solid var(--color-border, #ddd)",
-                  borderRadius: 4,
-                  fontSize: 12,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  maxHeight: 200,
-                  overflow: "auto",
-                }}
+              {schemaError.kind === "exiftool_failed" ? (
+                <>
+                  <SchemaDiagnosticBlock
+                    label="Command executed"
+                    testId="schema-error-command"
+                    value={schemaError.command}
+                  />
+                  <SchemaDiagnosticBlock
+                    label="stdout"
+                    testId="schema-error-stdout"
+                    value={schemaError.stdout}
+                  />
+                  <SchemaDiagnosticBlock
+                    label="stderr / launch error"
+                    testId="schema-error-stderr"
+                    value={schemaError.stderr}
+                  />
+                </>
+              ) : (
+                <SchemaDiagnosticBlock
+                  label="Error details"
+                  testId="schema-error-message"
+                  value={schemaError.detail}
+                />
+              )}
+            </div>
+            <div className="dialog-footer">
+              <button
+                type="button"
+                data-testid="schema-error-settings-btn"
+                onClick={() => setShowSettingsDialog(true)}
               >
-                {schemaError}
-              </pre>
+                Open Settings…
+              </button>
             </div>
           </div>
         </ModalDialog>
@@ -836,7 +934,15 @@ export default function App() {
       )}
 
       {showSettingsDialog && (
-        <SettingsDialog onClose={() => setShowSettingsDialog(false)} />
+        <SettingsDialog
+          onClose={() => setShowSettingsDialog(false)}
+          onExifToolCommandSaved={() => {
+            if (schemaError) {
+              setShowSettingsDialog(false);
+              void preloadSchema();
+            }
+          }}
+        />
       )}
 
       {describe.open && (
