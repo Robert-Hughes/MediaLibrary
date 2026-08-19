@@ -74,16 +74,15 @@ pub(super) fn build_cached() -> Result<TagRegistry, SchemaError> {
 
 /// Run `exiftool -ver`. Returns trimmed version string (e.g. `13.57`).
 fn read_exiftool_version() -> Result<String, SchemaError> {
-    let output = crate::exiftool_config::exiftool_command()
-        .arg("-ver")
+    let mut command = crate::exiftool_config::exiftool_command();
+    command.arg("-ver");
+    let output = command
         .output()
-        .map_err(|e| SchemaError::ExifToolFailed(e.to_string()))?;
+        .map_err(|error| SchemaError::exiftool_failed(&command, "", error.to_string()))?;
     if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        return Err(SchemaError::ExifToolFailed(format!(
-            "exiftool -ver failed: {}",
-            stderr
-        )));
+        return Err(SchemaError::exiftool_failed(&command, stdout, stderr));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }

@@ -239,15 +239,19 @@ describe("App schema preloading", () => {
     });
   });
 
-  it("shows schema error dialog with PATH guidance when preload_schema fails", async () => {
+  it("shows schema error dialog with Settings recovery when preload_schema fails", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
 
-    const backendError =
-      "exiftool not found: No such file or directory (os error 2)";
+    const backendError = {
+      kind: "exiftool_failed",
+      command: "exiftool -config /tmp/mlib.ExifTool_config -ver",
+      stdout: "",
+      stderr: "No such file or directory (os error 2)",
+    };
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
@@ -266,21 +270,185 @@ describe("App schema preloading", () => {
       expect(screen.getByTestId("schema-error-dialog")).toBeInTheDocument();
     });
 
-    // Surfaces the actual backend error message to the user.
-    expect(screen.getByTestId("schema-error-message")).toHaveTextContent(
-      backendError,
+    // Keeps the command and process output visually separate.
+    expect(screen.getByTestId("schema-error-command")).toHaveTextContent(
+      "exiftool -config /tmp/mlib.ExifTool_config -ver",
+    );
+    expect(screen.getByTestId("schema-error-stdout")).toHaveTextContent(
+      "(no output)",
+    );
+    expect(screen.getByTestId("schema-error-stderr")).toHaveTextContent(
+      "No such file or directory (os error 2)",
     );
 
-    // Tells the user to put exiftool on PATH (no mention of settings).
+    // Offers an in-app recovery route rather than requiring a restart.
     const dialog = screen.getByTestId("schema-error-dialog");
     expect(dialog).toHaveTextContent(/exiftool/i);
-    expect(dialog).toHaveTextContent(/PATH/);
-    expect(dialog.textContent ?? "").not.toMatch(/settings/i);
+    expect(dialog).toHaveTextContent(/Open Settings/i);
+    expect(dialog).toHaveTextContent(/retry schema loading/i);
+    expect(dialog.textContent ?? "").not.toMatch(/restart/i);
+    expect(screen.getByTestId("schema-error-settings-btn")).toBeInTheDocument();
 
     expect(consoleError).toHaveBeenCalledWith(
       "[App] preload_schema failed:",
       backendError,
     );
+
+    consoleError.mockRestore();
+  });
+
+  it("updates the attempted command when a corrected ExifTool path also fails", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const mockInvoke = vi.mocked(invoke);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let preloadCalls = 0;
+
+    const settings = {
+      exiftool_command: "exiftool",
+      openai_api_key: "",
+      openai_model: "gpt-5.4",
+      normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 4,
+      normalise_concurrency: 4,
+      metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
+      metadata_apply_batch_size: 32,
+      metadata_apply_concurrency: 8,
+      thumbnail_concurrency: 8,
+    };
+    const firstError = {
+      kind: "exiftool_failed",
+      command: "exiftool -config /tmp/mlib.ExifTool_config -ver",
+      stdout: "",
+      stderr: "missing executable",
+    };
+    const retryError = {
+      kind: "exiftool_failed",
+      command:
+        "/opt/homebrew/bin/exiftool -config /tmp/mlib.ExifTool_config -ver",
+      stdout: "partial output",
+      stderr: "permission denied",
+    };
+
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
+      if (cmd === "preload_schema") {
+        preloadCalls += 1;
+        return Promise.reject(preloadCalls === 1 ? firstError : retryError);
+      }
+      if (cmd === "get_cli_folder") return Promise.resolve(null);
+      if (cmd === "load_settings_cmd") return Promise.resolve({ ...settings });
+      if (cmd === "list_recommended_models") return Promise.resolve([]);
+      if (cmd === "save_settings_cmd") return Promise.resolve();
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    let commandBlock = await screen.findByTestId("schema-error-command");
+    expect(commandBlock).toHaveTextContent(
+      "exiftool -config /tmp/mlib.ExifTool_config -ver",
+    );
+
+    fireEvent.click(screen.getByTestId("schema-error-settings-btn"));
+    const input = await screen.findByTestId("settings-exiftool-command-input");
+    fireEvent.change(input, {
+      target: { value: "/opt/homebrew/bin/exiftool" },
+    });
+    fireEvent.blur(input);
+
+    await waitFor(() => expect(preloadCalls).toBe(2));
+    commandBlock = await screen.findByTestId("schema-error-command");
+    expect(commandBlock).toHaveTextContent(
+      "/opt/homebrew/bin/exiftool -config /tmp/mlib.ExifTool_config -ver",
+    );
+    expect(screen.getByTestId("schema-error-stdout")).toHaveTextContent(
+      "partial output",
+    );
+    expect(screen.getByTestId("schema-error-stderr")).toHaveTextContent(
+      "permission denied",
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it("opens Settings from schema failure and retries after saving ExifTool path", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const mockInvoke = vi.mocked(invoke);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    let preloadCalls = 0;
+
+    const settings = {
+      exiftool_command: "exiftool",
+      openai_api_key: "",
+      openai_model: "gpt-5.4",
+      normalise_metadata_model: "gpt-5.4-nano",
+      normalise_location_model: "gpt-5.4-nano",
+      ai_cost_estimate_mode: "heuristic",
+      describe_concurrency: 4,
+      normalise_concurrency: 4,
+      metadata_scan_concurrency: 4,
+      metadata_scan_batch_size: 20,
+      metadata_apply_batch_size: 32,
+      metadata_apply_concurrency: 8,
+      thumbnail_concurrency: 8,
+    };
+
+    mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
+      if (cmd === "preload_schema") {
+        preloadCalls += 1;
+        return preloadCalls === 1
+          ? Promise.reject({
+              kind: "exiftool_failed",
+              command: "exiftool -ver",
+              stdout: "",
+              stderr: "missing executable",
+            })
+          : Promise.resolve();
+      }
+      if (cmd === "get_cli_folder") return Promise.resolve(null);
+      if (cmd === "load_settings_cmd") return Promise.resolve({ ...settings });
+      if (cmd === "list_recommended_models") return Promise.resolve([]);
+      if (cmd === "save_settings_cmd") return Promise.resolve();
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    await screen.findByTestId("schema-error-dialog");
+    fireEvent.click(screen.getByTestId("schema-error-settings-btn"));
+
+    const input = await screen.findByTestId("settings-exiftool-command-input");
+    fireEvent.change(input, {
+      target: { value: "/opt/homebrew/bin/exiftool" },
+    });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(preloadCalls).toBe(2);
+      expect(
+        screen.queryByTestId("schema-error-dialog"),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("schema-loading-dialog"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId("settings-dialog")).not.toBeInTheDocument();
+    });
+
+    expect(mockInvoke).toHaveBeenCalledWith("save_settings_cmd", {
+      settingsData: expect.objectContaining({
+        exiftool_command: "/opt/homebrew/bin/exiftool",
+      }),
+    });
 
     consoleError.mockRestore();
   });

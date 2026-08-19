@@ -25,7 +25,11 @@ impl TagRegistry {
         let mut buf = Vec::new();
         loop {
             match reader.read_event_into(&mut buf) {
-                Err(e) => return Err(SchemaError::XmlParseError(e.to_string())),
+                Err(e) => {
+                    return Err(SchemaError::XmlParseError {
+                        detail: e.to_string(),
+                    })
+                }
                 Ok(Event::Eof) => break,
                 Ok(Event::Start(e)) => {
                     let name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
@@ -175,9 +179,9 @@ impl TagRegistry {
                             populate_struct_fields(&mut finalized)?;
                             for (id, info, _) in finalized {
                                 if let Some(previous) = tags.insert(id.clone(), info.clone()) {
-                                    return Err(SchemaError::XmlParseError(format!(
+                                    return Err(SchemaError::XmlParseError { detail: format!(
                                         "duplicate schema identity {id:?}: {previous:?} and {info:?}"
-                                    )));
+                                    ) });
                                 }
                             }
                             current_group = None;
@@ -225,16 +229,20 @@ impl PartialTag {
             return Ok(None);
         };
         let Some(field_name) = self.tag_id.strip_prefix(parent_tag_id) else {
-            return Err(SchemaError::XmlParseError(format!(
-                "flattened struct member {} does not begin with parent tag id {}",
-                self.tag_id, parent_tag_id
-            )));
+            return Err(SchemaError::XmlParseError {
+                detail: format!(
+                    "flattened struct member {} does not begin with parent tag id {}",
+                    self.tag_id, parent_tag_id
+                ),
+            });
         };
         if field_name.is_empty() {
-            return Err(SchemaError::XmlParseError(format!(
-                "flattened struct member {} has an empty field name",
-                self.tag_id
-            )));
+            return Err(SchemaError::XmlParseError {
+                detail: format!(
+                    "flattened struct member {} has an empty field name",
+                    self.tag_id
+                ),
+            });
         }
 
         // ExifTool propagates a plain `List` flag from a repeatable ancestor
@@ -323,10 +331,9 @@ pub(super) fn populate_struct_fields(
                 if visiting.iter().any(|id| id == owner_tag_id) {
                     let mut cycle = visiting.clone();
                     cycle.push(owner_tag_id.to_string());
-                    return Err(SchemaError::XmlParseError(format!(
-                        "cyclic flattened struct schema: {}",
-                        cycle.join(" -> ")
-                    )));
+                    return Err(SchemaError::XmlParseError {
+                        detail: format!("cyclic flattened struct schema: {}", cycle.join(" -> ")),
+                    });
                 }
                 visiting.push(owner_tag_id.to_string());
                 for member in members.get(owner_tag_id).into_iter().flatten() {
@@ -335,10 +342,12 @@ pub(super) fn populate_struct_fields(
                     if let Some(previous) =
                         fields.insert(member.field_name.clone(), member_kind.clone())
                     {
-                        return Err(SchemaError::XmlParseError(format!(
-                            "duplicate field {} in flattened struct {}: {:?} and {:?}",
-                            member.field_name, owner_tag_id, previous, member_kind
-                        )));
+                        return Err(SchemaError::XmlParseError {
+                            detail: format!(
+                                "duplicate field {} in flattened struct {}: {:?} and {:?}",
+                                member.field_name, owner_tag_id, previous, member_kind
+                            ),
+                        });
                     }
                 }
                 visiting.pop();

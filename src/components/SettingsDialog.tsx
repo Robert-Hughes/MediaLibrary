@@ -16,6 +16,7 @@ import type { Settings } from "../types/generated/Settings";
 
 interface Props {
   onClose: () => void;
+  onExifToolCommandSaved?: () => void;
 }
 
 /**
@@ -32,7 +33,7 @@ const CONCURRENCY_OPTIONS = Array.from({ length: 16 }, (_, index) => index + 1);
 const BATCH_SIZE_OPTIONS = [1, 5, 10, 20, 30, 50, 100];
 const APPLY_BATCH_SIZE_OPTIONS = [1, 2, 4, 8, 16, 32, 50, 100];
 
-export function SettingsDialog({ onClose }: Props) {
+export function SettingsDialog({ onClose, onExifToolCommandSaved }: Props) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [models, setModels] = useState<string[]>([]);
   /** Model id → ballpark per-image cost in USD. Missing entries are
@@ -126,13 +127,21 @@ export function SettingsDialog({ onClose }: Props) {
     };
   }, []);
 
-  async function persist(updated: Settings) {
+  async function persist(updated: Settings): Promise<boolean> {
     setSettings(updated);
     setSaveError(null);
     try {
       await invoke("save_settings_cmd", { settingsData: updated });
+      return true;
     } catch (e) {
       setSaveError(String(e));
+      return false;
+    }
+  }
+
+  async function persistExifToolCommand(updated: Settings) {
+    if (await persist(updated)) {
+      onExifToolCommandSaved?.();
     }
   }
 
@@ -157,7 +166,9 @@ export function SettingsDialog({ onClose }: Props) {
             <>
               <section style={{ marginBottom: 16 }}>
                 <h3 style={{ marginBottom: 6 }}>ExifTool</h3>
-                <label style={{ display: "block", fontSize: 12, marginBottom: 4 }}>
+                <label
+                  style={{ display: "block", fontSize: 12, marginBottom: 4 }}
+                >
                   ExifTool command
                 </label>
                 <input
@@ -165,16 +176,26 @@ export function SettingsDialog({ onClose }: Props) {
                   data-testid="settings-exiftool-command-input"
                   value={settings.exiftool_command}
                   onChange={(e) =>
-                    setSettings({ ...settings, exiftool_command: e.target.value })
+                    setSettings({
+                      ...settings,
+                      exiftool_command: e.target.value,
+                    })
                   }
-                  onBlur={() => persist(settings)}
+                  onBlur={() => void persistExifToolCommand(settings)}
                   placeholder="exiftool"
                   style={{ width: "100%", padding: 6, fontFamily: "monospace" }}
                 />
-                <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-secondary)" }}>
-                  Executable name or absolute path used for metadata reads and writes.
-                  The default is <code>exiftool</code>. Restart MediaLibrary after changing
-                  this so the tag schema is rebuilt with the selected executable.
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  Executable name or absolute path used for metadata reads and
+                  writes. The default is <code>exiftool</code>. If schema
+                  loading failed at startup, saving this field retries schema
+                  loading with the selected executable.
                 </div>
               </section>
 
