@@ -87,6 +87,11 @@ interface Props {
   onNavigate: (delta: -1 | 1) => void;
   /** Injectable for testing — defaults to the real Tauri invoke */
   loadMedia?: (path: string) => Promise<string | null>;
+  /** Read image bytes through IPC so rewritten files bypass WebView caches. */
+  loadImageBytes?: (
+    folderPath: string,
+    relativePath: string,
+  ) => Promise<Uint8Array | number[] | null>;
   /** Observable authoritative occurrence store. */
   fileMetadataOccurrences: FileMetadataOccurrencesStore;
   targetDraftEdits?: TargetDraftCollection;
@@ -173,19 +178,26 @@ function isGalleryShortcutEventSafe(
   return target.closest("dialog") === event.currentTarget;
 }
 
-/**
- * Append a cache-busting query parameter so a rewritten file is fetched again.
- *
- * The gallery preview serves the file through Tauri's asset protocol, whose URL
- * is derived only from the path. When apply rewrites the file in place (for
- * example a corrected EXIF Orientation tag), the URL is byte-identical and the
- * WebView may serve a cached copy. `data:`/`blob:` URLs are inline and have no
- * cache, so they are left untouched.
- */
-function cacheBustedSrc(src: string, nonce: number): string {
-  if (src.startsWith("data:") || src.startsWith("blob:")) return src;
-  const separator = src.includes("?") ? "&" : "?";
-  return `${src}${separator}v=${nonce}`;
+function imageMimeType(path: string): string {
+  const extension = path.split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "bmp":
+      return "image/bmp";
+    case "webp":
+      return "image/webp";
+    case "tif":
+    case "tiff":
+      return "image/tiff";
+    default:
+      return "application/octet-stream";
+  }
 }
 
 export function GalleryView({
@@ -195,6 +207,7 @@ export function GalleryView({
   onClose,
   onNavigate,
   loadMedia,
+  loadImageBytes,
   fileMetadataOccurrences,
   targetDraftEdits,
   targetDraftPersistence,
@@ -220,13 +233,12 @@ export function GalleryView({
   const [mediaSource, setMediaSource] = useState<{
     path: string;
     src: string;
+    kind: "external" | "object-url";
   } | null>(null);
   const [readyPath, setReadyPath] = useState<string | null>(null);
   const [failedPath, setFailedPath] = useState<string | null>(null);
-  // Monotonic bump that forces the preview <img> to remount and re-fetch when
-  // the current file is rewritten in place. Kept as transient local state rather
-  // than a stored revision: it only needs to change to invalidate the URL/key.
-  const [reloadNonce, setReloadNonce] = useState(0);
+  const mediaLoadGenerationRef = useRef(0);
+  const [imageReadVersion, setImageReadVersion] = useState(0);
   const [detailsVisible, setDetailsVisibleState] =
     useState<boolean>(loadDetailsVisible);
   const [detailsWidth, setDetailsWidth] = useState(loadDetailsWidth);
@@ -322,17 +334,10 @@ export function GalleryView({
     fileMetadataOccurrences.getFailure(file?.relative_path ?? ""),
   );
 
-  // Refresh the preview when apply rewrites the current file in place.
-  //
-  // The preview URL is derived only from the path, so a metadata-only rewrite
-  // (for example a corrected IFD0:Orientation tag) leaves the URL unchanged and
-  // the raw pixels would otherwise stay stale. Applying commits the fresh
-  // metadata into `fileMetadataOccurrences`, which replaces this path's ready
-  // snapshot with a new array. We treat that "ready -> different ready"
-  // replacement as the rewrite signal (as opposed to the initial
-  // "loading -> ready" scan load, or a navigation to another file) and bump
-  // `reloadNonce`, which is folded into the <img> key and cache-busting query
-  // string below so the element remounts and fetches fresh bytes.
+  // Applying commits authoritative post-write metadata into the occurrence
+  // store. A ready -> different-ready replacement for the current path is the
+  // signal to read the image bytes again; initial scan loading and navigation
+  // do not trigger a redundant read.
   const previousOccurrencesRef = useRef<{
     path: string | null;
     state: FileMetadataOccurrencesState;
@@ -352,37 +357,76 @@ export function GalleryView({
     // "loading" dip from a full snapshot rebuild, which would otherwise reload
     // an extra time after apply.
     if (Array.isArray(previous.state) && Array.isArray(occurrencesState)) {
-      // Re-enter the loading state so the spinner shows instead of a stale
-      // frame while the freshly-written pixels are re-fetched.
+      if (file?.media_kind !== "image") return;
       setReadyPath(null);
       setFailedPath(null);
-      setReloadNonce((nonce) => nonce + 1);
+      setImageReadVersion((version) => version + 1);
     }
   }, [occurrencesState, file]);
 
-  // Resolve the asset URL whenever the current file changes. The media remains
-  // in its loading state until the newly-mounted element reports readiness.
+  // Revoke each Blob URL when it is replaced or the gallery unmounts.
   useEffect(() => {
-    if (!file || !loadMedia) return;
+    const objectUrl =
+      mediaSource?.kind === "object-url" ? mediaSource.src : null;
+    return () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [mediaSource]);
+
+  // Images always come from Rust-read bytes so initial loads and post-apply
+  // refreshes use one consistent, cache-independent path. Audio and video keep
+  // their Tauri asset URLs for browser streaming and range behavior.
+  useEffect(() => {
+    if (
+      !file ||
+      (file.media_kind === "image" ? !loadImageBytes && !loadMedia : !loadMedia)
+    ) {
+      return;
+    }
     const path = file.relative_path;
+    const generation = ++mediaLoadGenerationRef.current;
     let current = true;
     setFailedPath(null);
-    const absPath = `${folderPath}/${path}`.replace(/\\/g, "/");
+    setMediaSource(null);
 
-    loadMedia(absPath)
-      .then((src) => {
-        if (!current) return;
-        if (src) setMediaSource({ path, src });
+    const load = async () => {
+      if (file.media_kind === "image" && loadImageBytes) {
+        const bytes = await loadImageBytes(folderPath, path);
+        if (!bytes) return null;
+        const blob = new Blob([Uint8Array.from(bytes)], {
+          type: imageMimeType(path),
+        });
+        return {
+          path,
+          src: URL.createObjectURL(blob),
+          kind: "object-url" as const,
+        };
+      }
+
+      const absPath = `${folderPath}/${path}`.replace(/\\/g, "/");
+      const src = await loadMedia!(absPath);
+      return src ? { path, src, kind: "external" as const } : null;
+    };
+
+    load()
+      .then((source) => {
+        if (!current || mediaLoadGenerationRef.current !== generation) {
+          if (source?.kind === "object-url") URL.revokeObjectURL(source.src);
+          return;
+        }
+        if (source) setMediaSource(source);
         else setFailedPath(path);
       })
       .catch(() => {
-        if (current) setFailedPath(path);
+        if (current && mediaLoadGenerationRef.current === generation) {
+          setFailedPath(path);
+        }
       });
 
     return () => {
       current = false;
     };
-  }, [file, folderPath, loadMedia]);
+  }, [file, folderPath, imageReadVersion, loadImageBytes, loadMedia]);
 
   const currentPath = file?.relative_path ?? null;
   const mediaSrc = mediaSource?.path === currentPath ? mediaSource.src : null;
@@ -581,8 +625,7 @@ export function GalleryView({
           {mediaSrc &&
             (file.media_kind === "image" ? (
               <img
-                key={`${currentPath}:${reloadNonce}`}
-                src={cacheBustedSrc(mediaSrc, reloadNonce)}
+                src={mediaSrc}
                 alt={file.relative_path}
                 className="gallery-image"
                 data-testid="gallery-image"

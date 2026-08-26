@@ -40,7 +40,7 @@ fn frontend_relative_path(path: &Path) -> String {
         .join("/")
 }
 
-fn media_kind_for_path(path: &Path) -> Option<MediaKind> {
+pub(crate) fn media_kind_for_path(path: &Path) -> Option<MediaKind> {
     path.extension()
         .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
