@@ -99,8 +99,12 @@ describe("SettingsDialog", () => {
     const { user } = await openFolderWithFile();
 
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
-    const exiftoolInput = await screen.findByTestId("settings-exiftool-command-input");
-    expect((exiftoolInput as HTMLInputElement).value).toBe("/opt/homebrew/bin/exiftool");
+    const exiftoolInput = await screen.findByTestId(
+      "settings-exiftool-command-input",
+    );
+    expect((exiftoolInput as HTMLInputElement).value).toBe(
+      "/opt/homebrew/bin/exiftool",
+    );
     const apiKeyInput = await screen.findByTestId("settings-api-key-input");
     // The input is type=password so we assert .value rather than visible text.
     await waitFor(() =>

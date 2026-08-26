@@ -1295,7 +1295,9 @@ export function useMediaLibrary(
           relativePath: file.relative_path,
         });
       } catch (error) {
-        pushApplicationError("show-in-file-manager", error, [file.relative_path]);
+        pushApplicationError("show-in-file-manager", error, [
+          file.relative_path,
+        ]);
       }
     },
     [api, pushApplicationError],

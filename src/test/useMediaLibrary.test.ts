@@ -638,7 +638,9 @@ describe("useMediaLibrary", () => {
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "nature/sunset.jpg" }));
     });
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
     try {
       await act(async () => {
         await Promise.resolve();
