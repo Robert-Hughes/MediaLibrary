@@ -913,34 +913,85 @@ fn show_in_explorer(folder: String, relative_path: String) -> Result<(), String>
         return Err(format!("Path does not exist: {}", path.display()));
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        // On Windows, explorer /select,"path" is the syntax.
-        // We pass it as a single argument to ensure the comma and path are joined.
-        let path_str = path.to_string_lossy().replace('/', "\\");
-        std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path_str))
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg("-R")
-            .arg(path)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        if let Some(parent) = path.parent() {
-            std::process::Command::new("xdg-open")
-                .arg(parent)
-                .spawn()
-                .map_err(|e| e.to_string())?;
-        }
-    }
+    let Some(spec) = file_manager_command_spec(&path, current_file_manager()) else {
+        return Ok(());
+    };
+    log::info!(
+        "[show_in_file_manager] launching program={:?} args={:?} target={}",
+        spec.program,
+        spec.args,
+        path.display()
+    );
+    let child = spec
+        .command()
+        .spawn()
+        .map_err(|error| format!("Could not launch {:?}: {error}", spec.program))?;
+    log::info!(
+        "[show_in_file_manager] launched program={:?} pid={} target={}",
+        spec.program,
+        child.id(),
+        path.display()
+    );
     Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FileManager {
+    #[cfg(any(test, target_os = "windows"))]
+    WindowsExplorer,
+    #[cfg(any(test, target_os = "macos"))]
+    MacFinder,
+    #[cfg(any(test, not(any(target_os = "windows", target_os = "macos"))))]
+    LinuxDesktop,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct FileManagerCommandSpec {
+    program: std::ffi::OsString,
+    args: Vec<std::ffi::OsString>,
+}
+
+impl FileManagerCommandSpec {
+    fn command(&self) -> std::process::Command {
+        let mut command = std::process::Command::new(&self.program);
+        command.args(&self.args);
+        command
+    }
+}
+
+fn current_file_manager() -> FileManager {
+    #[cfg(target_os = "windows")]
+    return FileManager::WindowsExplorer;
+    #[cfg(target_os = "macos")]
+    return FileManager::MacFinder;
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    return FileManager::LinuxDesktop;
+}
+
+fn file_manager_command_spec(
+    path: &std::path::Path,
+    file_manager: FileManager,
+) -> Option<FileManagerCommandSpec> {
+    match file_manager {
+        #[cfg(any(test, target_os = "windows"))]
+        FileManager::WindowsExplorer => Some(FileManagerCommandSpec {
+            program: "explorer".into(),
+            // Keep `/select,` separate from the path. Combining them makes Rust quote the
+            // entire argument when the path contains spaces, so Explorer fails to select
+            // paths such as `D:\OneDrive\Pictures\2026\Svet & Kay's Wedding\00004.MTS`.
+            args: vec!["/select,".into(), path.as_os_str().to_owned()],
+        }),
+        #[cfg(any(test, target_os = "macos"))]
+        FileManager::MacFinder => Some(FileManagerCommandSpec {
+            program: "open".into(),
+            args: vec!["-R".into(), path.as_os_str().to_owned()],
+        }),
+        #[cfg(any(test, not(any(target_os = "windows", target_os = "macos"))))]
+        FileManager::LinuxDesktop => path.parent().map(|parent| FileManagerCommandSpec {
+            program: "xdg-open".into(),
+            args: vec![parent.as_os_str().to_owned()],
+        }),
+    }
 }
 
 #[tauri::command]
@@ -1017,6 +1068,49 @@ fn clear_running(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_explorer_keeps_select_switch_separate_from_regression_path() {
+        let path =
+            std::path::Path::new(r"D:\OneDrive\Pictures\2026\Svet & Kay's Wedding\00004.MTS");
+
+        let spec = file_manager_command_spec(path, FileManager::WindowsExplorer).unwrap();
+
+        assert_eq!(spec.program, std::ffi::OsString::from("explorer"));
+        assert_eq!(
+            spec.args,
+            vec![
+                std::ffi::OsString::from("/select,"),
+                path.as_os_str().to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn mac_finder_reveal_command_keeps_path_as_its_own_argument() {
+        let path = std::path::Path::new("/photos/Svet & Kay's Wedding/00004.MTS");
+
+        let spec = file_manager_command_spec(path, FileManager::MacFinder).unwrap();
+
+        assert_eq!(spec.program, std::ffi::OsString::from("open"));
+        assert_eq!(
+            spec.args,
+            vec![std::ffi::OsString::from("-R"), path.as_os_str().to_owned()]
+        );
+    }
+
+    #[test]
+    fn linux_file_manager_opens_the_parent_directory() {
+        let path = std::path::Path::new("/photos/Svet & Kay's Wedding/00004.MTS");
+
+        let spec = file_manager_command_spec(path, FileManager::LinuxDesktop).unwrap();
+
+        assert_eq!(spec.program, std::ffi::OsString::from("xdg-open"));
+        assert_eq!(
+            spec.args,
+            vec![path.parent().unwrap().as_os_str().to_owned()]
+        );
+    }
 
     #[test]
     fn draft_mutations_are_rejected_while_apply_is_running() {
