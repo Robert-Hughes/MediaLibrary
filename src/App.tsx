@@ -68,6 +68,21 @@ async function loadMedia(path: string): Promise<string | null> {
   }
 }
 
+async function loadImageBytes(
+  folderPath: string,
+  relativePath: string,
+): Promise<Uint8Array | null> {
+  try {
+    const bytes = await invoke<ArrayBuffer>("read_gallery_image_bytes_cmd", {
+      folderPath,
+      relativePath,
+    });
+    return new Uint8Array(bytes);
+  } catch {
+    return null;
+  }
+}
+
 type SchemaPreloadError =
   | {
       kind: "exiftool_failed";
@@ -541,6 +556,7 @@ function LoadedView({
           onClose={actions.closeGallery}
           onNavigate={onGalleryNavigate}
           loadMedia={loadMedia}
+          loadImageBytes={loadImageBytes}
           fileMetadataOccurrences={state.fileMetadataOccurrences}
           targetDraftEdits={
             state.targetDraftEdits[displayFiles[galleryIndex].relative_path]

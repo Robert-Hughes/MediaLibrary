@@ -17,6 +17,7 @@ pub mod geocode;
 pub mod geocode_cache;
 mod image_orientation;
 pub mod known_ids;
+pub mod media_bytes;
 pub mod metadata_draft_target;
 pub mod metadata_occurrence;
 pub mod metadata_value;
@@ -1950,6 +1951,7 @@ pub fn run() {
             get_media_library_session_snapshot,
             search_media_library_session,
             get_media_library_thumbnails,
+            media_bytes::read_gallery_image_bytes_cmd,
             dismiss_media_library_session_issue,
             record_media_library_session_issue,
             open_media_library_session,

@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GalleryView } from "../components/GalleryView";
 import { FileMetadataOccurrencesStore } from "../types";
@@ -93,18 +100,35 @@ describe("Gallery occurrence-store subscription", () => {
     const occurrences = new FileMetadataOccurrencesStore();
     occurrences.add("a.jpg");
     occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 300, "IFD0")]);
+    const loadImageBytes = vi
+      .fn()
+      .mockResolvedValueOnce([1, 2, 3])
+      .mockResolvedValueOnce([4, 5, 6, 7]);
+    const createdBlobs: Blob[] = [];
+    const createObjectURL = vi.fn((blob: Blob) => {
+      createdBlobs.push(blob);
+      return `blob:preview-${createdBlobs.length}`;
+    });
+    const revokeObjectURL = vi.fn();
+    Object.defineProperties(URL, {
+      createObjectURL: { configurable: true, value: createObjectURL },
+      revokeObjectURL: { configurable: true, value: revokeObjectURL },
+    });
 
-    render(
+    const { unmount } = render(
       <GalleryView
         {...props(occurrences)}
         files={[files[0]]}
         currentIndex={0}
-        loadMedia={async () => "asset://a.jpg"}
+        loadImageBytes={loadImageBytes}
       />,
     );
 
     const image = await screen.findByTestId("gallery-image");
-    expect(image).toHaveAttribute("src", "asset://a.jpg?v=0");
+    expect(loadImageBytes).toHaveBeenCalledWith("/files", "a.jpg");
+    expect(createdBlobs).toHaveLength(1);
+    expect(createdBlobs[0]).toMatchObject({ size: 3, type: "image/jpeg" });
+    expect(image).toHaveAttribute("src", "blob:preview-1");
 
     act(() => {
       // Apply-style replacement: the ready snapshot is swapped for a new one,
@@ -112,10 +136,17 @@ describe("Gallery occurrence-store subscription", () => {
       occurrences.set("a.jpg", [occurrence("JPEG-APP1-IFD0", 600, "IFD0")]);
     });
 
+    await waitFor(() => expect(loadImageBytes).toHaveBeenCalledTimes(2));
+    expect(createdBlobs).toHaveLength(2);
+    expect(createdBlobs[1]).toMatchObject({ size: 4, type: "image/jpeg" });
     expect(await screen.findByTestId("gallery-image")).toHaveAttribute(
       "src",
-      "asset://a.jpg?v=1",
+      "blob:preview-2",
     );
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-1");
+
+    unmount();
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:preview-2");
   });
 
   it("reacts when loading changes to an empty authoritative set", async () => {

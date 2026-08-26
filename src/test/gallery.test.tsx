@@ -1,7 +1,7 @@
 /**
  * Gallery view tests.
  */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -171,17 +171,28 @@ describe("GalleryView", () => {
       expect(media).toBeVisible();
     },
   );
-  it("ignores a stale asset URL that resolves after navigation", async () => {
-    let resolveFirst!: (src: string | null) => void;
-    let resolveSecond!: (src: string | null) => void;
-    const loadMedia = vi
-      .fn<(path: string) => Promise<string | null>>()
+  it("ignores and revokes stale image bytes that resolve after navigation", async () => {
+    let resolveFirst!: (bytes: number[] | null) => void;
+    let resolveSecond!: (bytes: number[] | null) => void;
+    const loadImageBytes = vi
+      .fn<
+        (folderPath: string, relativePath: string) => Promise<number[] | null>
+      >()
       .mockImplementationOnce(
         () => new Promise((resolve) => (resolveFirst = resolve)),
       )
       .mockImplementationOnce(
         () => new Promise((resolve) => (resolveSecond = resolve)),
       );
+    const createObjectURL = vi
+      .fn<(blob: Blob) => string>()
+      .mockReturnValueOnce("blob:b")
+      .mockReturnValueOnce("blob:stale-a");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperties(URL, {
+      createObjectURL: { configurable: true, value: createObjectURL },
+      revokeObjectURL: { configurable: true, value: revokeObjectURL },
+    });
     const occurrences = new FileMetadataOccurrencesStore();
     const props = {
       onRemoveMetadataTargets: vi.fn(),
@@ -191,23 +202,25 @@ describe("GalleryView", () => {
       onClose: () => {},
       onNavigate: () => {},
       fileMetadataOccurrences: occurrences,
-      loadMedia,
+      loadMedia: fakeLoadMedia,
+      loadImageBytes,
     };
 
     const { rerender } = render(<GalleryView {...props} currentIndex={0} />);
     rerender(<GalleryView {...props} currentIndex={1} />);
 
-    resolveSecond("asset://b.jpg");
+    resolveSecond([2]);
     const current = await screen.findByTestId("gallery-image");
-    expect(current).toHaveAttribute("src", "asset://b.jpg?v=0");
+    expect(current).toHaveAttribute("src", "blob:b");
 
-    resolveFirst("asset://a.jpg");
-    await Promise.resolve();
+    resolveFirst([1]);
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(2));
 
     expect(screen.getByTestId("gallery-image")).toHaveAttribute(
       "src",
-      "asset://b.jpg?v=0",
+      "blob:b",
     );
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:stale-a");
   });
 
   it("does not close when clicking the gallery content or dialog element", async () => {
