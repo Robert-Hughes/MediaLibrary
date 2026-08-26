@@ -11,6 +11,7 @@ Current
   - Move out of Unknown folder?
   - Try out some searches across fuill collection!
   - Try out the GPS view across the full collection!
+  - Check all videos, as we probably didn't process all these properly yet
 
 Bugs/quirks/tweaks/improvements
 =================================
