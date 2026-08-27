@@ -150,9 +150,34 @@ describe("target-aware normalise inputs", () => {
     expect(items[0].groupInputs.keywords?.dcSubject).toEqual([]);
     expect(items[0].groupInputs.creator?.creator).toEqual([]);
     expect(items[0].groupInputs.dates?.fileStem).toBe("unknown");
+    expect(items[0].groupInputs.dates?.fileDateCreated).toBeNull();
+    expect(items[0].groupInputs.dates?.fileDateModified).toBeNull();
     expect(items[0].groupInputs.iptcUtf8).toEqual({
       hasIptc: false,
       codedCharacterSet: null,
+    });
+  });
+
+  it("passes OS timestamps as read-only Dates fallback inputs", () => {
+    const items = buildNormaliseItems(
+      ["photo.jpg"],
+      { get: () => [] },
+      {},
+      ["dates"],
+      [
+        {
+          relative_path: "photo.jpg",
+          filename: "photo.jpg",
+          media_kind: "image",
+          date_created: 1_700_000_000,
+          date_modified: 1_600_000_000,
+        },
+      ],
+    );
+
+    expect(items[0].groupInputs.dates).toMatchObject({
+      fileDateCreated: 1_700_000_000,
+      fileDateModified: 1_600_000_000,
     });
   });
 

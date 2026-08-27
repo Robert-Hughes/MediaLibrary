@@ -7,6 +7,7 @@ import type {
   FileMetadataEntry,
   FileMetadataOccurrencesState,
   FileMetadataOccurrencesStore,
+  FileInfo,
   MetadataValue,
   NormaliseGroup,
   NormaliseRequestItem,
@@ -172,6 +173,7 @@ export function buildNormaliseItemForFile(
   enabledGroups: ReadonlyArray<NormaliseGroup>,
   occurrences?: FileMetadataOccurrencesState,
   targetDrafts?: TargetDraftCollection,
+  fileInfo?: Pick<FileInfo, "date_modified" | "date_created">,
 ): NormaliseRequestItem {
   const destinationView = filterGeneratedMetadataDestinationView({
     occurrences,
@@ -308,6 +310,8 @@ export function buildNormaliseItemForFile(
       iptcDigitalCreationTime:
         scalarValue(effective, ID.iptcDigitalCreationTime) ?? null,
       fileStem: fileStemOf(relPath),
+      fileDateModified: fileInfo?.date_modified ?? null,
+      fileDateCreated: fileInfo?.date_created ?? null,
     };
   }
 
@@ -319,13 +323,16 @@ export function buildNormaliseItems(
   occurrences: FileOccurrencesLookup,
   targetDrafts: TargetDraftEditsByFile,
   enabledGroups: ReadonlyArray<NormaliseGroup>,
+  files: ReadonlyArray<FileInfo> = [],
 ): NormaliseRequestItem[] {
+  const filesByPath = new Map(files.map((file) => [file.relative_path, file]));
   return relPaths.map((relPath) =>
     buildNormaliseItemForFile(
       relPath,
       enabledGroups,
       occurrences.get(relPath),
       targetDrafts[relPath],
+      filesByPath.get(relPath),
     ),
   );
 }

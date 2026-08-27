@@ -328,8 +328,8 @@ without offset (do not invent UTC).
 
 **Conflict policy per sub-group.**
 
-1. All target sources empty AND filename fallback applies (H1 only) →
-   propose datetime from filename regex. See below.
+1. All target sources empty (H1 only) → try the filename fallback, then the
+   OS timestamp fallback. See below.
 2. Exactly one target source non-empty → propagate to others (after
    normalisation to ISO form).
 3. Multiple target sources non-empty AND all equal after ISO normalisation →
@@ -358,7 +358,17 @@ Matches at any position in the file stem. Sanity bounds: 1900 ≤ year ≤
 
 **Filename fallback never overwrites an existing DTO.** It only fills.
 
-H2 has no filename fallback. H3 is skipped entirely (auto-managed).
+**OS timestamp fallback (H1 only).** If every H1 target source is empty and
+the filename fallback does not match, choose the older available value from
+the scanner's read-only OS Created and OS Modified Unix timestamps. Convert
+that instant to local wall-clock time using the offset in effect at the
+timestamp (including daylight-saving rules), then project it through the H1
+targets. This fallback never overrides embedded metadata or a filename match.
+If only one OS timestamp is available, use it; if neither is available, emit
+no H1 drafts.
+
+H2 has no filename or OS timestamp fallback. H3 is skipped entirely
+(auto-managed).
 
 ### Group I — IPTC UTF-8
 

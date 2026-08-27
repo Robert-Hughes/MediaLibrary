@@ -336,6 +336,14 @@ pub struct DatesInput {
     /// fallback when all H1 fields are empty (plan §1 Group H).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_stem: Option<String>,
+    /// OS file-modified time as Unix seconds. Read-only final H1 fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub file_date_modified: Option<i64>,
+    /// OS file-created time as Unix seconds. Read-only final H1 fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(type = "number | null"))]
+    pub file_date_created: Option<i64>,
 }
 
 /// Description-group input bundle (plan §1 Group B).

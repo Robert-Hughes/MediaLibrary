@@ -522,6 +522,7 @@ function LoadedView({
                 metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
                 state.targetDraftEdits,
                 initialGroups,
+                state.files,
               ),
           );
         }}
@@ -613,6 +614,7 @@ function LoadedView({
                   metadataOccurrencesStoreLookup(state.fileMetadataOccurrences),
                   state.targetDraftEdits,
                   initialGroups,
+                  state.files,
                 ),
             );
           }}
