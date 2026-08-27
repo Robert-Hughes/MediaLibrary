@@ -11,7 +11,7 @@ use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
 use crate::tag_schema::SchemaDefinitionId;
-use chrono::Offset;
+use chrono::{Datelike, Offset, Timelike};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -627,6 +627,44 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ComparableTimestamp, bool)> {
     None
 }
 
+fn os_timestamp_for_h1(timestamp: i64) -> Option<ComparableTimestamp> {
+    let local = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)?
+        .with_timezone(&chrono::Local);
+    let offset_seconds = local.offset().fix().local_minus_utc();
+    let sign = if offset_seconds < 0 {
+        OffsetSign::Minus
+    } else {
+        OffsetSign::Plus
+    };
+    let offset_abs = offset_seconds.unsigned_abs();
+    Some(ComparableTimestamp {
+        datetime: dt_value(
+            date_value(local.year(), local.month() as u8, local.day() as u8),
+            time_value(
+                local.hour() as u8,
+                local.minute() as u8,
+                local.second() as u8,
+                None,
+                Some(UtcOffsetValue {
+                    sign,
+                    hours: (offset_abs / 3600) as u8,
+                    minutes: ((offset_abs % 3600) / 60) as u8,
+                }),
+            ),
+        ),
+        offset_from_related_tag: None,
+    })
+}
+
+fn oldest_os_timestamp_for_h1(input: &DatesInput) -> Option<ComparableTimestamp> {
+    [input.file_date_created, input.file_date_modified]
+        .into_iter()
+        .flatten()
+        .filter_map(|timestamp| os_timestamp_for_h1(timestamp).map(|parsed| (timestamp, parsed)))
+        .min_by_key(|(timestamp, _)| *timestamp)
+        .map(|(_, parsed)| parsed)
+}
+
 fn normalise_dates_inner(
     input: &DatesInput,
     iptc_fallback_offset: Option<UtcOffsetValue>,
@@ -676,6 +714,9 @@ fn normalise_dates_inner(
                     n_from_filename_date_only += 1;
                 }
             }
+        }
+        if canonical_override.is_none() {
+            canonical_override = oldest_os_timestamp_for_h1(input);
         }
     }
 
@@ -1248,6 +1289,8 @@ mod tests {
         let input = DatesInput {
             date_time_original: Some(dt(2020, 1, 1, 0, 0, 0, None)),
             file_stem: Some("IMG_20240615_143045".into()),
+            file_date_created: Some(1_700_000_000),
+            file_date_modified: Some(1_600_000_000),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, None);
@@ -1257,6 +1300,42 @@ mod tests {
             display(edit_value(&g, "XMP-photoshop:DateCreated")),
             "2020-01-01T00:00:00"
         );
+    }
+
+    #[test]
+    fn filename_fallback_wins_over_os_timestamps() {
+        let input = DatesInput {
+            file_stem: Some("IMG_20240615_143045".into()),
+            file_date_created: Some(1_700_000_000),
+            file_date_modified: Some(1_600_000_000),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, None);
+        let g = out.output.unwrap();
+        assert_eq!(
+            display(edit_value(&g, "ExifIFD:DateTimeOriginal")),
+            "2024-06-15T14:30:45"
+        );
+        assert_eq!(out.n_dto_from_filename, 1);
+    }
+
+    #[test]
+    fn oldest_os_timestamp_is_final_h1_fallback() {
+        let older = 1_600_000_000;
+        let input = DatesInput {
+            file_stem: Some("received_without_date".into()),
+            file_date_created: Some(1_700_000_000),
+            file_date_modified: Some(older),
+            ..Default::default()
+        };
+        let expected =
+            MetadataValue::DateTime(os_timestamp_for_h1(older).unwrap().without_inline_offset());
+
+        let out = normalise_dates_with_fallback_offset(&input, None);
+        let g = out.output.unwrap();
+        assert_eq!(edit_value(&g, "ExifIFD:DateTimeOriginal"), &expected);
+        assert_eq!(out.n_dto_from_filename, 0);
+        assert_eq!(out.n_dto_from_filename_date_only, 0);
     }
 
     #[test]

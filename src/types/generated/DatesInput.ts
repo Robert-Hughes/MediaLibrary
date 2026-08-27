@@ -71,4 +71,12 @@ iptcDigitalCreationTime: MetadataValue | null,
  * Filename stem — read-only input used by the H1 filename
  * fallback when all H1 fields are empty (plan §1 Group H).
  */
-fileStem: string | null, };
+fileStem: string | null, 
+/**
+ * OS file-modified time as Unix seconds. Read-only final H1 fallback.
+ */
+fileDateModified: number | null, 
+/**
+ * OS file-created time as Unix seconds. Read-only final H1 fallback.
+ */
+fileDateCreated: number | null, };
