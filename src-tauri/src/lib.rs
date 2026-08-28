@@ -18,6 +18,7 @@ pub mod geocode_cache;
 mod image_orientation;
 pub mod known_ids;
 pub mod media_bytes;
+pub mod media_cache_repository;
 pub mod metadata_draft_target;
 pub mod metadata_occurrence;
 pub mod metadata_value;
