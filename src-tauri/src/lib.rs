@@ -40,7 +40,7 @@ pub mod util;
 pub mod work_queue;
 pub mod write_args;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -193,6 +193,17 @@ struct ThumbnailResult {
     thumbnail: Option<String>,
 }
 
+#[derive(Default)]
+struct ScanCacheStats {
+    metadata_hits: AtomicUsize,
+    metadata_misses: AtomicUsize,
+    thumbnail_hits: AtomicUsize,
+    thumbnail_misses: AtomicUsize,
+    fingerprint_failures: AtomicUsize,
+    read_errors: AtomicUsize,
+    unstable_writes_skipped: AtomicUsize,
+}
+
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -255,20 +266,25 @@ fn cache_scan_metadata(
     cache_dir: &std::path::Path,
     root: &std::path::Path,
     metadata: &scanner::FileMetadata,
-) -> Result<(), String> {
+    fingerprint_before: media_cache_repository::MediaCacheFingerprint,
+) -> Result<bool, String> {
     let absolute_path = root.join(
         metadata
             .relative_path
             .replace('/', std::path::MAIN_SEPARATOR_STR),
     );
-    let fingerprint = media_cache_repository::fingerprint_for_file(&absolute_path)?;
+    let fingerprint_after = media_cache_repository::fingerprint_for_file(&absolute_path)?;
+    if fingerprint_after != fingerprint_before {
+        return Ok(false);
+    }
     media_cache_repository::update_metadata(
         cache_dir,
         &root.to_string_lossy(),
         &metadata.relative_path,
-        fingerprint,
+        fingerprint_before,
         &metadata.occurrences,
-    )
+    )?;
+    Ok(true)
 }
 
 fn cache_scan_thumbnail(
@@ -276,16 +292,21 @@ fn cache_scan_thumbnail(
     root: &std::path::Path,
     relative_path: &str,
     thumbnail: Option<&str>,
-) -> Result<(), String> {
+    fingerprint_before: media_cache_repository::MediaCacheFingerprint,
+) -> Result<bool, String> {
     let absolute_path = root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-    let fingerprint = media_cache_repository::fingerprint_for_file(&absolute_path)?;
+    let fingerprint_after = media_cache_repository::fingerprint_for_file(&absolute_path)?;
+    if fingerprint_after != fingerprint_before {
+        return Ok(false);
+    }
     media_cache_repository::update_thumbnail(
         cache_dir,
         &root.to_string_lossy(),
         relative_path,
-        fingerprint,
+        fingerprint_before,
         thumbnail,
-    )
+    )?;
+    Ok(true)
 }
 
 #[tauri::command]
@@ -514,6 +535,7 @@ fn start_scan(
                 None
             }
         };
+        let cache_stats = Arc::new(ScanCacheStats::default());
 
         // ── Phase 2: Image Metadata workers ───────────────────────────────
         let metadata_handles: Vec<_> = (0..metadata_workers)
@@ -524,6 +546,7 @@ fn start_scan(
                 let cancelled = cancel_clone.clone();
                 let batch_size = metadata_batch_size;
                 let cache_dir = cache_dir.clone();
+                let cache_stats = cache_stats.clone();
                 std::thread::spawn(move || {
                     let mut batch_results = Vec::new();
                     let mut last_emit = std::time::Instant::now();
@@ -554,52 +577,140 @@ fn start_scan(
                             .iter()
                             .map(|p| root.join(p.replace('/', std::path::MAIN_SEPARATOR_STR)))
                             .collect();
+                        let mut fingerprints = std::collections::HashMap::new();
+                        let mut cache_hits = std::collections::HashMap::new();
 
-                        match scanner::read_file_metadata_batch(&rel_paths, &abs_paths) {
-                            Ok(outcome) => {
-                                log::debug!(
-                                    "[metadata] Read {} successes and {} failures",
-                                    outcome.results.len(),
-                                    outcome.failures.len()
-                                );
-
-                                if !cancelled.load(Ordering::Relaxed) {
-                                    if let Some(cache_dir) = cache_dir.as_deref() {
-                                        for metadata in &outcome.results {
-                                            if let Err(error) =
-                                                cache_scan_metadata(cache_dir, &root, metadata)
-                                            {
-                                                log::warn!(
-                                                    "[media-cache] metadata update failed for {}: {}",
-                                                    metadata.relative_path,
-                                                    error
-                                                );
-                                            }
-                                        }
+                        if let Some(cache_dir) = cache_dir.as_deref() {
+                            let mut requests = Vec::with_capacity(rel_paths.len());
+                            for (relative_path, absolute_path) in rel_paths.iter().zip(&abs_paths) {
+                                match media_cache_repository::fingerprint_for_file(absolute_path) {
+                                    Ok(fingerprint) => {
+                                        fingerprints.insert(relative_path.clone(), fingerprint);
+                                        requests.push((relative_path.clone(), fingerprint));
+                                    }
+                                    Err(error) => {
+                                        cache_stats
+                                            .fingerprint_failures
+                                            .fetch_add(1, Ordering::Relaxed);
+                                        log::debug!(
+                                            "[media-cache] metadata fingerprint unavailable for {}: {}",
+                                            relative_path,
+                                            error
+                                        );
                                     }
                                 }
-
-                                batch_results.extend(outcome.results);
-
-                                let grouped_failures =
-                                    scanner::group_metadata_failures(&outcome.failures);
-                                for (error_msg, affected) in grouped_failures {
-                                    record_session_issue(
-                                        &app, scan_id, "error", "metadata", error_msg, affected,
+                            }
+                            match media_cache_repository::load_metadata_batch(
+                                cache_dir,
+                                &root.to_string_lossy(),
+                                &requests,
+                            ) {
+                                Ok(hits) => cache_hits = hits,
+                                Err(error) => {
+                                    cache_stats.read_errors.fetch_add(1, Ordering::Relaxed);
+                                    log::warn!(
+                                        "[media-cache] metadata lookup failed; falling back to disk: {}",
+                                        error
                                     );
                                 }
                             }
-                            Err(error_msg) => {
-                                log::error!("[metadata] Error reading metadata: {}", error_msg);
+                            cache_stats
+                                .metadata_hits
+                                .fetch_add(cache_hits.len(), Ordering::Relaxed);
+                            cache_stats
+                                .metadata_misses
+                                .fetch_add(rel_paths.len() - cache_hits.len(), Ordering::Relaxed);
+                            log::debug!(
+                                "[media-cache] metadata batch hits={} misses={}",
+                                cache_hits.len(),
+                                rel_paths.len() - cache_hits.len()
+                            );
+                        }
 
-                                record_session_issue(
-                                    &app,
-                                    scan_id,
-                                    "error",
-                                    "metadata",
-                                    error_msg,
-                                    rel_paths.clone(),
-                                );
+                        let miss_rel_paths = rel_paths
+                            .iter()
+                            .filter(|relative_path| !cache_hits.contains_key(*relative_path))
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        let miss_abs_paths = miss_rel_paths
+                            .iter()
+                            .map(|p| root.join(p.replace('/', std::path::MAIN_SEPARATOR_STR)))
+                            .collect::<Vec<_>>();
+
+                        batch_results.extend(cache_hits.into_iter().map(
+                            |(relative_path, occurrences)| scanner::FileMetadata {
+                                relative_path,
+                                occurrences,
+                            },
+                        ));
+
+                        if !miss_rel_paths.is_empty() {
+                            match scanner::read_file_metadata_batch(&miss_rel_paths, &miss_abs_paths) {
+                                Ok(outcome) => {
+                                    log::debug!(
+                                        "[metadata] Read {} successes and {} failures",
+                                        outcome.results.len(),
+                                        outcome.failures.len()
+                                    );
+
+                                    if !cancelled.load(Ordering::Relaxed) {
+                                        if let Some(cache_dir) = cache_dir.as_deref() {
+                                            for metadata in &outcome.results {
+                                                let Some(fingerprint_before) =
+                                                    fingerprints.get(&metadata.relative_path).copied()
+                                                else {
+                                                    continue;
+                                                };
+                                                match cache_scan_metadata(
+                                                    cache_dir,
+                                                    &root,
+                                                    metadata,
+                                                    fingerprint_before,
+                                                ) {
+                                                    Ok(true) => {}
+                                                    Ok(false) => {
+                                                        cache_stats
+                                                            .unstable_writes_skipped
+                                                            .fetch_add(1, Ordering::Relaxed);
+                                                        log::debug!(
+                                                            "[media-cache] metadata changed during read; cache write skipped for {}",
+                                                            metadata.relative_path
+                                                        );
+                                                    }
+                                                    Err(error) => {
+                                                        log::warn!(
+                                                            "[media-cache] metadata update failed for {}: {}",
+                                                            metadata.relative_path,
+                                                            error
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    batch_results.extend(outcome.results);
+
+                                    let grouped_failures =
+                                        scanner::group_metadata_failures(&outcome.failures);
+                                    for (error_msg, affected) in grouped_failures {
+                                        record_session_issue(
+                                            &app, scan_id, "error", "metadata", error_msg, affected,
+                                        );
+                                    }
+                                }
+                                Err(error_msg) => {
+                                    log::error!("[metadata] Error reading metadata: {}", error_msg);
+
+                                    record_session_issue(
+                                        &app,
+                                        scan_id,
+                                        "error",
+                                        "metadata",
+                                        error_msg,
+                                        miss_rel_paths.clone(),
+                                    );
+                                }
                             }
                         }
 
@@ -669,6 +780,7 @@ fn start_scan(
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
                 let cache_dir = cache_dir.clone();
+                let cache_stats = cache_stats.clone();
                 let result_tx = thumbnail_result_tx.clone();
                 std::thread::spawn(move || {
                     while let Some(rel_path) = queue.pop() {
@@ -677,23 +789,90 @@ fn start_scan(
                         }
 
                         let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
-                        let thumbnail = scanner::thumbnail_for_media(&abs);
-                        if !cancelled.load(Ordering::Relaxed) {
-                            if let Some(cache_dir) = cache_dir.as_deref() {
-                                if let Err(error) = cache_scan_thumbnail(
-                                    cache_dir,
-                                    &root,
-                                    &rel_path,
-                                    thumbnail.as_deref(),
-                                ) {
-                                    log::warn!(
-                                        "[media-cache] thumbnail update failed for {}: {}",
+                        let mut fingerprint_before = None;
+                        let mut thumbnail = None;
+                        let mut cache_hit = false;
+
+                        if let Some(cache_dir) = cache_dir.as_deref() {
+                            match media_cache_repository::fingerprint_for_file(&abs) {
+                                Ok(fingerprint) => {
+                                    fingerprint_before = Some(fingerprint);
+                                    match media_cache_repository::load_thumbnail(
+                                        cache_dir,
+                                        &root.to_string_lossy(),
+                                        &rel_path,
+                                        fingerprint,
+                                    ) {
+                                        Ok(Some(cached_thumbnail)) => {
+                                            thumbnail = Some(cached_thumbnail);
+                                            cache_hit = true;
+                                        }
+                                        Ok(None) => {}
+                                        Err(error) => {
+                                            cache_stats.read_errors.fetch_add(1, Ordering::Relaxed);
+                                            log::warn!(
+                                                "[media-cache] thumbnail lookup failed for {}; falling back to disk: {}",
+                                                rel_path,
+                                                error
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(error) => {
+                                    cache_stats
+                                        .fingerprint_failures
+                                        .fetch_add(1, Ordering::Relaxed);
+                                    log::debug!(
+                                        "[media-cache] thumbnail fingerprint unavailable for {}: {}",
                                         rel_path,
                                         error
                                     );
                                 }
                             }
+                            if cache_hit {
+                                cache_stats.thumbnail_hits.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                cache_stats
+                                    .thumbnail_misses
+                                    .fetch_add(1, Ordering::Relaxed);
+                            }
                         }
+
+                        if !cache_hit {
+                            thumbnail = scanner::thumbnail_for_media(&abs);
+                            if !cancelled.load(Ordering::Relaxed) {
+                                if let (Some(cache_dir), Some(fingerprint_before)) =
+                                    (cache_dir.as_deref(), fingerprint_before)
+                                {
+                                    match cache_scan_thumbnail(
+                                        cache_dir,
+                                        &root,
+                                        &rel_path,
+                                        thumbnail.as_deref(),
+                                        fingerprint_before,
+                                    ) {
+                                        Ok(true) => {}
+                                        Ok(false) => {
+                                            cache_stats
+                                                .unstable_writes_skipped
+                                                .fetch_add(1, Ordering::Relaxed);
+                                            log::debug!(
+                                                "[media-cache] media changed during thumbnail generation; cache write skipped for {}",
+                                                rel_path
+                                            );
+                                        }
+                                        Err(error) => {
+                                            log::warn!(
+                                                "[media-cache] thumbnail update failed for {}: {}",
+                                                rel_path,
+                                                error
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         let _ = result_tx.send(ThumbnailResult {
                             relative_path: rel_path,
                             thumbnail,
@@ -812,6 +991,19 @@ fn start_scan(
         }
         drop(thumbnail_result_tx);
         let _ = thumbnail_emitter.join();
+        if cache_dir.is_some() {
+            log::info!(
+                "[media-cache] scan {} summary metadata_hits={} metadata_misses={} thumbnail_hits={} thumbnail_misses={} fingerprint_failures={} read_errors={} unstable_writes_skipped={}",
+                scan_id,
+                cache_stats.metadata_hits.load(Ordering::Relaxed),
+                cache_stats.metadata_misses.load(Ordering::Relaxed),
+                cache_stats.thumbnail_hits.load(Ordering::Relaxed),
+                cache_stats.thumbnail_misses.load(Ordering::Relaxed),
+                cache_stats.fingerprint_failures.load(Ordering::Relaxed),
+                cache_stats.read_errors.load(Ordering::Relaxed),
+                cache_stats.unstable_writes_skipped.load(Ordering::Relaxed),
+            );
+        }
         // Clear the queue slots — but only if a newer scan hasn't already
         // installed its own queues here.  Without this guard, a fast
         // folder-switch can null out the new scan's queues and break
@@ -1164,9 +1356,9 @@ mod tests {
             occurrences: Default::default(),
         };
 
-        cache_scan_metadata(&cache_dir, &root, &metadata).unwrap();
         let fingerprint =
             media_cache_repository::fingerprint_for_file(&root.join("photo.jpg")).unwrap();
+        assert!(cache_scan_metadata(&cache_dir, &root, &metadata, fingerprint).unwrap());
         let first = media_cache_repository::load(
             &cache_dir,
             &root.to_string_lossy(),
@@ -1178,7 +1370,10 @@ mod tests {
         assert_eq!(first.metadata, Some(Default::default()));
         assert_eq!(first.thumbnail, None);
 
-        cache_scan_thumbnail(&cache_dir, &root, "photo.jpg", Some("thumb")).unwrap();
+        assert!(
+            cache_scan_thumbnail(&cache_dir, &root, "photo.jpg", Some("thumb"), fingerprint)
+                .unwrap()
+        );
         let complete = media_cache_repository::load(
             &cache_dir,
             &root.to_string_lossy(),
@@ -1189,6 +1384,42 @@ mod tests {
         .unwrap();
         assert_eq!(complete.metadata, Some(Default::default()));
         assert_eq!(complete.thumbnail.as_deref(), Some("thumb"));
+    }
+
+    #[test]
+    fn scan_cache_helpers_skip_writes_when_media_changes_during_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("photos");
+        std::fs::create_dir_all(&root).unwrap();
+        let photo = root.join("photo.jpg");
+        let cache_dir = temp.path().join("cache");
+        let metadata = scanner::FileMetadata {
+            relative_path: "photo.jpg".into(),
+            occurrences: Default::default(),
+        };
+
+        std::fs::write(&photo, b"before").unwrap();
+        let metadata_before = media_cache_repository::fingerprint_for_file(&photo).unwrap();
+        std::fs::write(&photo, b"after metadata").unwrap();
+        assert!(!cache_scan_metadata(&cache_dir, &root, &metadata, metadata_before).unwrap());
+
+        let thumbnail_before = media_cache_repository::fingerprint_for_file(&photo).unwrap();
+        std::fs::write(&photo, b"after thumbnail generation").unwrap();
+        assert!(!cache_scan_thumbnail(
+            &cache_dir,
+            &root,
+            "photo.jpg",
+            Some("thumb"),
+            thumbnail_before
+        )
+        .unwrap());
+
+        let current = media_cache_repository::fingerprint_for_file(&photo).unwrap();
+        assert_eq!(
+            media_cache_repository::load(&cache_dir, &root.to_string_lossy(), "photo.jpg", current)
+                .unwrap(),
+            None
+        );
     }
 
     #[test]
