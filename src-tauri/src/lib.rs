@@ -263,7 +263,7 @@ fn commit_session_thumbnails(app: &AppHandle, session_id: u64, results: Vec<Thum
 }
 
 fn cache_scan_metadata(
-    cache_dir: &std::path::Path,
+    cache: &media_cache_repository::MediaCacheRepository,
     root: &std::path::Path,
     metadata: &scanner::FileMetadata,
     fingerprint_before: media_cache_repository::MediaCacheFingerprint,
@@ -277,8 +277,7 @@ fn cache_scan_metadata(
     if fingerprint_after != fingerprint_before {
         return Ok(false);
     }
-    media_cache_repository::update_metadata(
-        cache_dir,
+    cache.update_metadata(
         &root.to_string_lossy(),
         &metadata.relative_path,
         fingerprint_before,
@@ -288,7 +287,7 @@ fn cache_scan_metadata(
 }
 
 fn cache_scan_thumbnail(
-    cache_dir: &std::path::Path,
+    cache: &media_cache_repository::MediaCacheRepository,
     root: &std::path::Path,
     relative_path: &str,
     thumbnail: Option<&str>,
@@ -299,8 +298,7 @@ fn cache_scan_thumbnail(
     if fingerprint_after != fingerprint_before {
         return Ok(false);
     }
-    media_cache_repository::update_thumbnail(
-        cache_dir,
+    cache.update_thumbnail(
         &root.to_string_lossy(),
         relative_path,
         fingerprint_before,
@@ -525,11 +523,8 @@ fn start_scan(
         queues_for_thread.install(thumb_queue.clone(), file_metadata_queue.clone());
 
         let root_arc = Arc::new(root.clone());
-        let cache_dir = match media_cache_repository::cache_directory().and_then(|path| {
-            media_cache_repository::initialise(&path)?;
-            Ok(path)
-        }) {
-            Ok(path) => Some(path),
+        let cache = match media_cache_repository::shared_repository() {
+            Ok(cache) => Some(cache),
             Err(error) => {
                 log::warn!("[media-cache] disabled for scan {}: {}", scan_id, error);
                 None
@@ -545,7 +540,7 @@ fn start_scan(
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
                 let batch_size = metadata_batch_size;
-                let cache_dir = cache_dir.clone();
+                let cache = cache.clone();
                 let cache_stats = cache_stats.clone();
                 std::thread::spawn(move || {
                     let mut batch_results = Vec::new();
@@ -580,7 +575,7 @@ fn start_scan(
                         let mut fingerprints = std::collections::HashMap::new();
                         let mut cache_hits = std::collections::HashMap::new();
 
-                        if let Some(cache_dir) = cache_dir.as_deref() {
+                        if let Some(cache) = cache.as_deref() {
                             let mut requests = Vec::with_capacity(rel_paths.len());
                             for (relative_path, absolute_path) in rel_paths.iter().zip(&abs_paths) {
                                 match media_cache_repository::fingerprint_for_file(absolute_path) {
@@ -600,11 +595,7 @@ fn start_scan(
                                     }
                                 }
                             }
-                            match media_cache_repository::load_metadata_batch(
-                                cache_dir,
-                                &root.to_string_lossy(),
-                                &requests,
-                            ) {
+                            match cache.load_metadata_batch(&root.to_string_lossy(), &requests) {
                                 Ok(hits) => cache_hits = hits,
                                 Err(error) => {
                                     cache_stats.read_errors.fetch_add(1, Ordering::Relaxed);
@@ -654,7 +645,7 @@ fn start_scan(
                                     );
 
                                     if !cancelled.load(Ordering::Relaxed) {
-                                        if let Some(cache_dir) = cache_dir.as_deref() {
+                                        if let Some(cache) = cache.as_deref() {
                                             for metadata in &outcome.results {
                                                 let Some(fingerprint_before) =
                                                     fingerprints.get(&metadata.relative_path).copied()
@@ -662,7 +653,7 @@ fn start_scan(
                                                     continue;
                                                 };
                                                 match cache_scan_metadata(
-                                                    cache_dir,
+                                                    cache,
                                                     &root,
                                                     metadata,
                                                     fingerprint_before,
@@ -779,7 +770,7 @@ fn start_scan(
                 let queue = thumb_queue.clone();
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
-                let cache_dir = cache_dir.clone();
+                let cache = cache.clone();
                 let cache_stats = cache_stats.clone();
                 let result_tx = thumbnail_result_tx.clone();
                 std::thread::spawn(move || {
@@ -793,12 +784,11 @@ fn start_scan(
                         let mut thumbnail = None;
                         let mut cache_hit = false;
 
-                        if let Some(cache_dir) = cache_dir.as_deref() {
+                        if let Some(cache) = cache.as_deref() {
                             match media_cache_repository::fingerprint_for_file(&abs) {
                                 Ok(fingerprint) => {
                                     fingerprint_before = Some(fingerprint);
-                                    match media_cache_repository::load_thumbnail(
-                                        cache_dir,
+                                    match cache.load_thumbnail(
                                         &root.to_string_lossy(),
                                         &rel_path,
                                         fingerprint,
@@ -841,11 +831,11 @@ fn start_scan(
                         if !cache_hit {
                             thumbnail = scanner::thumbnail_for_media(&abs);
                             if !cancelled.load(Ordering::Relaxed) {
-                                if let (Some(cache_dir), Some(fingerprint_before)) =
-                                    (cache_dir.as_deref(), fingerprint_before)
+                                if let (Some(cache), Some(fingerprint_before)) =
+                                    (cache.as_deref(), fingerprint_before)
                                 {
                                     match cache_scan_thumbnail(
-                                        cache_dir,
+                                        cache,
                                         &root,
                                         &rel_path,
                                         thumbnail.as_deref(),
@@ -991,7 +981,7 @@ fn start_scan(
         }
         drop(thumbnail_result_tx);
         let _ = thumbnail_emitter.join();
-        if cache_dir.is_some() {
+        if cache.is_some() {
             log::info!(
                 "[media-cache] scan {} summary metadata_hits={} metadata_misses={} thumbnail_hits={} thumbnail_misses={} fingerprint_failures={} read_errors={} unstable_writes_skipped={}",
                 scan_id,
@@ -1351,6 +1341,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("photo.jpg"), b"photo").unwrap();
         let cache_dir = temp.path().join("cache");
+        let cache = media_cache_repository::MediaCacheRepository::open(&cache_dir).unwrap();
         let metadata = scanner::FileMetadata {
             relative_path: "photo.jpg".into(),
             occurrences: Default::default(),
@@ -1358,30 +1349,21 @@ mod tests {
 
         let fingerprint =
             media_cache_repository::fingerprint_for_file(&root.join("photo.jpg")).unwrap();
-        assert!(cache_scan_metadata(&cache_dir, &root, &metadata, fingerprint).unwrap());
-        let first = media_cache_repository::load(
-            &cache_dir,
-            &root.to_string_lossy(),
-            "photo.jpg",
-            fingerprint,
-        )
-        .unwrap()
-        .unwrap();
+        assert!(cache_scan_metadata(&cache, &root, &metadata, fingerprint).unwrap());
+        let first = cache
+            .load(&root.to_string_lossy(), "photo.jpg", fingerprint)
+            .unwrap()
+            .unwrap();
         assert_eq!(first.metadata, Some(Default::default()));
         assert_eq!(first.thumbnail, None);
 
         assert!(
-            cache_scan_thumbnail(&cache_dir, &root, "photo.jpg", Some("thumb"), fingerprint)
-                .unwrap()
+            cache_scan_thumbnail(&cache, &root, "photo.jpg", Some("thumb"), fingerprint).unwrap()
         );
-        let complete = media_cache_repository::load(
-            &cache_dir,
-            &root.to_string_lossy(),
-            "photo.jpg",
-            fingerprint,
-        )
-        .unwrap()
-        .unwrap();
+        let complete = cache
+            .load(&root.to_string_lossy(), "photo.jpg", fingerprint)
+            .unwrap()
+            .unwrap();
         assert_eq!(complete.metadata, Some(Default::default()));
         assert_eq!(complete.thumbnail.as_deref(), Some("thumb"));
     }
@@ -1393,6 +1375,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         let photo = root.join("photo.jpg");
         let cache_dir = temp.path().join("cache");
+        let cache = media_cache_repository::MediaCacheRepository::open(&cache_dir).unwrap();
         let metadata = scanner::FileMetadata {
             relative_path: "photo.jpg".into(),
             occurrences: Default::default(),
@@ -1401,22 +1384,19 @@ mod tests {
         std::fs::write(&photo, b"before").unwrap();
         let metadata_before = media_cache_repository::fingerprint_for_file(&photo).unwrap();
         std::fs::write(&photo, b"after metadata").unwrap();
-        assert!(!cache_scan_metadata(&cache_dir, &root, &metadata, metadata_before).unwrap());
+        assert!(!cache_scan_metadata(&cache, &root, &metadata, metadata_before).unwrap());
 
         let thumbnail_before = media_cache_repository::fingerprint_for_file(&photo).unwrap();
         std::fs::write(&photo, b"after thumbnail generation").unwrap();
-        assert!(!cache_scan_thumbnail(
-            &cache_dir,
-            &root,
-            "photo.jpg",
-            Some("thumb"),
-            thumbnail_before
-        )
-        .unwrap());
+        assert!(
+            !cache_scan_thumbnail(&cache, &root, "photo.jpg", Some("thumb"), thumbnail_before)
+                .unwrap()
+        );
 
         let current = media_cache_repository::fingerprint_for_file(&photo).unwrap();
         assert_eq!(
-            media_cache_repository::load(&cache_dir, &root.to_string_lossy(), "photo.jpg", current)
+            cache
+                .load(&root.to_string_lossy(), "photo.jpg", current)
                 .unwrap(),
             None
         );

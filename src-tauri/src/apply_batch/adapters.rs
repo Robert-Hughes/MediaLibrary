@@ -251,7 +251,11 @@ fn applied_thumbnail_paths(results: &[MetadataApplyFileResult]) -> Vec<String> {
         .collect()
 }
 
-fn cache_post_write_metadata(cache_dir: &Path, folder: &str, results: &[MetadataApplyFileResult]) {
+fn cache_post_write_metadata(
+    cache: &crate::media_cache_repository::MediaCacheRepository,
+    folder: &str,
+    results: &[MetadataApplyFileResult],
+) {
     for metadata in results
         .iter()
         .filter_map(|result| result.fresh_file_metadata.as_ref())
@@ -263,8 +267,7 @@ fn cache_post_write_metadata(cache_dir: &Path, folder: &str, results: &[Metadata
         );
         let update = crate::media_cache_repository::fingerprint_for_file(&absolute_path).and_then(
             |fingerprint| {
-                crate::media_cache_repository::update_metadata(
-                    cache_dir,
+                cache.update_metadata(
                     folder,
                     &metadata.relative_path,
                     fingerprint,
@@ -286,7 +289,7 @@ fn refresh_applied_media(
     state: &crate::session::MediaLibrarySessionState,
     session_id: u64,
     results: &[MetadataApplyFileResult],
-    cache_dir: Option<&Path>,
+    cache: Option<&crate::media_cache_repository::MediaCacheRepository>,
 ) {
     let folder = state.inspect(|snapshot| {
         if snapshot.session_id == Some(session_id) {
@@ -300,8 +303,8 @@ fn refresh_applied_media(
         return;
     };
 
-    if let Some(cache_dir) = cache_dir {
-        cache_post_write_metadata(cache_dir, &folder, results);
+    if let Some(cache) = cache {
+        cache_post_write_metadata(cache, &folder, results);
     }
 
     let refreshed = applied_thumbnail_paths(results)
@@ -310,11 +313,10 @@ fn refresh_applied_media(
             let absolute_path =
                 Path::new(&folder).join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
             let thumbnail = scanner::thumbnail_for_media(&absolute_path);
-            if let Some(cache_dir) = cache_dir {
+            if let Some(cache) = cache {
                 let update = crate::media_cache_repository::fingerprint_for_file(&absolute_path)
                     .and_then(|fingerprint| {
-                        crate::media_cache_repository::update_thumbnail(
-                            cache_dir,
+                        cache.update_thumbnail(
                             &folder,
                             &relative_path,
                             fingerprint,
@@ -350,18 +352,14 @@ impl ApplyEvents for SessionApplyEvents {
         let state = self.app.state::<crate::session::MediaLibrarySessionState>();
         state.update_apply_operation(self.session_id, message)?;
         if let MetadataApplyStreamMessage::ProgressBatch { results, .. } = message {
-            let cache_dir =
-                match crate::media_cache_repository::cache_directory().and_then(|path| {
-                    crate::media_cache_repository::initialise(&path)?;
-                    Ok(path)
-                }) {
-                    Ok(path) => Some(path),
-                    Err(error) => {
-                        log::warn!("[media-cache] disabled for apply refresh: {error}");
-                        None
-                    }
-                };
-            refresh_applied_media(&state, self.session_id, results, cache_dir.as_deref());
+            let cache = match crate::media_cache_repository::shared_repository() {
+                Ok(cache) => Some(cache),
+                Err(error) => {
+                    log::warn!("[media-cache] disabled for apply refresh: {error}");
+                    None
+                }
+            };
+            refresh_applied_media(&state, self.session_id, results, cache.as_deref());
         }
         Ok(())
     }
@@ -463,11 +461,12 @@ mod tests {
             .unwrap();
 
         let cache_dir = dir.path().join("cache");
+        let cache = crate::media_cache_repository::MediaCacheRepository::open(&cache_dir).unwrap();
         refresh_applied_media(
             &state,
             session_id,
             &[apply_result(relative_path, true)],
-            Some(&cache_dir),
+            Some(&cache),
         );
 
         let snapshot = state.snapshot();
@@ -482,10 +481,10 @@ mod tests {
         assert!(!payloads[0].thumbnail.is_empty());
         let fingerprint =
             crate::media_cache_repository::fingerprint_for_file(&absolute_path).unwrap();
-        let cached =
-            crate::media_cache_repository::load(&cache_dir, &folder, relative_path, fingerprint)
-                .unwrap()
-                .unwrap();
+        let cached = cache
+            .load(&folder, relative_path, fingerprint)
+            .unwrap()
+            .unwrap();
         assert!(cached.thumbnail.is_some());
         assert_ne!(cached.thumbnail.as_deref(), Some("old-thumbnail"));
     }
@@ -498,6 +497,7 @@ mod tests {
         std::fs::write(&absolute_path, b"changed media").unwrap();
         let folder = dir.path().to_string_lossy().into_owned();
         let cache_dir = dir.path().join("cache");
+        let cache = crate::media_cache_repository::MediaCacheRepository::open(&cache_dir).unwrap();
 
         let state = crate::session::MediaLibrarySessionState::new();
         let opened = state.begin_open(folder.clone());
@@ -509,14 +509,14 @@ mod tests {
             relative_path: relative_path.into(),
             occurrences: Default::default(),
         });
-        refresh_applied_media(&state, session_id, &[result], Some(&cache_dir));
+        refresh_applied_media(&state, session_id, &[result], Some(&cache));
 
         let fingerprint =
             crate::media_cache_repository::fingerprint_for_file(&absolute_path).unwrap();
-        let cached =
-            crate::media_cache_repository::load(&cache_dir, &folder, relative_path, fingerprint)
-                .unwrap()
-                .unwrap();
+        let cached = cache
+            .load(&folder, relative_path, fingerprint)
+            .unwrap()
+            .unwrap();
         assert_eq!(cached.metadata, Some(Default::default()));
         assert_eq!(cached.thumbnail, None);
     }
