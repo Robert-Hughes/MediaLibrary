@@ -38,18 +38,9 @@ impl DraftPersistence for RealDraftPersistence {
     }
 }
 
-pub(super) struct RealSingleFileApply;
+pub(super) struct RealBatchApply;
 
-impl SingleFileApply for RealSingleFileApply {
-    fn apply(
-        &self,
-        folder_path: &str,
-        relative_path: &str,
-        edits: &[MetadataTargetDraftEntry],
-    ) -> MetadataSingleFileOutcome {
-        apply_single_file_metadata(folder_path, relative_path, edits)
-    }
-
+impl BatchApply for RealBatchApply {
     fn apply_batch(
         &self,
         folder_path: &str,
@@ -71,14 +62,34 @@ pub(super) fn read_metadata_for_jobs(
             Path::new(folder_path).join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR))
         })
         .collect::<Vec<_>>();
+    classify_metadata_results(
+        relative_paths,
+        scanner::read_file_metadata_batch(relative_paths, &absolute_paths),
+    )
+}
+
+fn classify_metadata_results(
+    relative_paths: &[String],
+    outcome: Result<scanner::MetadataBatchReadOutcome, String>,
+) -> HashMap<String, Result<scanner::FileMetadata, String>> {
     let mut by_path = HashMap::with_capacity(relative_paths.len());
-    match scanner::read_file_metadata_batch(relative_paths, &absolute_paths) {
+    match outcome {
         Ok(outcome) => {
             for metadata in outcome.results {
-                by_path.insert(metadata.relative_path.clone(), Ok(metadata));
+                let path = metadata.relative_path.clone();
+                match by_path.entry(path.clone()) {
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(Ok(metadata));
+                    }
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        let _ = entry.insert(Err(format!(
+                            "authoritative metadata read returned duplicate results for {path}"
+                        )));
+                    }
+                }
             }
             for failure in outcome.failures {
-                by_path.insert(failure.relative_path, Err(failure.error_message));
+                let _ = by_path.insert(failure.relative_path, Err(failure.error_message));
             }
             for relative_path in relative_paths {
                 by_path.entry(relative_path.clone()).or_insert_with(|| {
@@ -100,7 +111,8 @@ pub(super) fn read_metadata_for_jobs(
     by_path
 }
 
-pub(super) fn apply_real_metadata_batch(
+/// Apply a batch through authoritative pre-read, bounded writes and readback.
+pub fn apply_real_metadata_batch(
     folder_path: &str,
     jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
     write_concurrency: usize,
@@ -295,6 +307,40 @@ impl ApplyEvents for SessionApplyEvents {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn duplicate_metadata_results_fail_only_the_affected_file() {
+        let metadata = |path: &str| scanner::FileMetadata {
+            relative_path: path.into(),
+            occurrences: Default::default(),
+        };
+        let paths = vec![
+            "duplicate.jpg".into(),
+            "good.jpg".into(),
+            "missing.jpg".into(),
+        ];
+        let classified = classify_metadata_results(
+            &paths,
+            Ok(scanner::MetadataBatchReadOutcome {
+                results: vec![
+                    metadata("duplicate.jpg"),
+                    metadata("good.jpg"),
+                    metadata("duplicate.jpg"),
+                    metadata("duplicate.jpg"),
+                ],
+                failures: Vec::new(),
+            }),
+        );
+        assert!(classified["duplicate.jpg"]
+            .as_ref()
+            .unwrap_err()
+            .contains("duplicate results"));
+        assert!(classified["good.jpg"].is_ok());
+        assert!(classified["missing.jpg"]
+            .as_ref()
+            .unwrap_err()
+            .contains("neither a result nor a failure"));
+    }
 
     fn apply_result(relative_path: &str, applied: bool) -> MetadataApplyFileResult {
         MetadataApplyFileResult {

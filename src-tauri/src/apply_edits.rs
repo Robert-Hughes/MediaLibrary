@@ -106,6 +106,7 @@ impl MetadataSingleFileOutcome {
     }
 }
 
+#[cfg(test)]
 pub(crate) trait MetadataTargetWriteClient {
     fn read_file_metadata(
         &self,
@@ -297,6 +298,7 @@ struct PlannedBatch {
 
 pub(crate) struct PreparedMetadataWrite {
     rel_path: String,
+    #[cfg(test)]
     abs_path: std::path::PathBuf,
     planned: PlannedBatch,
     file_started: Instant,
@@ -508,8 +510,6 @@ use planning::plan_batch;
 
 // Single-file read, write and verification orchestration.
 mod execution;
-pub use execution::apply_single_file_metadata;
-#[cfg(test)]
 #[cfg(test)]
 use execution::apply_single_file_metadata_with_client;
 pub(crate) use execution::{

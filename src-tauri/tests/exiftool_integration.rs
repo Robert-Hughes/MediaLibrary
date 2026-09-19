@@ -204,7 +204,23 @@ fn apply_target_file(
     edits: Vec<SchemaMetadataEdit>,
 ) -> apply_edits::MetadataSingleFileOutcome {
     let entries = target_entries(Path::new(folder), rel, edits);
-    apply_edits::apply_single_file_metadata(folder, rel, &entries)
+    apply_entries(folder, rel, &entries)
+}
+
+fn apply_entries(
+    folder: &str,
+    rel: &str,
+    entries: &[MetadataTargetDraftEntry],
+) -> apply_edits::MetadataSingleFileOutcome {
+    medialibrary_tauri_lib::apply_batch::apply_real_metadata_batch(
+        folder,
+        &[(rel.to_owned(), entries.to_vec())],
+        1,
+        &std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )
+    .pop()
+    .expect("one uncancelled file produces one result")
+    .1
 }
 
 #[derive(Debug)]
@@ -491,8 +507,7 @@ fn new_property_default_destination_roundtrip_is_family7_qualified() {
         target: target.clone(),
         edit: metadata_set(expected.clone()),
     }];
-    let outcome =
-        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &entries);
+    let outcome = apply_entries(dir.path().to_str().unwrap(), &rel, &entries);
     assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
     assert_eq!(outcome.outcomes.len(), 1);
     assert_eq!(outcome.outcomes[0].target, target);
@@ -1739,8 +1754,7 @@ fn missing_exact_schema_is_rejected_before_write() {
         edit: metadata_set(MetadataValue::Text("must not write".into())),
     }];
 
-    let outcome =
-        apply_edits::apply_single_file_metadata(dir.path().to_str().unwrap(), &rel, &entries);
+    let outcome = apply_entries(dir.path().to_str().unwrap(), &rel, &entries);
     let error = outcome.error.unwrap();
     assert!(error.to_ascii_lowercase().contains("schema"), "{error}");
     assert!(outcome.outcomes.is_empty());

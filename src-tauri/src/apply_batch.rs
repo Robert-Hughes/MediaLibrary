@@ -19,9 +19,8 @@ use std::time::Instant;
 use tauri::{AppHandle, Manager};
 
 use crate::apply_edits::{
-    apply_single_file_metadata, execute_prepared_metadata_write, executed_relative_path,
-    finalize_executed_metadata_write, prepare_single_file_metadata, MetadataSingleFileOutcome,
-    MetadataTargetOutcome,
+    execute_prepared_metadata_write, executed_relative_path, finalize_executed_metadata_write,
+    prepare_single_file_metadata, MetadataSingleFileOutcome, MetadataTargetOutcome,
 };
 use crate::apply_log::{
     append_target_metadata_entries_with_state, rotate_target_apply_log_if_needed, ApplyLogState,
@@ -64,31 +63,14 @@ pub trait DraftPersistence {
     fn persist_rows(&self, folder_path: &str, rows: &[ReconciledDraftRow]) -> Result<(), String>;
 }
 
-pub trait SingleFileApply {
-    fn apply(
-        &self,
-        folder_path: &str,
-        relative_path: &str,
-        edits: &[MetadataTargetDraftEntry],
-    ) -> MetadataSingleFileOutcome;
-
+pub trait BatchApply {
     fn apply_batch(
         &self,
         folder_path: &str,
         jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
-        _write_concurrency: usize,
+        write_concurrency: usize,
         cancel_flag: &Arc<AtomicBool>,
-    ) -> Vec<(String, MetadataSingleFileOutcome)> {
-        jobs.iter()
-            .take_while(|_| !cancel_flag.load(Ordering::Relaxed))
-            .map(|(relative_path, edits)| {
-                (
-                    relative_path.clone(),
-                    self.apply(folder_path, relative_path, edits),
-                )
-            })
-            .collect()
-    }
+    ) -> Vec<(String, MetadataSingleFileOutcome)>;
 }
 
 pub(crate) trait DraftReconciler {
@@ -122,8 +104,9 @@ pub(crate) trait TargetApplyLogger {
 
 // Production persistence, execution, logging and session-event adapters.
 mod adapters;
+pub use adapters::apply_real_metadata_batch;
 use adapters::{
-    RealDraftPersistence, RealDraftReconciler, RealSingleFileApply, RealTargetApplyLogger,
+    RealBatchApply, RealDraftPersistence, RealDraftReconciler, RealTargetApplyLogger,
     SessionApplyEvents,
 };
 
@@ -145,7 +128,7 @@ pub fn run_apply_metadata_draft_edits_blocking(
         &folder_path,
         relative_paths.as_deref(),
         &RealDraftPersistence { app: app.clone() },
-        &RealSingleFileApply,
+        &RealBatchApply,
         &RealDraftReconciler,
         &RealTargetApplyLogger { app: app.clone() },
         &SessionApplyEvents {
@@ -169,7 +152,7 @@ fn run_apply_metadata_draft_edits_with<P, A, R, L, E>(
     folder_path: &str,
     relative_paths: &[String],
     persistence: &P,
-    single_file_apply: &A,
+    batch_apply: &A,
     reconciler: &R,
     target_logger: &L,
     events: &E,
@@ -177,7 +160,7 @@ fn run_apply_metadata_draft_edits_with<P, A, R, L, E>(
 ) -> Result<MetadataApplyResult, String>
 where
     P: DraftPersistence,
-    A: SingleFileApply,
+    A: BatchApply,
     R: DraftReconciler,
     L: TargetApplyLogger,
     E: ApplyEvents,
@@ -186,7 +169,7 @@ where
         folder_path,
         Some(relative_paths),
         persistence,
-        single_file_apply,
+        batch_apply,
         reconciler,
         target_logger,
         events,
@@ -317,7 +300,7 @@ mod tests {
         }
     }
 
-    impl SingleFileApply for FakeApply {
+    impl FakeApply {
         fn apply(
             &self,
             _folder_path: &str,
@@ -344,6 +327,21 @@ mod tests {
                     .store(true, Ordering::Relaxed);
             }
             result
+        }
+    }
+
+    impl BatchApply for FakeApply {
+        fn apply_batch(
+            &self,
+            folder_path: &str,
+            jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
+            _write_concurrency: usize,
+            cancel_flag: &Arc<AtomicBool>,
+        ) -> Vec<(String, MetadataSingleFileOutcome)> {
+            jobs.iter()
+                .take_while(|_| !cancel_flag.load(Ordering::Relaxed))
+                .map(|(path, edits)| (path.clone(), self.apply(folder_path, path, edits)))
+                .collect()
         }
     }
 
@@ -445,15 +443,21 @@ mod tests {
         trace: Arc<Mutex<Vec<&'static str>>>,
     }
 
-    impl SingleFileApply for TraceApply {
-        fn apply(
+    impl BatchApply for TraceApply {
+        fn apply_batch(
             &self,
             _folder_path: &str,
-            _relative_path: &str,
-            _edits: &[MetadataTargetDraftEntry],
-        ) -> MetadataSingleFileOutcome {
-            self.trace.lock().unwrap().push("apply");
-            self.outcome.clone()
+            jobs: &[(String, Vec<MetadataTargetDraftEntry>)],
+            _write_concurrency: usize,
+            cancel_flag: &Arc<AtomicBool>,
+        ) -> Vec<(String, MetadataSingleFileOutcome)> {
+            jobs.iter()
+                .take_while(|_| !cancel_flag.load(Ordering::Relaxed))
+                .map(|(path, _)| {
+                    self.trace.lock().unwrap().push("apply");
+                    (path.clone(), self.outcome.clone())
+                })
+                .collect()
         }
     }
 
@@ -1574,16 +1578,7 @@ mod tests {
             calls: Mutex<Vec<(Vec<String>, usize)>>,
         }
 
-        impl SingleFileApply for RecordingBatchApply {
-            fn apply(
-                &self,
-                _folder_path: &str,
-                _relative_path: &str,
-                _edits: &[MetadataTargetDraftEntry],
-            ) -> MetadataSingleFileOutcome {
-                panic!("configured batches must use apply_batch")
-            }
-
+        impl BatchApply for RecordingBatchApply {
             fn apply_batch(
                 &self,
                 _folder_path: &str,

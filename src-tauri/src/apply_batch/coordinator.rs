@@ -12,7 +12,7 @@ pub(super) fn run_apply_metadata_draft_edits_with_limits<P, A, R, L, E>(
     folder_path: &str,
     relative_paths: Option<&[String]>,
     persistence: &P,
-    single_file_apply: &A,
+    batch_apply: &A,
     reconciler: &R,
     target_logger: &L,
     events: &E,
@@ -23,7 +23,7 @@ pub(super) fn run_apply_metadata_draft_edits_with_limits<P, A, R, L, E>(
 ) -> Result<MetadataApplyResult, String>
 where
     P: DraftPersistence,
-    A: SingleFileApply,
+    A: BatchApply,
     R: DraftReconciler,
     L: TargetApplyLogger,
     E: ApplyEvents,
@@ -127,7 +127,7 @@ where
             .collect::<HashMap<_, _>>();
         let chunk_started = Instant::now();
         let chunk_outcomes =
-            single_file_apply.apply_batch(folder_path, &jobs, write_concurrency, &cancel_flag);
+            batch_apply.apply_batch(folder_path, &jobs, write_concurrency, &cancel_flag);
         log::info!(
             "[apply_perf] phase=chunk_pipeline duration_ms={} requested={} completed={}",
             chunk_started.elapsed().as_millis(),

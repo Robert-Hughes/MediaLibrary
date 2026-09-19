@@ -1,70 +1,6 @@
 use super::*;
 
-struct RealMetadataTargetWriteClient;
-
-impl MetadataTargetWriteClient for RealMetadataTargetWriteClient {
-    fn read_file_metadata(
-        &self,
-        rel_path: &str,
-        abs_path: &Path,
-    ) -> Result<scanner::FileMetadata, String> {
-        let outcome =
-            scanner::read_file_metadata_batch(&[rel_path.to_string()], &[abs_path.to_path_buf()])
-                .map_err(|error| format!("authoritative metadata batch read failed: {error}"))?;
-
-        let mut results = outcome
-            .results
-            .into_iter()
-            .filter(|result| result.relative_path == rel_path);
-        let result = results.next();
-        if results.next().is_some() {
-            return Err(format!(
-                "authoritative metadata read returned duplicate results for {rel_path}"
-            ));
-        }
-        if let Some(result) = result {
-            // The authoritative occurrence collection above is the complete readback.
-            return Ok(result);
-        }
-
-        let failures = outcome
-            .failures
-            .into_iter()
-            .filter(|failure| failure.relative_path == rel_path)
-            .map(|failure| failure.error_message)
-            .collect::<Vec<_>>();
-        if !failures.is_empty() {
-            return Err(format!(
-                "authoritative metadata read failed for {rel_path}: {}",
-                failures.join("; ")
-            ));
-        }
-
-        Err(format!(
-            "authoritative metadata read returned neither a result nor a failure for {rel_path} (impossible outcome)"
-        ))
-    }
-
-    fn write_metadata(&self, rendered_contents: &str) -> Result<(), String> {
-        run_exiftool_write(rendered_contents)
-    }
-}
-
-pub fn apply_single_file_metadata(
-    folder_path: &str,
-    rel_path: &str,
-    edits: &[MetadataTargetDraftEntry],
-) -> MetadataSingleFileOutcome {
-    let registry = crate::tag_schema::get_registry().ok();
-    apply_single_file_metadata_with_client(
-        folder_path,
-        rel_path,
-        edits,
-        &RealMetadataTargetWriteClient,
-        |id| registry.and_then(|value| value.lookup(id)).cloned(),
-    )
-}
-
+#[cfg(test)]
 pub(super) fn apply_single_file_metadata_with_client<C, F>(
     folder_path: &str,
     rel_path: &str,
@@ -125,7 +61,9 @@ where
         Ok(prepared) => prepared,
         Err(outcome) => return *outcome,
     };
-    let executed = execute_prepared_metadata_write_with_client(prepared, client);
+    let executed = execute_prepared_metadata_write_with_writer(prepared, |contents| {
+        client.write_metadata(contents)
+    });
     let rel_path = executed.prepared.rel_path.clone();
     let abs_path = executed.prepared.abs_path.clone();
     let phase_started = Instant::now();
@@ -170,6 +108,7 @@ where
     );
     Ok(PreparedMetadataWrite {
         rel_path: rel_path.to_string(),
+        #[cfg(test)]
         abs_path,
         planned,
         file_started,
@@ -211,18 +150,18 @@ pub(crate) fn prepare_single_file_metadata(
     )
 }
 
-pub(super) fn execute_prepared_metadata_write_with_client<C>(
+fn execute_prepared_metadata_write_with_writer<F>(
     prepared: PreparedMetadataWrite,
-    client: &C,
+    write: F,
 ) -> ExecutedMetadataWrite
 where
-    C: MetadataTargetWriteClient,
+    F: FnOnce(&str) -> Result<(), String>,
 {
     let rel_path = &prepared.rel_path;
     let write_started = Instant::now();
     log::info!("[apply_perf] file={} phase=write_worker_start", rel_path);
     let phase_started = Instant::now();
-    let write_result = client.write_metadata(&prepared.planned.argfile);
+    let write_result = write(&prepared.planned.argfile);
     log::info!(
         "[apply_perf] file={} phase=write_raw duration_ms={} status={}",
         rel_path,
@@ -245,7 +184,7 @@ where
 pub(crate) fn execute_prepared_metadata_write(
     prepared: PreparedMetadataWrite,
 ) -> ExecutedMetadataWrite {
-    execute_prepared_metadata_write_with_client(prepared, &RealMetadataTargetWriteClient)
+    execute_prepared_metadata_write_with_writer(prepared, run_exiftool_write)
 }
 
 pub(crate) fn executed_relative_path(executed: &ExecutedMetadataWrite) -> &str {
