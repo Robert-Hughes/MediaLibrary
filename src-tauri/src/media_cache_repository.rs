@@ -7,7 +7,7 @@
 
 use crate::draft_edits::resolve_canonical_photo_path;
 use crate::metadata_occurrence::MetadataOccurrences;
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -100,69 +100,23 @@ fn create_schema(connection: &Connection) -> Result<(), String> {
         .map_err(|error| sqlite_error("Could not create media cache schema", error))
 }
 
-fn ensure_schema(connection: &mut Connection) -> Result<(), String> {
+fn ensure_schema(connection: &Connection) -> Result<(), String> {
     let current_version = connection
         .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
         .map_err(|error| sqlite_error("Could not read media cache schema version", error))?;
-    if current_version > DATABASE_SCHEMA_VERSION {
-        return Err(format!(
-            "Unsupported future media cache schema version {current_version}; this build supports version {DATABASE_SCHEMA_VERSION}"
-        ));
-    }
-    if current_version == DATABASE_SCHEMA_VERSION {
-        return Ok(());
-    }
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| sqlite_error("Could not start media cache schema transaction", error))?;
-    // Another connection may have completed initialization while we waited.
-    let version: i64 = transaction
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|error| sqlite_error("Could not read media cache schema version", error))?;
-    match version {
-        0 => create_schema(&transaction)?,
-        1 => {
-            transaction
-                .execute_batch("ALTER TABLE media_cache RENAME TO media_cache_v1;")
-                .map_err(|error| sqlite_error("Could not migrate media cache schema", error))?;
-            create_schema(&transaction)?;
-            transaction
-                .execute(
-                    "INSERT INTO media_cache (
-                        photo_path, file_size, modified_ns, thumbnail, metadata_json, metadata_generation
-                     )
-                     SELECT photo_path, file_size, modified_ns, thumbnail, metadata_json,
-                            CASE WHEN metadata_json IS NULL THEN NULL ELSE ?1 END
-                     FROM media_cache_v1",
-                    params![METADATA_CACHE_GENERATION],
-                )
-                .map_err(|error| sqlite_error("Could not migrate media cache rows", error))?;
-            transaction
-                .execute_batch("DROP TABLE media_cache_v1;")
-                .map_err(|error| sqlite_error("Could not migrate media cache schema", error))?;
+
+    match current_version {
+        DATABASE_SCHEMA_VERSION => Ok(()),
+        0 => {
+            create_schema(connection)?;
+            connection
+                .pragma_update(None, "user_version", DATABASE_SCHEMA_VERSION)
+                .map_err(|error| sqlite_error("Could not set media cache schema version", error))
         }
-        2 => {
-            transaction
-                .execute_batch("ALTER TABLE media_cache ADD COLUMN metadata_generation INTEGER;")
-                .map_err(|error| sqlite_error("Could not migrate media cache schema", error))?;
-            transaction
-                .execute(
-                    "UPDATE media_cache
-                     SET metadata_generation = ?1
-                     WHERE metadata_json IS NOT NULL",
-                    params![METADATA_CACHE_GENERATION],
-                )
-                .map_err(|error| sqlite_error("Could not migrate media cache rows", error))?;
-        }
-        DATABASE_SCHEMA_VERSION => {}
-        _ => return Err(format!("Unsupported media cache schema version {version}")),
+        version => Err(format!(
+            "Unsupported media cache schema version {version}; this build requires version {DATABASE_SCHEMA_VERSION}"
+        )),
     }
-    transaction
-        .pragma_update(None, "user_version", DATABASE_SCHEMA_VERSION)
-        .map_err(|error| sqlite_error("Could not set media cache schema version", error))?;
-    transaction
-        .commit()
-        .map_err(|error| sqlite_error("Could not commit media cache schema", error))
 }
 
 fn open_repository(cache_dir: &Path) -> Result<Connection, String> {
@@ -172,10 +126,10 @@ fn open_repository(cache_dir: &Path) -> Result<Connection, String> {
             cache_dir.display()
         )
     })?;
-    let mut connection = Connection::open(database_path(cache_dir))
+    let connection = Connection::open(database_path(cache_dir))
         .map_err(|error| sqlite_error("Could not open media cache database", error))?;
     configure_connection(&connection)?;
-    ensure_schema(&mut connection)?;
+    ensure_schema(&connection)?;
     Ok(connection)
 }
 
@@ -882,93 +836,24 @@ mod tests {
     }
 
     #[test]
-    fn version_one_rows_migrate_into_current_metadata_generation() {
-        let temp = tempdir().unwrap();
-        let folder = folder_path(temp.path());
-        create_photo(temp.path(), "photo.jpg");
-        let path = resolve_canonical_photo_path(&folder, "photo.jpg").unwrap();
-        let connection = Connection::open(database_path(temp.path())).unwrap();
-        connection.execute_batch(
-            "CREATE TABLE media_cache (photo_path TEXT PRIMARY KEY NOT NULL, file_size INTEGER NOT NULL,
-             modified_ns INTEGER NOT NULL, thumbnail TEXT, metadata_json TEXT NOT NULL);
-             PRAGMA user_version = 1;"
-        ).unwrap();
-        connection
-            .execute(
-                "INSERT INTO media_cache VALUES (?1, 10, 100, 'thumb', '[]')",
-                params![path.to_string_lossy()],
-            )
-            .unwrap();
-        drop(connection);
-        initialise(temp.path()).unwrap();
-        assert_eq!(
-            load(temp.path(), &folder, "photo.jpg", fingerprint(10, 100))
-                .unwrap()
-                .unwrap(),
-            CachedMedia {
-                thumbnail: Some("thumb".into()),
-                metadata: Some(MetadataOccurrences::default()),
-            }
-        );
-        update_thumbnail(
-            temp.path(),
-            &folder,
-            "photo.jpg",
-            fingerprint(11, 100),
-            Some("new"),
-        )
-        .unwrap();
-        assert_eq!(
-            load(temp.path(), &folder, "photo.jpg", fingerprint(11, 100))
-                .unwrap()
-                .unwrap()
-                .metadata,
-            None
-        );
-    }
+    fn legacy_schema_versions_are_rejected_without_migration() {
+        for version in [1, 2] {
+            let temp = tempdir().unwrap();
+            let connection = Connection::open(database_path(temp.path())).unwrap();
+            connection
+                .pragma_update(None, "user_version", version)
+                .unwrap();
+            drop(connection);
 
-    #[test]
-    fn version_two_rows_migrate_into_current_metadata_generation() {
-        let temp = tempdir().unwrap();
-        let folder = folder_path(temp.path());
-        create_photo(temp.path(), "photo.jpg");
-        let path = resolve_canonical_photo_path(&folder, "photo.jpg").unwrap();
-        let connection = Connection::open(database_path(temp.path())).unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE media_cache (
-                    photo_path TEXT PRIMARY KEY NOT NULL,
-                    file_size INTEGER NOT NULL,
-                    modified_ns INTEGER NOT NULL,
-                    thumbnail TEXT,
-                    metadata_json TEXT
-                 );
-                 PRAGMA user_version = 2;",
-            )
-            .unwrap();
-        connection
-            .execute(
-                "INSERT INTO media_cache VALUES (?1, 10, 100, 'thumb', '[]')",
-                params![path.to_string_lossy()],
-            )
-            .unwrap();
-        drop(connection);
+            let error = initialise(temp.path()).unwrap_err();
 
-        initialise(temp.path()).unwrap();
-
-        assert_eq!(
-            load_thumbnail(temp.path(), &folder, "photo.jpg", fingerprint(10, 100))
-                .unwrap()
-                .as_deref(),
-            Some("thumb")
-        );
-        let hits = load_metadata_batch(
-            temp.path(),
-            &folder,
-            &[("photo.jpg".into(), fingerprint(10, 100))],
-        )
-        .unwrap();
-        assert_eq!(hits.get("photo.jpg"), Some(&MetadataOccurrences::default()));
+            assert_eq!(
+                error,
+                format!(
+                    "Unsupported media cache schema version {version}; this build requires version {DATABASE_SCHEMA_VERSION}"
+                )
+            );
+        }
     }
 
     #[test]
