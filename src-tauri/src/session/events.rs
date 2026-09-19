@@ -24,6 +24,7 @@ use super::{
 };
 use crate::apply_batch::MetadataApplyStreamMessage;
 use std::sync::mpsc;
+use std::time::Instant;
 use tauri::AppHandle;
 
 /// One revisioned session notification, queued in commit order.
@@ -153,7 +154,26 @@ impl SessionEvent {
 pub fn drain_session_events(receiver: mpsc::Receiver<SessionEvent>, app: AppHandle) {
     while let Ok(event) = receiver.recv() {
         let name = event.event_name().to_owned();
+        let revision = event.revision();
+        let metadata_entries = match &event {
+            SessionEvent::MetadataChanged(payload) => Some(payload.entries.len()),
+            _ => None,
+        };
+        let started = Instant::now();
         let payload = event.into_payload();
+        let serialized = started.elapsed();
+        let emit_started = Instant::now();
         let _ = crate::emit_frontend_event(&app, &name, payload);
+        let emitted = emit_started.elapsed();
+        if let Some(entries) = metadata_entries {
+            log::info!(
+                "[scan_perf] phase=metadata_event_emit revision={} entries={} serialize_ms={} emit_ms={} total_ms={}",
+                revision,
+                entries,
+                serialized.as_millis(),
+                emitted.as_millis(),
+                started.elapsed().as_millis()
+            );
+        }
     }
 }

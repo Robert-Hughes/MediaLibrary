@@ -735,11 +735,15 @@ export function useMediaLibrary(
         "media_library_session_metadata_changed",
         (raw) => {
           const delta = raw as MediaLibrarySessionMetadataChanged;
+          const receivedAt = Date.now();
           void deltaCoordinator.enqueue({
             sessionId: delta.session_id,
             revision: delta.revision,
             source: "media_library_session_metadata_changed",
             apply: () => {
+              const applyStarted = Date.now();
+              const beforeRemaining =
+                metadataProgressStoreRef.current.getRemaining();
               const acceptedReady = projectSessionMetadata(
                 delta.entries,
                 false,
@@ -748,6 +752,20 @@ export function useMediaLibrary(
                   progress: metadataProgressStoreRef.current,
                 },
               );
+              const remaining = metadataProgressStoreRef.current.getRemaining();
+              console.info(
+                `[scan_perf_ui] phase=metadata_event_project revision=${delta.revision} entries=${delta.entries.length} queue_ms=${applyStarted - receivedAt} project_ms=${Date.now() - applyStarted} remaining=${remaining}`,
+              );
+              if (beforeRemaining > 0 && remaining === 0) {
+                console.info(
+                  `[scan_perf_ui] phase=metadata_complete revision=${delta.revision} wall=${Date.now()}`,
+                );
+                requestAnimationFrame(() => {
+                  console.info(
+                    `[scan_perf_ui] phase=metadata_complete_frame revision=${delta.revision} wall=${Date.now()}`,
+                  );
+                });
+              }
               if (acceptedReady > 0) {
                 setAppState((previous) => {
                   if (
