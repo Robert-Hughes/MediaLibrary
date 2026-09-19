@@ -357,7 +357,20 @@ fn get_media_library_thumbnails(
     cache_keys: Vec<String>,
     session: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<Vec<session::MediaLibraryThumbnailPayload>, String> {
-    session.thumbnail_payloads(session_id, &cache_keys)
+    let started = Instant::now();
+    let payloads = session.thumbnail_payloads(session_id, &cache_keys)?;
+    let thumbnail_chars = payloads
+        .iter()
+        .map(|payload| payload.thumbnail.len())
+        .sum::<usize>();
+    log::info!(
+        "[scan_perf] phase=thumbnail_payload_fetch requested={} returned={} thumbnail_chars={} duration_ms={}",
+        cache_keys.len(),
+        payloads.len(),
+        thumbnail_chars,
+        started.elapsed().as_millis()
+    );
+    Ok(payloads)
 }
 
 fn record_session_issue(

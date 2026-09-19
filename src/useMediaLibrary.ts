@@ -820,17 +820,23 @@ export function useMediaLibrary(
         "media_library_session_thumbnails_changed",
         (raw) => {
           const delta = raw as MediaLibrarySessionThumbnailsChanged;
+          const receivedAt = Date.now();
           void deltaCoordinator.enqueue({
             sessionId: delta.session_id,
             revision: delta.revision,
             source: "media_library_session_thumbnails_changed",
-            apply: () =>
-              projectSessionThumbnails(delta.session_id, delta.entries, {
+            apply: async () => {
+              const applyStarted = Date.now();
+              await projectSessionThumbnails(delta.session_id, delta.entries, {
                 store: thumbnailStoreRef.current,
                 invoke: api.invoke,
                 isCurrentSession: (sessionId) =>
                   activeScanIdRef.current === sessionId,
-              }),
+              });
+              console.info(
+                `[scan_perf_ui] phase=thumbnail_event_project revision=${delta.revision} entries=${delta.entries.length} queue_ms=${applyStarted - receivedAt} project_ms=${Date.now() - applyStarted}`,
+              );
+            },
           });
         },
       );

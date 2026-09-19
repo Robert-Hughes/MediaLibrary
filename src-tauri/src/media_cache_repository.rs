@@ -378,6 +378,11 @@ impl MediaCacheRepository {
 
         let decode_started = Instant::now();
         let stored_count = stored.len();
+        let metadata_json_bytes = stored
+            .iter()
+            .filter_map(|(_, _, _, metadata_json, _)| metadata_json.as_ref())
+            .map(String::len)
+            .sum::<usize>();
         let mut hits = HashMap::with_capacity(stored_count);
         for (relative_path, photo_path, fingerprint, metadata_json, metadata_generation) in stored {
             if let Some(metadata) = self.decode_current_metadata(
@@ -391,10 +396,11 @@ impl MediaCacheRepository {
         }
         let decode_ms = decode_started.elapsed().as_millis();
         log::info!(
-            "[scan_perf] phase=metadata_cache_batch requested={} stored={} hits={} resolve_ms={} lock_wait_ms={} sqlite_ms={} decode_ms={} total_ms={}",
+            "[scan_perf] phase=metadata_cache_batch requested={} stored={} hits={} metadata_json_bytes={} resolve_ms={} lock_wait_ms={} sqlite_ms={} decode_ms={} total_ms={}",
             requests.len(),
             stored_count,
             hits.len(),
+            metadata_json_bytes,
             resolve_ms,
             lock_wait_ms,
             sqlite_ms,
