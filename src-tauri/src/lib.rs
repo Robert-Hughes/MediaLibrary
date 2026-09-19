@@ -40,7 +40,7 @@ pub mod util;
 pub mod work_queue;
 pub mod write_args;
 use serde::Serialize;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -204,6 +204,36 @@ struct ScanCacheStats {
     unstable_writes_skipped: AtomicUsize,
 }
 
+#[derive(Default)]
+struct ScanPerfStats {
+    metadata_fingerprint_ns: AtomicU64,
+    metadata_cache_read_ns: AtomicU64,
+    metadata_disk_read_ns: AtomicU64,
+    metadata_cache_write_ns: AtomicU64,
+    metadata_session_commit_ns: AtomicU64,
+    thumbnail_fingerprint_ns: AtomicU64,
+    thumbnail_cache_read_ns: AtomicU64,
+    thumbnail_disk_generate_ns: AtomicU64,
+    thumbnail_cache_write_ns: AtomicU64,
+    thumbnail_session_commit_ns: AtomicU64,
+    discovery_walk_ns: AtomicU64,
+    discovery_session_commit_ns: AtomicU64,
+    discovered_files: AtomicUsize,
+    metadata_workers_completed: AtomicUsize,
+    thumbnail_workers_completed: AtomicUsize,
+}
+
+impl ScanPerfStats {
+    fn record(counter: &AtomicU64, elapsed: Duration) {
+        let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+        counter.fetch_add(nanos, Ordering::Relaxed);
+    }
+
+    fn millis(counter: &AtomicU64) -> u64 {
+        counter.load(Ordering::Relaxed) / 1_000_000
+    }
+}
+
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -240,16 +270,29 @@ pub(crate) fn emit_frontend_event<S: Serialize + Clone>(
     })
 }
 
-fn commit_session_metadata(app: &AppHandle, session_id: u64, results: Vec<scanner::FileMetadata>) {
+fn commit_session_metadata(
+    app: &AppHandle,
+    session_id: u64,
+    results: Vec<scanner::FileMetadata>,
+    perf_stats: &ScanPerfStats,
+) {
+    let started = Instant::now();
     if let Err(error) = app
         .state::<session::MediaLibrarySessionState>()
         .commit_metadata_results(session_id, results)
     {
         log::debug!("[session-metadata] discarded stale results: {error}");
     }
+    ScanPerfStats::record(&perf_stats.metadata_session_commit_ns, started.elapsed());
 }
 
-fn commit_session_thumbnails(app: &AppHandle, session_id: u64, results: Vec<ThumbnailResult>) {
+fn commit_session_thumbnails(
+    app: &AppHandle,
+    session_id: u64,
+    results: Vec<ThumbnailResult>,
+    perf_stats: &ScanPerfStats,
+) {
+    let started = Instant::now();
     let results = results
         .into_iter()
         .map(|result| (result.relative_path, result.thumbnail))
@@ -260,6 +303,7 @@ fn commit_session_thumbnails(app: &AppHandle, session_id: u64, results: Vec<Thum
     {
         log::debug!("[session-thumbnails] discarded stale results: {error}");
     }
+    ScanPerfStats::record(&perf_stats.thumbnail_session_commit_ns, started.elapsed());
 }
 
 fn cache_scan_metadata(
@@ -496,6 +540,7 @@ fn start_scan(
     session_state.mark_loaded(scan_id, &folder_path)?;
 
     std::thread::spawn(move || {
+        let scan_started = Instant::now();
         // In slow-mode (MEDIA_LIBRARY_SLOW_MODE=1) use a single worker per pool
         // so the artificial per-file delays in scanner.rs are clearly visible.
         let slow_mode = std::env::var("MEDIA_LIBRARY_SLOW_MODE").is_ok();
@@ -523,6 +568,7 @@ fn start_scan(
         queues_for_thread.install(thumb_queue.clone(), file_metadata_queue.clone());
 
         let root_arc = Arc::new(root.clone());
+        let cache_started = Instant::now();
         let cache = match media_cache_repository::shared_repository() {
             Ok(cache) => Some(cache),
             Err(error) => {
@@ -530,7 +576,13 @@ fn start_scan(
                 None
             }
         };
+        log::info!(
+            "[scan_perf] phase=cache_init duration_ms={} enabled={}",
+            cache_started.elapsed().as_millis(),
+            cache.is_some()
+        );
         let cache_stats = Arc::new(ScanCacheStats::default());
+        let perf_stats = Arc::new(ScanPerfStats::default());
 
         // ── Phase 2: Image Metadata workers ───────────────────────────────
         let metadata_handles: Vec<_> = (0..metadata_workers)
@@ -542,6 +594,8 @@ fn start_scan(
                 let batch_size = metadata_batch_size;
                 let cache = cache.clone();
                 let cache_stats = cache_stats.clone();
+                let perf_stats = perf_stats.clone();
+                let worker_scan_started = scan_started;
                 std::thread::spawn(move || {
                     let mut batch_results = Vec::new();
                     let mut last_emit = std::time::Instant::now();
@@ -560,6 +614,7 @@ fn start_scan(
                                         &app,
                                         scan_id,
                                         std::mem::take(&mut batch_results),
+                                        &perf_stats,
                                     );
                                     last_emit = std::time::Instant::now();
                                 }
@@ -576,6 +631,7 @@ fn start_scan(
                         let mut cache_hits = std::collections::HashMap::new();
 
                         if let Some(cache) = cache.as_deref() {
+                            let fingerprint_started = Instant::now();
                             let mut requests = Vec::with_capacity(rel_paths.len());
                             for (relative_path, absolute_path) in rel_paths.iter().zip(&abs_paths) {
                                 match media_cache_repository::fingerprint_for_file(absolute_path) {
@@ -595,6 +651,12 @@ fn start_scan(
                                     }
                                 }
                             }
+                            ScanPerfStats::record(
+                                &perf_stats.metadata_fingerprint_ns,
+                                fingerprint_started.elapsed(),
+                            );
+
+                            let cache_read_started = Instant::now();
                             match cache.load_metadata_batch(&root.to_string_lossy(), &requests) {
                                 Ok(hits) => cache_hits = hits,
                                 Err(error) => {
@@ -605,6 +667,10 @@ fn start_scan(
                                     );
                                 }
                             }
+                            ScanPerfStats::record(
+                                &perf_stats.metadata_cache_read_ns,
+                                cache_read_started.elapsed(),
+                            );
                             cache_stats
                                 .metadata_hits
                                 .fetch_add(cache_hits.len(), Ordering::Relaxed);
@@ -636,7 +702,14 @@ fn start_scan(
                         ));
 
                         if !miss_rel_paths.is_empty() {
-                            match scanner::read_file_metadata_batch(&miss_rel_paths, &miss_abs_paths) {
+                            let disk_read_started = Instant::now();
+                            let disk_read =
+                                scanner::read_file_metadata_batch(&miss_rel_paths, &miss_abs_paths);
+                            ScanPerfStats::record(
+                                &perf_stats.metadata_disk_read_ns,
+                                disk_read_started.elapsed(),
+                            );
+                            match disk_read {
                                 Ok(outcome) => {
                                     log::debug!(
                                         "[metadata] Read {} successes and {} failures",
@@ -646,6 +719,7 @@ fn start_scan(
 
                                     if !cancelled.load(Ordering::Relaxed) {
                                         if let Some(cache) = cache.as_deref() {
+                                            let cache_write_started = Instant::now();
                                             for metadata in &outcome.results {
                                                 let Some(fingerprint_before) =
                                                     fingerprints.get(&metadata.relative_path).copied()
@@ -677,6 +751,10 @@ fn start_scan(
                                                     }
                                                 }
                                             }
+                                            ScanPerfStats::record(
+                                                &perf_stats.metadata_cache_write_ns,
+                                                cache_write_started.elapsed(),
+                                            );
                                         }
                                     }
 
@@ -715,6 +793,7 @@ fn start_scan(
                                 &app,
                                 scan_id,
                                 std::mem::take(&mut batch_results),
+                                &perf_stats,
                             );
                             last_emit = std::time::Instant::now();
                         }
@@ -726,7 +805,23 @@ fn start_scan(
                             "[metadata] Emitting final batch of {} results",
                             batch_results.len()
                         );
-                        commit_session_metadata(&app, scan_id, batch_results);
+                        commit_session_metadata(&app, scan_id, batch_results, &perf_stats);
+                    }
+
+                    let completed = perf_stats
+                        .metadata_workers_completed
+                        .fetch_add(1, Ordering::Relaxed)
+                        + 1;
+                    if completed == metadata_workers {
+                        log::info!(
+                            "[scan_perf] phase=metadata_workers_complete elapsed_ms={} fingerprint_ms={} cache_read_ms={} disk_read_ms={} cache_write_ms={} session_commit_ms={}",
+                            worker_scan_started.elapsed().as_millis(),
+                            ScanPerfStats::millis(&perf_stats.metadata_fingerprint_ns),
+                            ScanPerfStats::millis(&perf_stats.metadata_cache_read_ns),
+                            ScanPerfStats::millis(&perf_stats.metadata_disk_read_ns),
+                            ScanPerfStats::millis(&perf_stats.metadata_cache_write_ns),
+                            ScanPerfStats::millis(&perf_stats.metadata_session_commit_ns)
+                        );
                     }
                 })
             })
@@ -738,6 +833,7 @@ fn start_scan(
         let (thumbnail_result_tx, thumbnail_result_rx) = mpsc::channel::<ThumbnailResult>();
         let thumbnail_emitter = {
             let app = app_clone.clone();
+            let perf_stats = perf_stats.clone();
             std::thread::spawn(move || {
                 let mut batch = Vec::with_capacity(50);
                 let emit_interval = std::time::Duration::from_millis(500);
@@ -751,12 +847,13 @@ fn start_scan(
                                     &app,
                                     scan_id,
                                     std::mem::take(&mut batch),
+                                    &perf_stats,
                                 );
                             }
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
                             if !batch.is_empty() {
-                                commit_session_thumbnails(&app, scan_id, batch);
+                                commit_session_thumbnails(&app, scan_id, batch, &perf_stats);
                             }
                             break;
                         }
@@ -772,6 +869,8 @@ fn start_scan(
                 let cancelled = cancel_clone.clone();
                 let cache = cache.clone();
                 let cache_stats = cache_stats.clone();
+                let perf_stats = perf_stats.clone();
+                let worker_scan_started = scan_started;
                 let result_tx = thumbnail_result_tx.clone();
                 std::thread::spawn(move || {
                     while let Some(rel_path) = queue.pop() {
@@ -785,14 +884,26 @@ fn start_scan(
                         let mut cache_hit = false;
 
                         if let Some(cache) = cache.as_deref() {
-                            match media_cache_repository::fingerprint_for_file(&abs) {
+                            let fingerprint_started = Instant::now();
+                            let fingerprint = media_cache_repository::fingerprint_for_file(&abs);
+                            ScanPerfStats::record(
+                                &perf_stats.thumbnail_fingerprint_ns,
+                                fingerprint_started.elapsed(),
+                            );
+                            match fingerprint {
                                 Ok(fingerprint) => {
                                     fingerprint_before = Some(fingerprint);
-                                    match cache.load_thumbnail(
+                                    let cache_read_started = Instant::now();
+                                    let cached = cache.load_thumbnail(
                                         &root.to_string_lossy(),
                                         &rel_path,
                                         fingerprint,
-                                    ) {
+                                    );
+                                    ScanPerfStats::record(
+                                        &perf_stats.thumbnail_cache_read_ns,
+                                        cache_read_started.elapsed(),
+                                    );
+                                    match cached {
                                         Ok(Some(cached_thumbnail)) => {
                                             thumbnail = Some(cached_thumbnail);
                                             cache_hit = true;
@@ -829,18 +940,29 @@ fn start_scan(
                         }
 
                         if !cache_hit {
+                            let disk_generate_started = Instant::now();
                             thumbnail = scanner::thumbnail_for_media(&abs);
+                            ScanPerfStats::record(
+                                &perf_stats.thumbnail_disk_generate_ns,
+                                disk_generate_started.elapsed(),
+                            );
                             if !cancelled.load(Ordering::Relaxed) {
                                 if let (Some(cache), Some(fingerprint_before)) =
                                     (cache.as_deref(), fingerprint_before)
                                 {
-                                    match cache_scan_thumbnail(
+                                    let cache_write_started = Instant::now();
+                                    let cache_write = cache_scan_thumbnail(
                                         cache,
                                         &root,
                                         &rel_path,
                                         thumbnail.as_deref(),
                                         fingerprint_before,
-                                    ) {
+                                    );
+                                    ScanPerfStats::record(
+                                        &perf_stats.thumbnail_cache_write_ns,
+                                        cache_write_started.elapsed(),
+                                    );
+                                    match cache_write {
                                         Ok(true) => {}
                                         Ok(false) => {
                                             cache_stats
@@ -868,12 +990,28 @@ fn start_scan(
                             thumbnail,
                         });
                     }
+
+                    let completed = perf_stats
+                        .thumbnail_workers_completed
+                        .fetch_add(1, Ordering::Relaxed)
+                        + 1;
+                    if completed == thumbnail_workers {
+                        log::info!(
+                            "[scan_perf] phase=thumbnail_workers_complete elapsed_ms={} fingerprint_ms={} cache_read_ms={} disk_generate_ms={} cache_write_ms={}",
+                            worker_scan_started.elapsed().as_millis(),
+                            ScanPerfStats::millis(&perf_stats.thumbnail_fingerprint_ns),
+                            ScanPerfStats::millis(&perf_stats.thumbnail_cache_read_ns),
+                            ScanPerfStats::millis(&perf_stats.thumbnail_disk_generate_ns),
+                            ScanPerfStats::millis(&perf_stats.thumbnail_cache_write_ns)
+                        );
+                    }
                 })
             })
             .collect();
         // ── Phase 1: streaming directory walk ─────────────────────────────
         // Run the directory walk in a separate thread so we can implement
         // timeout-based flushing even when the walk is slow.
+        let discovery_started = Instant::now();
         let file_queue = Arc::new(Mutex::new(Vec::new()));
         let file_queue_clone = file_queue.clone();
         let walk_complete = Arc::new(AtomicBool::new(false));
@@ -883,11 +1021,16 @@ fn start_scan(
         let thumb_queue_walk = thumb_queue.clone();
 
         let app_walk_err = app_clone.clone();
+        let perf_stats_walk = perf_stats.clone();
         let walk_handle = std::thread::spawn(move || {
+            let walk_started = Instant::now();
             scanner::scan_folder(
                 &root,
                 cancel_walk,
                 |file| {
+                    perf_stats_walk
+                        .discovered_files
+                        .fetch_add(1, Ordering::Relaxed);
                     file_metadata_queue_walk.push(file.relative_path.clone());
                     thumb_queue_walk.push(file.relative_path.clone());
                     file_queue_clone.lock().unwrap().push(file);
@@ -904,6 +1047,7 @@ fn start_scan(
                     );
                 },
             );
+            ScanPerfStats::record(&perf_stats_walk.discovery_walk_ns, walk_started.elapsed());
             walk_complete_clone.store(true, Ordering::Relaxed);
         });
 
@@ -911,6 +1055,7 @@ fn start_scan(
         let file_queue_flush = file_queue.clone();
         let app_flush = app_clone.clone();
         let walk_complete_flush = walk_complete.clone();
+        let perf_stats_flush = perf_stats.clone();
         let flush_handle = std::thread::spawn(move || {
             let emit_interval = std::time::Duration::from_millis(500);
 
@@ -922,6 +1067,7 @@ fn start_scan(
                     let batch = std::mem::take(&mut *queue);
                     drop(queue); // Release lock before emitting
 
+                    let commit_started = Instant::now();
                     match app_flush
                         .state::<session::MediaLibrarySessionState>()
                         .add_files(scan_id, batch)
@@ -931,6 +1077,10 @@ fn start_scan(
                             log::debug!("[file-discovery] discarded stale batch: {error}")
                         }
                     }
+                    ScanPerfStats::record(
+                        &perf_stats_flush.discovery_session_commit_ns,
+                        commit_started.elapsed(),
+                    );
                 } else {
                     drop(queue); // Release lock even if queue is empty
                 }
@@ -942,6 +1092,7 @@ fn start_scan(
                     if !queue.is_empty() {
                         let batch = std::mem::take(&mut *queue);
                         drop(queue);
+                        let commit_started = Instant::now();
                         match app_flush
                             .state::<session::MediaLibrarySessionState>()
                             .add_files(scan_id, batch)
@@ -951,6 +1102,10 @@ fn start_scan(
                                 log::debug!("[file-discovery] discarded stale final batch: {error}")
                             }
                         }
+                        ScanPerfStats::record(
+                            &perf_stats_flush.discovery_session_commit_ns,
+                            commit_started.elapsed(),
+                        );
                     }
                     break;
                 }
@@ -961,9 +1116,21 @@ fn start_scan(
         walk_handle.join().unwrap();
         flush_handle.join().unwrap();
 
+        let finish_discovery_started = Instant::now();
         let _ = app_clone
             .state::<session::MediaLibrarySessionState>()
             .finish_discovery(scan_id);
+        ScanPerfStats::record(
+            &perf_stats.discovery_session_commit_ns,
+            finish_discovery_started.elapsed(),
+        );
+        log::info!(
+            "[scan_perf] phase=discovery_complete duration_ms={} walk_ms={} session_commit_ms={} files={}",
+            discovery_started.elapsed().as_millis(),
+            ScanPerfStats::millis(&perf_stats.discovery_walk_ns),
+            ScanPerfStats::millis(&perf_stats.discovery_session_commit_ns),
+            perf_stats.discovered_files.load(Ordering::Relaxed)
+        );
         // Clear running flag immediately so a new scan can start.
         // Workers can continue processing in the background.
         clear_running(&app_clone);
@@ -981,6 +1148,13 @@ fn start_scan(
         }
         drop(thumbnail_result_tx);
         let _ = thumbnail_emitter.join();
+        log::info!(
+            "[scan_perf] phase=scan_complete duration_ms={} metadata_session_commit_ms={} thumbnail_session_commit_ms={} cancelled={}",
+            scan_started.elapsed().as_millis(),
+            ScanPerfStats::millis(&perf_stats.metadata_session_commit_ns),
+            ScanPerfStats::millis(&perf_stats.thumbnail_session_commit_ns),
+            cancel_clone.load(Ordering::Relaxed)
+        );
         if cache.is_some() {
             log::info!(
                 "[media-cache] scan {} summary metadata_hits={} metadata_misses={} thumbnail_hits={} thumbnail_misses={} fingerprint_failures={} read_errors={} unstable_writes_skipped={}",
