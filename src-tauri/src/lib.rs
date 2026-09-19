@@ -270,6 +270,17 @@ pub(crate) fn emit_frontend_event<S: Serialize + Clone>(
     })
 }
 
+pub(crate) fn emit_frontend_event_str(
+    app: &AppHandle,
+    event: &str,
+    payload: String,
+) -> Result<(), String> {
+    app.emit_str(event, payload).map_err(|error| {
+        log::error!("[frontend-event] failed to emit event={event}: {error}");
+        error.to_string()
+    })
+}
+
 fn commit_session_metadata(
     app: &AppHandle,
     session_id: u64,

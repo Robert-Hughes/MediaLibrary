@@ -120,29 +120,33 @@ impl SessionEvent {
         }
     }
 
-    pub fn into_payload(self) -> serde_json::Value {
+    pub fn into_json_string(self) -> String {
         let serialized = match self {
-            Self::Snapshot(payload) => serde_json::to_value(*payload),
-            Self::FilesAdded(payload) => serde_json::to_value(payload),
-            Self::MetadataChanged(payload) => serde_json::to_value(payload),
-            Self::ThumbnailsChanged(payload) => serde_json::to_value(payload),
-            Self::IssueAdded(payload) => serde_json::to_value(payload),
-            Self::ApplyProgress(payload) => serde_json::to_value(*payload),
-            Self::RevisionAdvanced(payload) => serde_json::to_value(payload),
-            Self::BatchOperationChanged(payload) => serde_json::to_value(*payload),
-            Self::ApplyOperationChanged(payload) => serde_json::to_value(*payload),
-            Self::VerificationOutcomesChanged(payload) => serde_json::to_value(*payload),
-            Self::DraftsChanged(payload) => serde_json::to_value(*payload),
-            Self::DraftPersistenceChanged(payload) => serde_json::to_value(*payload),
-            Self::DiscoveryChanged(payload) => serde_json::to_value(*payload),
-            Self::FilesRemoved(payload) => serde_json::to_value(*payload),
-            Self::IssueRemoved(payload) => serde_json::to_value(*payload),
-            Self::Projection(value) => Ok(value.payload),
+            Self::Snapshot(payload) => serde_json::to_string(&*payload),
+            Self::FilesAdded(payload) => serde_json::to_string(&payload),
+            Self::MetadataChanged(payload) => serde_json::to_string(&payload),
+            Self::ThumbnailsChanged(payload) => serde_json::to_string(&payload),
+            Self::IssueAdded(payload) => serde_json::to_string(&payload),
+            Self::ApplyProgress(payload) => serde_json::to_string(&*payload),
+            Self::RevisionAdvanced(payload) => serde_json::to_string(&payload),
+            Self::BatchOperationChanged(payload) => serde_json::to_string(&*payload),
+            Self::ApplyOperationChanged(payload) => serde_json::to_string(&*payload),
+            Self::VerificationOutcomesChanged(payload) => serde_json::to_string(&*payload),
+            Self::DraftsChanged(payload) => serde_json::to_string(&*payload),
+            Self::DraftPersistenceChanged(payload) => serde_json::to_string(&*payload),
+            Self::DiscoveryChanged(payload) => serde_json::to_string(&*payload),
+            Self::FilesRemoved(payload) => serde_json::to_string(&*payload),
+            Self::IssueRemoved(payload) => serde_json::to_string(&*payload),
+            Self::Projection(value) => serde_json::to_string(&value.payload),
         };
         serialized.unwrap_or_else(|error| {
             log::error!("[session-event] failed to serialize payload: {error}");
-            serde_json::Value::Null
+            "null".to_owned()
         })
+    }
+
+    pub fn into_payload(self) -> serde_json::Value {
+        serde_json::from_str(&self.into_json_string()).unwrap_or(serde_json::Value::Null)
     }
 }
 
@@ -160,10 +164,10 @@ pub fn drain_session_events(receiver: mpsc::Receiver<SessionEvent>, app: AppHand
             _ => None,
         };
         let started = Instant::now();
-        let payload = event.into_payload();
+        let payload = event.into_json_string();
         let serialized = started.elapsed();
         let emit_started = Instant::now();
-        let _ = crate::emit_frontend_event(&app, &name, payload);
+        let _ = crate::emit_frontend_event_str(&app, &name, payload);
         let emitted = emit_started.elapsed();
         if let Some(entries) = metadata_entries {
             log::info!(
