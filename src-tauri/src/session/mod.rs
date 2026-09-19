@@ -7,7 +7,7 @@ pub use model::*;
 
 use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
 use crate::scanner::{FileInfo, FileMetadata};
-use crate::search_service::MediaLibrarySearchService;
+use crate::search_service::{metadata_search_text, MediaLibrarySearchService};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Mutex};
@@ -1191,9 +1191,19 @@ impl MediaLibrarySessionState {
         &self,
         session_id: u64,
         results: Vec<FileMetadata>,
-    ) -> Result<MediaLibrarySessionMetadataChanged, String> {
+    ) -> Result<(), String> {
         let total_started = Instant::now();
         let requested = results.len();
+
+        let search_prepare_started = Instant::now();
+        let results = results
+            .into_iter()
+            .map(|result| {
+                let search_text = metadata_search_text(&result.occurrences);
+                (result, search_text)
+            })
+            .collect::<Vec<_>>();
+        let search_prepare_ms = search_prepare_started.elapsed().as_millis();
 
         let snapshot_lock_started = Instant::now();
         let mut snapshot = self.snapshot.lock().unwrap();
@@ -1207,83 +1217,74 @@ impl MediaLibrarySessionState {
         let superseded_lock_started = Instant::now();
         let superseded = self.superseded_scan_metadata.lock().unwrap();
         let superseded_lock_wait_ms = superseded_lock_started.elapsed().as_millis();
+        let superseded_hold_started = Instant::now();
 
         let snapshot_update_started = Instant::now();
         let mut entries = Vec::with_capacity(requested);
-        for result in results {
+        let mut search_entries = Vec::with_capacity(requested);
+        for (result, search_text) in results {
+            let FileMetadata {
+                relative_path,
+                occurrences,
+            } = result;
             let entry = snapshot
                 .metadata
                 .iter_mut()
-                .find(|entry| entry.relative_path == result.relative_path)
+                .find(|entry| entry.relative_path == relative_path)
                 .ok_or_else(|| {
-                    format!(
-                        "Metadata arrived for an undiscovered file: {}",
-                        result.relative_path
-                    )
+                    format!("Metadata arrived for an undiscovered file: {relative_path}")
                 })?;
-            if superseded.contains(&result.relative_path) {
+            if superseded.contains(&relative_path) {
                 continue;
             }
-            entry.state = MediaLibrarySessionMetadataState::Ready {
-                occurrences: result.occurrences,
-            };
+            entry.state = MediaLibrarySessionMetadataState::Ready { occurrences };
             entries.push(entry.clone());
+            search_entries.push((relative_path, search_text));
         }
+        drop(superseded);
+        let superseded_hold_ms = superseded_hold_started.elapsed().as_millis();
+
         if !entries.is_empty() {
             snapshot.revision += 1;
         }
+        let revision = snapshot.revision;
+        let committed = entries.len();
         let snapshot_update_ms = snapshot_update_started.elapsed().as_millis();
 
-        let delta = MediaLibrarySessionMetadataChanged {
-            session_id,
-            revision: snapshot.revision,
-            entries,
-        };
-        let committed = delta.entries.len();
-
         let notify_started = Instant::now();
-        if !delta.entries.is_empty() {
-            self.notify(SessionEvent::MetadataChanged(delta.clone()));
+        if !entries.is_empty() {
+            self.notify(SessionEvent::MetadataChanged(
+                MediaLibrarySessionMetadataChanged {
+                    session_id,
+                    revision,
+                    entries,
+                },
+            ));
         }
         let notify_ms = notify_started.elapsed().as_millis();
-
-        let search_clone_started = Instant::now();
-        let search_entries = delta
-            .entries
-            .iter()
-            .map(|entry| {
-                let occurrences = match &entry.state {
-                    MediaLibrarySessionMetadataState::Ready { occurrences } => {
-                        Some(occurrences.clone())
-                    }
-                    MediaLibrarySessionMetadataState::Loading
-                    | MediaLibrarySessionMetadataState::Failed { .. } => None,
-                };
-                (entry.relative_path.clone(), occurrences)
-            })
-            .collect();
-        let search_clone_ms = search_clone_started.elapsed().as_millis();
-
         drop(snapshot);
 
         let search_index_started = Instant::now();
-        self.search
-            .set_metadata(session_id, delta.revision, search_entries);
+        if !search_entries.is_empty() {
+            self.search
+                .set_metadata_text(session_id, revision, search_entries);
+        }
         let search_index_ms = search_index_started.elapsed().as_millis();
 
         log::info!(
-            "[scan_perf] phase=metadata_session_batch requested={} committed={} snapshot_lock_wait_ms={} superseded_lock_wait_ms={} snapshot_update_ms={} notify_ms={} search_clone_ms={} search_index_ms={} total_ms={}",
+            "[scan_perf] phase=metadata_session_batch requested={} committed={} search_prepare_ms={} snapshot_lock_wait_ms={} superseded_lock_wait_ms={} superseded_hold_ms={} snapshot_update_ms={} notify_ms={} search_index_ms={} total_ms={}",
             requested,
             committed,
+            search_prepare_ms,
             snapshot_lock_wait_ms,
             superseded_lock_wait_ms,
+            superseded_hold_ms,
             snapshot_update_ms,
             notify_ms,
-            search_clone_ms,
             search_index_ms,
             total_started.elapsed().as_millis()
         );
-        Ok(delta)
+        Ok(())
     }
 
     pub fn commit_thumbnail_results(
@@ -1376,31 +1377,43 @@ impl MediaLibrarySessionState {
         session_id: u64,
         results: Vec<FileMetadata>,
     ) -> Result<MediaLibrarySessionMetadataChanged, String> {
+        let results = results
+            .into_iter()
+            .map(|result| {
+                let search_text = metadata_search_text(&result.occurrences);
+                (result, search_text)
+            })
+            .collect::<Vec<_>>();
+
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
         {
             return Err("The media-library session changed during metadata apply".into());
         }
+
         let mut superseded = self.superseded_scan_metadata.lock().unwrap();
         let mut entries = Vec::with_capacity(results.len());
-        for result in results {
+        let mut search_entries = Vec::with_capacity(results.len());
+        for (result, search_text) in results {
+            let FileMetadata {
+                relative_path,
+                occurrences,
+            } = result;
             let entry = snapshot
                 .metadata
                 .iter_mut()
-                .find(|entry| entry.relative_path == result.relative_path)
+                .find(|entry| entry.relative_path == relative_path)
                 .ok_or_else(|| {
-                    format!(
-                        "Post-write metadata arrived for an undiscovered file: {}",
-                        result.relative_path
-                    )
+                    format!("Post-write metadata arrived for an undiscovered file: {relative_path}")
                 })?;
-            superseded.insert(result.relative_path.clone());
-            entry.state = MediaLibrarySessionMetadataState::Ready {
-                occurrences: result.occurrences,
-            };
+            superseded.insert(relative_path.clone());
+            entry.state = MediaLibrarySessionMetadataState::Ready { occurrences };
             entries.push(entry.clone());
+            search_entries.push((relative_path, search_text));
         }
+        drop(superseded);
+
         if !entries.is_empty() {
             snapshot.revision += 1;
         }
@@ -1409,23 +1422,12 @@ impl MediaLibrarySessionState {
             revision: snapshot.revision,
             entries,
         };
-        let search_entries = delta
-            .entries
-            .iter()
-            .map(|entry| {
-                let occurrences = match &entry.state {
-                    MediaLibrarySessionMetadataState::Ready { occurrences } => {
-                        Some(occurrences.clone())
-                    }
-                    MediaLibrarySessionMetadataState::Loading
-                    | MediaLibrarySessionMetadataState::Failed { .. } => None,
-                };
-                (entry.relative_path.clone(), occurrences)
-            })
-            .collect();
         drop(snapshot);
-        self.search
-            .set_metadata(session_id, delta.revision, search_entries);
+
+        if !search_entries.is_empty() {
+            self.search
+                .set_metadata_text(session_id, delta.revision, search_entries);
+        }
         Ok(delta)
     }
 
@@ -2040,7 +2042,7 @@ mod tests {
             MediaLibrarySessionMetadataState::Loading
         ));
 
-        let metadata_delta = state
+        state
             .commit_metadata_results(
                 1,
                 vec![FileMetadata {
@@ -2049,7 +2051,7 @@ mod tests {
                 }],
             )
             .unwrap();
-        assert_eq!(metadata_delta.entries.len(), 1);
+        assert_eq!(state.snapshot().revision, 4);
         assert!(matches!(
             state.snapshot().metadata[0].state,
             MediaLibrarySessionMetadataState::Ready { .. }
@@ -2162,7 +2164,8 @@ mod tests {
         assert_eq!(post_write.entries.len(), 1);
         let revision = post_write.revision;
 
-        let late_scan = state
+        let metadata_before = state.snapshot().metadata;
+        state
             .commit_metadata_results(
                 session_id,
                 vec![FileMetadata {
@@ -2171,9 +2174,9 @@ mod tests {
                 }],
             )
             .unwrap();
-        assert!(late_scan.entries.is_empty());
-        assert_eq!(late_scan.revision, revision);
-        assert_eq!(state.snapshot().revision, revision);
+        let after_late_scan = state.snapshot();
+        assert_eq!(after_late_scan.revision, revision);
+        assert_eq!(after_late_scan.metadata, metadata_before);
     }
 
     #[test]

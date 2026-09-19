@@ -97,6 +97,7 @@ struct SearchDocument {
     media_kind: MediaKindKey,
     file_text: String,
     occurrence_text: String,
+    metadata_revision: u64,
     draft_text: String,
     has_edits: bool,
 }
@@ -161,6 +162,7 @@ impl SearchIndex {
                         media_kind: file.media_kind.into(),
                         file_text: file_text(file),
                         occurrence_text: String::new(),
+                        metadata_revision: revision,
                         draft_text: String::new(),
                         has_edits: false,
                     };
@@ -174,24 +176,52 @@ impl SearchIndex {
         true
     }
 
+    fn set_metadata_text(
+        &mut self,
+        session_id: u64,
+        revision: u64,
+        entries: Vec<(String, String)>,
+    ) -> bool {
+        if self.session_id != Some(session_id) {
+            return false;
+        }
+
+        let previous_revision = self.session_revision;
+        self.session_revision = self.session_revision.max(revision);
+        let mut changed = false;
+        for (path, occurrence_text) in entries {
+            if let Some(document) = self.documents.get_mut(&path) {
+                if revision < document.metadata_revision {
+                    continue;
+                }
+                document.occurrence_text = occurrence_text;
+                document.metadata_revision = revision;
+                changed = true;
+            }
+        }
+        changed || revision > previous_revision
+    }
+
+    #[cfg(test)]
     fn set_metadata(
         &mut self,
         session_id: u64,
         revision: u64,
         entries: &[(String, Option<MetadataOccurrences>)],
     ) -> bool {
-        if !self.set_revision(session_id, revision) {
-            return false;
-        }
-        for (path, occurrences) in entries {
-            if let Some(document) = self.documents.get_mut(path) {
-                document.occurrence_text = occurrences
-                    .as_ref()
-                    .map(occurrences_text)
-                    .unwrap_or_default();
-            }
-        }
-        true
+        let entries = entries
+            .iter()
+            .map(|(path, occurrences)| {
+                (
+                    path.clone(),
+                    occurrences
+                        .as_ref()
+                        .map(occurrences_text)
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+        self.set_metadata_text(session_id, revision, entries)
     }
 
     fn set_drafts(
@@ -347,6 +377,27 @@ impl MediaLibrarySearchService {
         revision: u64,
         entries: Vec<(String, Option<MetadataOccurrences>)>,
     ) {
+        let entries = entries
+            .into_iter()
+            .map(|(path, occurrences)| {
+                (
+                    path,
+                    occurrences
+                        .as_ref()
+                        .map(occurrences_text)
+                        .unwrap_or_default(),
+                )
+            })
+            .collect();
+        self.set_metadata_text(session_id, revision, entries);
+    }
+
+    pub(crate) fn set_metadata_text(
+        &self,
+        session_id: u64,
+        revision: u64,
+        entries: Vec<(String, String)>,
+    ) {
         let total_started = Instant::now();
         let entry_count = entries.len();
 
@@ -355,7 +406,7 @@ impl MediaLibrarySearchService {
         let lock_wait_ms = lock_started.elapsed().as_millis();
 
         let update_started = Instant::now();
-        let accepted = index.set_metadata(session_id, revision, &entries);
+        let accepted = index.set_metadata_text(session_id, revision, entries);
         let update_ms = update_started.elapsed().as_millis();
         drop(index);
 
@@ -568,6 +619,10 @@ fn occurrences_text(occurrences: &MetadataOccurrences) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         .to_lowercase()
+}
+
+pub(crate) fn metadata_search_text(occurrences: &MetadataOccurrences) -> String {
+    occurrences_text(occurrences)
 }
 
 fn drafts_text(entries: &[MetadataTargetDraftEntry]) -> String {
@@ -1217,6 +1272,45 @@ mod tests {
         assert!(!index.set_metadata(7, 3, &[("a.jpg".into(), None)]));
         assert!(index.documents.is_empty());
         assert_eq!(index.session_revision, 4);
+    }
+
+    #[test]
+    fn out_of_order_metadata_updates_merge_per_path_without_overwriting_newer_text() {
+        let mut index = SearchIndex::default();
+        index.reset(Some(7), 1);
+        index.add_files(
+            7,
+            2,
+            &[
+                file("a.jpg", MediaKind::Image),
+                file("b.jpg", MediaKind::Image),
+            ],
+        );
+
+        assert!(index.set_metadata_text(7, 4, vec![("b.jpg".into(), "newer b".into())],));
+        assert!(index.set_metadata_text(7, 3, vec![("a.jpg".into(), "older a".into())],));
+        assert_eq!(
+            index.query(&request("older a")).unwrap().matched_paths,
+            vec!["a.jpg"]
+        );
+        assert_eq!(
+            index.query(&request("newer b")).unwrap().matched_paths,
+            vec!["b.jpg"]
+        );
+        assert_eq!(index.session_revision, 4);
+
+        assert!(index.set_metadata_text(7, 5, vec![("a.jpg".into(), "newer a".into())],));
+        assert!(!index.set_metadata_text(7, 3, vec![("a.jpg".into(), "stale a".into())],));
+        assert_eq!(
+            index.query(&request("newer a")).unwrap().matched_paths,
+            vec!["a.jpg"]
+        );
+        assert!(index
+            .query(&request("stale a"))
+            .unwrap()
+            .matched_paths
+            .is_empty());
+        assert_eq!(index.session_revision, 5);
     }
 
     #[test]
