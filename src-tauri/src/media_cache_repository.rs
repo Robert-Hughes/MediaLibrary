@@ -11,7 +11,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const CACHE_DIRECTORY_NAME: &str = "MediaLibrary";
 const DATABASE_FILE_NAME: &str = "MediaLibraryMediaCache.sqlite3";
@@ -308,6 +308,9 @@ impl MediaCacheRepository {
         folder_path: &str,
         requests: &[(String, MediaCacheFingerprint)],
     ) -> Result<HashMap<String, MetadataOccurrences>, String> {
+        let total_started = Instant::now();
+
+        let resolve_started = Instant::now();
         let resolved = requests
             .iter()
             .map(|(relative_path, fingerprint)| {
@@ -319,9 +322,13 @@ impl MediaCacheRepository {
                 ))
             })
             .collect::<Result<Vec<_>, String>>()?;
+        let resolve_ms = resolve_started.elapsed().as_millis();
 
+        let lock_started = Instant::now();
+        let connection = self.connection()?;
+        let lock_wait_ms = lock_started.elapsed().as_millis();
+        let sqlite_started = Instant::now();
         let stored = {
-            let connection = self.connection()?;
             let mut statement = connection
                 .prepare_cached(
                     "SELECT file_size, modified_ns, metadata_json, metadata_generation
@@ -366,8 +373,12 @@ impl MediaCacheRepository {
             }
             stored
         };
+        let sqlite_ms = sqlite_started.elapsed().as_millis();
+        drop(connection);
 
-        let mut hits = HashMap::with_capacity(stored.len());
+        let decode_started = Instant::now();
+        let stored_count = stored.len();
+        let mut hits = HashMap::with_capacity(stored_count);
         for (relative_path, photo_path, fingerprint, metadata_json, metadata_generation) in stored {
             if let Some(metadata) = self.decode_current_metadata(
                 &photo_path,
@@ -378,6 +389,18 @@ impl MediaCacheRepository {
                 hits.insert(relative_path, metadata);
             }
         }
+        let decode_ms = decode_started.elapsed().as_millis();
+        log::info!(
+            "[scan_perf] phase=metadata_cache_batch requested={} stored={} hits={} resolve_ms={} lock_wait_ms={} sqlite_ms={} decode_ms={} total_ms={}",
+            requests.len(),
+            stored_count,
+            hits.len(),
+            resolve_ms,
+            lock_wait_ms,
+            sqlite_ms,
+            decode_ms,
+            total_started.elapsed().as_millis()
+        );
         Ok(hits)
     }
 

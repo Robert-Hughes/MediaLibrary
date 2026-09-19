@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::AppHandle;
 
 pub const SEARCH_RESULT_EVENT: &str = "media_library_search_result";
@@ -347,15 +347,32 @@ impl MediaLibrarySearchService {
         revision: u64,
         entries: Vec<(String, Option<MetadataOccurrences>)>,
     ) {
-        if self
-            .inner
-            .index
-            .lock()
-            .unwrap()
-            .set_metadata(session_id, revision, &entries)
-        {
+        let total_started = Instant::now();
+        let entry_count = entries.len();
+
+        let lock_started = Instant::now();
+        let mut index = self.inner.index.lock().unwrap();
+        let lock_wait_ms = lock_started.elapsed().as_millis();
+
+        let update_started = Instant::now();
+        let accepted = index.set_metadata(session_id, revision, &entries);
+        let update_ms = update_started.elapsed().as_millis();
+        drop(index);
+
+        let refresh_started = Instant::now();
+        if accepted {
             self.schedule_refresh();
         }
+        let refresh_ms = refresh_started.elapsed().as_millis();
+
+        log::info!(
+            "[scan_perf] phase=metadata_search_batch entries={} lock_wait_ms={} update_ms={} refresh_ms={} total_ms={}",
+            entry_count,
+            lock_wait_ms,
+            update_ms,
+            refresh_ms,
+            total_started.elapsed().as_millis()
+        );
     }
 
     pub fn set_drafts(

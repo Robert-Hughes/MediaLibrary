@@ -11,7 +11,7 @@ use crate::search_service::MediaLibrarySearchService;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Mutex};
-
+use std::time::Instant;
 pub struct MediaLibrarySessionState {
     next_session_id: AtomicU64,
     next_issue_id: AtomicU64,
@@ -1192,14 +1192,24 @@ impl MediaLibrarySessionState {
         session_id: u64,
         results: Vec<FileMetadata>,
     ) -> Result<MediaLibrarySessionMetadataChanged, String> {
+        let total_started = Instant::now();
+        let requested = results.len();
+
+        let snapshot_lock_started = Instant::now();
         let mut snapshot = self.snapshot.lock().unwrap();
+        let snapshot_lock_wait_ms = snapshot_lock_started.elapsed().as_millis();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
         {
             return Err("The media-library session changed during metadata scanning".into());
         }
+
+        let superseded_lock_started = Instant::now();
         let superseded = self.superseded_scan_metadata.lock().unwrap();
-        let mut entries = Vec::with_capacity(results.len());
+        let superseded_lock_wait_ms = superseded_lock_started.elapsed().as_millis();
+
+        let snapshot_update_started = Instant::now();
+        let mut entries = Vec::with_capacity(requested);
         for result in results {
             let entry = snapshot
                 .metadata
@@ -1222,14 +1232,22 @@ impl MediaLibrarySessionState {
         if !entries.is_empty() {
             snapshot.revision += 1;
         }
+        let snapshot_update_ms = snapshot_update_started.elapsed().as_millis();
+
         let delta = MediaLibrarySessionMetadataChanged {
             session_id,
             revision: snapshot.revision,
             entries,
         };
+        let committed = delta.entries.len();
+
+        let notify_started = Instant::now();
         if !delta.entries.is_empty() {
             self.notify(SessionEvent::MetadataChanged(delta.clone()));
         }
+        let notify_ms = notify_started.elapsed().as_millis();
+
+        let search_clone_started = Instant::now();
         let search_entries = delta
             .entries
             .iter()
@@ -1244,9 +1262,27 @@ impl MediaLibrarySessionState {
                 (entry.relative_path.clone(), occurrences)
             })
             .collect();
+        let search_clone_ms = search_clone_started.elapsed().as_millis();
+
         drop(snapshot);
+
+        let search_index_started = Instant::now();
         self.search
             .set_metadata(session_id, delta.revision, search_entries);
+        let search_index_ms = search_index_started.elapsed().as_millis();
+
+        log::info!(
+            "[scan_perf] phase=metadata_session_batch requested={} committed={} snapshot_lock_wait_ms={} superseded_lock_wait_ms={} snapshot_update_ms={} notify_ms={} search_clone_ms={} search_index_ms={} total_ms={}",
+            requested,
+            committed,
+            snapshot_lock_wait_ms,
+            superseded_lock_wait_ms,
+            snapshot_update_ms,
+            notify_ms,
+            search_clone_ms,
+            search_index_ms,
+            total_started.elapsed().as_millis()
+        );
         Ok(delta)
     }
 
