@@ -1,19 +1,19 @@
 //! SQLite-backed cache for scanned media metadata and thumbnails.
 //!
-//! Each canonical absolute photo path owns one complete cache row. Metadata
-//! and thumbnail data are replaced together and are only returned when the
+//! Each canonical absolute photo path owns one cache row. Metadata and
+//! thumbnails arrive independently and are only returned when the
 //! caller's file-size and high-precision modification-time fingerprint matches
 //! the stored fingerprint.
 
 use crate::draft_edits::resolve_canonical_photo_path;
 use crate::metadata_occurrence::MetadataOccurrences;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const CACHE_DIRECTORY_NAME: &str = "MediaLibrary";
 const DATABASE_FILE_NAME: &str = "MediaLibraryMediaCache.sqlite3";
-const DATABASE_SCHEMA_VERSION: i64 = 1;
+const DATABASE_SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MediaCacheFingerprint {
@@ -24,7 +24,7 @@ pub struct MediaCacheFingerprint {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CachedMedia {
     pub thumbnail: Option<String>,
-    pub metadata: MetadataOccurrences,
+    pub metadata: Option<MetadataOccurrences>,
 }
 
 /// Return MediaLibrary's directory beneath the platform cache directory.
@@ -63,13 +63,13 @@ fn create_schema(connection: &Connection) -> Result<(), String> {
                 file_size INTEGER NOT NULL,
                 modified_ns INTEGER NOT NULL,
                 thumbnail TEXT,
-                metadata_json TEXT NOT NULL
+                metadata_json TEXT
             );",
         )
         .map_err(|error| sqlite_error("Could not create media cache schema", error))
 }
 
-fn validate_schema_version(connection: &Connection) -> Result<(), String> {
+fn ensure_schema(connection: &mut Connection) -> Result<(), String> {
     let current_version = connection
         .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
         .map_err(|error| sqlite_error("Could not read media cache schema version", error))?;
@@ -78,12 +78,37 @@ fn validate_schema_version(connection: &Connection) -> Result<(), String> {
             "Unsupported future media cache schema version {current_version}; this build supports version {DATABASE_SCHEMA_VERSION}"
         ));
     }
-    if current_version == 0 {
-        connection
-            .pragma_update(None, "user_version", DATABASE_SCHEMA_VERSION)
-            .map_err(|error| sqlite_error("Could not set media cache schema version", error))?;
+    if current_version == DATABASE_SCHEMA_VERSION {
+        return Ok(());
     }
-    Ok(())
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| sqlite_error("Could not start media cache schema transaction", error))?;
+    // Another connection may have completed initialization while we waited.
+    let version: i64 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|error| sqlite_error("Could not read media cache schema version", error))?;
+    match version {
+        0 => create_schema(&transaction)?,
+        1 => {
+            transaction
+                .execute_batch("ALTER TABLE media_cache RENAME TO media_cache_v1;")
+                .map_err(|error| sqlite_error("Could not migrate media cache schema", error))?;
+            create_schema(&transaction)?;
+            transaction.execute_batch(
+                "INSERT INTO media_cache SELECT photo_path, file_size, modified_ns, thumbnail, metadata_json FROM media_cache_v1;
+                 DROP TABLE media_cache_v1;"
+            ).map_err(|error| sqlite_error("Could not migrate media cache rows", error))?;
+        }
+        DATABASE_SCHEMA_VERSION => {}
+        _ => return Err(format!("Unsupported media cache schema version {version}")),
+    }
+    transaction
+        .pragma_update(None, "user_version", DATABASE_SCHEMA_VERSION)
+        .map_err(|error| sqlite_error("Could not set media cache schema version", error))?;
+    transaction
+        .commit()
+        .map_err(|error| sqlite_error("Could not commit media cache schema", error))
 }
 
 fn open_repository(cache_dir: &Path) -> Result<Connection, String> {
@@ -93,11 +118,10 @@ fn open_repository(cache_dir: &Path) -> Result<Connection, String> {
             cache_dir.display()
         )
     })?;
-    let connection = Connection::open(database_path(cache_dir))
+    let mut connection = Connection::open(database_path(cache_dir))
         .map_err(|error| sqlite_error("Could not open media cache database", error))?;
     configure_connection(&connection)?;
-    create_schema(&connection)?;
-    validate_schema_version(&connection)?;
+    ensure_schema(&mut connection)?;
     Ok(connection)
 }
 
@@ -121,7 +145,7 @@ fn delete_by_photo_path(connection: &Connection, photo_path: &str) -> Result<(),
         .map_err(|error| sqlite_error("Could not delete media cache row", error))
 }
 
-/// Load one complete cache entry if its stored fingerprint is still current.
+/// Load the available components if the stored fingerprint is still current.
 /// A stale row is deleted before returning `None`.
 pub fn load(
     cache_dir: &Path,
@@ -143,7 +167,7 @@ pub fn load(
                     row.get::<_, i64>(0)?,
                     row.get::<_, i64>(1)?,
                     row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(3)?,
                 ))
             },
         )
@@ -155,40 +179,87 @@ pub fn load(
     };
     let expected_file_size = stored_file_size(expected_fingerprint.file_size)?;
     if file_size != expected_file_size || modified_ns != expected_fingerprint.modified_ns {
-        delete_by_photo_path(&connection, &photo_path)?;
+        // Do not delete a newer row written since the SELECT above.
+        connection.execute(
+            "DELETE FROM media_cache WHERE photo_path = ?1 AND file_size = ?2 AND modified_ns = ?3",
+            params![photo_path, file_size, modified_ns],
+        ).map_err(|error| sqlite_error("Could not delete stale media cache row", error))?;
         return Ok(None);
     }
 
-    let metadata = serde_json::from_str(&metadata_json).map_err(|error| {
-        format!(
-            "Could not decode media cache metadata for '{}': {error}",
-            photo_path
-        )
-    })?;
+    let metadata = metadata_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| {
+            format!(
+                "Could not decode media cache metadata for '{}': {error}",
+                photo_path
+            )
+        })?;
     Ok(Some(CachedMedia {
         thumbnail,
         metadata,
     }))
 }
 
-/// Insert or replace one complete thumbnail-and-metadata cache entry.
-pub fn upsert(
+/// Update metadata, keeping the thumbnail only if its fingerprint matches.
+pub fn update_metadata(
+    cache_dir: &Path,
+    folder_path: &str,
+    relative_path: &str,
+    fingerprint: MediaCacheFingerprint,
+    metadata: &MetadataOccurrences,
+) -> Result<(), String> {
+    update_component(
+        cache_dir,
+        folder_path,
+        relative_path,
+        fingerprint,
+        None,
+        Some(metadata),
+    )
+}
+
+/// Update (or clear) the thumbnail, keeping metadata only if its fingerprint matches.
+/// `None` is an uncached thumbnail, not a persistent failure marker.
+pub fn update_thumbnail(
     cache_dir: &Path,
     folder_path: &str,
     relative_path: &str,
     fingerprint: MediaCacheFingerprint,
     thumbnail: Option<&str>,
-    metadata: &MetadataOccurrences,
+) -> Result<(), String> {
+    update_component(
+        cache_dir,
+        folder_path,
+        relative_path,
+        fingerprint,
+        thumbnail,
+        None,
+    )
+}
+
+fn update_component(
+    cache_dir: &Path,
+    folder_path: &str,
+    relative_path: &str,
+    fingerprint: MediaCacheFingerprint,
+    thumbnail: Option<&str>,
+    metadata: Option<&MetadataOccurrences>,
 ) -> Result<(), String> {
     let photo_path = resolve_canonical_photo_path(folder_path, relative_path)?;
     let photo_path = photo_path.to_string_lossy().into_owned();
     let file_size = stored_file_size(fingerprint.file_size)?;
-    let metadata_json = serde_json::to_string(metadata).map_err(|error| {
-        format!(
-            "Could not encode media cache metadata for '{}': {error}",
-            photo_path
-        )
-    })?;
+    let metadata_json = metadata
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|error| {
+            format!(
+                "Could not encode media cache metadata for '{}': {error}",
+                photo_path
+            )
+        })?;
     let connection = open_repository(cache_dir)?;
     connection
         .execute(
@@ -198,14 +269,23 @@ pub fn upsert(
              ON CONFLICT(photo_path) DO UPDATE SET
                 file_size = excluded.file_size,
                 modified_ns = excluded.modified_ns,
-                thumbnail = excluded.thumbnail,
-                metadata_json = excluded.metadata_json",
+                thumbnail = CASE
+                    WHEN ?6 = 0 THEN excluded.thumbnail
+                    WHEN media_cache.file_size = excluded.file_size AND media_cache.modified_ns = excluded.modified_ns
+                        THEN media_cache.thumbnail
+                    ELSE NULL END,
+                metadata_json = CASE
+                    WHEN ?6 = 1 THEN excluded.metadata_json
+                    WHEN media_cache.file_size = excluded.file_size AND media_cache.modified_ns = excluded.modified_ns
+                        THEN media_cache.metadata_json
+                    ELSE NULL END",
             params![
                 photo_path,
                 file_size,
                 fingerprint.modified_ns,
                 thumbnail,
-                metadata_json
+                metadata_json,
+                metadata.is_some()
             ],
         )
         .map(|_| ())
@@ -227,6 +307,19 @@ mod tests {
     use crate::metadata_value::MetadataValue;
     use crate::tag_schema::SchemaDefinitionId;
     use tempfile::tempdir;
+
+    // Seed both components through the same independent APIs used by workers.
+    fn upsert(
+        cache_dir: &Path,
+        folder: &str,
+        relative: &str,
+        fingerprint: MediaCacheFingerprint,
+        thumbnail: Option<&str>,
+        metadata: &MetadataOccurrences,
+    ) -> Result<(), String> {
+        update_metadata(cache_dir, folder, relative, fingerprint, metadata)?;
+        update_thumbnail(cache_dir, folder, relative, fingerprint, thumbnail)
+    }
 
     fn folder_path(path: &Path) -> String {
         path.to_string_lossy().into_owned()
@@ -321,7 +414,7 @@ mod tests {
         create_photo(&folder, "nested/photo.jpg");
         let expected = CachedMedia {
             thumbnail: Some("base64-thumbnail".into()),
-            metadata: metadata("Cached title"),
+            metadata: Some(metadata("Cached title")),
         };
         let current = fingerprint(10, 1_786_000_000_123_456_789);
 
@@ -331,7 +424,7 @@ mod tests {
             "nested/photo.jpg",
             current,
             expected.thumbnail.as_deref(),
-            &expected.metadata,
+            expected.metadata.as_ref().unwrap(),
         )
         .unwrap();
 
@@ -380,7 +473,7 @@ mod tests {
             load(&cache_dir, &folder, "photo.jpg", replacement).unwrap(),
             Some(CachedMedia {
                 thumbnail: None,
-                metadata: metadata("New"),
+                metadata: Some(metadata("New")),
             })
         );
         let connection = Connection::open(database_path(&cache_dir)).unwrap();
@@ -471,6 +564,159 @@ mod tests {
         remove(&cache_dir, &folder, "photo.jpg").unwrap();
         assert_eq!(
             load(&cache_dir, &folder, "photo.jpg", current).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn either_component_can_arrive_first_and_be_replaced_independently() {
+        for thumbnail_first in [false, true] {
+            let temp = tempdir().unwrap();
+            let folder = folder_path(temp.path());
+            let cache = temp.path().join("cache");
+            create_photo(temp.path(), "photo.jpg");
+            let fp = fingerprint(10, 100);
+            let write_metadata =
+                || update_metadata(&cache, &folder, "photo.jpg", fp, &metadata("Title")).unwrap();
+            let write_thumbnail =
+                || update_thumbnail(&cache, &folder, "photo.jpg", fp, Some("thumb")).unwrap();
+            if thumbnail_first {
+                write_thumbnail();
+            } else {
+                write_metadata();
+            }
+            let partial = load(&cache, &folder, "photo.jpg", fp).unwrap().unwrap();
+            assert_eq!(partial.thumbnail.is_some(), thumbnail_first);
+            assert_eq!(partial.metadata.is_some(), !thumbnail_first);
+            if thumbnail_first {
+                write_metadata();
+            } else {
+                write_thumbnail();
+            }
+            assert_eq!(
+                load(&cache, &folder, "photo.jpg", fp).unwrap().unwrap(),
+                CachedMedia {
+                    thumbnail: Some("thumb".into()),
+                    metadata: Some(metadata("Title")),
+                }
+            );
+            update_metadata(
+                &cache,
+                &folder,
+                "photo.jpg",
+                fp,
+                &MetadataOccurrences::default(),
+            )
+            .unwrap();
+            let updated = load(&cache, &folder, "photo.jpg", fp).unwrap().unwrap();
+            assert_eq!(updated.metadata, Some(MetadataOccurrences::default()));
+            assert_eq!(updated.thumbnail.as_deref(), Some("thumb"));
+            update_thumbnail(&cache, &folder, "photo.jpg", fp, None).unwrap();
+            let cleared = load(&cache, &folder, "photo.jpg", fp).unwrap().unwrap();
+            assert_eq!(cleared.thumbnail, None);
+            assert_eq!(cleared.metadata, updated.metadata);
+        }
+    }
+
+    #[test]
+    fn changed_fingerprint_clears_the_other_component() {
+        for next in [fingerprint(11, 100), fingerprint(10, 101)] {
+            for metadata_first in [true, false] {
+                let temp = tempdir().unwrap();
+                let folder = folder_path(temp.path());
+                let cache = temp.path().join("cache");
+                create_photo(temp.path(), "photo.jpg");
+                upsert(
+                    &cache,
+                    &folder,
+                    "photo.jpg",
+                    fingerprint(10, 100),
+                    Some("old"),
+                    &metadata("Old"),
+                )
+                .unwrap();
+                if metadata_first {
+                    update_metadata(&cache, &folder, "photo.jpg", next, &metadata("New")).unwrap();
+                } else {
+                    update_thumbnail(&cache, &folder, "photo.jpg", next, Some("new")).unwrap();
+                }
+                let row = load(&cache, &folder, "photo.jpg", next).unwrap().unwrap();
+                assert_eq!(row.metadata, metadata_first.then(|| metadata("New")));
+                assert_eq!(row.thumbnail, (!metadata_first).then(|| "new".into()));
+            }
+        }
+    }
+
+    #[test]
+    fn simultaneous_component_writes_preserve_both_results() {
+        let temp = tempdir().unwrap();
+        let folder = folder_path(temp.path());
+        let cache = temp.path().join("cache");
+        create_photo(temp.path(), "photo.jpg");
+        initialise(&cache).unwrap();
+        let fp = fingerprint(10, 100);
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                barrier.wait();
+                update_metadata(&cache, &folder, "photo.jpg", fp, &metadata("Title")).unwrap();
+            });
+            scope.spawn(|| {
+                barrier.wait();
+                update_thumbnail(&cache, &folder, "photo.jpg", fp, Some("thumb")).unwrap();
+            });
+        });
+        assert_eq!(
+            load(&cache, &folder, "photo.jpg", fp).unwrap().unwrap(),
+            CachedMedia {
+                thumbnail: Some("thumb".into()),
+                metadata: Some(metadata("Title")),
+            }
+        );
+    }
+
+    #[test]
+    fn version_one_rows_survive_nullable_metadata_migration() {
+        let temp = tempdir().unwrap();
+        let folder = folder_path(temp.path());
+        create_photo(temp.path(), "photo.jpg");
+        let path = resolve_canonical_photo_path(&folder, "photo.jpg").unwrap();
+        let connection = Connection::open(database_path(temp.path())).unwrap();
+        connection.execute_batch(
+            "CREATE TABLE media_cache (photo_path TEXT PRIMARY KEY NOT NULL, file_size INTEGER NOT NULL,
+             modified_ns INTEGER NOT NULL, thumbnail TEXT, metadata_json TEXT NOT NULL);
+             PRAGMA user_version = 1;"
+        ).unwrap();
+        connection
+            .execute(
+                "INSERT INTO media_cache VALUES (?1, 10, 100, 'thumb', '[]')",
+                params![path.to_string_lossy()],
+            )
+            .unwrap();
+        drop(connection);
+        initialise(temp.path()).unwrap();
+        assert_eq!(
+            load(temp.path(), &folder, "photo.jpg", fingerprint(10, 100))
+                .unwrap()
+                .unwrap(),
+            CachedMedia {
+                thumbnail: Some("thumb".into()),
+                metadata: Some(MetadataOccurrences::default()),
+            }
+        );
+        update_thumbnail(
+            temp.path(),
+            &folder,
+            "photo.jpg",
+            fingerprint(11, 100),
+            Some("new"),
+        )
+        .unwrap();
+        assert_eq!(
+            load(temp.path(), &folder, "photo.jpg", fingerprint(11, 100))
+                .unwrap()
+                .unwrap()
+                .metadata,
             None
         );
     }
