@@ -43,5 +43,6 @@ Features
     - video: embedded thumbnail or generated frame?
   - Media kind badge (or similar) on files
   - Column selections probably want to be different - different defaults, remember last-used in separate place
-    - Could auto-detect if this is a "picture" folder or a "audio" folder and make a few tweaks based on that
+    - Could auto-detect if this is a "picture" folder or a "audio" folder and make a few tweaks based on that.
+    - QuickTime:CreateDate instead of DateTimeOriginal for example
   - Normalize metadata could but might need new groups defining.
