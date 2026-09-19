@@ -251,6 +251,43 @@ fn commit_session_thumbnails(app: &AppHandle, session_id: u64, results: Vec<Thum
     }
 }
 
+fn cache_scan_metadata(
+    cache_dir: &std::path::Path,
+    root: &std::path::Path,
+    metadata: &scanner::FileMetadata,
+) -> Result<(), String> {
+    let absolute_path = root.join(
+        metadata
+            .relative_path
+            .replace('/', std::path::MAIN_SEPARATOR_STR),
+    );
+    let fingerprint = media_cache_repository::fingerprint_for_file(&absolute_path)?;
+    media_cache_repository::update_metadata(
+        cache_dir,
+        &root.to_string_lossy(),
+        &metadata.relative_path,
+        fingerprint,
+        &metadata.occurrences,
+    )
+}
+
+fn cache_scan_thumbnail(
+    cache_dir: &std::path::Path,
+    root: &std::path::Path,
+    relative_path: &str,
+    thumbnail: Option<&str>,
+) -> Result<(), String> {
+    let absolute_path = root.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let fingerprint = media_cache_repository::fingerprint_for_file(&absolute_path)?;
+    media_cache_repository::update_thumbnail(
+        cache_dir,
+        &root.to_string_lossy(),
+        relative_path,
+        fingerprint,
+        thumbnail,
+    )
+}
+
 #[tauri::command]
 fn get_media_library_thumbnails(
     session_id: u64,
@@ -467,6 +504,16 @@ fn start_scan(
         queues_for_thread.install(thumb_queue.clone(), file_metadata_queue.clone());
 
         let root_arc = Arc::new(root.clone());
+        let cache_dir = match media_cache_repository::cache_directory().and_then(|path| {
+            media_cache_repository::initialise(&path)?;
+            Ok(path)
+        }) {
+            Ok(path) => Some(path),
+            Err(error) => {
+                log::warn!("[media-cache] disabled for scan {}: {}", scan_id, error);
+                None
+            }
+        };
 
         // ── Phase 2: Image Metadata workers ───────────────────────────────
         let metadata_handles: Vec<_> = (0..metadata_workers)
@@ -476,6 +523,7 @@ fn start_scan(
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
                 let batch_size = metadata_batch_size;
+                let cache_dir = cache_dir.clone();
                 std::thread::spawn(move || {
                     let mut batch_results = Vec::new();
                     let mut last_emit = std::time::Instant::now();
@@ -514,6 +562,22 @@ fn start_scan(
                                     outcome.results.len(),
                                     outcome.failures.len()
                                 );
+
+                                if !cancelled.load(Ordering::Relaxed) {
+                                    if let Some(cache_dir) = cache_dir.as_deref() {
+                                        for metadata in &outcome.results {
+                                            if let Err(error) =
+                                                cache_scan_metadata(cache_dir, &root, metadata)
+                                            {
+                                                log::warn!(
+                                                    "[media-cache] metadata update failed for {}: {}",
+                                                    metadata.relative_path,
+                                                    error
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
 
                                 batch_results.extend(outcome.results);
 
@@ -604,6 +668,7 @@ fn start_scan(
                 let queue = thumb_queue.clone();
                 let root = root_arc.clone();
                 let cancelled = cancel_clone.clone();
+                let cache_dir = cache_dir.clone();
                 let result_tx = thumbnail_result_tx.clone();
                 std::thread::spawn(move || {
                     while let Some(rel_path) = queue.pop() {
@@ -612,9 +677,26 @@ fn start_scan(
                         }
 
                         let abs = root.join(rel_path.replace('/', std::path::MAIN_SEPARATOR_STR));
+                        let thumbnail = scanner::thumbnail_for_media(&abs);
+                        if !cancelled.load(Ordering::Relaxed) {
+                            if let Some(cache_dir) = cache_dir.as_deref() {
+                                if let Err(error) = cache_scan_thumbnail(
+                                    cache_dir,
+                                    &root,
+                                    &rel_path,
+                                    thumbnail.as_deref(),
+                                ) {
+                                    log::warn!(
+                                        "[media-cache] thumbnail update failed for {}: {}",
+                                        rel_path,
+                                        error
+                                    );
+                                }
+                            }
+                        }
                         let _ = result_tx.send(ThumbnailResult {
                             relative_path: rel_path,
-                            thumbnail: scanner::thumbnail_for_media(&abs),
+                            thumbnail,
                         });
                     }
                 })
@@ -1069,6 +1151,45 @@ fn clear_running(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scan_cache_helpers_populate_components_independently() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("photos");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("photo.jpg"), b"photo").unwrap();
+        let cache_dir = temp.path().join("cache");
+        let metadata = scanner::FileMetadata {
+            relative_path: "photo.jpg".into(),
+            occurrences: Default::default(),
+        };
+
+        cache_scan_metadata(&cache_dir, &root, &metadata).unwrap();
+        let fingerprint =
+            media_cache_repository::fingerprint_for_file(&root.join("photo.jpg")).unwrap();
+        let first = media_cache_repository::load(
+            &cache_dir,
+            &root.to_string_lossy(),
+            "photo.jpg",
+            fingerprint,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(first.metadata, Some(Default::default()));
+        assert_eq!(first.thumbnail, None);
+
+        cache_scan_thumbnail(&cache_dir, &root, "photo.jpg", Some("thumb")).unwrap();
+        let complete = media_cache_repository::load(
+            &cache_dir,
+            &root.to_string_lossy(),
+            "photo.jpg",
+            fingerprint,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(complete.metadata, Some(Default::default()));
+        assert_eq!(complete.thumbnail.as_deref(), Some("thumb"));
+    }
 
     #[test]
     fn windows_explorer_keeps_select_switch_separate_from_regression_path() {

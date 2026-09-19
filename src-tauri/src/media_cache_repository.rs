@@ -34,6 +34,34 @@ pub fn cache_directory() -> Result<PathBuf, String> {
         .ok_or_else(|| "No platform cache directory is available".to_string())
 }
 
+/// Read the cache fingerprint used to validate a media file.
+pub fn fingerprint_for_file(path: &Path) -> Result<MediaCacheFingerprint, String> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|error| format!("Could not stat media file '{}': {error}", path.display()))?;
+    let modified = metadata.modified().map_err(|error| {
+        format!(
+            "Could not read modified time for '{}': {error}",
+            path.display()
+        )
+    })?;
+    let modified_ns = match modified.duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_nanos())
+            .map_err(|_| format!("Modified time for '{}' exceeds cache range", path.display()))?,
+        Err(error) => {
+            let before_epoch = i64::try_from(error.duration().as_nanos()).map_err(|_| {
+                format!("Modified time for '{}' exceeds cache range", path.display())
+            })?;
+            before_epoch.checked_neg().ok_or_else(|| {
+                format!("Modified time for '{}' exceeds cache range", path.display())
+            })?
+        }
+    };
+    Ok(MediaCacheFingerprint {
+        file_size: metadata.len(),
+        modified_ns,
+    })
+}
+
 fn database_path(cache_dir: &Path) -> PathBuf {
     cache_dir.join(DATABASE_FILE_NAME)
 }
@@ -363,6 +391,18 @@ mod tests {
             None,
         )
         .unwrap()])
+    }
+
+    #[test]
+    fn fingerprint_uses_file_size_and_high_precision_modified_time() {
+        let temp = tempdir().unwrap();
+        create_photo(temp.path(), "photo.jpg");
+        let path = temp.path().join("photo.jpg");
+
+        let fingerprint = fingerprint_for_file(&path).unwrap();
+
+        assert_eq!(fingerprint.file_size, b"test photo".len() as u64);
+        assert!(fingerprint.modified_ns > 0);
     }
 
     #[test]
