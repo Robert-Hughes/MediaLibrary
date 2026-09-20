@@ -129,11 +129,6 @@ function resolveSchemaDraftWithContext(
   const expected = existingOccurrenceTargetFromOccurrence(exact.occurrence);
   if (
     !schemaDefinitionIdEquals(exact.occurrence.schema_id, schemaId) ||
-    exact.occurrence.tag_info === null ||
-    !schemaDefinitionIdEquals(
-      exact.occurrence.tag_info.id,
-      exact.occurrence.schema_id,
-    ) ||
     expected.kind !== "targetable" ||
     !metadataDraftTargetEquals(expected.target, entry.target)
   ) {

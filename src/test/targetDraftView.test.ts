@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type {
   MetadataOccurrence,
   MetadataDraftTarget,
@@ -10,7 +10,17 @@ import {
   resolveSchemaDraftForPresentation,
 } from "../targetDraftView";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
+
 const schema: SchemaDefinitionId = { table: "Exif::Main", tag_id: "282" };
+const schemaInfo = {
+  id: schema,
+  group: "IFD0",
+  name: "XResolution",
+  writable: true,
+  kind: { kind: "Integer" as const, data: { min: null, max: null } },
+  description: null,
+};
 const occurrence: MetadataOccurrence = {
   id: {
     document: null,
@@ -21,14 +31,6 @@ const occurrence: MetadataOccurrence = {
   },
   schema_id: structuredClone(schema),
   value: { kind: "Integer", value: 300 },
-  tag_info: {
-    id: schema,
-    group: "IFD0",
-    name: "XResolution",
-    writable: true,
-    kind: { kind: "Integer", data: { min: null, max: null } },
-    description: null,
-  },
   observed_selector: {
     group1: "IFD0",
     group7: "ID-Test",
@@ -42,7 +44,9 @@ const target: Extract<MetadataDraftTarget, { kind: "ExistingOccurrence" }> = {
   schema_id: schema,
   write_target: occurrence.write_target!,
 };
-
+beforeEach(() => {
+  _setTagInfoCacheEntry(schema, schemaInfo);
+});
 describe("schema-keyed target draft presentation", () => {
   const token = schemaDefinitionIdToken(schema);
   const pending = {
@@ -53,7 +57,6 @@ describe("schema-keyed target draft presentation", () => {
     ...occurrence,
     id: { ...occurrence.id, path: "JPEG-APP1-IFD1", copy: 1 },
     value: { kind: "Integer", value: 72 },
-    tag_info: { ...occurrence.tag_info!, group: "IFD1" },
     observed_selector: {
       group1: "IFD1",
       group7: "ID-Test",
@@ -165,7 +168,7 @@ describe("schema-keyed target draft presentation", () => {
     const otherSchema = { ...schema, table: "Exif::Other" };
     const duplicateExactId: MetadataOccurrence = {
       ...occurrence,
-      tag_info: { ...occurrence.tag_info!, id: otherSchema },
+      schema_id: otherSchema,
     };
     const duplicated = resolveSchemaDraftForPresentation({
       schemaId: schema,

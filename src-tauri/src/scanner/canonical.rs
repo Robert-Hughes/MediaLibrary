@@ -6,6 +6,8 @@ pub(super) struct CanonicalRuntimeOccurrence {
     // and the supported write selector answer different questions and must stay
     // independent.
     pub(super) occurrence: MetadataOccurrence,
+    #[cfg(test)]
+    pub(super) test_tag_info: Option<crate::tag_schema::TagInfo>,
     pub(super) friendly_name: String,
     pub(super) runtime_group1: String,
     pub(super) runtime_tag_name: String,
@@ -24,12 +26,12 @@ pub(super) struct LangAltOccurrenceGroupKey {
 
 pub(super) fn lang_alt_group_key(
     canonical: &CanonicalRuntimeOccurrence,
+    registry: Option<&TagRegistry>,
 ) -> Option<LangAltOccurrenceGroupKey> {
-    let info = canonical.occurrence.tag_info.as_ref()?;
+    let info = registry?.lookup(&canonical.occurrence.schema_id)?;
     if !matches!(info.kind, TagKind::LangAlt) {
         return None;
     }
-
     let parent_runtime_tag_id = match canonical.language.as_deref() {
         Some(language) => canonical
             .occurrence
@@ -54,12 +56,13 @@ pub(super) fn lang_alt_group_key(
 /// retained so distinct XMP containers never collapse into one occurrence.
 pub(super) fn consolidate_lang_alt_occurrences(
     occurrences: Vec<CanonicalRuntimeOccurrence>,
+    registry: Option<&TagRegistry>,
 ) -> Vec<CanonicalRuntimeOccurrence> {
     let mut ordinary = Vec::new();
     let mut groups = BTreeMap::<LangAltOccurrenceGroupKey, Vec<CanonicalRuntimeOccurrence>>::new();
 
     for canonical in occurrences {
-        if let Some(key) = lang_alt_group_key(&canonical) {
+        if let Some(key) = lang_alt_group_key(&canonical, registry) {
             groups.entry(key).or_default().push(canonical);
         } else {
             ordinary.push(canonical);
@@ -132,11 +135,9 @@ pub(super) fn consolidate_lang_alt_occurrences(
             }
         };
 
-        let info_name = parent
-            .occurrence
-            .tag_info
-            .as_ref()
-            .expect("LangAlt grouping requires TagInfo")
+        let info_name = registry
+            .and_then(|registry| registry.lookup(&key.schema_id))
+            .expect("LangAlt grouping requires an exact schema definition")
             .name
             .clone();
         parent.occurrence.id.runtime_tag_id = key.parent_runtime_tag_id;
@@ -165,7 +166,10 @@ pub(super) fn selector_component_is_safe(component: &str, reject_colon: bool) ->
         })
 }
 
-pub(super) fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccurrence]) {
+pub(super) fn assign_exact_write_targets(
+    occurrences: &mut [CanonicalRuntimeOccurrence],
+    registry: Option<&TagRegistry>,
+) {
     let mut selector_counts = BTreeMap::new();
     for canonical in occurrences.iter_mut() {
         canonical.occurrence.observed_selector = None;
@@ -193,7 +197,9 @@ pub(super) fn assign_exact_write_targets(occurrences: &mut [CanonicalRuntimeOccu
             continue;
         };
         let selector_key = MetadataSelectorKey::from_observed_selector(observed);
-        let Some(tag_info) = canonical.occurrence.tag_info.as_ref() else {
+        let Some(tag_info) =
+            registry.and_then(|registry| registry.lookup(&canonical.occurrence.schema_id))
+        else {
             continue;
         };
         if (!tag_info.writable || !tag_info.kind.supports_metadata_write())
@@ -300,7 +306,6 @@ pub(super) fn canonical_occurrences_from_exiftool_pair(
                     occurrence_id,
                     id.clone(),
                     MetadataValue::LangAlt(BTreeMap::from([(language.clone(), text)])),
-                    Some(info.clone()),
                     None,
                     None,
                 )
@@ -311,6 +316,8 @@ pub(super) fn canonical_occurrences_from_exiftool_pair(
                 })?;
                 values.push(CanonicalRuntimeOccurrence {
                     occurrence,
+                    #[cfg(test)]
+                    test_tag_info: Some(info.clone()),
                     friendly_name: property.friendly_name.clone(),
                     runtime_group1: property.group1.clone(),
                     runtime_tag_name: property.tag_name.clone(),
@@ -335,19 +342,14 @@ pub(super) fn canonical_occurrences_from_exiftool_pair(
             &value,
             warnings_accumulator.as_deref_mut(),
         );
-        let occurrence = MetadataOccurrence::try_new(
-            occurrence_id,
-            id.clone(),
-            value,
-            info.cloned(),
-            None,
-            None,
-        )
-        .map_err(|error| {
-            format!("invalid metadata occurrence constructed for {rel_path}: {error}")
-        })?;
+        let occurrence = MetadataOccurrence::try_new(occurrence_id, id.clone(), value, None, None)
+            .map_err(|error| {
+                format!("invalid metadata occurrence constructed for {rel_path}: {error}")
+            })?;
         values.push(CanonicalRuntimeOccurrence {
             occurrence,
+            #[cfg(test)]
+            test_tag_info: info.cloned(),
             friendly_name: property.friendly_name.clone(),
             runtime_group1: property.group1.clone(),
             runtime_tag_name: property.tag_name.clone(),
@@ -356,12 +358,12 @@ pub(super) fn canonical_occurrences_from_exiftool_pair(
         });
     }
 
-    let mut values = consolidate_lang_alt_occurrences(values);
+    let mut values = consolidate_lang_alt_occurrences(values, registry);
 
     // Write targets are assigned after the complete per-file occurrence set is
     // materialised and LangAlt fragments are consolidated, so selector
     // ambiguity can be evaluated globally against canonical properties.
-    assign_exact_write_targets(&mut values);
+    assign_exact_write_targets(&mut values, registry);
     Ok(values)
 }
 

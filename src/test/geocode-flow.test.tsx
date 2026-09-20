@@ -27,6 +27,7 @@ import type {
 } from "../types";
 import { GPS_IDS, KNOWN_METADATA_IDS as ID } from "../metadata/knownIds";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
+import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
 import { TargetDraftEditsStore } from "../targetDraftEdits";
 import { useGeocodeImages } from "../hooks/useGeocodeImages";
 
@@ -81,14 +82,6 @@ function gpsOccurrence(
     },
     schema_id: structuredClone(id),
     value,
-    tag_info: {
-      id,
-      group: "GPS",
-      name: id.tag_id,
-      writable: true,
-      kind: { kind: value.kind } as never,
-      description: null,
-    },
     observed_selector: {
       group1: "GPS",
       group7: "ID-Test",
@@ -125,9 +118,8 @@ function seedExistingGpsTargets(
   store.setMetadataBatch(
     rel,
     edits.map(({ id, edit }) => {
-      const current = occurrences.find(
-        (item) =>
-          item.tag_info?.id === id || item.tag_info?.id.tag_id === id.tag_id,
+      const current = occurrences.find((item) =>
+        schemaDefinitionIdEquals(item.schema_id, id),
       );
       if (!current) throw new Error(`Missing test occurrence ${id.tag_id}`);
       const target = existingOccurrenceTargetFromOccurrence(current);
@@ -191,15 +183,32 @@ function expectMapCoordinates(lat: number, lon: number) {
 
 beforeEach(() => {
   mockApiInstance = createMockTauriApi();
-  mockApiInstance.tagInfos = GENERATED_GEOCODE_IDS.map((id) => ({
+  const gpsDefinitions = [
+    GPS_IDS.latitude,
+    GPS_IDS.latitudeRef,
+    GPS_IDS.longitude,
+    GPS_IDS.longitudeRef,
+  ].map((id) => ({
     id: structuredClone(id),
-    group0: "XMP",
-    group: "XMP-mlib",
+    group0: "EXIF",
+    group: "GPS",
     name: id.tag_id,
     writable: true,
-    kind: { kind: "Text" },
+    kind: { kind: "Text" as const },
     description: null,
   }));
+  mockApiInstance.tagInfos = [
+    ...GENERATED_GEOCODE_IDS.map((id) => ({
+      id: structuredClone(id),
+      group0: "XMP",
+      group: "XMP-mlib",
+      name: id.tag_id,
+      writable: true,
+      kind: { kind: "Text" as const },
+      description: null,
+    })),
+    ...gpsDefinitions,
+  ];
 });
 afterEach(() => {
   vi.clearAllMocks();

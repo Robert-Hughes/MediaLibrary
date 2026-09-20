@@ -210,9 +210,6 @@ describe("target-aware normalise inputs", () => {
       tag_id: "201",
     };
     occurrence.schema_id = customId;
-    occurrence.tag_info = occurrence.tag_info
-      ? { ...occurrence.tag_info, id: customId }
-      : null;
     occurrence.observed_selector = null;
     occurrence.write_target = null;
 

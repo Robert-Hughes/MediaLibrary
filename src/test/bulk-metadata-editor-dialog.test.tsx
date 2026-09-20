@@ -70,7 +70,6 @@ describe("BulkMetadataEditorDialog", () => {
       { kind: "Text", value: "Old" },
       0,
     );
-    existing.tag_info = info;
 
     render(
       <BulkMetadataEditorDialog
@@ -120,7 +119,6 @@ describe("BulkMetadataEditorDialog", () => {
       { kind: "Binary" },
       0,
     );
-    thumbnail.tag_info = thumbnailInfo;
     const onPreview = vi.fn();
 
     render(
@@ -161,7 +159,6 @@ describe("BulkMetadataEditorDialog", () => {
       { kind: "Text", value: "Old" },
       0,
     );
-    existing.tag_info = incompatible;
 
     render(
       <BulkMetadataEditorDialog
@@ -206,7 +203,6 @@ describe("BulkMetadataEditorDialog", () => {
       { kind: "Text", value: "Old" },
       0,
     );
-    existing.tag_info = info;
 
     render(
       <BulkMetadataEditorDialog
@@ -265,7 +261,6 @@ describe("BulkMetadataEditorDialog", () => {
       { kind: "Text", value: "Old" },
       0,
     );
-    existing.tag_info = info;
 
     render(
       <BulkMetadataEditorDialog

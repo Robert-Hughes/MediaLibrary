@@ -387,14 +387,6 @@ describe("Gallery details pane content", () => {
         },
         schema_id: { table: "Test::Fixture", tag_id: "IFD0:Make" },
         value: { kind: "Text", value: "Canon" },
-        tag_info: {
-          id: { table: "Test::Fixture", tag_id: "IFD0:Make" },
-          group: "IFD0",
-          name: "Make",
-          writable: true,
-          kind: { kind: "Text" },
-          description: null,
-        },
         observed_selector: {
           group1: "IFD0",
           group7: "ID-Test",

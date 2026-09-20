@@ -471,7 +471,6 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
             },
             schema_id: testDefinitions[2].id,
             value: { kind: "Text", value: "Auto" },
-            tag_info: testDefinitions[2],
             observed_selector: {
               group1: "MakerNotes",
               group7: "ID-4",
@@ -521,7 +520,6 @@ describe("NewPropertyDialog exact-ID selection flow", () => {
       },
       schema_id: testDefinitions[1].id,
       value: { kind: "Text" as const, value: "occupied" },
-      tag_info: testDefinitions[1],
       observed_selector: {
         group1: "xmp-DC",
         group7: "ID-title",

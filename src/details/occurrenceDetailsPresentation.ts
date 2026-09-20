@@ -28,6 +28,7 @@ import {
   metadataWriteSelector,
 } from "../utils/metadataWriteTarget";
 import { applyMetadataDraftEditExactly } from "../utils/effectiveMetadata";
+import { getTagInfoExact } from "../tagSchemaRegistry";
 import {
   classifyNewPropertyDestination,
   type NewPropertyDestinationSafety,
@@ -128,7 +129,10 @@ export interface BuildOccurrenceDetailsPresentationInput {
   tagInfos?: Readonly<Record<string, TagInfo | null | undefined>>;
 }
 
-function existingGroup(occurrence: MetadataOccurrence): {
+function existingGroup(
+  occurrence: MetadataOccurrence,
+  tagInfo: TagInfo | null | undefined,
+): {
   name: string;
   source: OccurrenceDetailsGroupSource;
   fallback: boolean;
@@ -140,9 +144,9 @@ function existingGroup(occurrence: MetadataOccurrence): {
       fallback: false,
     };
   }
-  if (occurrence.tag_info?.group) {
+  if (tagInfo?.group) {
     return {
-      name: occurrence.tag_info.group,
+      name: tagInfo.group,
       source: "tag-info",
       fallback: false,
     };
@@ -154,9 +158,12 @@ function existingGroup(occurrence: MetadataOccurrence): {
   };
 }
 
-function existingLabel(occurrence: MetadataOccurrence): string {
+function existingLabel(
+  occurrence: MetadataOccurrence,
+  tagInfo: TagInfo | null | undefined,
+): string {
   return (
-    occurrence.tag_info?.name ??
+    tagInfo?.name ??
     occurrence.observed_selector?.tag_name ??
     occurrence.schema_id.tag_id ??
     formatSchemaDefinitionIdForDiagnostics(occurrence.schema_id)
@@ -500,11 +507,11 @@ export function buildOccurrenceDetailsPresentation(
       }
     }
 
-    const group = existingGroup(occurrence);
-    const label = existingLabel(occurrence);
     const displayTagInfo =
       input.tagInfos?.[schemaDefinitionIdToken(occurrence.schema_id)] ??
-      occurrence.tag_info;
+      getTagInfoExact(occurrence.schema_id);
+    const group = existingGroup(occurrence, displayTagInfo);
+    const label = existingLabel(occurrence, displayTagInfo);
     const currentValue = currentDisplay(occurrence, displayTagInfo);
     const effectiveDraft =
       draft === null

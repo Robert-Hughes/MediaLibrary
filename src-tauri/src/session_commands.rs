@@ -2,6 +2,15 @@
 
 use super::*;
 
+fn exact_registry_info_for_occurrence(
+    occurrence: &metadata_occurrence::MetadataOccurrence,
+) -> Result<&'static tag_schema::TagInfo, String> {
+    let registry = tag_schema::get_registry().map_err(|error| error.to_string())?;
+    registry
+        .lookup(&occurrence.schema_id)
+        .ok_or_else(|| "The exact metadata schema is unknown".to_string())
+}
+
 pub(super) fn validate_exact_session_draft_target(
     snapshot: &session::MediaLibrarySessionSnapshot,
     relative_path: &str,
@@ -38,7 +47,10 @@ pub(super) fn validate_exact_session_draft_target(
                 return Err("The exact metadata occurrence ID is duplicated".into());
             }
             target
-                .validate_existing_occurrence(occurrence)
+                .validate_existing_occurrence(
+                    occurrence,
+                    Some(exact_registry_info_for_occurrence(occurrence)?),
+                )
                 .map_err(|error| error.to_string())
         }
         metadata_draft_target::MetadataDraftTarget::NewProperty {
@@ -717,11 +729,11 @@ pub(super) fn plan_session_schema_removal(
         .iter()
         .filter(|occurrence| &occurrence.schema_id == schema_id)
     {
-        let target =
-            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
-                .map_err(|error| {
-                    format!("The selected occurrence cannot be removed safely: {error}")
-                })?;
+        let target = metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(
+            occurrence,
+            Some(exact_registry_info_for_occurrence(occurrence)?),
+        )
+        .map_err(|error| format!("The selected occurrence cannot be removed safely: {error}"))?;
         if !authoritative_slots.insert(target.slot()) {
             return Err(
                 "Several authoritative occurrences resolve to the same exact target slot".into(),
@@ -1000,8 +1012,11 @@ pub(super) fn plan_session_gps_drafts(
             return Err("Several authoritative occurrences share this exact GPS schema".into());
         }
         let target = if let Some(occurrence) = matching_occurrences.first() {
-            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
-                .map_err(|error| error.to_string())?
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(
+                occurrence,
+                Some(exact_registry_info_for_occurrence(occurrence)?),
+            )
+            .map_err(|error| error.to_string())?
         } else {
             let matching_drafts = stored
                 .iter()
@@ -1277,8 +1292,11 @@ pub(super) fn plan_session_describe_drafts(
             );
         }
         let target = if let Some(occurrence) = at_destination.first() {
-            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
-                .map_err(|error| error.to_string())?
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(
+                occurrence,
+                Some(exact_registry_info_for_occurrence(occurrence)?),
+            )
+            .map_err(|error| error.to_string())?
         } else {
             new_target
         };
@@ -1477,8 +1495,11 @@ pub(super) fn plan_session_geocode_drafts(
             );
         }
         let target = if let Some(occurrence) = at_destination.first() {
-            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
-                .map_err(|error| error.to_string())?
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(
+                occurrence,
+                Some(exact_registry_info_for_occurrence(occurrence)?),
+            )
+            .map_err(|error| error.to_string())?
         } else {
             new_target
         };
@@ -1630,8 +1651,11 @@ pub(super) fn plan_session_normalise_drafts(
             );
         }
         let target = if let Some(occurrence) = at_destination.first() {
-            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(occurrence)
-                .map_err(|error| error.to_string())?
+            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(
+                occurrence,
+                Some(exact_registry_info_for_occurrence(occurrence)?),
+            )
+            .map_err(|error| error.to_string())?
         } else {
             new_target
         };
@@ -2259,7 +2283,6 @@ mod tests {
             id: occurrence_id.clone(),
             schema_id: schema_id.clone(),
             value: metadata_value::MetadataValue::Text("2026:02:27 13:03:54".to_owned()),
-            tag_info: Some(info.clone()),
             observed_selector: Some(metadata_occurrence::MetadataObservedSelector {
                 group1: write_target.group1.clone(),
                 group7: write_target.group7.clone(),

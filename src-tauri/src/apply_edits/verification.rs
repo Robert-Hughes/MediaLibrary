@@ -189,7 +189,7 @@ pub(super) fn verify_plan(
                     let draft_reconciliation = if verification_clears_draft(&kind) {
                         MetadataDraftReconciliation::Clear
                     } else {
-                        match MetadataDraftTarget::from_existing_occurrence(occurrence) {
+                        match MetadataDraftTarget::from_existing_occurrence(occurrence, Some(&plan.schema_info)) {
                             Ok(target) => MetadataDraftReconciliation::Replace { target },
                             Err(error) => MetadataDraftReconciliation::Blocked {
                                 reason: error.to_string(),
@@ -329,7 +329,7 @@ pub(super) fn verify_existing_plan(
     let draft_reconciliation = if verification_clears_draft(&kind) {
         MetadataDraftReconciliation::Clear
     } else if rebound {
-        match MetadataDraftTarget::from_existing_occurrence(occurrence) {
+        match MetadataDraftTarget::from_existing_occurrence(occurrence, Some(&plan.schema_info)) {
             Ok(target) => MetadataDraftReconciliation::Replace { target },
             Err(error) => MetadataDraftReconciliation::Blocked {
                 reason: error.to_string(),

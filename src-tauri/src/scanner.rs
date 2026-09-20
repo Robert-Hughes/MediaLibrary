@@ -420,10 +420,10 @@ mod tests {
                 },
                 schema_id,
                 value,
-                tag_info,
                 observed_selector: None,
                 write_target: None,
             },
+            test_tag_info: tag_info,
             friendly_name: format!("{group1}:{tag_name}"),
             runtime_group1: group1.into(),
             runtime_tag_name: tag_name.into(),
@@ -432,6 +432,19 @@ mod tests {
         }
     }
 
+    fn assign_exact_write_targets_for_test(occurrences: &mut [CanonicalRuntimeOccurrence]) {
+        let registry = crate::tag_schema::TagRegistry::from_test_infos(
+            occurrences
+                .iter()
+                .filter_map(|item| item.test_tag_info.clone()),
+        );
+        assign_exact_write_targets(occurrences, Some(&registry));
+    }
+
+    fn test_has_writable_target(item: &CanonicalRuntimeOccurrence) -> bool {
+        item.occurrence
+            .has_writable_target(item.test_tag_info.as_ref())
+    }
     fn collect(folder: &Path) -> Vec<FileInfo> {
         let mut files = Vec::new();
         scan_folder(
@@ -1044,14 +1057,12 @@ mod tests {
             canonical[0].occurrence.schema_id,
             canonical[1].occurrence.schema_id
         );
-        assert_eq!(canonical[0].occurrence.tag_info.as_ref(), Some(info));
-        assert_eq!(canonical[1].occurrence.tag_info.as_ref(), Some(info));
         assert_eq!(canonical[0].occurrence.value, MetadataValue::Integer(300));
         assert_eq!(canonical[1].occurrence.value, MetadataValue::Integer(72));
         assert_ne!(canonical[0].occurrence.id, canonical[1].occurrence.id);
         assert_eq!(
-            canonical[0].occurrence.tag_info,
-            canonical[1].occurrence.tag_info
+            canonical[0].occurrence.schema_id,
+            canonical[1].occurrence.schema_id
         );
         let ifd0_target = canonical[0].occurrence.write_target.as_ref().unwrap();
         let ifd1_target = canonical[1].occurrence.write_target.as_ref().unwrap();
@@ -1059,16 +1070,9 @@ mod tests {
         assert_eq!(ifd1_target.group1, "IFD1");
         assert_eq!(ifd0_target.selector(), "1IFD0:7ID-282:XResolution");
         assert_eq!(ifd1_target.selector(), "1IFD1:7ID-282:XResolution");
-        assert_eq!(
-            canonical[0].occurrence.tag_info.as_ref().unwrap().group,
-            "IFD0"
-        );
-        assert_eq!(
-            canonical[1].occurrence.tag_info.as_ref().unwrap().group,
-            "IFD0"
-        );
-        assert!(canonical[0].occurrence.has_writable_target());
-        assert!(canonical[1].occurrence.has_writable_target());
+        assert_eq!(info.group, "IFD0");
+        assert!(test_has_writable_target(&canonical[0]));
+        assert!(test_has_writable_target(&canonical[1]));
     }
 
     #[test]
@@ -1127,13 +1131,13 @@ mod tests {
         ];
 
         for mut occurrence in cases {
-            assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+            assign_exact_write_targets_for_test(std::slice::from_mut(&mut occurrence));
             assert!(
                 occurrence.occurrence.write_target.is_none(),
                 "unexpected target for {}",
                 occurrence.friendly_name
             );
-            assert!(!occurrence.occurrence.has_writable_target());
+            assert!(!test_has_writable_target(&occurrence));
         }
     }
 
@@ -1149,11 +1153,11 @@ mod tests {
             MetadataValue::Integer(72),
         );
 
-        assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+        assign_exact_write_targets_for_test(std::slice::from_mut(&mut occurrence));
 
         let target = occurrence.occurrence.write_target.as_ref().unwrap();
         assert_eq!(target.selector(), "1IFD1:7ID-282:XResolution");
-        assert!(occurrence.occurrence.has_writable_target());
+        assert!(test_has_writable_target(&occurrence));
     }
 
     #[test]
@@ -1189,15 +1193,12 @@ mod tests {
             ),
         ];
 
-        assign_exact_write_targets(&mut occurrences);
+        assign_exact_write_targets_for_test(&mut occurrences);
 
         assert_eq!(
             occurrences
                 .iter()
-                .map(|item| {
-                    assert_eq!(item.occurrence.tag_info.as_ref().unwrap().group, "IFD0");
-                    item.occurrence.write_target.as_ref().unwrap().selector()
-                })
+                .map(|item| { item.occurrence.write_target.as_ref().unwrap().selector() })
                 .collect::<Vec<_>>(),
             [
                 "1JFIF:7ID-282:XResolution",
@@ -1233,7 +1234,7 @@ mod tests {
         second.occurrence.id.runtime_tag_id = "ID-AbC".into();
         let mut occurrences = vec![first, second];
 
-        assign_exact_write_targets(&mut occurrences);
+        assign_exact_write_targets_for_test(&mut occurrences);
 
         assert_eq!(
             occurrences
@@ -1266,7 +1267,7 @@ mod tests {
             MetadataValue::Integer(72),
         );
         let mut copies = vec![copy0, copy1];
-        assign_exact_write_targets(&mut copies);
+        assign_exact_write_targets_for_test(&mut copies);
         assert!(copies
             .iter()
             .all(|item| item.occurrence.write_target.is_none()));
@@ -1291,7 +1292,7 @@ mod tests {
                 MetadataValue::Integer(72),
             ),
         ];
-        assign_exact_write_targets(&mut non_primary_copies);
+        assign_exact_write_targets_for_test(&mut non_primary_copies);
         assert!(non_primary_copies
             .iter()
             .all(|item| item.occurrence.write_target.is_none()));
@@ -1316,7 +1317,7 @@ mod tests {
                 MetadataValue::Integer(300),
             ),
         ];
-        assign_exact_write_targets(&mut different_paths);
+        assign_exact_write_targets_for_test(&mut different_paths);
         assert!(different_paths
             .iter()
             .all(|item| item.occurrence.write_target.is_none()));
@@ -1346,7 +1347,7 @@ mod tests {
                 MetadataValue::Integer(72),
             ),
         ];
-        assign_exact_write_targets(&mut occurrences);
+        assign_exact_write_targets_for_test(&mut occurrences);
         assert!(occurrences
             .iter()
             .all(|item| item.occurrence.write_target.is_none()));
@@ -1369,21 +1370,17 @@ mod tests {
         upper.occurrence.id.runtime_tag_id = "AbC".into();
         let mut lower = write_target_test_occurrence(
             "ifd0",
-            "xresolution",
+            "XResolution",
             "lower",
             0,
             None,
-            Some({
-                let mut info = write_target_test_info(true, TagKind::Rational);
-                info.name = "xresolution".into();
-                info
-            }),
+            Some(write_target_test_info(true, TagKind::Rational)),
             MetadataValue::Integer(72),
         );
         lower.occurrence.id.runtime_tag_id = "abc".into();
         let mut occurrences = vec![upper, lower];
 
-        assign_exact_write_targets(&mut occurrences);
+        assign_exact_write_targets_for_test(&mut occurrences);
 
         assert_eq!(
             occurrences[0]
@@ -1420,7 +1417,7 @@ mod tests {
             Some(info.clone()),
             MetadataValue::Integer(300),
         );
-        assign_exact_write_targets(std::slice::from_mut(&mut alias));
+        assign_exact_write_targets_for_test(std::slice::from_mut(&mut alias));
         assert!(alias.occurrence.write_target.is_none());
         assert!(alias.occurrence.observed_selector.is_some());
 
@@ -1445,7 +1442,7 @@ mod tests {
                 Some(matching_info),
                 MetadataValue::Integer(300),
             );
-            assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+            assign_exact_write_targets_for_test(std::slice::from_mut(&mut occurrence));
             assert!(occurrence.occurrence.write_target.is_none());
             assert!(occurrence.occurrence.observed_selector.is_none());
         }
@@ -1463,7 +1460,7 @@ mod tests {
         );
         lang_alt.is_lang_alt = true;
         lang_alt.language = Some("en".into());
-        assign_exact_write_targets(std::slice::from_mut(&mut lang_alt));
+        assign_exact_write_targets_for_test(std::slice::from_mut(&mut lang_alt));
         assert!(lang_alt.occurrence.write_target.is_none());
         assert!(lang_alt.occurrence.observed_selector.is_some());
     }
@@ -1483,7 +1480,7 @@ mod tests {
                 reason: Some("parse failed".into()),
             },
         );
-        assign_exact_write_targets(std::slice::from_mut(&mut occurrence));
+        assign_exact_write_targets_for_test(std::slice::from_mut(&mut occurrence));
         assert_eq!(
             occurrence
                 .occurrence
@@ -1497,7 +1494,7 @@ mod tests {
         assert_eq!(observed.group1, writable.group1);
         assert_eq!(observed.group7, writable.group7);
         assert_eq!(observed.tag_name, writable.tag_name);
-        assert!(occurrence.occurrence.has_writable_target());
+        assert!(test_has_writable_target(&occurrence));
     }
 
     #[test]
@@ -1535,8 +1532,8 @@ mod tests {
         let mut forward = occurrences.clone();
         let mut reverse = occurrences;
         reverse.reverse();
-        assign_exact_write_targets(&mut forward);
-        assign_exact_write_targets(&mut reverse);
+        assign_exact_write_targets_for_test(&mut forward);
+        assign_exact_write_targets_for_test(&mut reverse);
 
         let targets = |items: Vec<CanonicalRuntimeOccurrence>| {
             items
@@ -1574,7 +1571,7 @@ mod tests {
         assert_eq!(item.occurrence.id, occurrence_id);
         assert_eq!(item.occurrence.schema_id, schema_id);
         assert_eq!(item.friendly_name, "Custom:Mystery");
-        assert!(item.occurrence.tag_info.is_none());
+        assert!(item.test_tag_info.is_none());
         assert!(item.occurrence.write_target.is_none());
         assert!(matches!(
             &item.occurrence.value,
@@ -2001,7 +1998,7 @@ mod tests {
             .find(|item| item.runtime_group1 == "IFD1")
             .unwrap();
         assert_ne!(ifd0.occurrence.id, ifd1.occurrence.id);
-        assert_eq!(ifd0.occurrence.tag_info, ifd1.occurrence.tag_info);
+        assert_eq!(ifd0.occurrence.schema_id, ifd1.occurrence.schema_id);
         let ifd0_id = ifd0.occurrence.id.clone();
         let ifd1_id = ifd1.occurrence.id.clone();
         let ifd0_target = ifd0.occurrence.write_target.clone().unwrap();
@@ -2727,7 +2724,7 @@ mod tests {
             item.occurrence.id.tag_id_scope.as_schema_definition_id(),
             item.occurrence.schema_id
         );
-        assert_eq!(item.occurrence.tag_info.as_ref(), Some(parent_info));
+        assert_eq!(item.test_tag_info.as_ref(), Some(parent_info));
         assert_eq!(
             item.occurrence.value,
             MetadataValue::LangAlt(BTreeMap::from([
@@ -4095,7 +4092,10 @@ mod tests {
         );
 
         let unknown = result.occurrences.get(&unknown_id).unwrap();
-        assert!(unknown.tag_info.is_none());
+        assert!(crate::tag_schema::get_registry()
+            .unwrap()
+            .lookup(&unknown.schema_id)
+            .is_none());
         assert!(unknown.write_target.is_none());
         assert!(matches!(
             &unknown.value,

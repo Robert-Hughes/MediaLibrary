@@ -6,7 +6,7 @@ import type { MetadataOccurrence } from "./MetadataOccurrence";
  * file.
  *
  * Entries are identified by `MetadataOccurrenceId`, not by schema identity.
- * Several entries may therefore contain the same `TagInfo`.
+ * Several entries may therefore share the same exact `SchemaDefinitionId`.
  *
  * The collection order is deterministic and follows
  * `MetadataOccurrenceId` ordering.

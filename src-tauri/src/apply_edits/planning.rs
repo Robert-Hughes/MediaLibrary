@@ -74,23 +74,23 @@ where
                         });
                     }
                 };
+                let info = schema_lookup(&occurrence.schema_id);
                 let effective_target = if occurrence.id == *occurrence_id {
                     entry.target.clone()
                 } else {
-                    MetadataDraftTarget::from_existing_occurrence(occurrence).map_err(|error| {
-                        TargetApplyError::ExistingTargetValidationFailure {
+                    MetadataDraftTarget::from_existing_occurrence(occurrence, info.as_ref())
+                        .map_err(|error| TargetApplyError::ExistingTargetValidationFailure {
                             target: Box::new(entry.target.clone()),
                             reason: error.to_string(),
-                        }
-                    })?
+                        })?
                 };
                 effective_target
-                    .validate_existing_occurrence(occurrence)
+                    .validate_existing_occurrence(occurrence, info.as_ref())
                     .map_err(|error| TargetApplyError::ExistingTargetValidationFailure {
                         target: Box::new(entry.target.clone()),
                         reason: error.to_string(),
                     })?;
-                let info = occurrence.tag_info.as_ref().expect("validated schema");
+                let info = info.as_ref().expect("validated exact schema");
                 let operation = if matches!(entry.edit.intent, EditIntent::Delete) {
                     MetadataWriteOperation::DeleteExisting
                 } else {
@@ -108,6 +108,7 @@ where
                 let args = crate::write_args::build_existing_occurrence_args(
                     &effective_target,
                     occurrence,
+                    Some(info),
                     &entry.edit,
                 )
                 .map_err(|error| TargetApplyError::ArgumentPlanningFailure {
@@ -119,6 +120,7 @@ where
                     edit: entry.edit.clone(),
                     display_name: info.display_name(),
                     kind: info.kind.clone(),
+                    schema_info: info.clone(),
                     before: Some(occurrence.value.clone()),
                     selector: selector.clone(),
                     args,
@@ -204,6 +206,7 @@ where
                     edit: entry.edit.clone(),
                     display_name: info.display_name(),
                     kind: info.kind.clone(),
+                    schema_info: info.clone(),
                     before: None,
                     selector: write_target.clone(),
                     args,
@@ -303,14 +306,18 @@ where
                 .get(occurrence_id)
                 .copied()
                 .expect("matched occurrence remains indexed");
-            let physical_target = MetadataDraftTarget::from_existing_occurrence(occurrence)
-                .map_err(|error| TargetApplyError::IptcUtf8RewriteUnavailable {
-                    occurrence_id: Box::new(occurrence.id.clone()),
-                    reason: error.to_string(),
-                })?;
+            let info = schema_lookup(&occurrence.schema_id);
+            let physical_target =
+                MetadataDraftTarget::from_existing_occurrence(occurrence, info.as_ref()).map_err(
+                    |error| TargetApplyError::IptcUtf8RewriteUnavailable {
+                        occurrence_id: Box::new(occurrence.id.clone()),
+                        reason: error.to_string(),
+                    },
+                )?;
             plan.args = crate::write_args::build_existing_occurrence_args(
                 &physical_target,
                 occurrence,
+                info.as_ref(),
                 &synthetic,
             )
             .map_err(|error| TargetApplyError::ArgumentPlanningFailure {
@@ -324,10 +331,10 @@ where
                 && metadata_value_contains_non_ascii(&occurrence.value)
                 && !explicit_occurrence_ids.contains(&occurrence.id)
         }) {
-            let info = occurrence.tag_info.as_ref().ok_or_else(|| {
+            let info = schema_lookup(&occurrence.schema_id).ok_or_else(|| {
                 TargetApplyError::IptcUtf8RewriteUnavailable {
                     occurrence_id: Box::new(occurrence.id.clone()),
-                    reason: "the occurrence has no interpreted writable schema".to_string(),
+                    reason: "the occurrence has no exact registry schema".to_string(),
                 }
             })?;
             if info
@@ -348,23 +355,25 @@ where
                     reason: "the occurrence has no exact write selector".to_string(),
                 }
             })?;
-            let target =
-                MetadataDraftTarget::from_existing_occurrence(occurrence).map_err(|error| {
-                    TargetApplyError::IptcUtf8RewriteUnavailable {
-                        occurrence_id: Box::new(occurrence.id.clone()),
-                        reason: error.to_string(),
-                    }
+            let target = MetadataDraftTarget::from_existing_occurrence(occurrence, Some(&info))
+                .map_err(|error| TargetApplyError::IptcUtf8RewriteUnavailable {
+                    occurrence_id: Box::new(occurrence.id.clone()),
+                    reason: error.to_string(),
                 })?;
             let edit = MetadataDraftEdit {
                 value: Some(occurrence.value.clone()),
                 intent: EditIntent::Set,
             };
-            let args =
-                crate::write_args::build_existing_occurrence_args(&target, occurrence, &edit)
-                    .map_err(|error| TargetApplyError::IptcUtf8RewriteUnavailable {
-                        occurrence_id: Box::new(occurrence.id.clone()),
-                        reason: error.to_string(),
-                    })?;
+            let args = crate::write_args::build_existing_occurrence_args(
+                &target,
+                occurrence,
+                Some(&info),
+                &edit,
+            )
+            .map_err(|error| TargetApplyError::IptcUtf8RewriteUnavailable {
+                occurrence_id: Box::new(occurrence.id.clone()),
+                reason: error.to_string(),
+            })?;
             let selector_key = MetadataSelectorKey::from_write_target(selector);
             if let Some(first) = selectors.insert(selector_key, target.clone()) {
                 return Err(TargetApplyError::WriteSelectorCollision {
@@ -380,6 +389,7 @@ where
                 edit,
                 display_name: info.display_name(),
                 kind: info.kind.clone(),
+                schema_info: info.clone(),
                 before: Some(occurrence.value.clone()),
                 selector: selector.clone(),
                 args,

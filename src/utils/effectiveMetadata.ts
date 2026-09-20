@@ -10,6 +10,7 @@ import type {
 import { metadataValueEqual } from "../types";
 import { buildSchemaDraftDisplayProjection } from "../targetDraftView";
 import { metadataGet, type MetadataCollection } from "./metadataCollection";
+import { getTagInfoExact } from "../tagSchemaRegistry";
 import { schemaMetadataCollectionFromOccurrences } from "./schemaMetadataProjection";
 import {
   schemaDefinitionIdEquals,
@@ -199,7 +200,7 @@ export function buildEffectiveMetadataForFile(
       : [];
     const schemaKind =
       matchingOccurrences.length === 1
-        ? matchingOccurrences[0].tag_info?.kind
+        ? getTagInfoExact(matchingOccurrences[0].schema_id)?.kind
         : undefined;
     const applied = applyMetadataDraftEditExactly(current, edit, schemaKind);
     if (applied.applied) {

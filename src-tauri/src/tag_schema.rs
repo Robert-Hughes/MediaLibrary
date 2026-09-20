@@ -311,13 +311,13 @@ impl TagRegistry {
         self.tags.get(id)
     }
 
-    /// Return only exact requested definitions, deduplicated and ordered by ID.
-    pub(crate) fn lookup_exact_batch(&self, ids: Vec<SchemaDefinitionId>) -> Vec<TagInfo> {
-        ids.into_iter()
-            .collect::<std::collections::BTreeSet<_>>()
+    #[cfg(test)]
+    pub(crate) fn from_test_infos(infos: impl IntoIterator<Item = TagInfo>) -> Self {
+        let tags = infos
             .into_iter()
-            .filter_map(|id| self.lookup(&id).cloned())
-            .collect()
+            .map(|info| (info.id.clone(), info))
+            .collect();
+        Self { tags }
     }
 
     pub fn len(&self) -> usize {
@@ -330,15 +330,6 @@ impl TagRegistry {
 
     pub fn iter(&self) -> impl Iterator<Item = (&SchemaDefinitionId, &TagInfo)> {
         self.tags.iter()
-    }
-
-    /// Transport set for the frontend. Each definition carries family-0 so the
-    /// UI can apply format policy before constructing targets. This is not a
-    /// write-eligibility decision and must not be used by Rust write paths.
-    pub(crate) fn schema_writable_transport_set(&self) -> impl Iterator<Item = &TagInfo> {
-        self.tags
-            .values()
-            .filter(|info| info.writable && info.kind.supports_metadata_write())
     }
 
     /// Build by running `exiftool -listx -f -lang en`.
@@ -584,7 +575,7 @@ mod tests {
     }
 
     #[test]
-    fn writable_transport_filters_every_kind_and_preserves_id_order() {
+    fn registry_iteration_supports_writable_frontend_filtering_in_id_order() {
         let cases = vec![
             ("01", TagKind::Text, true),
             ("02", TagKind::LangAlt, true),
@@ -642,7 +633,11 @@ mod tests {
             .collect();
         let registry = TagRegistry { tags };
 
-        let supported = registry.schema_writable_transport_set().collect::<Vec<_>>();
+        let supported = registry
+            .iter()
+            .map(|(_, info)| info)
+            .filter(|info| info.writable && info.kind.supports_metadata_write())
+            .collect::<Vec<_>>();
         assert!(supported.iter().all(|info| {
             info.metadata_write_eligibility("photo.jpg", MetadataWriteOperation::Set)
                 .is_ok()
@@ -826,101 +821,6 @@ mod tests {
 
     fn fixture_registry() -> TagRegistry {
         TagRegistry::from_listx_xml(SAMPLE_LISTX).expect("parse fixture listx")
-    }
-
-    fn exact_batch_registry() -> TagRegistry {
-        let ids = [
-            SchemaDefinitionId {
-                table: "Table::B".into(),
-                tag_id: "2".into(),
-                index: None,
-            },
-            SchemaDefinitionId {
-                table: "Table::A".into(),
-                tag_id: "1".into(),
-                index: None,
-            },
-            SchemaDefinitionId {
-                table: "Table::A".into(),
-                tag_id: "1".into(),
-                index: Some(0),
-            },
-        ];
-        let tags = ids
-            .into_iter()
-            .map(|id| {
-                let info = TagInfo {
-                    id: id.clone(),
-                    group0: Some("EXIF".into()),
-                    group: "Shared".into(),
-                    name: "Name".into(),
-                    writable: true,
-                    kind: TagKind::Text,
-                    description: None,
-                    storage_count: None,
-                };
-                (id, info)
-            })
-            .collect();
-        TagRegistry { tags }
-    }
-
-    #[test]
-    fn exact_batch_deduplicates_requested_ids() {
-        let registry = exact_batch_registry();
-        let id = SchemaDefinitionId {
-            table: "Table::B".into(),
-            tag_id: "2".into(),
-            index: None,
-        };
-        assert_eq!(registry.lookup_exact_batch(vec![id.clone(), id]).len(), 1);
-    }
-
-    #[test]
-    fn exact_batch_keeps_same_friendly_name_definitions_separate() {
-        let registry = exact_batch_registry();
-        let ids: Vec<_> = registry.iter().map(|(id, _)| id.clone()).collect();
-        assert_eq!(registry.lookup_exact_batch(ids).len(), 3);
-    }
-
-    #[test]
-    fn exact_batch_distinguishes_missing_index_from_zero() {
-        let registry = exact_batch_registry();
-        let found = registry.lookup_exact_batch(vec![
-            SchemaDefinitionId {
-                table: "Table::A".into(),
-                tag_id: "1".into(),
-                index: None,
-            },
-            SchemaDefinitionId {
-                table: "Table::A".into(),
-                tag_id: "1".into(),
-                index: Some(0),
-            },
-        ]);
-        assert_eq!(found.len(), 2);
-        assert_ne!(found[0].id, found[1].id);
-    }
-
-    #[test]
-    fn exact_batch_omits_missing_ids() {
-        let registry = exact_batch_registry();
-        assert!(registry
-            .lookup_exact_batch(vec![SchemaDefinitionId {
-                table: "Missing".into(),
-                tag_id: "404".into(),
-                index: None,
-            }])
-            .is_empty());
-    }
-
-    #[test]
-    fn exact_batch_results_are_deterministically_ordered() {
-        let registry = exact_batch_registry();
-        let mut ids: Vec<_> = registry.iter().map(|(id, _)| id.clone()).collect();
-        ids.reverse();
-        let result = registry.lookup_exact_batch(ids);
-        assert!(result.windows(2).all(|pair| pair[0].id < pair[1].id));
     }
 
     #[test]

@@ -1473,52 +1473,30 @@ fn display_window_title(title: &str) -> String {
     }
 }
 
-/// Look up schema info for a single tag.  Returns `Ok(None)` when the registry
-/// is built but the tag is unknown; returns `Err` only when the registry
-/// itself could not be built.
+/// Build the process-wide schema registry once and return the complete exact
+/// definition table to the frontend. The frontend installs the returned table
+/// before the UI becomes interactive, so all later schema lookups are local.
 #[tauri::command]
-fn get_tag_info(id: tag_schema::SchemaDefinitionId) -> Result<Option<tag_schema::TagInfo>, String> {
-    let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.lookup(&id).cloned())
-}
-
-/// Look up a deduplicated batch of exact schema definitions.
-#[tauri::command]
-fn get_tag_infos(
-    ids: Vec<tag_schema::SchemaDefinitionId>,
-) -> Result<Vec<tag_schema::TagInfo>, String> {
-    let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.lookup_exact_batch(ids))
-}
-
-/// Eagerly warms the tag-schema registry so the first `get_tag_info` call is
-/// instant.  Called once at startup; the front-end blocks its UI until this
-/// resolves so editors never see a missing-schema flash.
-#[tauri::command]
-fn preload_schema() -> Result<(), tag_schema::SchemaError> {
+fn preload_schema() -> Result<Vec<tag_schema::TagInfo>, tag_schema::SchemaError> {
     log::info!(
         "[startup] preload_schema enter +{}ms wall={}ms",
         since_startup_ms(),
         wall_ms()
     );
     let t = Instant::now();
-    let r = tag_schema::get_registry().map(|_| ());
+    let result = tag_schema::get_registry().map(|registry| {
+        registry
+            .iter()
+            .map(|(_, info)| info.clone())
+            .collect::<Vec<_>>()
+    });
     log::info!(
         "[startup] preload_schema exit took={}ms +{}ms wall={}ms",
         t.elapsed().as_millis(),
         since_startup_ms(),
         wall_ms()
     );
-    r
-}
-
-/// Returns exact definitions supported by the metadata write pipeline.
-/// Iteration is deterministic by `SchemaDefinitionId` as guaranteed by the underlying `BTreeMap`.
-/// Used by the "Add New Property" dialog for autocomplete.
-#[tauri::command]
-fn list_writable_schema_definitions() -> Result<Vec<tag_schema::TagInfo>, String> {
-    let registry = tag_schema::get_registry().map_err(|e| e.to_string())?;
-    Ok(registry.schema_writable_transport_set().cloned().collect())
+    result
 }
 
 fn clear_running(app: &AppHandle) {
@@ -1712,7 +1690,7 @@ mod tests {
         tag_schema::SchemaDefinitionId {
             table: "Exif::Main".to_owned(),
             tag_id: "282".to_owned(),
-            index: Some(0),
+            index: None,
         }
     }
 
@@ -1786,16 +1764,6 @@ mod tests {
             id: occurrence_id,
             schema_id: schema_id.clone(),
             value: metadata_value::MetadataValue::Text("300".to_owned()),
-            tag_info: Some(tag_schema::TagInfo {
-                id: schema_id,
-                group0: Some("EXIF".to_owned()),
-                group: group1.to_owned(),
-                name: "XResolution".to_owned(),
-                writable: true,
-                kind: tag_schema::TagKind::Text,
-                description: None,
-                storage_count: None,
-            }),
             observed_selector: None,
             write_target: Some(write_target),
         }
@@ -1857,7 +1825,6 @@ mod tests {
             },
             schema_id: schema.clone(),
             value: metadata_value::MetadataValue::Real(1.0),
-            tag_info: Some(info.clone()),
             observed_selector: Some(metadata_occurrence::MetadataObservedSelector {
                 group1: group1.to_owned(),
                 group7: write_target.group7.clone(),
@@ -2094,6 +2061,16 @@ mod tests {
             tag_id: "2".to_owned(),
             index: None,
         };
+        let info = tag_schema::TagInfo {
+            id: schema.clone(),
+            group0: Some("EXIF".to_owned()),
+            group: "GPS".to_owned(),
+            name: "GPSLatitude".to_owned(),
+            writable: true,
+            kind: tag_schema::TagKind::Real,
+            description: None,
+            storage_count: None,
+        };
         let occurrence = metadata_occurrence::MetadataOccurrence {
             id: metadata_occurrence::MetadataOccurrenceId {
                 document: None,
@@ -2108,16 +2085,6 @@ mod tests {
             },
             schema_id: schema.clone(),
             value: metadata_value::MetadataValue::Real(1.0),
-            tag_info: Some(tag_schema::TagInfo {
-                id: schema.clone(),
-                group0: Some("EXIF".to_owned()),
-                group: "GPS".to_owned(),
-                name: "GPSLatitude".to_owned(),
-                writable: true,
-                kind: tag_schema::TagKind::Real,
-                description: None,
-                storage_count: None,
-            }),
             observed_selector: None,
             write_target: Some(metadata_occurrence::MetadataWriteTarget {
                 group1: "GPS".to_owned(),
@@ -2125,9 +2092,11 @@ mod tests {
                 tag_name: "GPSLatitude".to_owned(),
             }),
         };
-        let target =
-            metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(&occurrence)
-                .unwrap();
+        let target = metadata_draft_target::MetadataDraftTarget::from_existing_occurrence(
+            &occurrence,
+            Some(&info),
+        )
+        .unwrap();
         let incoming = draft_edits::SchemaMetadataEdit {
             schema_id: schema,
             edit: command_target_edit(metadata_value::MetadataValue::Real(-0.0)),
@@ -2295,22 +2264,12 @@ mod tests {
             MetadataOccurrence, MetadataOccurrenceId, MetadataOccurrences, MetadataWriteTarget,
         };
         use crate::metadata_value::MetadataValue;
-        use crate::tag_schema::{SchemaDefinitionId, TagInfo, TagKind};
+        use crate::tag_schema::SchemaDefinitionId;
 
         let schema_id = SchemaDefinitionId {
             table: "Exif::Main".into(),
             tag_id: "282".into(),
             index: None,
-        };
-        let tag_info = TagInfo {
-            id: schema_id.clone(),
-            group0: Some("EXIF".into()),
-            group: "IFD0".into(),
-            name: "XResolution".into(),
-            writable: true,
-            kind: TagKind::Rational,
-            description: Some("X resolution".into()),
-            storage_count: Some("1".into()),
         };
         let occurrence = |path: &str, copy: u32, group1: &str| MetadataOccurrence {
             id: MetadataOccurrenceId {
@@ -2326,7 +2285,6 @@ mod tests {
             },
             schema_id: schema_id.clone(),
             value: MetadataValue::Integer(300),
-            tag_info: Some(tag_info.clone()),
             observed_selector: Some(crate::metadata_occurrence::MetadataObservedSelector {
                 group1: group1.into(),
                 group7: "ID-282".into(),
@@ -2365,7 +2323,7 @@ mod tests {
         assert_eq!(state["occurrences"].as_array().unwrap().len(), 2);
         assert_eq!(state["occurrences"].as_array().unwrap().len(), 2);
         assert_eq!(state["occurrences"][1]["id"]["copy"], 2);
-        assert_eq!(state["occurrences"][0]["tag_info"]["id"]["tag_id"], "282");
+        assert!(state["occurrences"][0].get("tag_info").is_none());
         assert_eq!(state["occurrences"][0]["value"]["kind"], "Integer");
         assert_eq!(state["occurrences"][0]["write_target"]["group1"], "IFD0");
         assert!(!state.contains_key("metadata"));
@@ -2608,10 +2566,7 @@ pub fn run() {
             cancel_apply_edits,
             dismiss_media_library_session_apply_operation,
             dismiss_media_library_session_batch_operation,
-            get_tag_info,
-            get_tag_infos,
             preload_schema,
-            list_writable_schema_definitions,
             commands::settings::load_settings_cmd,
             commands::settings::save_settings_cmd,
             commands::settings::list_recommended_models,

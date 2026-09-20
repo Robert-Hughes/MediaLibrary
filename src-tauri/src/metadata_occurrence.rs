@@ -304,30 +304,20 @@ impl MetadataWriteTarget {
 
 /// One concrete metadata field occurrence read from a source file.
 ///
-/// The occurrence combines five independent concerns:
+/// The occurrence keeps runtime identity, exact schema identity and per-file
+/// state separate from the process-wide schema registry:
 ///
 /// - `id` identifies which concrete runtime field in the file this is;
-/// - `schema_id` identifies the exact static schema definition reported by
-///   ExifTool;
+/// - `schema_id` is the exact key into the static schema registry;
 /// - `value` contains the current canonical semantic value;
-/// - `tag_info` contains registry interpretation and presentation metadata when
-///   that exact schema resolves;
 /// - `observed_selector` records an occupied selector seen during extraction;
-/// - `write_target` additionally proves that selector can safely target this
-///   occurrence independently.
+/// - `write_target` proves that selector can safely target this occurrence
+///   independently.
 ///
 /// Runtime occurrence identity and schema identity are independent. Several
 /// concrete occurrences may share one `schema_id`, and the same runtime tag ID
-/// text does not imply the same schema.
-///
-/// `tag_info` is optional because ExifTool may return runtime fields that do not
-/// resolve to the static schema registry. `None` does not mean the exact schema
-/// identity is unknown: `schema_id` remains authoritative. When `tag_info` is
-/// present, `TagInfo::id` must exactly equal `schema_id`.
-///
-/// Neither schema identity nor a runtime selector alone proves writability.
-/// `write_target` is optional and stricter than schema writability; an unknown
-/// or unsupported schema remains read-only even if runtime coordinates exist.
+/// text does not imply the same schema. Unknown schemas remain representable:
+/// a registry miss never changes or weakens the exact `schema_id`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "MetadataOccurrenceWire")]
 #[cfg_attr(test, derive(ts_rs::TS))]
@@ -344,13 +334,6 @@ pub struct MetadataOccurrence {
 
     /// Current canonical semantic value read from the file.
     pub value: MetadataValue,
-
-    /// Exactly resolved static schema information.
-    ///
-    /// `None` means that the exact schema did not resolve in the local registry.
-    /// Consumers must not guess interpretation from friendly names or related
-    /// definitions. When present, `TagInfo::id` must equal `schema_id`.
-    pub tag_info: Option<TagInfo>,
 
     /// Complete selector observed in the file during extraction.
     ///
@@ -370,7 +353,6 @@ struct MetadataOccurrenceWire {
     id: MetadataOccurrenceId,
     schema_id: SchemaDefinitionId,
     value: MetadataValue,
-    tag_info: Option<TagInfo>,
     observed_selector: Option<MetadataObservedSelector>,
     write_target: Option<MetadataWriteTarget>,
 }
@@ -383,7 +365,6 @@ impl TryFrom<MetadataOccurrenceWire> for MetadataOccurrence {
             wire.id,
             wire.schema_id,
             wire.value,
-            wire.tag_info,
             wire.observed_selector,
             wire.write_target,
         )
@@ -395,7 +376,6 @@ impl MetadataOccurrence {
         id: MetadataOccurrenceId,
         schema_id: SchemaDefinitionId,
         value: MetadataValue,
-        tag_info: Option<TagInfo>,
         observed_selector: Option<MetadataObservedSelector>,
         write_target: Option<MetadataWriteTarget>,
     ) -> Result<Self, String> {
@@ -403,27 +383,11 @@ impl MetadataOccurrence {
             id,
             schema_id,
             value,
-            tag_info,
             observed_selector,
             write_target,
         };
-        occurrence.validate_schema_identity()?;
         occurrence.validate_selector_relationship()?;
         Ok(occurrence)
-    }
-
-    /// Validates that optional registry interpretation belongs to the exact
-    /// schema reported for this occurrence.
-    pub fn validate_schema_identity(&self) -> Result<(), String> {
-        if let Some(info) = &self.tag_info {
-            if info.id != self.schema_id {
-                return Err(format!(
-                    "metadata occurrence schema mismatch: occurrence_id={:?} occurrence_schema_id={:?} tag_info_schema_id={:?}",
-                    self.id, self.schema_id, info.id
-                ));
-            }
-        }
-        Ok(())
     }
 
     fn validate_selector_relationship(&self) -> Result<(), String> {
@@ -447,12 +411,10 @@ impl MetadataOccurrence {
         Ok(())
     }
 
-    /// Returns true only when matching resolved schema interpretation and this
-    /// concrete occurrence both permit an exact supported write.
-    /// Whether this occurrence has the schema and selector needed to attempt
-    /// an edit. Actual write eligibility is decided later with the file format.
-    pub fn has_writable_target(&self) -> bool {
-        self.tag_info.as_ref().is_some_and(|info| {
+    /// Returns true only when the exact resolved schema and this concrete
+    /// occurrence both permit an exact supported write.
+    pub fn has_writable_target(&self, info: Option<&TagInfo>) -> bool {
+        info.is_some_and(|info| {
             info.id == self.schema_id && info.writable && info.kind.supports_metadata_write()
         }) && self.write_target.is_some()
     }
@@ -462,7 +424,7 @@ impl MetadataOccurrence {
 /// file.
 ///
 /// Entries are identified by `MetadataOccurrenceId`, not by schema identity.
-/// Several entries may therefore contain the same `TagInfo`.
+/// Several entries may therefore share the same exact `SchemaDefinitionId`.
 ///
 /// The collection order is deterministic and follows
 /// `MetadataOccurrenceId` ordering.
@@ -592,14 +554,13 @@ mod tests {
 
     fn occurrence(
         schema_id: SchemaDefinitionId,
-        tag_info: Option<TagInfo>,
+        _tag_info: Option<TagInfo>,
         write_target: Option<MetadataWriteTarget>,
     ) -> MetadataOccurrence {
         MetadataOccurrence {
             id: occurrence_id(None, "JPEG-APP1-IFD0", "282", 0),
             schema_id,
             value: MetadataValue::Integer(300),
-            tag_info,
             observed_selector: write_target
                 .as_ref()
                 .map(|target| MetadataObservedSelector {
@@ -822,15 +783,18 @@ mod tests {
             Some(tag_info(true)),
             Some(target("IFD0"))
         )
-        .has_writable_target());
-        assert!(!occurrence(tag_info(true).id, None, Some(target("IFD0"))).has_writable_target());
+        .has_writable_target(Some(&tag_info(true))));
+        assert!(
+            !occurrence(tag_info(true).id, None, Some(target("IFD0"))).has_writable_target(None)
+        );
         assert!(!occurrence(
             tag_info(false).id,
             Some(tag_info(false)),
             Some(target("IFD0"))
         )
-        .has_writable_target());
-        assert!(!occurrence(tag_info(true).id, Some(tag_info(true)), None).has_writable_target());
+        .has_writable_target(Some(&tag_info(false))));
+        assert!(!occurrence(tag_info(true).id, Some(tag_info(true)), None)
+            .has_writable_target(Some(&tag_info(true))));
     }
 
     #[test]
@@ -841,7 +805,7 @@ mod tests {
 
         assert_eq!(json["schema_id"]["table"], "Exif::Main");
         assert_eq!(json["schema_id"]["tag_id"], "282");
-        assert_eq!(json["tag_info"]["id"], json["schema_id"]);
+        assert!(json.get("tag_info").is_none());
     }
 
     #[test]
@@ -856,38 +820,8 @@ mod tests {
             serde_json::from_value(serde_json::to_value(&value).unwrap()).unwrap();
 
         assert_eq!(round_trip.schema_id, schema_id);
-        assert!(round_trip.tag_info.is_none());
         assert!(round_trip.write_target.is_none());
-        assert!(!round_trip.has_writable_target());
-    }
-
-    #[test]
-    fn mismatched_schema_and_tag_info_are_rejected_with_all_identities() {
-        let occurrence_schema_id = SchemaDefinitionId {
-            table: "Exif::Main".to_owned(),
-            tag_id: "282".to_owned(),
-            index: None,
-        };
-        let mut conflicting_info = tag_info(true);
-        conflicting_info.id = SchemaDefinitionId {
-            table: "Exif::Other".to_owned(),
-            tag_id: "282".to_owned(),
-            index: Some(0),
-        };
-        let json = serde_json::json!({
-            "id": occurrence_id(None, "JPEG-APP1-IFD0", "282", 0),
-            "schema_id": occurrence_schema_id,
-            "value": MetadataValue::Integer(300),
-            "tag_info": conflicting_info,
-            "write_target": target("IFD0"),
-        });
-
-        let error = serde_json::from_value::<MetadataOccurrence>(json)
-            .expect_err("mismatched schema interpretation must be rejected")
-            .to_string();
-        assert!(error.contains("JPEG-APP1-IFD0"));
-        assert!(error.contains("Exif::Main"));
-        assert!(error.contains("Exif::Other"));
+        assert!(!round_trip.has_writable_target(None));
     }
 
     #[test]
@@ -910,22 +844,17 @@ mod tests {
     }
 
     #[test]
-    fn mismatched_or_unsupported_tag_info_never_makes_an_occurrence_writable() {
+    fn mismatched_or_unsupported_registry_info_never_makes_an_occurrence_writable() {
         let schema_id = tag_info(true).id;
+        let occurrence = occurrence(schema_id.clone(), None, Some(target("IFD0")));
         let mut mismatched = tag_info(true);
         mismatched.id.table = "Exif::Other".to_owned();
-        assert!(
-            !occurrence(schema_id.clone(), Some(mismatched), Some(target("IFD0")))
-                .has_writable_target()
-        );
+        assert!(!occurrence.has_writable_target(Some(&mismatched)));
 
         for kind in [TagKind::Binary, TagKind::Unknown] {
             let mut unsupported = tag_info(true);
             unsupported.kind = kind;
-            assert!(
-                !occurrence(schema_id.clone(), Some(unsupported), Some(target("IFD0")),)
-                    .has_writable_target()
-            );
+            assert!(!occurrence.has_writable_target(Some(&unsupported)));
         }
     }
     #[test]
@@ -939,7 +868,7 @@ mod tests {
         let mut second = occurrence(schema.id.clone(), Some(schema), Some(target("IFD1")));
         second.id.path = "JPEG-APP1-IFD1".to_owned();
 
-        assert_eq!(first.tag_info, second.tag_info);
+        assert_eq!(first.schema_id, second.schema_id);
         assert_ne!(first.id, second.id);
         assert_ne!(first.write_target, second.write_target);
     }
@@ -994,12 +923,9 @@ mod tests {
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].id.path, "JPEG-APP1-IFD0");
         assert_eq!(matches[1].id.path, "JPEG-APP1-IFD1");
-        assert!(matches.iter().all(|item| item.tag_info.is_some()));
-
         let unknown_matches: Vec<_> = occurrences.for_schema(&unknown_schema).collect();
         assert_eq!(unknown_matches.len(), 1);
         assert_eq!(unknown_matches[0].id.path, "UNKNOWN");
-        assert!(unknown_matches[0].tag_info.is_none());
     }
 
     #[test]
@@ -1023,7 +949,6 @@ mod tests {
         let round_trip: MetadataOccurrences = serde_json::from_str(&json).unwrap();
 
         assert_eq!(round_trip, occurrences);
-        assert_eq!(round_trip.0[0].tag_info, occurrences.0[0].tag_info);
         assert_eq!(round_trip.0[1].write_target, occurrences.0[1].write_target);
     }
 

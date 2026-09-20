@@ -280,6 +280,7 @@ struct TargetPlan {
     edit: MetadataDraftEdit,
     display_name: String,
     kind: TagKind,
+    schema_info: TagInfo,
     before: Option<MetadataValue>,
     selector: MetadataWriteTarget,
     args: BuiltArgs,
@@ -579,6 +580,26 @@ mod tests {
         }
     }
 
+    thread_local! {
+        static TEST_SCHEMA_INFOS: RefCell<BTreeMap<SchemaDefinitionId, TagInfo>> =
+            RefCell::new(BTreeMap::new());
+    }
+
+    fn remember_test_schema(info: &TagInfo) {
+        TEST_SCHEMA_INFOS.with(|infos| {
+            infos.borrow_mut().insert(info.id.clone(), info.clone());
+        });
+    }
+
+    fn test_schema_lookup(id: &SchemaDefinitionId) -> Option<TagInfo> {
+        TEST_SCHEMA_INFOS.with(|infos| infos.borrow().get(id).cloned())
+    }
+
+    fn forget_test_schema(id: &SchemaDefinitionId) {
+        TEST_SCHEMA_INFOS.with(|infos| {
+            infos.borrow_mut().remove(id);
+        });
+    }
     fn schema(tag_id: &str, group: &str, name: &str, writable: bool, kind: TagKind) -> TagInfo {
         TagInfo {
             id: SchemaDefinitionId {
@@ -645,11 +666,13 @@ mod tests {
                 tag_name: name.to_string(),
             }
         });
+        if let Some(info) = info.as_ref() {
+            remember_test_schema(info);
+        }
         MetadataOccurrence {
             id,
             schema_id,
             value,
-            tag_info: info,
             observed_selector,
             write_target: write_group.map(|group1| MetadataWriteTarget {
                 group1,
@@ -670,12 +693,20 @@ mod tests {
         MetadataDraftEdit { value, intent }
     }
 
+    fn test_info_for_occurrence(occurrence: &MetadataOccurrence) -> TagInfo {
+        test_schema_lookup(&occurrence.schema_id)
+            .expect("test occurrence schema must have been registered")
+    }
     fn existing_entry(
         occurrence: &MetadataOccurrence,
         edit: MetadataDraftEdit,
     ) -> MetadataTargetDraftEntry {
         MetadataTargetDraftEntry {
-            target: MetadataDraftTarget::from_existing_occurrence(occurrence).unwrap(),
+            target: MetadataDraftTarget::from_existing_occurrence(
+                occurrence,
+                Some(&test_info_for_occurrence(occurrence)),
+            )
+            .unwrap(),
             edit,
         }
     }
@@ -717,7 +748,13 @@ mod tests {
                 rel,
                 edits,
                 client,
-                |id| infos.iter().find(|info| &info.id == id).cloned(),
+                |id| {
+                    infos
+                        .iter()
+                        .find(|info| &info.id == id)
+                        .cloned()
+                        .or_else(|| test_schema_lookup(id))
+                },
             )
         })
     }
@@ -846,20 +883,14 @@ mod tests {
 
         let mut cases = Vec::new();
         let mut stale_schema = fresh.clone();
-        stale_schema.tag_info.as_mut().unwrap().id.tag_id = "stale".into();
+        stale_schema.schema_id.tag_id = "stale".into();
         cases.push(stale_schema);
         let mut stale_selector = fresh.clone();
         stale_selector.write_target.as_mut().unwrap().group1 = "IFD1".into();
         cases.push(stale_selector);
-        let mut readonly = fresh.clone();
-        readonly.tag_info.as_mut().unwrap().writable = false;
-        cases.push(readonly);
         let mut missing_selector = fresh.clone();
         missing_selector.write_target = None;
         cases.push(missing_selector);
-        let mut missing_schema = fresh.clone();
-        missing_schema.tag_info = None;
-        cases.push(missing_schema);
         for changed in cases {
             assert!(matches!(
                 plan_batch(
@@ -892,7 +923,7 @@ mod tests {
             Path::new("file.jpg"),
             std::slice::from_ref(&entry),
             &image(vec![fresh]),
-            |_| None,
+            |id| test_schema_lookup(id),
         )
         .unwrap();
 
@@ -925,7 +956,7 @@ mod tests {
                 Path::new("animation.gif"),
                 &[set],
                 &image(vec![existing.clone()]),
-                |_| None,
+                |id| test_schema_lookup(id),
             ),
             Err(TargetApplyError::ArgumentPlanningFailure { reason, .. })
                 if reason.contains("not supported by this file format")
@@ -935,7 +966,7 @@ mod tests {
             Path::new("animation.gif"),
             &[delete],
             &image(vec![existing]),
-            |_| None,
+            |id| test_schema_lookup(id),
         )
         .expect("deleting an existing writable EXIF occurrence from GIF is safe");
         assert_eq!(planned.targets.len(), 1);
@@ -997,7 +1028,7 @@ mod tests {
             Path::new("file.jpg"),
             &[non_ascii],
             &image(vec![location]),
-            |_| None,
+            |id| test_schema_lookup(id),
         )
         .err()
         .expect("missing CodedCharacterSet must reject non-ASCII IPTC");
@@ -1052,7 +1083,7 @@ mod tests {
             Path::new("file.jpg"),
             &entries,
             &image(vec![charset, location]),
-            |_| None,
+            |id| test_schema_lookup(id),
         )
         .expect("the marker draft in this apply makes the non-ASCII write safe");
         assert_eq!(planned.targets.len(), 2);
@@ -1106,7 +1137,7 @@ mod tests {
             Path::new("file.jpg"),
             std::slice::from_ref(&marker_draft),
             &image(vec![charset, location.clone()]),
-            |_| None,
+            |id| test_schema_lookup(id),
         )
         .unwrap();
 
@@ -1172,7 +1203,7 @@ mod tests {
             Path::new("file.jpg"),
             &entries,
             &image(vec![charset, keywords]),
-            |_| None,
+            |id| test_schema_lookup(id),
         )
         .unwrap();
         let list_plan = planned
@@ -1454,8 +1485,12 @@ mod tests {
             ),
         ];
         assert!(matches!(
-            plan_batch(Path::new("p.jpg"), &entries, &image(vec![existing]), |_| {
-                Some(info_b.clone())
+            plan_batch(Path::new("p.jpg"), &entries, &image(vec![existing]), |id| {
+                if id == &info_b.id {
+                    Some(info_b.clone())
+                } else {
+                    test_schema_lookup(id)
+                }
             }),
             Err(TargetApplyError::NewPropertySelectorOccupied { .. })
         ));
@@ -1633,12 +1668,14 @@ mod tests {
             &info,
             edit(EditIntent::Set, Some(MetadataValue::Text("new".into()))),
         );
+        forget_test_schema(&info.id);
         let missing_schema_client = FakeClient::new(vec![Ok(image(vec![]))]);
         assert_no_audit(apply_fake(
             std::slice::from_ref(&new),
             &missing_schema_client,
             &[],
         ));
+        remember_test_schema(&info);
 
         let mut readonly = info.clone();
         readonly.writable = false;
@@ -2027,10 +2064,7 @@ mod tests {
                 MetadataDraftReconciliation::Keep
             );
             assert_eq!(outcome.outcomes[0].target, entry.target);
-            assert_eq!(
-                outcome.outcomes[0].display_name,
-                before.tag_info.as_ref().unwrap().display_name()
-            );
+            assert_eq!(outcome.outcomes[0].display_name, "XMP-test:Name");
             assert_eq!(outcome.outcomes[0].sent, entry.edit.value);
             assert_eq!(outcome.outcomes[0].before, Some(before.value.clone()));
             assert!(outcome.outcomes[0].observed.is_none());
@@ -3280,7 +3314,10 @@ mod tests {
         assert!(matches!(
             &outcome.outcomes[0].draft_reconciliation,
             MetadataDraftReconciliation::Replace { target }
-                if target == &MetadataDraftTarget::from_existing_occurrence(&fresh).unwrap()
+                if target == &MetadataDraftTarget::from_existing_occurrence(
+                    &fresh,
+                    Some(&test_info_for_occurrence(&fresh)),
+                ).unwrap()
         ));
         assert_eq!(entry.edit, original_edit);
         assert_eq!(outcome.outcomes[0].sent, original_edit.value);
@@ -3310,23 +3347,8 @@ mod tests {
             Some(&info.group),
             "Number",
         );
-        let mut read_only = base.clone();
-        read_only.tag_info.as_mut().unwrap().writable = false;
         let mut no_selector = base.clone();
         no_selector.write_target = None;
-
-        let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![read_only]))]);
-        let outcome = apply_fake(
-            std::slice::from_ref(&entry),
-            &client,
-            std::slice::from_ref(&info),
-        );
-        assert_eq!(outcome.outcomes[0].kind, "Mismatch");
-        assert!(matches!(
-            &outcome.outcomes[0].draft_reconciliation,
-            MetadataDraftReconciliation::Blocked { reason } if reason.contains("read-only")
-        ));
-        assert!(outcome.targets_to_clear.is_empty());
 
         let client = FakeClient::new(vec![Ok(image(vec![])), Ok(image(vec![no_selector]))]);
         let outcome = apply_fake(

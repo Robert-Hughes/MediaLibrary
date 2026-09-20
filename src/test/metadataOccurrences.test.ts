@@ -3,7 +3,6 @@ import type {
   MetadataOccurrence,
   MetadataOccurrenceId,
   SchemaDefinitionId,
-  TagInfo,
 } from "../types";
 import {
   buildSchemaOccurrenceResolutionIndex,
@@ -15,17 +14,6 @@ const schemaId: SchemaDefinitionId = {
   table: "Exif::Main",
   tag_id: "282",
 };
-
-function tagInfo(id: SchemaDefinitionId = schemaId, writable = true): TagInfo {
-  return {
-    id,
-    group: "IFD0",
-    name: "XResolution",
-    writable,
-    kind: { kind: "Integer", data: { min: null, max: null } },
-    description: null,
-  };
-}
 
 function id(path: string, copy = 0): MetadataOccurrenceId {
   return {
@@ -45,11 +33,10 @@ function occurrence(
   return {
     id: occurrenceId,
     value: { kind: "Integer", value },
-    tag_info: tagInfo(),
     observed_selector: null,
     write_target: null,
     ...overrides,
-    schema_id: overrides.schema_id ?? overrides.tag_info?.id ?? schemaId,
+    schema_id: overrides.schema_id ?? schemaId,
   };
 }
 
@@ -78,7 +65,7 @@ describe("schema occurrence resolution", () => {
   });
 
   it("resolves unknown-schema occurrences by their explicit schema identity", () => {
-    const unknown = occurrence(id("IFD0"), 300, { tag_info: null });
+    const unknown = occurrence(id("IFD0"), 300);
     expect(resolveOccurrencesForSchema([unknown], schemaId)).toEqual({
       kind: "unique",
       occurrence: unknown,
@@ -89,7 +76,6 @@ describe("schema occurrence resolution", () => {
     const indexed = { ...schemaId, index: 1 };
     const value = occurrence(id("IFD0"), 300, {
       schema_id: indexed,
-      tag_info: tagInfo(indexed),
     });
     expect(resolveOccurrencesForSchema([value], schemaId)).toEqual({
       kind: "missing",
@@ -107,9 +93,7 @@ describe("schema occurrence resolution", () => {
   it("does not prefer Copy0, IFD0, writable, or write-target-bearing matches", () => {
     const candidates = [
       occurrence(id("IFD0", 0)),
-      occurrence(id("IFD1", 2), 72, {
-        tag_info: tagInfo(schemaId, false),
-      }),
+      occurrence(id("IFD1", 2), 72, {}),
       occurrence(id("IFD2", 3), 144, {
         observed_selector: {
           group1: "IFD2",
@@ -167,10 +151,10 @@ describe("schema occurrence resolution index", () => {
       index: 1,
     };
     const leftOccurrence = occurrence(id("left"), 1, {
-      tag_info: tagInfo(left),
+      schema_id: left,
     });
     const rightOccurrence = occurrence(id("right"), 2, {
-      tag_info: tagInfo(right),
+      schema_id: right,
     });
     const index = buildSchemaOccurrenceResolutionIndex([
       rightOccurrence,
@@ -193,7 +177,7 @@ describe("schema occurrence resolution index", () => {
   });
 
   it("includes unknown-schema occurrences and does not mutate the input", () => {
-    const unknown = occurrence(id("unknown"), 1, { tag_info: null });
+    const unknown = occurrence(id("unknown"), 1);
     const known = occurrence(id("known"), 2);
     const input = [unknown, known];
     const before = [...input];

@@ -18,6 +18,7 @@ import {
   metadataGet,
   type MetadataCollection,
 } from "../utils/metadataCollection";
+import { _ensureTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 const ID: SchemaDefinitionId = { table: "XMP::dc", tag_id: "title" };
 const OTHER_ID: SchemaDefinitionId = {
@@ -35,6 +36,18 @@ function occurrence(
   } = {},
 ): MetadataOccurrence {
   const schemaId = options.schemaId ?? ID;
+  _ensureTagInfoCacheEntry(schemaId, {
+    id: structuredClone(schemaId),
+    group: "XMP-dc",
+    name: "Title",
+    writable: true,
+    kind:
+      value.kind === "List"
+        ? { kind: "Bag", data: { kind: "Text" } }
+        : { kind: "Text" },
+    description: null,
+    storage_count: undefined,
+  });
   return {
     id: {
       document: null,
@@ -49,18 +62,6 @@ function occurrence(
     },
     schema_id: structuredClone(schemaId),
     value: structuredClone(value),
-    tag_info: {
-      id: structuredClone(schemaId),
-      group: "XMP-dc",
-      name: "Title",
-      writable: true,
-      kind:
-        value.kind === "List"
-          ? { kind: "Bag", data: { kind: "Text" } }
-          : { kind: "Text" },
-      description: null,
-      storage_count: undefined,
-    },
     observed_selector: {
       group1: "XMP-dc",
       group7: "ID-Test",

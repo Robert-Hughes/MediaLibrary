@@ -18,6 +18,7 @@ import {
 } from "../utils/metadataDraftTarget";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
 import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
+import { _setTagInfoCacheEntry } from "./tagInfoTestHelpers";
 
 const schema: SchemaDefinitionId = {
   table: "Exif::Main",
@@ -73,20 +74,30 @@ function selector(
   };
 }
 
+type OccurrenceFixtureOverrides = Partial<MetadataOccurrence> & {
+  schemaInfo?: TagInfo | null;
+};
+
 function occurrence(
   path: string,
   value: MetadataValue = { kind: "Integer", value: 300 },
-  overrides: Partial<MetadataOccurrence> = {},
+  overrides: OccurrenceFixtureOverrides = {},
 ): MetadataOccurrence {
   const observed = selector("IFD0");
+  const schemaId = structuredClone(overrides.schema_id ?? schema);
+  const schemaInfo =
+    overrides.schemaInfo === undefined
+      ? tagInfo(schemaId)
+      : overrides.schemaInfo;
+  _setTagInfoCacheEntry(schemaId, schemaInfo);
+  const { schemaInfo: _schemaInfo, ...occurrenceOverrides } = overrides;
   return {
     id: occurrenceId(path),
-    schema_id: structuredClone(schema),
+    schema_id: schemaId,
     value: structuredClone(value),
-    tag_info: tagInfo(),
     observed_selector: observed,
     write_target: structuredClone(observed),
-    ...overrides,
+    ...occurrenceOverrides,
   };
 }
 
@@ -161,7 +172,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
           id: occurrenceId("JPEG-APP1-IFD1", 1),
           observed_selector: selector("IFD1", "ResolutionUnit"),
           write_target: selector("IFD1", "ResolutionUnit"),
-          tag_info: tagInfo(schema, { name: "ResolutionUnit" }),
+          schemaInfo: tagInfo(schema, { name: "ResolutionUnit" }),
         }),
       ],
     }).groups[0].rows[0];
@@ -222,7 +233,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
           },
         },
         schema_id: langAltSchema,
-        tag_info: tagInfo(langAltSchema, {
+        schemaInfo: tagInfo(langAltSchema, {
           group: "XMP-dc",
           name: "Description",
           kind: { kind: "LangAlt" },
@@ -314,7 +325,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
     const result = buildOccurrenceDetailsPresentation({
       occurrences: [
         occurrence("runtime", undefined, {
-          tag_info: tagInfo(schema, { group: "SchemaGroup" }),
+          schemaInfo: tagInfo(schema, { group: "SchemaGroup" }),
           observed_selector: selector("RuntimeGroup"),
           write_target: selector("RuntimeGroup"),
         }),
@@ -329,14 +340,14 @@ describe("buildOccurrenceDetailsPresentation", () => {
     const schemaGrouped = occurrence("known", undefined, {
       observed_selector: null,
       write_target: null,
-      tag_info: tagInfo(schema, { group: "KnownGroup" }),
+      schemaInfo: tagInfo(schema, { group: "KnownGroup" }),
     });
     const unresolved = occurrence(
       "unknown",
       { kind: "Text", value: "raw" },
       {
         schema_id: { table: "MakerNotes::Vendor", tag_id: "0x01" },
-        tag_info: null,
+        schemaInfo: null,
         observed_selector: null,
         write_target: null,
       },
@@ -358,7 +369,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
       "unknown",
       { kind: "Text", value: "raw" },
       {
-        tag_info: null,
+        schemaInfo: null,
         observed_selector: selector("MakerNotes", "RuntimeName"),
         write_target: null,
       },
@@ -442,7 +453,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
         value: { list_kind: "Bag", items: [originalItem] },
       },
       {
-        tag_info: tagInfo(schema, {
+        schemaInfo: tagInfo(schema, {
           kind: { kind: "Bag", data: { kind: "Struct", data: {} } },
         }),
       },
@@ -495,7 +506,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
         value: { list_kind: "Seq", items: [half] },
       },
       {
-        tag_info: tagInfo(schema, {
+        schemaInfo: tagInfo(schema, {
           kind: { kind: "Seq", data: { kind: "Rational" } },
         }),
       },
@@ -548,7 +559,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
           value: "disk",
         },
         {
-          tag_info: tagInfo(schema, { kind: { kind: "Text" } }),
+          schemaInfo: tagInfo(schema, { kind: { kind: "Text" } }),
         },
       );
       const target = exactTarget(current);
@@ -569,7 +580,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
     const current = occurrence(
       "unsupported-list-payload",
       { kind: "Text", value: "disk" },
-      { tag_info: tagInfo(schema, { kind: { kind: "Text" } }) },
+      { schemaInfo: tagInfo(schema, { kind: { kind: "Text" } }) },
     );
     const target = exactTarget(current);
     const unsupported = buildOccurrenceDetailsPresentation({
@@ -622,7 +633,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
         "labelled-set",
         { kind: "Text", value: "N" },
         {
-          tag_info: tagInfo(schema, { kind: { kind: "Text" } }),
+          schemaInfo: tagInfo(schema, { kind: { kind: "Text" } }),
         },
       );
       const row = buildOccurrenceDetailsPresentation({
@@ -655,7 +666,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
     const current = occurrence(
       "enum-set",
       { kind: "Text", value: "N" },
-      { tag_info: enumInfo },
+      { schemaInfo: enumInfo },
     );
     const row = buildOccurrenceDetailsPresentation({
       occurrences: [current],
@@ -756,7 +767,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
       { kind: "Text", value: "Current" },
       {
         schema_id: structuredClone(otherSchema),
-        tag_info: tagInfo(otherSchema, { kind: { kind: "Text" } }),
+        schemaInfo: tagInfo(otherSchema, { kind: { kind: "Text" } }),
         observed_selector: structuredClone(target.write_target),
         write_target: structuredClone(target.write_target),
       },
@@ -928,7 +939,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
       { kind: "Text", value: "Current" },
       {
         schema_id: structuredClone(otherSchema),
-        tag_info: tagInfo(otherSchema, { kind: { kind: "Text" } }),
+        schemaInfo: tagInfo(otherSchema, { kind: { kind: "Text" } }),
         observed_selector: {
           group1: "ObservedElsewhere",
           group7: target.write_target.group7,
@@ -953,7 +964,7 @@ describe("buildOccurrenceDetailsPresentation", () => {
   it("uses resolved TagInfo for a missing-target warning row's friendly label", () => {
     const missingOccurrence = occurrence("missing-friendly", undefined, {
       schema_id: structuredClone(otherSchema),
-      tag_info: tagInfo(otherSchema, {
+      schemaInfo: tagInfo(otherSchema, {
         name: "Friendly title",
         kind: { kind: "Text" },
       }),
@@ -989,12 +1000,12 @@ describe("buildOccurrenceDetailsPresentation", () => {
 
   it("orders deterministically and does not mutate any input", () => {
     const zed = occurrence("z", undefined, {
-      tag_info: tagInfo(schema, { name: "Zed" }),
+      schemaInfo: tagInfo(schema, { name: "Zed" }),
       observed_selector: selector("B", "Zed"),
       write_target: selector("B", "Zed"),
     });
     const alpha = occurrence("a", undefined, {
-      tag_info: tagInfo(schema, { name: "Alpha" }),
+      schemaInfo: tagInfo(schema, { name: "Alpha" }),
       observed_selector: selector("A", "Alpha"),
       write_target: selector("A", "Alpha"),
     });

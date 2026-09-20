@@ -26,10 +26,8 @@ import {
   _setTagInfoCacheEntry,
 } from "./tagInfoTestHelpers";
 
-import {
-  kindForValue,
-  occurrencesFromMetadataCollection,
-} from "./occurrenceFixtures";
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+import { getTagInfoExact } from "../tagSchemaRegistry";
 const askMock = vi.hoisted(() => vi.fn(async () => true));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -118,14 +116,6 @@ describe("DetailsPane GPS Map integration", () => {
         },
         schema_id: id,
         value,
-        tag_info: {
-          id,
-          group,
-          name,
-          writable: true,
-          kind: kindForValue(value),
-          description: null,
-        },
         observed_selector: {
           group1: group,
           group7: "ID-Test",
@@ -242,7 +232,9 @@ describe("DetailsPane GPS Map integration", () => {
     });
     const occurrences = occurrencesFor(metadata);
     const occurrenceNamed = (name: string) =>
-      occurrences.find((occurrence) => occurrence.tag_info?.name === name)!;
+      occurrences.find(
+        (occurrence) => getTagInfoExact(occurrence.schema_id)?.name === name,
+      )!;
     const targetFor = (name: string) => {
       const result = existingOccurrenceTargetFromOccurrence(
         occurrenceNamed(name),
@@ -272,8 +264,8 @@ describe("DetailsPane GPS Map integration", () => {
     ]);
     const writableGpsCount = occurrences.filter(
       (occurrence) =>
-        occurrence.tag_info?.group === "GPS" &&
-        occurrence.tag_info.writable === true,
+        getTagInfoExact(occurrence.schema_id)?.group === "GPS" &&
+        getTagInfoExact(occurrence.schema_id)?.writable === true,
     ).length;
     const expectedRemoveLabel = `Remove all ${writableGpsCount} writable GPS fields…`;
 
@@ -400,7 +392,8 @@ describe("DetailsPane GPS Map integration", () => {
   it("defers planner-blocked GPS editing to the Rust preview", async () => {
     const occurrences = occurrencesFor(validGpsMetadata());
     const latitude = occurrences.find(
-      (occurrence) => occurrence.tag_info?.name === "GPSLatitude",
+      (occurrence) =>
+        getTagInfoExact(occurrence.schema_id)?.name === "GPSLatitude",
     )!;
     occurrences.push({
       ...structuredClone(latitude),
@@ -483,10 +476,11 @@ describe("DetailsPane GPS Map integration", () => {
     });
     const occurrences = occurrencesFor(metadata);
     const latitude = occurrences.find(
-      (occurrence) => occurrence.tag_info?.name === "GPSLatitude",
+      (occurrence) =>
+        getTagInfoExact(occurrence.schema_id)?.name === "GPSLatitude",
     )!;
     const make = occurrences.find(
-      (occurrence) => occurrence.tag_info?.name === "Make",
+      (occurrence) => getTagInfoExact(occurrence.schema_id)?.name === "Make",
     )!;
     const latitudeTarget = existingOccurrenceTargetFromOccurrence(latitude);
     const makeTarget = existingOccurrenceTargetFromOccurrence(make);
@@ -609,10 +603,10 @@ describe("DetailsPane GPS Map integration", () => {
     });
     const occurrences = occurrencesFor(metadata);
     const latitude = occurrences.find(
-      (item) => item.tag_info?.name === "GPSLatitude",
+      (item) => getTagInfoExact(item.schema_id)?.name === "GPSLatitude",
     )!;
     const longitude = occurrences.find(
-      (item) => item.tag_info?.name === "GPSLongitude",
+      (item) => getTagInfoExact(item.schema_id)?.name === "GPSLongitude",
     )!;
     const latitudeTarget = existingOccurrenceTargetFromOccurrence(latitude);
     const longitudeTarget = existingOccurrenceTargetFromOccurrence(longitude);
@@ -685,7 +679,7 @@ describe("DetailsPane GPS Map integration", () => {
     ): TargetDraftCollection =>
       Object.fromEntries(entries.map((entry, index) => [String(index), entry]));
     const find = (occurrences: MetadataOccurrence[], tagId: string) =>
-      occurrences.find((item) => item.tag_info?.id.tag_id === tagId)!;
+      occurrences.find((item) => item.schema_id.tag_id === tagId)!;
 
     const noDraftMetadata = baseMetadata();
     const noDraftOccurrences = occurrencesFor(noDraftMetadata);

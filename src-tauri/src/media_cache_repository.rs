@@ -717,7 +717,6 @@ mod tests {
             MetadataValue::Text(value.into()),
             None,
             None,
-            None,
         )
         .unwrap()])
     }

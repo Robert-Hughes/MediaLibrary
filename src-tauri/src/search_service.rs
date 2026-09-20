@@ -216,7 +216,7 @@ impl SearchIndex {
                     path.clone(),
                     occurrences
                         .as_ref()
-                        .map(occurrences_text)
+                        .map(|occurrences| occurrences_text(occurrences, None))
                         .unwrap_or_default(),
                 )
             })
@@ -377,6 +377,7 @@ impl MediaLibrarySearchService {
         revision: u64,
         entries: Vec<(String, Option<MetadataOccurrences>)>,
     ) {
+        let registry = crate::tag_schema::get_registry().ok();
         let entries = entries
             .into_iter()
             .map(|(path, occurrences)| {
@@ -384,7 +385,7 @@ impl MediaLibrarySearchService {
                     path,
                     occurrences
                         .as_ref()
-                        .map(occurrences_text)
+                        .map(|occurrences| occurrences_text(occurrences, registry))
                         .unwrap_or_default(),
                 )
             })
@@ -574,13 +575,17 @@ fn schema_text(id: &SchemaDefinitionId, tag_info: Option<&TagInfo>) -> Vec<Strin
     parts
 }
 
-fn occurrence_text(occurrence: &MetadataOccurrence) -> String {
+fn occurrence_text(
+    occurrence: &MetadataOccurrence,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+) -> String {
     let id = &occurrence.id;
-    let mut parts = schema_text(&occurrence.schema_id, occurrence.tag_info.as_ref());
+    let tag_info = registry.and_then(|registry| registry.lookup(&occurrence.schema_id));
+    let mut parts = schema_text(&occurrence.schema_id, tag_info);
     parts.push(format_metadata_value(
         &occurrence.value,
         Some(&occurrence.schema_id),
-        occurrence.tag_info.as_ref(),
+        tag_info,
     ));
     parts.push(format_metadata_value(&occurrence.value, None, None));
     parts.extend([
@@ -612,17 +617,20 @@ fn occurrence_text(occurrence: &MetadataOccurrence) -> String {
     parts.join("\n")
 }
 
-fn occurrences_text(occurrences: &MetadataOccurrences) -> String {
+fn occurrences_text(
+    occurrences: &MetadataOccurrences,
+    registry: Option<&crate::tag_schema::TagRegistry>,
+) -> String {
     occurrences
         .iter()
-        .map(occurrence_text)
+        .map(|occurrence| occurrence_text(occurrence, registry))
         .collect::<Vec<_>>()
         .join("\n")
         .to_lowercase()
 }
 
 pub(crate) fn metadata_search_text(occurrences: &MetadataOccurrences) -> String {
-    occurrences_text(occurrences)
+    occurrences_text(occurrences, crate::tag_schema::get_registry().ok())
 }
 
 fn drafts_text(entries: &[MetadataTargetDraftEntry]) -> String {
@@ -977,7 +985,6 @@ mod tests {
             MetadataValue::Text("Needle".into()),
             None,
             None,
-            None,
         )
         .unwrap();
         index.set_metadata(
@@ -1175,19 +1182,14 @@ mod tests {
             },
             enum_id.clone(),
             MetadataValue::Text("south-code".into()),
-            Some(enum_info),
             None,
             None,
         )
         .unwrap();
-        index.set_metadata(
-            7,
-            3,
-            &[(
-                "enum.jpg".into(),
-                Some(MetadataOccurrences(vec![occurrence])),
-            )],
-        );
+        let registry = crate::tag_schema::TagRegistry::from_test_infos([enum_info]);
+        let occurrence_text =
+            occurrences_text(&MetadataOccurrences(vec![occurrence]), Some(&registry));
+        index.set_metadata_text(7, 3, vec![("enum.jpg".into(), occurrence_text)]);
         assert_eq!(
             index.query(&request("South")).unwrap().matched_paths,
             vec!["enum.jpg"]
@@ -1356,7 +1358,6 @@ mod tests {
                 index: None,
             },
             MetadataValue::Text("batch needle".into()),
-            None,
             None,
             None,
         )

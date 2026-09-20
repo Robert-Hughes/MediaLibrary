@@ -68,7 +68,6 @@ function targetDraftResult(
     },
     schema_id: structuredClone(id),
     value: { kind: "Text", value: value ?? "" },
-    tag_info: null,
     observed_selector: null,
     write_target: null,
   };
@@ -121,6 +120,19 @@ async function publishOccurrences(
   relativePath: string,
   occurrences: MetadataOccurrence[] = [],
 ): Promise<void> {
+  const knownSchemaTokens = new Set(
+    mock.tagInfos.map((info) => JSON.stringify(info.id)),
+  );
+  const missingInfos = occurrences
+    .filter(
+      (occurrence) =>
+        !knownSchemaTokens.has(JSON.stringify(occurrence.schema_id)),
+    )
+    .map((occurrence) => tagInfoFor(occurrence.schema_id));
+  if (missingInfos.length > 0) {
+    mock.tagInfos = [...mock.tagInfos, ...missingInfos];
+  }
+
   if (!mock.foundPaths.has(relativePath)) {
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: relativePath }));
@@ -153,7 +165,6 @@ function occurrenceFor(id: SchemaDefinitionId, copy = 0): MetadataOccurrence {
     },
     schema_id: structuredClone(id),
     value: { kind: "Text", value: `existing-${copy}` },
-    tag_info: tagInfoFor(id),
     observed_selector: {
       group1: "XMP-test",
       group7: family7GroupFromRuntimeTagId(runtimeTagId),
@@ -1392,14 +1403,6 @@ describe("useMediaLibrary", () => {
       },
       schema_id: structuredClone(schemaId),
       value: { kind: "Integer" as const, value: 300 },
-      tag_info: {
-        id: schemaId,
-        group: "IFD0",
-        name: "XResolution",
-        writable: true,
-        kind: { kind: "Rational" as const },
-        description: "X resolution",
-      },
       observed_selector: {
         group1: "IFD0",
         group7: "ID-Test",
@@ -1542,7 +1545,6 @@ describe("useMediaLibrary", () => {
             },
             schema_id: { table: "Exif::Main", tag_id: "272" },
             value: { kind: "Text", value: "stale" },
-            tag_info: null,
             observed_selector: null,
             write_target: null,
           },

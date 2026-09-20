@@ -15,6 +15,7 @@ import {
   schemaDefinitionIdEquals,
 } from "./schemaDefinitionId";
 import { resolveExactMetadataOccurrence } from "./metadataOccurrences";
+import { getTagInfoExact } from "../tagSchemaRegistry";
 import {
   family7GroupFromSchemaId,
   metadataWriteTargetEquals,
@@ -190,7 +191,7 @@ export function existingOccurrenceDraftTarget(
     return { kind: "available", target: resolution.target };
   }
 
-  const info = occurrence.tag_info;
+  const info = getTagInfoExact(occurrence.schema_id);
   if (info == null) {
     return { kind: "unavailable", reason: "unknown_schema" };
   }
@@ -223,33 +224,35 @@ export function existingOccurrenceDraftTarget(
 }
 
 /**
- * Builds a complete target snapshot from one authoritative occurrence.
- * Nothing in this boundary infers runtime identity from schema identity.
+ * Builds a complete target snapshot from one authoritative occurrence and its
+ * exact schema definition. Nothing in this boundary infers runtime identity
+ * from schema identity.
  */
-export function existingOccurrenceTargetFromOccurrence(
+export function existingOccurrenceTargetFromExactSchema(
   occurrence: MetadataOccurrence,
+  info: TagInfo | null,
 ): ExistingOccurrenceTargetResolution {
-  if (occurrence.tag_info === null) {
+  if (info === null) {
     return {
       kind: "read-only",
       reason:
-        "This occurrence has no exact TagInfo and cannot be edited safely.",
+        "This occurrence has no exact registry schema and cannot be edited safely.",
     };
   }
-  if (!schemaDefinitionIdEquals(occurrence.tag_info.id, occurrence.schema_id)) {
+  if (!schemaDefinitionIdEquals(info.id, occurrence.schema_id)) {
     return {
       kind: "read-only",
       reason:
-        "This occurrence's exact schema ID conflicts with its TagInfo and cannot be edited safely.",
+        "This occurrence's exact schema ID conflicts with the registry and cannot be edited safely.",
     };
   }
-  if (!occurrence.tag_info.writable) {
+  if (!info.writable) {
     return {
       kind: "read-only",
-      reason: "This occurrence's TagInfo is read-only.",
+      reason: "This occurrence's exact schema is read-only.",
     };
   }
-  if (!tagInfoHasSupportedWriteShape(occurrence.tag_info)) {
+  if (!tagInfoHasSupportedWriteShape(info)) {
     return {
       kind: "read-only",
       reason:
@@ -280,6 +283,16 @@ export function existingOccurrenceTargetFromOccurrence(
       write_target: structuredClone(occurrence.write_target),
     },
   };
+}
+
+/** Frontend convenience wrapper using the startup-installed schema registry. */
+export function existingOccurrenceTargetFromOccurrence(
+  occurrence: MetadataOccurrence,
+): ExistingOccurrenceTargetResolution {
+  return existingOccurrenceTargetFromExactSchema(
+    occurrence,
+    getTagInfoExact(occurrence.schema_id),
+  );
 }
 
 /** Current-value lookup for the target-aware redundant-draft guard. */

@@ -20,7 +20,7 @@ import {
 } from "../targetDraftEdits";
 import type { BulkMetadataDraftRequest } from "../bulkMetadataDrafts";
 import {
-  existingOccurrenceTargetFromOccurrence,
+  existingOccurrenceTargetFromExactSchema,
   newPropertyDraftTarget,
   metadataDraftTargetSlotToken,
 } from "../utils/metadataDraftTarget";
@@ -29,6 +29,13 @@ import { testId } from "./testIds";
 import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
 import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
 import { validateFamily1Group } from "../utils/metadataWriteTarget";
+
+function mockTagInfoFor(
+  infos: readonly TagInfo[],
+  id: import("../types").SchemaDefinitionId,
+): TagInfo | null {
+  return infos.find((info) => schemaDefinitionIdEquals(info.id, id)) ?? null;
+}
 
 function mockPlanGeneratedTargetDraftBatch({
   edits,
@@ -48,7 +55,10 @@ function mockPlanGeneratedTargetDraftBatch({
       schemaDefinitionIdEquals(o.schema_id, schema_id),
     );
     if (occ) {
-      const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+      const targetRes = existingOccurrenceTargetFromExactSchema(
+        occ,
+        mockTagInfoFor(writableSchemaDefinitions, occ.schema_id),
+      );
       if (targetRes.kind === "targetable") {
         if (
           edit.intent === "Set" &&
@@ -127,6 +137,7 @@ function mockPlanGpsTargetDraftBatch(
     edit: MetadataDraftEdit;
   }>,
   occurrences: MetadataOccurrences,
+  schemaDefinitions: readonly TagInfo[],
   _targetDrafts?: Record<string, MetadataTargetDraftEntry>,
 ): MetadataTargetDraftEntry[] {
   const entries: MetadataTargetDraftEntry[] = [];
@@ -135,7 +146,10 @@ function mockPlanGpsTargetDraftBatch(
       schemaDefinitionIdEquals(o.schema_id, id),
     );
     if (occ) {
-      const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+      const targetRes = existingOccurrenceTargetFromExactSchema(
+        occ,
+        mockTagInfoFor(schemaDefinitions, occ.schema_id),
+      );
       if (targetRes.kind === "targetable") {
         entries.push({ target: targetRes.target, edit });
       }
@@ -160,6 +174,7 @@ function mockPlanGpsTargetDraftBatch(
 function mockPlanBulkMetadataDraftBatch({
   files,
   request,
+  schemaDefinitions,
 }: {
   files: Array<{
     relativePath: string;
@@ -167,6 +182,7 @@ function mockPlanBulkMetadataDraftBatch({
     targetDrafts?: Record<string, MetadataTargetDraftEntry>;
   }>;
   request: BulkMetadataDraftRequest;
+  schemaDefinitions: readonly TagInfo[];
 }): {
   preview: import("../bulkMetadataDrafts").BulkMetadataDraftPreview;
   mutations: Array<{
@@ -198,7 +214,10 @@ function mockPlanBulkMetadataDraftBatch({
         schemaDefinitionIdEquals(o.schema_id, request.tagInfo.id),
       );
       if (occ) {
-        const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+        const targetRes = existingOccurrenceTargetFromExactSchema(
+          occ,
+          mockTagInfoFor(schemaDefinitions, occ.schema_id),
+        );
         if (targetRes.kind === "targetable") {
           if (
             JSON.stringify(request.edit.value) === JSON.stringify(occ.value)
@@ -222,7 +241,10 @@ function mockPlanBulkMetadataDraftBatch({
         schemaDefinitionIdEquals(o.schema_id, request.schemaId),
       );
       if (occ) {
-        const targetRes = existingOccurrenceTargetFromOccurrence(occ);
+        const targetRes = existingOccurrenceTargetFromExactSchema(
+          occ,
+          mockTagInfoFor(schemaDefinitions, occ.schema_id),
+        );
         if (targetRes.kind === "targetable") {
           upserts.push({
             target: targetRes.target,
@@ -627,7 +649,6 @@ export function createMockTauriApi(): MockTauriApi {
               },
               schema_id: testId(name),
               value,
-              tag_info: null,
               observed_selector: null,
               write_target: null,
             }));
@@ -1668,6 +1689,7 @@ export function createMockTauriApi(): MockTauriApi {
         const entries = mockPlanGpsTargetDraftBatch(
           edits.map(({ schema_id: id, edit }) => ({ id, edit })),
           metadata.state.occurrences,
+          mock.tagInfos,
           store.getMetadataFile(relativePath),
         );
         if (cmd === "preview_media_library_session_gps_drafts") {
@@ -1724,8 +1746,10 @@ export function createMockTauriApi(): MockTauriApi {
             ) {
               continue;
             }
-            const targetability =
-              existingOccurrenceTargetFromOccurrence(occurrence);
+            const targetability = existingOccurrenceTargetFromExactSchema(
+              occurrence,
+              mockTagInfoFor(mock.tagInfos, occurrence.schema_id),
+            );
             if (targetability.kind !== "targetable") {
               throw new Error(targetability.reason);
             }
@@ -1791,8 +1815,10 @@ export function createMockTauriApi(): MockTauriApi {
             ) {
               continue;
             }
-            const targetability =
-              existingOccurrenceTargetFromOccurrence(occurrence);
+            const targetability = existingOccurrenceTargetFromExactSchema(
+              occurrence,
+              mockTagInfoFor(mock.tagInfos, occurrence.schema_id),
+            );
             if (targetability.kind !== "targetable") {
               throw new Error(targetability.reason);
             }
@@ -1878,8 +1904,10 @@ export function createMockTauriApi(): MockTauriApi {
           );
           let target: MetadataDraftTarget;
           if (occurrence) {
-            const targetability =
-              existingOccurrenceTargetFromOccurrence(occurrence);
+            const targetability = existingOccurrenceTargetFromExactSchema(
+              occurrence,
+              mockTagInfoFor(mock.tagInfos, occurrence.schema_id),
+            );
             if (targetability.kind !== "targetable") {
               throw new Error(targetability.reason);
             }
@@ -2074,6 +2102,7 @@ export function createMockTauriApi(): MockTauriApi {
             };
           }),
           request,
+          schemaDefinitions: mock.tagInfos,
         });
         if (cmd === "preview_media_library_session_bulk_drafts") {
           return { preview: plan.preview };
@@ -2142,23 +2171,6 @@ export function createMockTauriApi(): MockTauriApi {
         }
         mock.targetDraftEditsByFolder[folder] = current;
         return;
-      }
-      if (cmd === "get_tag_info") {
-        const id = args?.id;
-        return (
-          mock.tagInfos.find(
-            (info) => JSON.stringify(info.id) === JSON.stringify(id),
-          ) ?? null
-        );
-      }
-      if (cmd === "get_tag_infos") {
-        const ids = (args?.ids as unknown[]) ?? [];
-        return mock.tagInfos.filter((info) =>
-          ids.some((id) => JSON.stringify(info.id) === JSON.stringify(id)),
-        );
-      }
-      if (cmd === "list_writable_schema_definitions") {
-        return mock.tagInfos;
       }
       if (cmd === "apply_metadata_draft_edits_cmd") {
         if (args?.sessionId !== sessionSnapshot.session_id) {
@@ -2421,7 +2433,7 @@ export function createMockTauriApi(): MockTauriApi {
         return;
       }
       if (cmd === "preload_schema") {
-        return;
+        return structuredClone(mock.tagInfos);
       }
       if (cmd === "load_settings_cmd") {
         return mock.settings;

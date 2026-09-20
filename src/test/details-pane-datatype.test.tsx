@@ -63,7 +63,6 @@ function occurrence(
     },
     schema_id: tagInfo.id,
     value,
-    tag_info: tagInfo,
     observed_selector: {
       group1: "Test",
       group7: "ID-Test",

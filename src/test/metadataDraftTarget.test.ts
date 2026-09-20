@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type {
   MetadataDraftTarget,
   MetadataOccurrence,
@@ -17,6 +17,7 @@ import {
   metadataDraftTargetToken,
   newPropertyDraftTarget,
 } from "../utils/metadataDraftTarget";
+import { _clearTagInfoCache, _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 const schemaId = (index?: number): SchemaDefinitionId => ({
   table: "Exif::Main",
@@ -58,15 +59,19 @@ const writeTarget = (
 
 const occurrence = (
   overrides: Partial<MetadataOccurrence> = {},
-): MetadataOccurrence => ({
-  id: occurrenceId(),
-  value: { kind: "Integer", value: 300 },
-  tag_info: tagInfo(),
-  observed_selector: structuredClone(overrides.write_target ?? writeTarget()),
-  write_target: writeTarget(),
-  ...overrides,
-  schema_id: overrides.schema_id ?? overrides.tag_info?.id ?? tagInfo().id,
-});
+  info: TagInfo | null = tagInfo(true, overrides.schema_id ?? schemaId()),
+): MetadataOccurrence => {
+  const schema_id = overrides.schema_id ?? info?.id ?? schemaId();
+  _setTagInfoCacheEntry(schema_id, info);
+  return {
+    id: occurrenceId(),
+    value: { kind: "Integer", value: 300 },
+    observed_selector: structuredClone(overrides.write_target ?? writeTarget()),
+    write_target: writeTarget(),
+    ...overrides,
+    schema_id,
+  };
+};
 
 function availableExisting(
   value: MetadataOccurrence = occurrence(),
@@ -85,7 +90,9 @@ function availableNew(
   if (resolution.kind !== "available") throw new Error("target unavailable");
   return resolution.target;
 }
-
+beforeEach(() => {
+  _clearTagInfoCache();
+});
 describe("metadata draft target construction", () => {
   it("constructs a targetable exact occurrence and reports focused read-only reasons", () => {
     const source = occurrence();
@@ -95,16 +102,14 @@ describe("metadata draft target construction", () => {
     });
     expect(
       existingOccurrenceTargetFromOccurrence(
-        occurrence({ tag_info: null, write_target: null }),
+        occurrence({ write_target: null }, null),
       ),
     ).toMatchObject({
       kind: "read-only",
-      reason: expect.stringMatching(/TagInfo/),
+      reason: expect.stringMatching(/registry schema/),
     });
     expect(
-      existingOccurrenceTargetFromOccurrence(
-        occurrence({ tag_info: tagInfo(false) }),
-      ),
+      existingOccurrenceTargetFromOccurrence(occurrence({}, tagInfo(false))),
     ).toMatchObject({
       kind: "read-only",
       reason: expect.stringMatching(/read-only/),
@@ -154,12 +159,14 @@ describe("metadata draft target construction", () => {
     }
   });
   it("constructs an existing target with every original exact domain ID", () => {
-    const source = occurrence({
-      id: occurrenceId({ document: "Doc1", copy: 2 }),
-      tag_info: tagInfo(true, schemaId(0)),
-      observed_selector: writeTarget({ group1: "IFD1" }),
-      write_target: writeTarget({ group1: "IFD1" }),
-    });
+    const source = occurrence(
+      {
+        id: occurrenceId({ document: "Doc1", copy: 2 }),
+        observed_selector: writeTarget({ group1: "IFD1" }),
+        write_target: writeTarget({ group1: "IFD1" }),
+      },
+      tagInfo(true, schemaId(0)),
+    );
 
     const target = availableExisting(source);
     expect(target).toEqual({
@@ -174,16 +181,17 @@ describe("metadata draft target construction", () => {
   });
 
   it("rejects an unknown-schema occurrence", () => {
-    expect(
-      existingOccurrenceDraftTarget(occurrence({ tag_info: null })),
-    ).toEqual({ kind: "unavailable", reason: "unknown_schema" });
+    expect(existingOccurrenceDraftTarget(occurrence({}, null))).toEqual({
+      kind: "unavailable",
+      reason: "unknown_schema",
+    });
   });
 
-  it("rejects conflicting occurrence and TagInfo schema identities", () => {
-    const source = occurrence({
-      schema_id: schemaId(0),
-      tag_info: tagInfo(true, schemaId(1)),
-    });
+  it("rejects a registry entry whose exact ID conflicts with its lookup key", () => {
+    const source = occurrence(
+      { schema_id: schemaId(0) },
+      tagInfo(true, schemaId(1)),
+    );
     expect(existingOccurrenceDraftTarget(source)).toEqual({
       kind: "unavailable",
       reason: "schema_mismatch",
@@ -196,7 +204,7 @@ describe("metadata draft target construction", () => {
 
   it("rejects a read-only existing occurrence", () => {
     expect(
-      existingOccurrenceDraftTarget(occurrence({ tag_info: tagInfo(false) })),
+      existingOccurrenceDraftTarget(occurrence({}, tagInfo(false))),
     ).toEqual({ kind: "unavailable", reason: "read_only_schema" });
   });
 
@@ -230,7 +238,7 @@ describe("metadata draft target construction", () => {
   });
 
   it("does not mutate or retain mutable nested source objects", () => {
-    const source = occurrence({ tag_info: tagInfo(true, schemaId(3)) });
+    const source = occurrence({}, tagInfo(true, schemaId(3)));
     const before = structuredClone(source);
     const target = availableExisting(source);
     target.occurrence_id.path = "changed target path";
@@ -579,12 +587,14 @@ describe("metadata draft slot token identity", () => {
 
   it("does not mutate source targets while computing either token", () => {
     const target = availableExisting(
-      occurrence({
-        id: occurrenceId({ document: "Doc1", copy: 3 }),
-        tag_info: tagInfo(true, schemaId(2)),
-        observed_selector: writeTarget({ group1: "IFD1" }),
-        write_target: writeTarget({ group1: "IFD1" }),
-      }),
+      occurrence(
+        {
+          id: occurrenceId({ document: "Doc1", copy: 3 }),
+          observed_selector: writeTarget({ group1: "IFD1" }),
+          write_target: writeTarget({ group1: "IFD1" }),
+        },
+        tagInfo(true, schemaId(2)),
+      ),
     );
     const before = structuredClone(target);
 

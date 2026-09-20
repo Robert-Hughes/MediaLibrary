@@ -1,10 +1,4 @@
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DetailsPane } from "../components/DetailsPane";
@@ -20,19 +14,16 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 const file = makeFile({ relative_path: "tag-info.jpg" });
 const id: SchemaDefinitionId = { table: "XMP::dc", tag_id: "title" };
-const embedded: TagInfo = {
+const registryInfo: TagInfo = {
   id,
-  group: "Embedded group",
-  name: "Embedded title",
+  group: "XMP-dc",
+  name: "Registry title",
   writable: true,
   kind: { kind: "Text" },
   description: null,
 };
 
-function occurrence(
-  copy = 0,
-  tagInfo: TagInfo | null = embedded,
-): MetadataOccurrence {
+function occurrence(copy = 0): MetadataOccurrence {
   return {
     id: {
       document: null,
@@ -43,7 +34,6 @@ function occurrence(
     },
     schema_id: id,
     value: { kind: "Text", value: `value ${copy}` },
-    tag_info: tagInfo,
     observed_selector: {
       group1: "XMP-dc",
       group7: "ID-title",
@@ -87,35 +77,33 @@ afterEach(() => {
   _clearTagInfoCache();
 });
 
-describe("DetailsPane embedded TagInfo", () => {
-  it.each(["loading", null] as const)(
-    "keeps embedded information authoritative over a %s cache entry",
-    (cacheEntry) => {
-      _setTagInfoCacheEntry(id, cacheEntry);
-      renderPane([occurrence()]);
-
-      expect(screen.getByText("Embedded title")).toBeInTheDocument();
-      expect(invoke).not.toHaveBeenCalled();
-    },
-  );
-
-  it("uses embedded information immediately without a lookup", () => {
+describe("DetailsPane schema registry", () => {
+  it("uses exact startup-registry information synchronously without schema IPC", () => {
+    _setTagInfoCacheEntry(id, registryInfo);
     renderPane([occurrence()]);
 
-    expect(screen.getByText("Embedded title")).toBeInTheDocument();
+    expect(screen.getByText("Registry title")).toBeInTheDocument();
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("looks up a schema that has no embedded information and deduplicates occurrences", async () => {
-    vi.mocked(invoke).mockResolvedValue([embedded]);
-    renderPane([occurrence(0, null), occurrence(1, null)]);
+  it("keeps an exact registry miss read-only without guessing or schema IPC", () => {
+    _setTagInfoCacheEntry(id, null);
+    renderPane([occurrence()]);
 
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
-    expect(invoke).toHaveBeenCalledWith("get_tag_infos", { ids: [id] });
+    expect(screen.getByText("Title")).toBeInTheDocument();
+    expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("keeps a same-schema New Property editable from embedded exact information", () => {
-    _setTagInfoCacheEntry(id, null);
+  it("reuses one exact registry definition for multiple same-schema occurrences", () => {
+    _setTagInfoCacheEntry(id, registryInfo);
+    renderPane([occurrence(0), occurrence(1)]);
+
+    expect(screen.getAllByText("Registry title")).toHaveLength(2);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("keeps a same-schema New Property editable from the exact registry", () => {
+    _setTagInfoCacheEntry(id, registryInfo);
     const target = {
       kind: "NewProperty" as const,
       schema_id: id,
@@ -136,7 +124,7 @@ describe("DetailsPane embedded TagInfo", () => {
       .getAllByTestId("details-row")
       .find((row) => row.dataset.rowKind === "NewPropertyRow");
     if (!newRow) throw new Error("New Property row not found");
-    expect(newRow).toHaveTextContent("Embedded title");
+    expect(newRow).toHaveTextContent("Registry title");
     fireEvent.contextMenu(newRow);
     expect(
       screen.getByRole("button", { name: "Edit value…" }),

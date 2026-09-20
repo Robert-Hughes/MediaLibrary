@@ -9,6 +9,7 @@ import type {
 import { FileMetadataOccurrencesStore } from "../types";
 import type { MetadataCollection } from "../utils/metadataCollection";
 import { schemaDefinitionIdToken } from "../utils/schemaDefinitionId";
+import { _ensureTagInfoCacheEntry } from "../hooks/useTagInfo";
 import { testFriendlyName } from "./testIds";
 
 export function kindForValue(value: MetadataValue): TagKind {
@@ -71,6 +72,7 @@ export function occurrenceFromSchemaValue(
   ordinal = 0,
 ): MetadataOccurrence {
   const info = infoFor(id, value);
+  _ensureTagInfoCacheEntry(id, info);
   return {
     id: {
       document: null,
@@ -85,7 +87,6 @@ export function occurrenceFromSchemaValue(
     },
     schema_id: structuredClone(id),
     value: structuredClone(value),
-    tag_info: info,
     observed_selector: {
       group1: info.group,
       group7: "ID-Test",

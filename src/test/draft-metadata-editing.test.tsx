@@ -42,14 +42,6 @@ function makeOccurrence(value = "Canon"): MetadataOccurrence {
     },
     schema_id: structuredClone(id),
     value: { kind: "Text", value },
-    tag_info: {
-      id,
-      group: "IFD0",
-      name: "Make",
-      writable: true,
-      kind: { kind: "Text" },
-      description: null,
-    },
     observed_selector: {
       group1: "IFD0",
       group7: "ID-Test",
@@ -82,22 +74,15 @@ describe("Draft Metadata Editing Integration", () => {
     // suite doesn't drift past the 5s timeout on slower machines.
     const makeId = testIdForFriendlyName("IFD0:Make");
     const descriptionId = testIdForFriendlyName("XMP-dc:Description");
-    _setTagInfoCacheEntry(makeId, {
+    const makeInfo = {
+      id: makeId,
       group0: "EXIF",
       group: "IFD0",
       name: "Make",
       writable: true,
-      kind: { kind: "Text" },
+      kind: { kind: "Text" as const },
       description: null,
-    });
-    _setTagInfoCacheEntry(descriptionId, {
-      group0: "XMP",
-      group: "XMP-dc",
-      name: "Description",
-      writable: true,
-      kind: { kind: "Text" },
-      description: null,
-    });
+    };
     const descriptionInfo = {
       id: descriptionId,
       group0: "XMP",
@@ -107,7 +92,9 @@ describe("Draft Metadata Editing Integration", () => {
       kind: { kind: "Text" as const },
       description: "Description",
     };
-    mockApiInstance.tagInfos = [descriptionInfo];
+    _setTagInfoCacheEntry(makeId, makeInfo);
+    _setTagInfoCacheEntry(descriptionId, descriptionInfo);
+    mockApiInstance.tagInfos = [makeInfo, descriptionInfo];
     _setWritableSchemaDefinitionsCache([descriptionInfo]);
   });
 
@@ -597,14 +584,6 @@ describe("Draft Metadata Editing Integration", () => {
       },
       schema_id: structuredClone(schema),
       value: { kind: "Text", value: "Committed" },
-      tag_info: {
-        id: schema,
-        group: "XMP-dc",
-        name: "Description",
-        writable: true,
-        kind: { kind: "Text" },
-        description: null,
-      },
       observed_selector: {
         group1: "XMP-dc",
         group7: "ID-Test",
@@ -670,14 +649,6 @@ describe("Draft Metadata Editing Integration", () => {
       },
       schema_id: structuredClone(schema),
       value: { kind: "Text", value: "IFD0 value" },
-      tag_info: {
-        id: schema,
-        group: "XMP-dc",
-        name: "Description",
-        writable: true,
-        kind: { kind: "Text" },
-        description: null,
-      },
       observed_selector: {
         group1: "IFD0",
         group7: "ID-Test",

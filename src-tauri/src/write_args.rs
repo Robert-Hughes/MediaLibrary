@@ -94,24 +94,19 @@ impl std::error::Error for MetadataTargetWriteError {
 pub fn build_existing_occurrence_args(
     target: &MetadataDraftTarget,
     fresh_occurrence: &MetadataOccurrence,
+    info: Option<&TagInfo>,
     edit: &MetadataDraftEdit,
 ) -> Result<BuiltArgs, MetadataTargetWriteError> {
     if !target.is_existing_occurrence() {
         return Err(MetadataTargetWriteError::ExistingOccurrenceRequired);
     }
     target
-        .validate_existing_occurrence(fresh_occurrence)
+        .validate_existing_occurrence(fresh_occurrence, info)
         .map_err(MetadataTargetWriteError::TargetValidation)?;
 
-    // Validation above guarantees both values exist and match the persisted
-    // schema and selector snapshots exactly.
-    let info =
-        fresh_occurrence
-            .tag_info
-            .as_ref()
-            .ok_or(MetadataTargetWriteError::TargetValidation(
-                MetadataDraftTargetError::UnknownSchema,
-            ))?;
+    let info = info.ok_or(MetadataTargetWriteError::TargetValidation(
+        MetadataDraftTargetError::UnknownSchema,
+    ))?;
     let write_target = fresh_occurrence.write_target.as_ref().ok_or(
         MetadataTargetWriteError::TargetValidation(MetadataDraftTargetError::MissingWriteTarget),
     )?;
@@ -780,8 +775,7 @@ mod tests {
 
     #[test]
     fn listadd_list_payload_on_non_list_tag_is_rejected() {
-        let mut occurrence = target_test_occurrence("XMP-dc");
-        occurrence.tag_info.as_mut().unwrap().kind = TagKind::Text;
+        let occurrence = target_test_occurrence("XMP-dc");
         let target = existing_target(&occurrence);
         let edit = metadata_list_add(bag_text(&["new"]));
 
@@ -1469,7 +1463,6 @@ mod tests {
             },
             schema_id: tag_info.id.clone(),
             value: text("old"),
-            tag_info: Some(tag_info),
             observed_selector: Some(crate::metadata_occurrence::MetadataObservedSelector {
                 group1: group1.to_owned(),
                 group7: "ID-Family7TagIdMustNotBeUsed".to_owned(),
@@ -1484,7 +1477,17 @@ mod tests {
     }
 
     fn existing_target(occurrence: &MetadataOccurrence) -> MetadataDraftTarget {
-        MetadataDraftTarget::from_existing_occurrence(occurrence).unwrap()
+        let info = target_test_info(None);
+        MetadataDraftTarget::from_existing_occurrence(occurrence, Some(&info)).unwrap()
+    }
+
+    fn build_existing_occurrence_args(
+        target: &MetadataDraftTarget,
+        fresh_occurrence: &MetadataOccurrence,
+        edit: &MetadataDraftEdit,
+    ) -> Result<BuiltArgs, MetadataTargetWriteError> {
+        let info = target_test_info(None);
+        super::build_existing_occurrence_args(target, fresh_occurrence, Some(&info), edit)
     }
 
     fn new_property_target(info: &TagInfo) -> MetadataDraftTarget {
@@ -1531,8 +1534,7 @@ mod tests {
     #[test]
     fn existing_shared_schema_occurrences_keep_distinct_runtime_selectors() {
         let ifd0 = target_test_occurrence("IFD0");
-        let mut ifd1 = target_test_occurrence("IFD1");
-        ifd1.tag_info = ifd0.tag_info.clone();
+        let ifd1 = target_test_occurrence("IFD1");
         let edit = metadata_set(text("value"));
 
         let ifd0_args =
@@ -1540,7 +1542,7 @@ mod tests {
         let ifd1_args =
             build_existing_occurrence_args(&existing_target(&ifd1), &ifd1, &edit).unwrap();
 
-        assert_eq!(ifd0.tag_info, ifd1.tag_info);
+        assert_eq!(ifd0.schema_id, ifd1.schema_id);
         assert_eq!(
             ifd0_args.args,
             vec!["-1IFD0:7ID-Family7TagIdMustNotBeUsed:XResolution=value"]
@@ -1572,7 +1574,7 @@ mod tests {
         let original = target_test_occurrence("IFD0");
         let target = existing_target(&original);
         let mut fresh = original;
-        fresh.tag_info.as_mut().unwrap().id.index = Some(0);
+        fresh.schema_id.index = Some(0);
 
         assert_eq!(
             build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
@@ -1586,11 +1588,15 @@ mod tests {
     fn existing_missing_fresh_schema_is_rejected() {
         let original = target_test_occurrence("IFD0");
         let target = existing_target(&original);
-        let mut fresh = original;
-        fresh.tag_info = None;
+        let fresh = original;
 
         assert_eq!(
-            build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
+            super::build_existing_occurrence_args(
+                &target,
+                &fresh,
+                None,
+                &metadata_set(text("value"))
+            ),
             Err(MetadataTargetWriteError::TargetValidation(
                 MetadataDraftTargetError::UnknownSchema
             ))
@@ -1601,11 +1607,17 @@ mod tests {
     fn existing_fresh_read_only_schema_is_rejected() {
         let original = target_test_occurrence("IFD0");
         let target = existing_target(&original);
-        let mut fresh = original;
-        fresh.tag_info.as_mut().unwrap().writable = false;
+        let fresh = original;
+        let mut read_only = target_test_info(None);
+        read_only.writable = false;
 
         assert_eq!(
-            build_existing_occurrence_args(&target, &fresh, &metadata_set(text("value"))),
+            super::build_existing_occurrence_args(
+                &target,
+                &fresh,
+                Some(&read_only),
+                &metadata_set(text("value"))
+            ),
             Err(MetadataTargetWriteError::TargetValidation(
                 MetadataDraftTargetError::ReadOnlySchema
             ))
@@ -1645,7 +1657,7 @@ mod tests {
     #[test]
     fn existing_builder_rejects_new_property_target() {
         let occurrence = target_test_occurrence("IFD0");
-        let target = new_property_target(occurrence.tag_info.as_ref().unwrap());
+        let target = new_property_target(&target_test_info(None));
 
         assert_eq!(
             build_existing_occurrence_args(&target, &occurrence, &metadata_set(text("value"))),
@@ -1697,15 +1709,17 @@ mod tests {
     fn existing_builder_uses_fresh_tag_info_semantics_after_validation() {
         let original = target_test_occurrence("IFD0");
         let target = existing_target(&original);
-        let mut fresh = original;
-        fresh.tag_info.as_mut().unwrap().kind = TagKind::Integer {
+        let fresh = original;
+        let mut fresh_info = target_test_info(None);
+        fresh_info.kind = TagKind::Integer {
             min: None,
             max: None,
         };
 
-        let args = build_existing_occurrence_args(
+        let args = super::build_existing_occurrence_args(
             &target,
             &fresh,
+            Some(&fresh_info),
             &metadata_set(MetadataValue::Integer(5)),
         )
         .unwrap();
@@ -1828,7 +1842,7 @@ mod tests {
         assert_eq!(
             build_new_property_args(
                 &target,
-                occurrence.tag_info.as_ref().unwrap(),
+                &target_test_info(None),
                 &metadata_set(text("value")),
             ),
             Err(MetadataTargetWriteError::NewPropertyRequired)
@@ -2174,7 +2188,6 @@ mod tests {
             info.name = "SchemaValue".to_owned();
             info.kind = kind;
             let mut occurrence = target_test_occurrence("IFD1");
-            occurrence.tag_info = Some(info.clone());
             occurrence.write_target = Some(MetadataWriteTarget {
                 group1: "IFD1".to_owned(),
                 group7: crate::metadata_occurrence::family7_group_from_runtime_tag_id(
@@ -2184,8 +2197,9 @@ mod tests {
             });
             let existing = existing_target(&occurrence);
             let new_property = new_property_target(&info);
-            let existing_result = build_existing_occurrence_args(&existing, &occurrence, &edit)
-                .map_err(|error| error.to_string());
+            let existing_result =
+                super::build_existing_occurrence_args(&existing, &occurrence, Some(&info), &edit)
+                    .map_err(|error| error.to_string());
             let new_result = build_new_property_args(&new_property, &info, &edit)
                 .map_err(|error| error.to_string());
 

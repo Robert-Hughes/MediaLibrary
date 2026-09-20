@@ -2324,7 +2324,6 @@ mod tests {
             crate::metadata_value::MetadataValue::Text("metadata needle".into()),
             None,
             None,
-            None,
         )
         .unwrap();
         state
@@ -2384,7 +2383,6 @@ mod tests {
             },
             schema_id,
             crate::metadata_value::MetadataValue::Text("apply replacement".into()),
-            None,
             None,
             None,
         )

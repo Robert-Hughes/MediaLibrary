@@ -4,35 +4,24 @@ import type { MetadataOccurrenceId } from "./MetadataOccurrenceId";
 import type { MetadataValue } from "./MetadataValue";
 import type { MetadataWriteTarget } from "./MetadataWriteTarget";
 import type { SchemaDefinitionId } from "./SchemaDefinitionId";
-import type { TagInfo } from "./TagInfo";
 
 /**
  * One concrete metadata field occurrence read from a source file.
  *
- * The occurrence combines five independent concerns:
+ * The occurrence keeps runtime identity, exact schema identity and per-file
+ * state separate from the process-wide schema registry:
  *
  * - `id` identifies which concrete runtime field in the file this is;
- * - `schema_id` identifies the exact static schema definition reported by
- *   ExifTool;
+ * - `schema_id` is the exact key into the static schema registry;
  * - `value` contains the current canonical semantic value;
- * - `tag_info` contains registry interpretation and presentation metadata when
- *   that exact schema resolves;
  * - `observed_selector` records an occupied selector seen during extraction;
- * - `write_target` additionally proves that selector can safely target this
- *   occurrence independently.
+ * - `write_target` proves that selector can safely target this occurrence
+ *   independently.
  *
  * Runtime occurrence identity and schema identity are independent. Several
  * concrete occurrences may share one `schema_id`, and the same runtime tag ID
- * text does not imply the same schema.
- *
- * `tag_info` is optional because ExifTool may return runtime fields that do not
- * resolve to the static schema registry. `None` does not mean the exact schema
- * identity is unknown: `schema_id` remains authoritative. When `tag_info` is
- * present, `TagInfo::id` must exactly equal `schema_id`.
- *
- * Neither schema identity nor a runtime selector alone proves writability.
- * `write_target` is optional and stricter than schema writability; an unknown
- * or unsupported schema remains read-only even if runtime coordinates exist.
+ * text does not imply the same schema. Unknown schemas remain representable:
+ * a registry miss never changes or weakens the exact `schema_id`.
  */
 export type MetadataOccurrence = { 
 /**
@@ -50,14 +39,6 @@ schema_id: SchemaDefinitionId,
  * Current canonical semantic value read from the file.
  */
 value: MetadataValue, 
-/**
- * Exactly resolved static schema information.
- *
- * `None` means that the exact schema did not resolve in the local registry.
- * Consumers must not guess interpretation from friendly names or related
- * definitions. When present, `TagInfo::id` must equal `schema_id`.
- */
-tag_info: TagInfo | null, 
 /**
  * Complete selector observed in the file during extraction.
  *

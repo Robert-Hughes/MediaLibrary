@@ -11,6 +11,7 @@ import {
   newPropertyDraftTarget,
 } from "../utils/metadataDraftTarget";
 import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
+import { _setTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 const id: SchemaDefinitionId = { table: "Test::Main", tag_id: "1" };
 
@@ -28,6 +29,7 @@ function info(kind: TagKind, writable = true): TagInfo {
 }
 
 function occurrence(kind: TagKind): MetadataOccurrence {
+  _setTagInfoCacheEntry(id, info(kind));
   return {
     id: {
       document: null,
@@ -38,7 +40,6 @@ function occurrence(kind: TagKind): MetadataOccurrence {
     },
     schema_id: structuredClone(id),
     value: { kind: "Text", value: "value" },
-    tag_info: info(kind),
     observed_selector: {
       group1: "Test",
       group7: "ID-Test",

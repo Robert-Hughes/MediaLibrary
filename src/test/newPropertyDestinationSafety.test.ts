@@ -30,7 +30,6 @@ function occurrence(
     },
     schema_id: schemaId,
     value: { kind: "Text", value: "current" },
-    tag_info: null,
     observed_selector: observedSelector,
     write_target: null,
   };

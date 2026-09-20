@@ -291,7 +291,12 @@ fn owner_for_target<'a>(
 }
 
 fn target_for_occurrence(occurrence: &MetadataOccurrence) -> Result<MetadataDraftTarget, String> {
-    MetadataDraftTarget::from_existing_occurrence(occurrence).map_err(|error| error.to_string())
+    let registry = crate::tag_schema::get_registry().map_err(|error| error.to_string())?;
+    MetadataDraftTarget::from_existing_occurrence(
+        occurrence,
+        registry.lookup(&occurrence.schema_id),
+    )
+    .map_err(|error| error.to_string())
 }
 
 fn validate_new_target(
@@ -608,14 +613,14 @@ fn plan_gps_set_file(
     validate_stored_entries(&current_entries, relative_path)?;
     let mut entries = current_entries.clone();
     let mut changed = false;
+    let registry = crate::tag_schema::get_registry().map_err(|error| error.to_string())?;
     for edit in edits {
         let (target, authoritative) =
             resolve_gps_target(&edit.schema_id, occurrences, &current_entries)?;
+        let info = registry
+            .lookup(&edit.schema_id)
+            .ok_or_else(|| "The exact GPS schema is unavailable".to_owned())?;
         if target.is_new_property() {
-            let registry = crate::tag_schema::get_registry().map_err(|error| error.to_string())?;
-            let info = registry
-                .lookup(&edit.schema_id)
-                .ok_or_else(|| "The exact GPS schema is unavailable".to_owned())?;
             validate_new_target(&target, info, occurrences, &current_entries)?;
         } else {
             let occurrence_id = target
@@ -627,17 +632,11 @@ fn plan_gps_set_file(
                 .find(|occurrence| &occurrence.id == occurrence_id)
                 .ok_or_else(|| "The captured GPS occurrence no longer exists".to_owned())?;
             target
-                .validate_existing_occurrence(occurrence)
+                .validate_existing_occurrence(occurrence, Some(info))
                 .map_err(|error| error.to_string())?;
         }
         let owner = owner_for_target(&current_entries, &target)?;
-        let kind = occurrences
-            .0
-            .iter()
-            .find(|occurrence| Some(&occurrence.id) == target.occurrence_id())
-            .and_then(|occurrence| occurrence.tag_info.as_ref())
-            .map(|info| &info.kind)
-            .unwrap_or(&TagKind::Real);
+        let kind = &info.kind;
         let effective = if let Some(owner) = owner {
             apply_edit(authoritative.as_ref(), &owner.edit, kind)?
         } else {
@@ -868,7 +867,6 @@ mod tests {
             },
             schema_id,
             value: MetadataValue::Text(val.to_owned()),
-            tag_info: Some(info),
             observed_selector: Some(metadata_occurrence::MetadataObservedSelector {
                 group1: write_target.group1.clone(),
                 group7: write_target.group7.clone(),
@@ -976,7 +974,8 @@ mod tests {
     fn bulk_plan_set_clears_draft_when_matching_current_value() {
         let (id, info) = test_schema(crate::known_ids::xmp_description());
         let occ = test_occurrence("a.jpg", id.clone(), info.clone(), "Same Description");
-        let existing_target = MetadataDraftTarget::from_existing_occurrence(&occ).unwrap();
+        let existing_target =
+            MetadataDraftTarget::from_existing_occurrence(&occ, Some(&info)).unwrap();
         let staged_draft = MetadataTargetDraftEntry {
             target: existing_target,
             edit: MetadataDraftEdit {

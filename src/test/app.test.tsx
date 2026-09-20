@@ -8,7 +8,15 @@ import {
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import App from "../App";
 import { makeFile, mockOccurrences } from "./factories";
-import type { MetadataOccurrence, MetadataTargetDraftEntry } from "../types";
+import type {
+  MetadataOccurrence,
+  MetadataTargetDraftEntry,
+  TagInfo,
+} from "../types";
+import {
+  _clearTagSchemaRegistryForTests,
+  installTagSchemaRegistry,
+} from "../tagSchemaRegistry";
 
 type SessionSnapshot = {
   session_id: number | null;
@@ -187,18 +195,19 @@ describe("App schema preloading", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetSessionMock();
+    _clearTagSchemaRegistryForTests();
   });
 
   it("shows schema loading dialog before preload_schema resolves", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);
 
-    let resolvePreload!: () => void;
+    let resolvePreload!: (infos: TagInfo[]) => void;
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
       if (cmd === "preload_schema") {
-        return new Promise<void>((res) => {
+        return new Promise<TagInfo[]>((res) => {
           resolvePreload = res;
         });
       }
@@ -210,7 +219,7 @@ describe("App schema preloading", () => {
     expect(screen.getByTestId("schema-loading-dialog")).toBeInTheDocument();
     expect(screen.getByText("Loading schema…")).toBeInTheDocument();
 
-    resolvePreload();
+    resolvePreload([]);
     await waitFor(() => {
       expect(
         screen.queryByTestId("schema-loading-dialog"),
@@ -225,7 +234,7 @@ describe("App schema preloading", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
-      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       return Promise.resolve(null);
     });
@@ -413,7 +422,7 @@ describe("App schema preloading", () => {
               stdout: "",
               stderr: "missing executable",
             })
-          : Promise.resolve();
+          : Promise.resolve([]);
       }
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "load_settings_cmd") return Promise.resolve({ ...settings });
@@ -458,6 +467,7 @@ describe("App CLI folder argument", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetSessionMock();
+    _clearTagSchemaRegistryForTests();
   });
 
   it("opens folder from CLI argument on mount", async () => {
@@ -468,13 +478,13 @@ describe("App CLI folder argument", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") {
         return Promise.resolve("D:\\Files\\2024");
       }
       if (cmd === "start_scan") {
         return Promise.resolve();
       }
-      if (cmd === "get_tag_infos") return Promise.resolve([]);
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
       return Promise.resolve(null);
     });
@@ -511,6 +521,7 @@ describe("App CLI folder argument", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") {
         return Promise.resolve(null);
       }
@@ -548,6 +559,7 @@ describe("App CLI folder argument", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") {
         return Promise.reject(new Error("Failed to get CLI folder"));
       }
@@ -579,6 +591,7 @@ describe("App CLI folder argument", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") {
         return Promise.resolve("D:\\Files\\2024");
       }
@@ -667,7 +680,7 @@ describe("App Select Columns metadata counts", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
-      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/files");
       if (cmd === "load_metadata_draft_edits") {
@@ -691,37 +704,10 @@ describe("App Select Columns metadata counts", () => {
           ],
         });
       }
-      if (cmd === "get_tag_info") {
-        const id = (args as { id: { table: string; tag_id: string } }).id;
-        return Promise.resolve({
-          id,
-          group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
-          name: id.tag_id === "title" ? "Title" : id.tag_id,
-          writable: true,
-          kind: { kind: "Text" },
-          description: null,
-        });
-      }
-      if (cmd === "get_tag_infos") {
-        const ids = (args as { ids: Array<{ table: string; tag_id: string }> })
-          .ids;
-        return Promise.resolve(
-          ids.map((id) => ({
-            id,
-            group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
-            name: id.tag_id === "title" ? "Title" : id.tag_id,
-            writable: true,
-            kind: { kind: "Text" },
-            description: null,
-          })),
-        );
-      }
       if (cmd === "stop_scan") return Promise.resolve();
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
       if (cmd === "set_window_title") return Promise.resolve();
-      if (cmd === "list_writable_schema_definitions")
-        return Promise.resolve([]);
       throw new Error(`Unexpected invoke: ${cmd} ${JSON.stringify(args)}`);
     });
 
@@ -810,41 +796,14 @@ describe("App Select Columns metadata counts", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
-      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/files");
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
-      if (cmd === "get_tag_info") {
-        const id = (args as { id: { table: string; tag_id: string } }).id;
-        return Promise.resolve({
-          id,
-          group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
-          name: id.tag_id === "title" ? "Title" : id.tag_id,
-          writable: true,
-          kind: { kind: "Text" },
-          description: null,
-        });
-      }
-      if (cmd === "get_tag_infos") {
-        const ids = (args as { ids: Array<{ table: string; tag_id: string }> })
-          .ids;
-        return Promise.resolve(
-          ids.map((id) => ({
-            id,
-            group: id.table === "XMP::dc" ? "XMP-dc" : id.table,
-            name: id.tag_id === "title" ? "Title" : id.tag_id,
-            writable: true,
-            kind: { kind: "Text" },
-            description: null,
-          })),
-        );
-      }
       if (cmd === "stop_scan") return Promise.resolve();
       if (cmd === "start_scan") return Promise.resolve();
       if (cmd === "prioritize_queues") return Promise.resolve();
       if (cmd === "set_window_title") return Promise.resolve();
-      if (cmd === "list_writable_schema_definitions")
-        return Promise.resolve([]);
       throw new Error(`Unexpected invoke: ${cmd} ${JSON.stringify(args)}`);
     });
 
@@ -976,12 +935,10 @@ describe("App occurrence wiring regression", () => {
     mockInvoke.mockImplementation((cmd: string, args?: unknown) => {
       const sessionResult = handleSessionCommand(cmd, args);
       if (sessionResult) return sessionResult;
-      if (cmd === "preload_schema") return Promise.resolve();
+      if (cmd === "preload_schema") return Promise.resolve([]);
       if (cmd === "get_cli_folder") return Promise.resolve(null);
       if (cmd === "pick_folder") return Promise.resolve("/files");
       if (cmd === "load_metadata_draft_edits") return Promise.resolve({});
-      if (cmd === "get_tag_infos") return Promise.resolve([]);
-      if (cmd === "get_tag_info") return Promise.resolve(null);
       if (
         [
           "stop_scan",
@@ -1028,6 +985,7 @@ describe("App occurrence wiring regression", () => {
       },
       description: null,
     };
+    act(() => installTagSchemaRegistry([info]));
     const uniqueOccurrence: MetadataOccurrence = {
       id: {
         document: null,
@@ -1042,7 +1000,6 @@ describe("App occurrence wiring regression", () => {
       },
       schema_id: info.id,
       value: { kind: "Integer", value: 301 },
-      tag_info: info,
       observed_selector: {
         group1: "IFD0",
         group7: "ID-Test",
@@ -1069,7 +1026,6 @@ describe("App occurrence wiring regression", () => {
         },
         schema_id: info.id,
         value: { kind: "Integer", value: 300 },
-        tag_info: info,
         observed_selector: {
           group1: "IFD0",
           group7: "ID-Test",
@@ -1095,7 +1051,6 @@ describe("App occurrence wiring regression", () => {
         },
         schema_id: info.id,
         value: { kind: "Integer", value: 300 },
-        tag_info: info,
         observed_selector: {
           group1: "IFD1",
           group7: "ID-Test",

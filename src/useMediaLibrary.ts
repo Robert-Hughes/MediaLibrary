@@ -189,7 +189,7 @@ export function useMediaLibrary(
   const appStateRef = useRef<AppState>(appState);
   appStateRef.current = appState;
   const [recentFolders, pushRecentFolder] = useRecentFolders();
-  const writableSchemaDefinitions = useWritableSchemaDefinitions(api.invoke);
+  const writableSchemaDefinitions = useWritableSchemaDefinitions();
 
   const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
   const fileMetadataOccurrencesStoreRef = useRef<FileMetadataOccurrencesStore>(

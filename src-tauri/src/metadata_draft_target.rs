@@ -161,17 +161,15 @@ impl MetadataDraftTarget {
     }
 
     /// Captures all three independent identities from one explicitly selected,
-    /// writable runtime occurrence.
+    /// writable runtime occurrence using its exact registry definition.
     pub fn from_existing_occurrence(
         occurrence: &MetadataOccurrence,
+        info: Option<&TagInfo>,
     ) -> Result<Self, MetadataDraftTargetError> {
-        occurrence
-            .validate_schema_identity()
-            .map_err(|_| MetadataDraftTargetError::SchemaIdMismatch)?;
-        let info = occurrence
-            .tag_info
-            .as_ref()
-            .ok_or(MetadataDraftTargetError::UnknownSchema)?;
+        let info = info.ok_or(MetadataDraftTargetError::UnknownSchema)?;
+        if info.id != occurrence.schema_id {
+            return Err(MetadataDraftTargetError::SchemaIdMismatch);
+        }
         if !info.writable || !info.kind.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
@@ -232,10 +230,11 @@ impl MetadataDraftTarget {
     }
 
     /// Revalidates an existing-occurrence target against a freshly read exact
-    /// occurrence before a future apply pipeline is allowed to write it.
+    /// occurrence and its exact registry definition before any write.
     pub fn validate_existing_occurrence(
         &self,
         occurrence: &MetadataOccurrence,
+        info: Option<&TagInfo>,
     ) -> Result<(), MetadataDraftTargetError> {
         let Self::ExistingOccurrence {
             occurrence_id,
@@ -252,13 +251,10 @@ impl MetadataDraftTarget {
         if schema_id != &occurrence.schema_id {
             return Err(MetadataDraftTargetError::SchemaIdMismatch);
         }
-        occurrence
-            .validate_schema_identity()
-            .map_err(|_| MetadataDraftTargetError::SchemaIdMismatch)?;
-        let info = occurrence
-            .tag_info
-            .as_ref()
-            .ok_or(MetadataDraftTargetError::UnknownSchema)?;
+        let info = info.ok_or(MetadataDraftTargetError::UnknownSchema)?;
+        if info.id != occurrence.schema_id {
+            return Err(MetadataDraftTargetError::SchemaIdMismatch);
+        }
         if !info.writable || !info.kind.supports_metadata_write() {
             return Err(MetadataDraftTargetError::ReadOnlySchema);
         }
@@ -328,7 +324,6 @@ mod tests {
             id: occurrence_id(),
             schema_id: schema_id(None),
             value: MetadataValue::Integer(300),
-            tag_info: Some(info(true, None)),
             observed_selector: Some(crate::metadata_occurrence::MetadataObservedSelector {
                 group1: "IFD0".to_owned(),
                 group7: "ID-282".to_owned(),
@@ -341,7 +336,9 @@ mod tests {
     #[test]
     fn writable_existing_occurrence_preserves_all_three_exact_identities() {
         let occurrence = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence, Some(&info(true, None)))
+                .unwrap();
 
         assert_eq!(target.occurrence_id(), Some(&occurrence.id));
         assert_eq!(target.schema_id(), &occurrence.schema_id);
@@ -352,22 +349,21 @@ mod tests {
 
     #[test]
     fn existing_occurrence_requires_an_exact_schema() {
-        let mut occurrence = occurrence();
-        occurrence.tag_info = None;
+        let occurrence = occurrence();
 
         assert_eq!(
-            MetadataDraftTarget::from_existing_occurrence(&occurrence),
+            MetadataDraftTarget::from_existing_occurrence(&occurrence, None),
             Err(MetadataDraftTargetError::UnknownSchema)
         );
     }
 
     #[test]
     fn existing_occurrence_requires_a_writable_schema() {
-        let mut occurrence = occurrence();
-        occurrence.tag_info.as_mut().unwrap().writable = false;
+        let occurrence = occurrence();
+        let read_only = info(false, None);
 
         assert_eq!(
-            MetadataDraftTarget::from_existing_occurrence(&occurrence),
+            MetadataDraftTarget::from_existing_occurrence(&occurrence, Some(&read_only)),
             Err(MetadataDraftTargetError::ReadOnlySchema)
         );
     }
@@ -375,10 +371,11 @@ mod tests {
     #[test]
     fn existing_and_new_targets_reject_unsupported_schema_kinds() {
         for kind in [TagKind::Binary, TagKind::Unknown] {
-            let mut occurrence = occurrence();
-            occurrence.tag_info.as_mut().unwrap().kind = kind.clone();
+            let occurrence = occurrence();
+            let mut occurrence_info = info(true, None);
+            occurrence_info.kind = kind.clone();
             assert_eq!(
-                MetadataDraftTarget::from_existing_occurrence(&occurrence),
+                MetadataDraftTarget::from_existing_occurrence(&occurrence, Some(&occurrence_info)),
                 Err(MetadataDraftTargetError::ReadOnlySchema)
             );
 
@@ -397,7 +394,7 @@ mod tests {
         occurrence.write_target = None;
 
         assert_eq!(
-            MetadataDraftTarget::from_existing_occurrence(&occurrence),
+            MetadataDraftTarget::from_existing_occurrence(&occurrence, Some(&info(true, None))),
             Err(MetadataDraftTargetError::MissingWriteTarget)
         );
     }
@@ -432,20 +429,27 @@ mod tests {
     #[test]
     fn existing_target_validates_against_the_unchanged_fresh_occurrence() {
         let occurrence = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence, Some(&info(true, None)))
+                .unwrap();
 
-        assert_eq!(target.validate_existing_occurrence(&occurrence), Ok(()));
+        assert_eq!(
+            target.validate_existing_occurrence(&occurrence, Some(&info(true, None))),
+            Ok(())
+        );
     }
 
     #[test]
     fn validation_rejects_an_occurrence_id_mismatch_first() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
         let mut fresh = original;
         fresh.id.path = "JPEG-APP1-IFD1".to_owned();
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&fresh, Some(&info(true, None))),
             Err(MetadataDraftTargetError::OccurrenceIdMismatch)
         );
     }
@@ -453,38 +457,42 @@ mod tests {
     #[test]
     fn validation_compares_the_target_snapshot_with_the_occurrence_schema_field() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
         let mut fresh = original;
         fresh.schema_id.index = Some(0);
-        fresh.tag_info.as_mut().unwrap().id.index = Some(0);
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&fresh, Some(&info(true, None))),
             Err(MetadataDraftTargetError::SchemaIdMismatch)
         );
     }
 
     #[test]
-    fn validation_rejects_conflicting_occurrence_and_tag_info_schema_ids() {
+    fn validation_rejects_registry_info_for_a_different_schema() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
-        let mut fresh = original;
-        fresh.tag_info.as_mut().unwrap().id.index = Some(0);
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
+        let conflicting = info(true, Some(0));
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&original, Some(&conflicting)),
             Err(MetadataDraftTargetError::SchemaIdMismatch)
         );
     }
     #[test]
     fn validation_rejects_a_changed_write_target() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
         let mut fresh = original;
         fresh.write_target.as_mut().unwrap().group1 = "IFD1".to_owned();
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&fresh, Some(&info(true, None))),
             Err(MetadataDraftTargetError::WriteTargetMismatch)
         );
     }
@@ -492,12 +500,14 @@ mod tests {
     #[test]
     fn existing_validation_rejects_a_changed_runtime_family7_snapshot() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
         let mut fresh = original;
         fresh.write_target.as_mut().unwrap().group7 = "ID-ID-AbC".to_owned();
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&fresh, Some(&info(true, None))),
             Err(MetadataDraftTargetError::WriteTargetMismatch)
         );
     }
@@ -505,12 +515,13 @@ mod tests {
     #[test]
     fn validation_rejects_a_missing_fresh_schema() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
-        let mut fresh = original;
-        fresh.tag_info = None;
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
+        let fresh = original;
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&fresh, None),
             Err(MetadataDraftTargetError::UnknownSchema)
         );
     }
@@ -518,12 +529,14 @@ mod tests {
     #[test]
     fn validation_rejects_a_fresh_schema_that_became_read_only() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
-        let mut fresh = original;
-        fresh.tag_info.as_mut().unwrap().writable = false;
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
+        let fresh = original;
+        let read_only = info(false, None);
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&fresh, Some(&read_only)),
             Err(MetadataDraftTargetError::ReadOnlySchema)
         );
     }
@@ -531,12 +544,14 @@ mod tests {
     #[test]
     fn validation_rejects_a_missing_fresh_write_target() {
         let original = occurrence();
-        let target = MetadataDraftTarget::from_existing_occurrence(&original).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&original, Some(&info(true, None)))
+                .unwrap();
         let mut fresh = original;
         fresh.write_target = None;
 
         assert_eq!(
-            target.validate_existing_occurrence(&fresh),
+            target.validate_existing_occurrence(&fresh, Some(&info(true, None))),
             Err(MetadataDraftTargetError::MissingWriteTarget)
         );
     }
@@ -546,14 +561,16 @@ mod tests {
         let target = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
 
         assert_eq!(
-            target.validate_existing_occurrence(&occurrence()),
+            target.validate_existing_occurrence(&occurrence(), Some(&info(true, None))),
             Err(MetadataDraftTargetError::WrongTargetKind)
         );
     }
 
     #[test]
     fn json_round_trip_preserves_both_exact_variant_shapes_without_a_file_path() {
-        let existing = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let existing =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         let new_property = MetadataDraftTarget::from_new_property(&info(true, Some(0))).unwrap();
 
         for (target, expected_kind) in [
@@ -598,7 +615,9 @@ mod tests {
 
     #[test]
     fn existing_slot_contains_only_the_occurrence_id() {
-        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
 
         assert_eq!(
             target.slot(),
@@ -677,13 +696,17 @@ mod tests {
 
     #[test]
     fn identical_targets_have_equal_slots() {
-        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         assert_eq!(target.slot(), target.clone().slot());
     }
 
     #[test]
     fn same_occurrence_with_changed_schema_snapshot_has_the_same_slot() {
-        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let first =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         let mut second = first.clone();
         if let MetadataDraftTarget::ExistingOccurrence { schema_id, .. } = &mut second {
             schema_id.index = Some(7);
@@ -695,7 +718,9 @@ mod tests {
 
     #[test]
     fn same_occurrence_with_changed_write_target_has_the_same_slot() {
-        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let first =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         let mut second = first.clone();
         if let MetadataDraftTarget::ExistingOccurrence { write_target, .. } = &mut second {
             write_target.group1 = "IFD1".to_owned();
@@ -707,20 +732,28 @@ mod tests {
 
     #[test]
     fn distinct_occurrence_paths_have_different_slots() {
-        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let first =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         let mut changed = occurrence();
         changed.id.path = "JPEG-APP1-IFD1".to_owned();
-        let second = MetadataDraftTarget::from_existing_occurrence(&changed).unwrap();
+        let second =
+            MetadataDraftTarget::from_existing_occurrence(&changed, Some(&info(true, None)))
+                .unwrap();
 
         assert_ne!(first.slot(), second.slot());
     }
 
     #[test]
     fn distinct_occurrence_copy_numbers_have_different_slots() {
-        let first = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let first =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         let mut changed = occurrence();
         changed.id.copy += 1;
-        let second = MetadataDraftTarget::from_existing_occurrence(&changed).unwrap();
+        let second =
+            MetadataDraftTarget::from_existing_occurrence(&changed, Some(&info(true, None)))
+                .unwrap();
 
         assert_ne!(first.slot(), second.slot());
     }
@@ -738,7 +771,9 @@ mod tests {
 
     #[test]
     fn existing_and_new_targets_with_the_same_schema_are_distinct_slots() {
-        let existing = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let existing =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         let new_property = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
 
         assert_ne!(existing.slot(), new_property.slot());
@@ -746,13 +781,19 @@ mod tests {
 
     #[test]
     fn slot_ordering_is_existing_then_new_and_uses_domain_ordering() {
-        let existing = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let existing =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         let new_property = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
         assert!(existing.slot() < new_property.slot());
 
         let mut later_occurrence = occurrence();
         later_occurrence.id.path = "ZZZ".to_owned();
-        let later = MetadataDraftTarget::from_existing_occurrence(&later_occurrence).unwrap();
+        let later = MetadataDraftTarget::from_existing_occurrence(
+            &later_occurrence,
+            Some(&info(true, None)),
+        )
+        .unwrap();
         assert!(existing.slot() < later.slot());
 
         let schema_none = MetadataDraftTarget::from_new_property(&info(true, None)).unwrap();
@@ -762,7 +803,9 @@ mod tests {
 
     #[test]
     fn slot_has_no_source_file_path_outside_the_occurrence_id() {
-        let target = MetadataDraftTarget::from_existing_occurrence(&occurrence()).unwrap();
+        let target =
+            MetadataDraftTarget::from_existing_occurrence(&occurrence(), Some(&info(true, None)))
+                .unwrap();
         match target.slot() {
             MetadataDraftSlot::ExistingOccurrence { occurrence_id } => {
                 assert_eq!(occurrence_id.path, "JPEG-APP1-IFD0");

@@ -13,6 +13,7 @@ import { resolveEffectiveGpsForFile } from "../utils/effectiveGps";
 import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import { mockMetadata } from "./factories";
 import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
+import { _ensureTagInfoCacheEntry } from "../hooks/useTagInfo";
 
 const BASE_RAW = {
   "GPS:GPSLatitude": 51,
@@ -33,6 +34,15 @@ function occurrence(
   value: MetadataValue,
   overrides: Partial<MetadataOccurrence> = {},
 ): MetadataOccurrence {
+  const schemaId = overrides.schema_id ?? structuredClone(id);
+  _ensureTagInfoCacheEntry(schemaId, {
+    id: schemaId,
+    group: "GPS",
+    name: schemaId.tag_id,
+    writable: true,
+    kind: { kind: value.kind } as never,
+    description: null,
+  });
   return {
     id: {
       document: null,
@@ -46,14 +56,6 @@ function occurrence(
       copy: 0,
     },
     value,
-    tag_info: {
-      id,
-      group: "GPS",
-      name: id.tag_id,
-      writable: true,
-      kind: { kind: value.kind } as never,
-      description: null,
-    },
     observed_selector: {
       group1: "GPS",
       group7: "ID-Test",
@@ -61,7 +63,7 @@ function occurrence(
     },
     write_target: { group1: "GPS", group7: "ID-Test", tag_name: id.tag_id },
     ...overrides,
-    schema_id: overrides.schema_id ?? structuredClone(id),
+    schema_id: schemaId,
   };
 }
 

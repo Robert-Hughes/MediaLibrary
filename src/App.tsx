@@ -14,7 +14,8 @@ import {
   type MediaLibraryActions,
 } from "./useMediaLibrary";
 import { ThumbnailStore, FileMetadataOccurrencesStore } from "./types";
-import type { AppState } from "./types";
+import type { AppState, TagInfo } from "./types";
+import { installTagSchemaRegistry } from "./tagSchemaRegistry";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
 import { FileList, type FileListSelectionHandle } from "./components/FileList";
@@ -770,9 +771,10 @@ export default function App() {
     setSchemaError(null);
     const callStart = Date.now();
     try {
-      await invoke("preload_schema");
+      const infos = await invoke<TagInfo[]>("preload_schema");
+      installTagSchemaRegistry(infos);
       console.log(
-        `[startup] preload_schema resolved +${Date.now() - t0}ms (invoke took ${Date.now() - callStart}ms)`,
+        `[startup] preload_schema resolved +${Date.now() - t0}ms (invoke took ${Date.now() - callStart}ms, definitions=${infos.length})`,
       );
       setSchemaReady(true);
     } catch (err) {
@@ -781,9 +783,9 @@ export default function App() {
     }
   }, []);
 
-  // Warm the tag-schema registry before the UI becomes interactive so editors
-  // never see a missing-schema flash on first use. Failed startup attempts can
-  // be retried after correcting the ExifTool executable in Settings.
+  // Build the backend registry and install the complete exact frontend registry
+  // before the UI becomes interactive. Failed startup attempts can be retried
+  // after correcting the ExifTool executable in Settings.
   useEffect(() => {
     void preloadSchema();
   }, [preloadSchema]);

@@ -20,6 +20,7 @@ import { HighlightedText } from "./HighlightedText";
 import { ContextMenu } from "./ContextMenu";
 import { TypedValueEditor } from "./editors/TypedValueEditor";
 import { useTagInfos } from "../hooks/useTagInfo";
+import { getTagInfoExact } from "../tagSchemaRegistry";
 import { DatatypeBadge } from "./DatatypeBadge";
 import { gpsMemberGroup, type GpsTagGroup } from "../metadata/tag_overrides";
 import { NewPropertyDialog } from "./NewPropertyDialog";
@@ -627,29 +628,7 @@ export function DetailsPane({
     }
     return Array.from(byToken.values());
   }, [metadata, occurrences, targetDraftEdits]);
-  const embeddedTagInfos = useMemo(() => {
-    const result: Record<string, MetadataOccurrence["tag_info"]> = {};
-    if (!Array.isArray(occurrences)) return result;
-    for (const occurrence of occurrences) {
-      if (occurrence.tag_info !== null) {
-        result[schemaDefinitionIdToken(occurrence.schema_id)] =
-          occurrence.tag_info;
-      }
-    }
-    return result;
-  }, [occurrences]);
-  const lookupIds = useMemo(
-    () =>
-      displayIds.filter(
-        (id) => embeddedTagInfos[schemaDefinitionIdToken(id)] === undefined,
-      ),
-    [displayIds, embeddedTagInfos],
-  );
-  const lookedUpDisplayTagInfos = useTagInfos(lookupIds);
-  const displayTagInfos = useMemo(
-    () => ({ ...lookedUpDisplayTagInfos, ...embeddedTagInfos }),
-    [embeddedTagInfos, lookedUpDisplayTagInfos],
-  );
+  const displayTagInfos = useTagInfos(displayIds);
   const occurrencePresentation = useMemo(() => {
     const tagInfos = Object.fromEntries(
       Object.entries(displayTagInfos).flatMap(([token, info]) =>
@@ -721,20 +700,12 @@ export function DetailsPane({
       };
     }
     if (
-      !schemaDefinitionIdEquals(
-        exact.occurrence.schema_id,
-        editDialog.schemaId,
-      ) ||
-      exact.occurrence.tag_info === null ||
-      !schemaDefinitionIdEquals(
-        exact.occurrence.tag_info.id,
-        exact.occurrence.schema_id,
-      )
+      !schemaDefinitionIdEquals(exact.occurrence.schema_id, editDialog.schemaId)
     ) {
       return {
         kind: "unavailable",
         reason:
-          "The selected occurrence's embedded schema changed, so this editor was closed without saving.",
+          "The selected occurrence's exact schema changed, so this editor was closed without saving.",
       };
     }
     const currentTarget = existingOccurrenceTargetFromOccurrence(
@@ -797,7 +768,8 @@ export function DetailsPane({
     const applied = applyMetadataDraftEditExactly(
       existingOccurrenceEditResolution.occurrence.value,
       owner.edit,
-      existingOccurrenceEditResolution.occurrence.tag_info?.kind,
+      getTagInfoExact(existingOccurrenceEditResolution.occurrence.schema_id)
+        ?.kind,
     );
     return applied.applied
       ? applied.value
@@ -836,7 +808,8 @@ export function DetailsPane({
     const applied = applyMetadataDraftEditExactly(
       existingOccurrenceEditResolution.occurrence.value,
       owner.edit,
-      existingOccurrenceEditResolution.occurrence.tag_info?.kind,
+      getTagInfoExact(existingOccurrenceEditResolution.occurrence.schema_id)
+        ?.kind,
     );
     if (!applied.applied) {
       setEditDialogUnavailableMessage(
@@ -868,7 +841,8 @@ export function DetailsPane({
   const showOsSection = !normalizedDetailsQuery || filteredOsEntries.length > 0;
 
   const openExactOccurrenceEditor = (occurrence: MetadataOccurrence) => {
-    if (occurrence.tag_info === null) return;
+    const info = getTagInfoExact(occurrence.schema_id);
+    if (info === null) return;
     const targetability = existingOccurrenceTargetFromOccurrence(occurrence);
     if (targetability.kind !== "targetable") return;
     const owner =
@@ -880,7 +854,7 @@ export function DetailsPane({
       const applied = applyMetadataDraftEditExactly(
         occurrence.value,
         owner.edit,
-        occurrence.tag_info.kind,
+        info.kind,
       );
       if (!applied.applied) {
         setEditDialogUnavailableMessage(

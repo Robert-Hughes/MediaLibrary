@@ -37,10 +37,6 @@ const schemaId: SchemaDefinitionId = {
   table: "Exif::Main",
   tag_id: "282",
 };
-const otherSchemaId: SchemaDefinitionId = {
-  table: "Exif::Main",
-  tag_id: "283",
-};
 const tagInfo: TagInfo = {
   id: schemaId,
   group: "IFD0",
@@ -69,7 +65,6 @@ function occurrence(
     },
     schema_id: (options.info ?? tagInfo).id,
     value: { kind: "Integer", value },
-    tag_info: options.info ?? tagInfo,
     observed_selector: {
       group1: options.group1 ?? "IFD0",
       group7: "ID-Test",
@@ -212,7 +207,6 @@ function gpsExistingOccurrence(): MetadataOccurrence {
     },
     schema_id: structuredClone(GPS_IDS.latitude),
     value: { kind: "Real", value: 51.5 },
-    tag_info: info,
     observed_selector: {
       group1: "GPS",
       group7: "ID-2",
@@ -585,13 +579,12 @@ describe("DetailsPane exact target-owned row presentation", () => {
   ] as const)(
     "shows the effective exact-occurrence %s value without changing intent",
     (intent, expected) => {
-      const listInfo: TagInfo = {
+      _setTagInfoCacheEntry(schemaId, {
         ...tagInfo,
         kind: { kind: "Bag", data: { kind: "Text" } },
-      };
+      });
       const listA: MetadataOccurrence = {
         ...occurrenceA,
-        tag_info: listInfo,
         value: {
           kind: "List",
           value: {
@@ -605,7 +598,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
       };
       const listB: MetadataOccurrence = {
         ...occurrenceB,
-        tag_info: listInfo,
         value: {
           kind: "List",
           value: {
@@ -726,7 +718,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
             items: [{ kind: "Text", value: "existing" }],
           },
         },
-        tag_info: listInfo,
       };
       _setTagInfoCacheEntry(schemaId, listInfo);
       const { drafts } = targetDrafts(listOccurrence, {
@@ -768,26 +759,42 @@ describe("DetailsPane exact target-owned row presentation", () => {
     }
   });
 
-  it.each([
-    ["unknown schema", { ...occurrenceA, tag_info: null }, /no exact TagInfo/i],
-    [
-      "read-only schema",
-      { ...occurrenceA, tag_info: { ...tagInfo, writable: false } },
-      /read-only/i,
-    ],
-    [
-      "missing write target",
-      { ...occurrenceA, write_target: null },
-      /not backed by the identical observed selector/i,
-    ],
-  ])("keeps a derived row read-only for %s", (_label, item, reason) => {
-    renderPane({ occurrences: [item] });
+  it("keeps a derived row read-only for an unknown schema", () => {
+    _setTagInfoCacheEntry(schemaId, null);
+    renderPane({ occurrences: [occurrenceA] });
     const row = existingOccurrenceRows()[0];
     expect(row).toHaveAttribute("data-readonly", "true");
     expect(row).not.toHaveAttribute("title");
     expect(tooltipCells(row).name).toHaveAttribute(
       "title",
-      expect.stringMatching(reason),
+      expect.stringMatching(/no exact registry schema/i),
+    );
+    fireEvent.contextMenu(row);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps a derived row read-only for a read-only schema", () => {
+    _setTagInfoCacheEntry(schemaId, { ...tagInfo, writable: false });
+    renderPane({ occurrences: [occurrenceA] });
+    const row = existingOccurrenceRows()[0];
+    expect(row).toHaveAttribute("data-readonly", "true");
+    expect(row).not.toHaveAttribute("title");
+    expect(tooltipCells(row).name).toHaveAttribute(
+      "title",
+      expect.stringMatching(/read-only/i),
+    );
+    fireEvent.contextMenu(row);
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("keeps a derived row read-only for a missing write target", () => {
+    renderPane({ occurrences: [{ ...occurrenceA, write_target: null }] });
+    const row = existingOccurrenceRows()[0];
+    expect(row).toHaveAttribute("data-readonly", "true");
+    expect(row).not.toHaveAttribute("title");
+    expect(tooltipCells(row).name).toHaveAttribute(
+      "title",
+      expect.stringMatching(/not backed by the identical observed selector/i),
     );
     fireEvent.contextMenu(row);
     expect(screen.queryByRole("menu")).toBeNull();
@@ -874,7 +881,6 @@ describe("DetailsPane exact target-owned row presentation", () => {
           },
           schema_id: gpsInfo.id,
           value: { kind: "Real", value: 51.5 },
-          tag_info: gpsInfo,
           observed_selector: {
             group1: "GPS",
             group7: "ID-Test",
@@ -938,11 +944,11 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       ],
     ],
     [
-      "changed embedded schema",
+      "changed exact schema",
       [
         {
           ...occurrenceA,
-          tag_info: { ...tagInfo, id: otherSchemaId },
+          schema_id: { table: "Exif::Main", tag_id: "283" },
         },
       ],
     ],
@@ -1011,7 +1017,6 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       const textOccurrence: MetadataOccurrence = {
         ...occurrenceA,
         value: { kind: "Text", value: "disk" },
-        tag_info: textInfo,
       };
       _setTagInfoCacheEntry(schemaId, textInfo);
       const { drafts } = targetDrafts(textOccurrence, {
@@ -1057,7 +1062,6 @@ describe("DetailsPane exact occurrence and New Property editor identity", () => 
       },
       schema_id: gpsInfo.id,
       value: { kind: "Real", value: 51.5 },
-      tag_info: gpsInfo,
       observed_selector: {
         group1: "GPS",
         group7: "ID-Test",
@@ -1510,7 +1514,6 @@ describe("DetailsPane exact workflow strengthening", () => {
       },
       schema_id: structuredClone(GPS_IDS.latitude),
       value: { kind: "Real", value },
-      tag_info: gpsInfo,
       observed_selector: {
         group1: "GPS",
         group7: "ID-2",

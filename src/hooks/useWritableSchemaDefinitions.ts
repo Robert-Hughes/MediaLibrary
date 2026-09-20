@@ -1,88 +1,62 @@
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useMemo, useState } from "react";
 import type { TagInfo } from "../types";
+import {
+  _setTagInfoForTests,
+  allTagInfos,
+  subscribeTagSchemaRegistry,
+  tagSchemaRegistryIsInstalled,
+} from "../tagSchemaRegistry";
 import { tagInfoSupportsMetadataWrite } from "../utils/metadataWriteSupport";
 
 type State = "loading" | TagInfo[];
-type SchemaDefinitionsInvoke = (
-  command: string,
-  args?: Record<string, unknown>,
-) => Promise<unknown>;
 
-let cached: State = "loading";
-let fetched = false;
-let generation = 0;
-const subscribers = new Set<() => void>();
+let testOverride: TagInfo[] | null = null;
 
-function notify() {
-  subscribers.forEach((cb) => cb());
+function withDefaultGroup0(info: TagInfo): TagInfo {
+  if (info.group0 !== undefined) return info;
+  const group0 = info.id.table.startsWith("XMP::")
+    ? "XMP"
+    : info.id.table.startsWith("IPTC::")
+      ? "IPTC"
+      : info.group.startsWith("XMP-")
+        ? "XMP"
+        : "EXIF";
+  return { ...info, group0 };
 }
 
-async function fetchDefinitions(
-  invokeCommand: SchemaDefinitionsInvoke,
-  requestedGeneration: number,
-): Promise<void> {
-  let next: TagInfo[];
-  try {
-    const result = (await invokeCommand("list_writable_schema_definitions")) as
-      TagInfo[] | null;
-    next = (result ?? []).filter((info) =>
+/** Returns every exact supported writable definition from the startup registry. */
+export function useWritableSchemaDefinitions(): State {
+  const [generation, setGeneration] = useState(0);
+
+  useEffect(
+    () => subscribeTagSchemaRegistry(() => setGeneration((value) => value + 1)),
+    [],
+  );
+
+  return useMemo(() => {
+    // Registry notifications increment generation, invalidating this snapshot.
+    void generation;
+    if (testOverride !== null) {
+      return testOverride.filter((info) =>
+        tagInfoSupportsMetadataWrite(info, undefined, "DeleteExisting"),
+      );
+    }
+    if (!tagSchemaRegistryIsInstalled()) return "loading";
+    return allTagInfos().filter((info) =>
       tagInfoSupportsMetadataWrite(info, undefined, "DeleteExisting"),
     );
-  } catch (e) {
-    console.error("[useWritableSchemaDefinitions] schema lookup failed:", e);
-    next = [];
-  }
-  if (requestedGeneration !== generation) return;
-  cached = next;
-  notify();
+  }, [generation]);
 }
 
-/** Returns every exact supported writable definition for Add New Property. */
-export function useWritableSchemaDefinitions(
-  invokeCommand: SchemaDefinitionsInvoke = invoke,
-): State {
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!fetched) {
-      fetched = true;
-      void fetchDefinitions(invokeCommand, generation);
-    }
-    const cb = () => setTick((n) => n + 1);
-    subscribers.add(cb);
-    return () => {
-      subscribers.delete(cb);
-    };
-  }, [invokeCommand]);
-
-  return cached;
-}
-
-// Test-only cache controls. Inputs remain exact TagInfo records.
+// Test-only controls retained for existing component fixtures. The override is
+// presentation-only; exact TagInfo still lives in the one frontend registry.
 export function _resetWritableSchemaDefinitionsCache(): void {
-  generation += 1;
-  cached = "loading";
-  fetched = false;
-  subscribers.clear();
+  testOverride = null;
 }
 
 export function _setWritableSchemaDefinitionsCache(tags: TagInfo[]): void {
-  cached = tags
-    .map((info) => {
-      if (info.group0 !== undefined) return info;
-      const group0 = info.id.table.startsWith("XMP::")
-        ? "XMP"
-        : info.id.table.startsWith("IPTC::")
-          ? "IPTC"
-          : info.group.startsWith("XMP-")
-            ? "XMP"
-            : "EXIF";
-      return { ...info, group0 };
-    })
-    .filter((info) =>
-      tagInfoSupportsMetadataWrite(info, undefined, "DeleteExisting"),
-    );
-  fetched = true;
-  notify();
+  testOverride = tags.map(withDefaultGroup0);
+  for (const info of testOverride) {
+    _setTagInfoForTests(info.id, info);
+  }
 }

@@ -1,7 +1,4 @@
-import {
-  kindForValue,
-  occurrencesFromMetadataCollection,
-} from "./occurrenceFixtures";
+import { occurrencesFromMetadataCollection } from "./occurrenceFixtures";
 /**
  * DetailsPane component tests.
  *
@@ -57,6 +54,7 @@ import {
   metadataDraftTargetSlotToken,
   existingOccurrenceTargetFromOccurrence,
 } from "../utils/metadataDraftTarget";
+import { getTagInfoExact } from "../tagSchemaRegistry";
 function mockOccurrences(
   values: Parameters<typeof mockMetadata>[0],
   readOnly: string[] = [],
@@ -82,14 +80,6 @@ function mockOccurrences(
       },
       schema_id: structuredClone(entry.id),
       value: value as MetadataOccurrence["value"],
-      tag_info: {
-        id: structuredClone(entry.id),
-        group,
-        name,
-        writable: !readOnly.includes(friendly),
-        kind: { kind: "Text" },
-        description: null,
-      },
       observed_selector: { group1: group, group7: "ID-Test", tag_name: name },
       write_target: readOnly.includes(friendly)
         ? null
@@ -363,21 +353,6 @@ describe("DetailsPane component", () => {
     const [orientation] = occurrencesFromMetadataCollection(
       mockMetadata({ "IFD0:Orientation": 6 }),
     );
-    orientation.tag_info = {
-      id: structuredClone(orientation.schema_id),
-      group: "IFD0",
-      name: "Orientation",
-      writable: true,
-      kind: {
-        kind: "Enum",
-        data: {
-          repr: "Integer",
-          options: [{ code: "6", label: "Rotate 90 CW" }],
-        },
-      },
-      description: null,
-      storage_count: undefined,
-    };
     orientation.write_target = {
       group1: "IFD0",
       group7: "ID-Test",
@@ -829,7 +804,6 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               id: { ...target.occurrence_id, copy: 0 },
               schema_id: structuredClone(id),
               value: { kind: "Text", value: firstValue },
-              tag_info: info,
               observed_selector: structuredClone(target.write_target),
               write_target: target.write_target,
             },
@@ -837,7 +811,6 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
               id: { ...target.occurrence_id, copy: 1 },
               schema_id: structuredClone(id),
               value: { kind: "Text", value: secondValue },
-              tag_info: info,
               observed_selector: structuredClone(target.write_target),
               write_target: target.write_target,
             },
@@ -880,7 +853,6 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
             id: target.occurrence_id,
             schema_id: structuredClone(id),
             value: { kind: "Text", value: "unresolved" },
-            tag_info: null,
             observed_selector: null,
             write_target: null,
           },
@@ -956,14 +928,6 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
             },
             schema_id: existingId,
             value: { kind: "Text", value: "existing" },
-            tag_info: {
-              id: existingId,
-              group: "IFD0",
-              name: "Make",
-              writable: true,
-              kind: { kind: "Text" },
-              description: null,
-            },
             observed_selector: structuredClone(target.write_target),
             write_target: {
               group1: "IFD0",
@@ -1090,14 +1054,6 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
             id: target.occurrence_id,
             schema_id: structuredClone(id),
             value: { kind: "Text", value: "original" },
-            tag_info: {
-              id,
-              group: "XMP-dc",
-              name: "Subject",
-              writable: true,
-              kind: { kind: "Text" },
-              description: null,
-            },
             observed_selector: structuredClone(target.write_target),
             write_target: target.write_target,
           },
@@ -1144,14 +1100,6 @@ describe("DetailsPane: target-aware Add Property drafts", () => {
             id: target.occurrence_id,
             schema_id: structuredClone(id),
             value: { kind: "Text", value: "original" },
-            tag_info: {
-              id,
-              group: "XMP-dc",
-              name: "Subject",
-              writable: true,
-              kind: { kind: "Text" },
-              description: null,
-            },
             observed_selector: structuredClone(target.write_target),
             write_target: target.write_target,
           },
@@ -1332,14 +1280,6 @@ describe("DetailsPane: read-only row context menu", () => {
             },
             schema_id: testId("IFD0:Make"),
             value: { kind: "Text", value: "Canon" },
-            tag_info: {
-              id: testId("IFD0:Make"),
-              group: "IFD0",
-              name: "Make",
-              writable: false,
-              kind: { kind: "Text" },
-              description: null,
-            },
             observed_selector: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1399,14 +1339,6 @@ describe("DetailsPane: read-only row context menu", () => {
             },
             schema_id: testId("IFD0:Make"),
             value: { kind: "Text", value: "Canon" },
-            tag_info: {
-              id: testId("IFD0:Make"),
-              group: "IFD0",
-              name: "Make",
-              writable: true,
-              kind: { kind: "Text" },
-              description: null,
-            },
             observed_selector: {
               group1: "IFD0",
               group7: "ID-Test",
@@ -1536,14 +1468,6 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
         },
         schema_id: structuredClone(id),
         value,
-        tag_info: {
-          id,
-          group,
-          name,
-          writable: true,
-          kind: kindForValue(value),
-          description: null,
-        },
         observed_selector: {
           group1: group,
           group7: "ID-Test",
@@ -1592,9 +1516,9 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
     const occurrences = occurrencesFor(metadata);
     const subject = occurrences.find(
-      (occurrence) => occurrence.tag_info?.name === "Subject",
+      (occurrence) => getTagInfoExact(occurrence.schema_id)?.name === "Subject",
     )!;
-    subject.tag_info = null;
+    _setTagInfoCacheEntry(subject.schema_id, null);
     subject.write_target = null;
     render(
       <DetailsPane
@@ -1636,13 +1560,16 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
       mockMetadata({ "GPS:GPSLatitude": 51.5 }),
     );
     const latitude = occurrences.find(
-      (occurrence) => occurrence.tag_info?.name === "GPSLatitude",
+      (occurrence) =>
+        getTagInfoExact(occurrence.schema_id)?.name === "GPSLatitude",
     );
     expect(latitude).toBeDefined();
-    latitude!.tag_info = {
-      ...latitude!.tag_info!,
+    const latitudeInfo = getTagInfoExact(latitude!.schema_id);
+    if (latitudeInfo === null) throw new Error("expected GPSLatitude schema");
+    _setTagInfoCacheEntry(latitude!.schema_id, {
+      ...latitudeInfo,
       writable: false,
-    };
+    });
 
     const onPreviewGpsTargetDraftBatch = vi.fn(async () => null);
     render(
@@ -1785,10 +1712,10 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     });
     const occurrences = occurrencesFor(metadata);
     const latRefOcc = occurrences.find(
-      (o) => o.tag_info?.name === "GPSLatitudeRef",
+      (o) => getTagInfoExact(o.schema_id)?.name === "GPSLatitudeRef",
     )!;
     const lonRefOcc = occurrences.find(
-      (o) => o.tag_info?.name === "GPSLongitudeRef",
+      (o) => getTagInfoExact(o.schema_id)?.name === "GPSLongitudeRef",
     )!;
     const latTarget = existingOccurrenceTargetFromOccurrence(latRefOcc);
     const lonTarget = existingOccurrenceTargetFromOccurrence(lonRefOcc);
@@ -1988,7 +1915,7 @@ describe("DetailsPane: GPS Combined-Editor context-menu and routing", () => {
     expect(await screen.findByTestId("gps-editor-overlay")).toBeInTheDocument();
 
     const changed = occurrences.map((occurrence) =>
-      occurrence.tag_info?.name === "GPSLongitude"
+      getTagInfoExact(occurrence.schema_id)?.name === "GPSLongitude"
         ? {
             ...occurrence,
             write_target: {
@@ -2524,9 +2451,20 @@ describe("DetailsPane: Group context menu", () => {
 
   it("uses exact supplemental Remove and Discard actions for multiple occurrences", async () => {
     vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("./tagInfoTestHelpers");
     const { DetailsPane: FreshDetailsPane } =
       await import("../components/DetailsPane");
     const id = testId("XMP-dc:Title");
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry(id, {
+      id,
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
     const first = mockOccurrences({ "XMP-dc:Title": "first" })[0];
     const second = structuredClone(first);
     second.id.path = "TEST-XMP-dc-duplicate";
@@ -2636,9 +2574,20 @@ describe("DetailsPane: Group context menu", () => {
 
   it("lets the Rust preview classify an already staged exact Delete as a no-op", async () => {
     vi.resetModules();
+    const { _setTagInfoCacheEntry, _clearTagInfoCache } =
+      await import("./tagInfoTestHelpers");
     const { DetailsPane: FreshDetailsPane } =
       await import("../components/DetailsPane");
     const id = testId("XMP-dc:Title");
+    _clearTagInfoCache();
+    _setTagInfoCacheEntry(id, {
+      id,
+      group: "XMP-dc",
+      name: "Title",
+      writable: true,
+      kind: { kind: "Text" },
+      description: null,
+    });
     const occurrences = mockOccurrences({ "XMP-dc:Title": "current" });
     const exactTarget = {
       kind: "ExistingOccurrence" as const,
