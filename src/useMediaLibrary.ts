@@ -22,7 +22,6 @@ import type {
   MediaLibrarySessionSnapshot,
   MediaLibrarySessionFilesAdded,
   MediaLibrarySessionThumbnailsChanged,
-  MediaLibrarySessionMetadataChanged,
   MediaLibrarySessionIssueAdded,
   MediaLibrarySessionRevisionAdvanced,
   MediaLibrarySessionBatchOperationChanged,
@@ -57,6 +56,7 @@ import { projectSessionMetadata } from "./sessionMetadataProjection";
 import { projectSessionThumbnails } from "./sessionThumbnailProjection";
 import { normalizeMetadataOccurrences } from "./utils/scanEvents";
 import { createSessionDeltaCoordinator } from "./sessionDeltaCoordinator";
+import { decodeMetadataDictionaryDelta } from "./sessionTransport";
 
 function logApplicationIssue(
   severity: ApplicationErrorPayload["severity"],
@@ -734,8 +734,18 @@ export function useMediaLibrary(
       const unlistenMetadata = await api.listen(
         "media_library_session_metadata_changed",
         (raw) => {
-          const delta = raw as MediaLibrarySessionMetadataChanged;
           const receivedAt = Date.now();
+          const decodeStarted = performance.now();
+          let delta;
+          try {
+            delta = decodeMetadataDictionaryDelta(raw);
+          } catch (error) {
+            pushApplicationError("metadata-transport", error);
+            return;
+          }
+          console.info(
+            `[scan_perf_ui] phase=metadata_dictionary_decode revision=${delta.revision} entries=${delta.entries.length} decode_ms=${(performance.now() - decodeStarted).toFixed(3)} wall=${receivedAt}`,
+          );
           void deltaCoordinator.enqueue({
             sessionId: delta.session_id,
             revision: delta.revision,

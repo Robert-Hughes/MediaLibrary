@@ -15,7 +15,7 @@ use super::{
     MediaLibrarySessionIssueRemoved, MediaLibrarySessionMetadataChanged,
     MediaLibrarySessionRevisionAdvanced, MediaLibrarySessionSnapshot,
     MediaLibrarySessionThumbnailsChanged, MediaLibrarySessionVerificationOutcomesChanged,
-    SESSION_APPLY_OPERATION_CHANGED_EVENT, SESSION_APPLY_PROGRESS_EVENT,
+    MetadataDictionaryDelta, SESSION_APPLY_OPERATION_CHANGED_EVENT, SESSION_APPLY_PROGRESS_EVENT,
     SESSION_BATCH_OPERATION_CHANGED_EVENT, SESSION_CHANGED_EVENT, SESSION_DISCOVERY_CHANGED_EVENT,
     SESSION_DRAFTS_CHANGED_EVENT, SESSION_DRAFT_PERSISTENCE_CHANGED_EVENT,
     SESSION_FILES_ADDED_EVENT, SESSION_FILES_REMOVED_EVENT, SESSION_ISSUE_ADDED_EVENT,
@@ -164,17 +164,49 @@ pub fn drain_session_events(receiver: mpsc::Receiver<SessionEvent>, app: AppHand
             _ => None,
         };
         let started = Instant::now();
-        let payload = event.into_json_string();
-        let serialized = started.elapsed();
+        let (payload, dictionary_time, serialized) = match event {
+            SessionEvent::MetadataChanged(delta) => {
+                let dictionary_started = Instant::now();
+                let compact = match MetadataDictionaryDelta::from_delta(delta) {
+                    Ok(compact) => compact,
+                    Err(error) => {
+                        log::error!(
+                            "[session-event] failed to dictionary-encode metadata: {error}"
+                        );
+                        continue;
+                    }
+                };
+                let dictionary_time = dictionary_started.elapsed();
+                let serialize_started = Instant::now();
+                let payload = match serde_json::to_string(&compact) {
+                    Ok(payload) => payload,
+                    Err(error) => {
+                        log::error!(
+                            "[session-event] failed to serialize dictionary metadata: {error}"
+                        );
+                        continue;
+                    }
+                };
+                (payload, Some(dictionary_time), serialize_started.elapsed())
+            }
+            other => {
+                let serialize_started = Instant::now();
+                let payload = other.into_json_string();
+                (payload, None, serialize_started.elapsed())
+            }
+        };
+        let payload_bytes = payload.len();
         let emit_started = Instant::now();
         let _ = crate::emit_frontend_event_str(&app, &name, payload);
         let emitted = emit_started.elapsed();
         if let Some(entries) = metadata_entries {
             log::info!(
-                "[scan_perf] phase=metadata_event_emit revision={} entries={} serialize_ms={} emit_ms={} total_ms={}",
+                "[scan_perf] phase=metadata_event_emit revision={} entries={} dictionary_ms={} serialize_ms={} payload_bytes={} emit_ms={} total_ms={}",
                 revision,
                 entries,
+                dictionary_time.unwrap_or_default().as_millis(),
                 serialized.as_millis(),
+                payload_bytes,
                 emitted.as_millis(),
                 started.elapsed().as_millis()
             );

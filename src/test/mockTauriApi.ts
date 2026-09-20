@@ -11,6 +11,7 @@ import type {
   MetadataApplySummary,
   TagInfo,
   MediaLibrarySessionSnapshot,
+  MediaLibrarySessionMetadataChanged,
 } from "../types";
 import {
   TargetDraftEditsStore,
@@ -29,6 +30,7 @@ import { testId } from "./testIds";
 import { classifyNewPropertyDestination } from "../utils/newPropertyDestinationSafety";
 import { schemaDefinitionIdEquals } from "../utils/schemaDefinitionId";
 import { validateFamily1Group } from "../utils/metadataWriteTarget";
+import { compactMetadataDeltaForTest } from "./metadataTransportFixtures";
 
 function mockTagInfoFor(
   infos: readonly TagInfo[],
@@ -2954,7 +2956,13 @@ export function createMockTauriApi(): MockTauriApi {
   };
 
   const emit = (event: string, payload: unknown) => {
-    (handlers[event] ?? []).forEach((h) => h(payload));
+    const wirePayload =
+      event === "media_library_session_metadata_changed"
+        ? compactMetadataDeltaForTest(
+            payload as MediaLibrarySessionMetadataChanged,
+          )
+        : payload;
+    (handlers[event] ?? []).forEach((h) => h(wirePayload));
     if (
       event !== "media_library_search_result" &&
       (event.startsWith("media_library_session_") ||

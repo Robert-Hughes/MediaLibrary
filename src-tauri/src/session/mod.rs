@@ -2,8 +2,10 @@
 
 mod events;
 mod model;
+mod transport;
 pub use events::{drain_session_events, ProjectionEvent, SessionEvent};
 pub use model::*;
+pub use transport::{MetadataDictionaryDelta, METADATA_DICTIONARY_FORMAT};
 
 use crate::draft_edits::{MetadataTargetDraftEntry, MetadataTargetDraftsByFile};
 use crate::scanner::{FileInfo, FileMetadata};

@@ -17,6 +17,7 @@ import {
   _clearTagSchemaRegistryForTests,
   installTagSchemaRegistry,
 } from "../tagSchemaRegistry";
+import { compactMetadataDeltaForTest } from "./metadataTransportFixtures";
 
 type SessionSnapshot = {
   session_id: number | null;
@@ -109,7 +110,7 @@ function emitSessionMetadata(
     scan_id: number;
     results: Array<{
       relative_path: string;
-      occurrences: unknown[];
+      occurrences: MetadataOccurrence[];
       metadata?: unknown;
     }>;
   },
@@ -132,11 +133,14 @@ function emitSessionMetadata(
       ...entries,
     ],
   };
-  emit("media_library_session_metadata_changed", {
-    session_id: payload.scan_id,
-    revision: sessionSnapshot.revision,
-    entries,
-  });
+  emit(
+    "media_library_session_metadata_changed",
+    compactMetadataDeltaForTest({
+      session_id: payload.scan_id,
+      revision: sessionSnapshot.revision,
+      entries,
+    }),
+  );
 }
 
 function handleSessionCommand(
