@@ -2118,6 +2118,39 @@ mod tests {
     }
 
     #[test]
+    fn stale_metadata_batches_are_rejected_without_mutating_the_replacement_session() {
+        let state = MediaLibrarySessionState::new();
+        let first = state.begin_open("C:/first".into());
+        let first_id = first.session_id.unwrap();
+        state.mark_loaded(first_id, "C:/first").unwrap();
+        state
+            .add_files(first_id, vec![test_file("same.jpg")])
+            .unwrap();
+
+        let second = state.begin_open("C:/second".into());
+        let second_id = second.session_id.unwrap();
+        state.mark_loaded(second_id, "C:/second").unwrap();
+        state
+            .add_files(second_id, vec![test_file("same.jpg")])
+            .unwrap();
+        let before = state.snapshot();
+
+        let result = state.commit_metadata_results(
+            first_id,
+            vec![FileMetadata {
+                relative_path: "same.jpg".into(),
+                occurrences: MetadataOccurrences::default(),
+            }],
+        );
+
+        assert!(result.is_err());
+        let after = state.snapshot();
+        assert_eq!(after.session_id, Some(second_id));
+        assert_eq!(after.revision, before.revision);
+        assert_eq!(after.metadata, before.metadata);
+    }
+
+    #[test]
     fn thumbnail_payloads_are_session_owned_and_recoverable_by_cache_key() {
         let state = MediaLibrarySessionState::new();
         let opened = state.begin_open("C:/photos".into());
