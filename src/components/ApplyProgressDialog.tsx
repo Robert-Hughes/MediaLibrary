@@ -95,6 +95,29 @@ export function ApplyProgressDialog({
             />
           ) : summary ? (
             <>
+              {summary.failed > 0 ? (
+                <div
+                  role="alert"
+                  data-testid="apply-failure-banner"
+                  style={{
+                    marginBottom: 14,
+                    padding: "10px 12px",
+                    color: "var(--accent-error, #d33)",
+                    border: "1px solid var(--accent-error, #d33)",
+                    borderRadius: 4,
+                    background:
+                      "var(--accent-error-subtle, rgba(221,51,51,0.06))",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    {countLabel(summary.failed, "file")} failed to apply
+                  </div>
+                  <div style={{ color: "var(--text-primary)", fontSize: 13 }}>
+                    Pending edits for failed files have been kept as drafts.
+                    Review the details before retrying.
+                  </div>
+                </div>
+              ) : null}
               <p
                 data-testid="apply-complete-summary"
                 style={{ fontSize: 16, marginTop: 0 }}

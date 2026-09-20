@@ -281,6 +281,12 @@ describe("target-aware progress and results", () => {
     expect(
       await screen.findByTestId("apply-complete-summary"),
     ).toHaveTextContent("2 applied, 1 failed, 1 warning");
+    const failureBanner = screen.getByTestId("apply-failure-banner");
+    expect(failureBanner).toBeVisible();
+    expect(failureBanner).toHaveTextContent("1 file failed to apply");
+    expect(failureBanner).toHaveTextContent(
+      "Pending edits for failed files have been kept as drafts.",
+    );
     expect(screen.queryByTestId("apply-complete-details")).toBeNull();
     await user.click(screen.getByText("Show details"));
     const details = screen.getByTestId("apply-complete-details");
