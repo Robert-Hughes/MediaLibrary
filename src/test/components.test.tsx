@@ -137,14 +137,16 @@ describe("WelcomeScreen", () => {
 describe("MenuBar", () => {
   const base = {
     onOpenFolder: noop,
+    onRefreshFolder: noop,
     onCloseFolder: noop,
     onSelectColumns: noop,
     onOpenSettings: noop,
   };
 
-  it("renders open / close / columns / settings buttons", () => {
+  it("renders open / refresh / close / columns / settings buttons", () => {
     render(<MenuBar {...base} />);
     expect(screen.getByTestId("menu-bar-open-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("menu-bar-refresh-btn")).toBeInTheDocument();
     expect(screen.getByTestId("menu-bar-close-btn")).toBeInTheDocument();
     expect(screen.getByTestId("menu-bar-columns-btn")).toBeInTheDocument();
     expect(screen.getByTestId("menu-bar-settings-btn")).toBeInTheDocument();
@@ -162,6 +164,12 @@ describe("MenuBar", () => {
     expect(screen.getByTestId("menu-bar-theme-toggle")).toBeInTheDocument();
   });
 
+  it("calls onRefreshFolder when refresh button is clicked", async () => {
+    const handler = vi.fn();
+    render(<MenuBar {...base} onRefreshFolder={handler} />);
+    await userEvent.click(screen.getByTestId("menu-bar-refresh-btn"));
+    expect(handler).toHaveBeenCalledOnce();
+  });
   it("calls onSelectColumns when columns button is clicked", async () => {
     const handler = vi.fn();
     render(<MenuBar {...base} onSelectColumns={handler} />);

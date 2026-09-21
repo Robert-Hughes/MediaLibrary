@@ -2,6 +2,7 @@ import { useTheme } from "../hooks/useTheme";
 
 interface Props {
   onOpenFolder: () => void;
+  onRefreshFolder: () => void;
   onCloseFolder: () => void;
   onSelectColumns: () => void;
   onOpenSettings: () => void;
@@ -15,6 +16,7 @@ interface Props {
 
 export function MenuBar({
   onOpenFolder,
+  onRefreshFolder,
   onCloseFolder,
   onSelectColumns,
   onOpenSettings,
@@ -33,6 +35,13 @@ export function MenuBar({
           data-testid="menu-bar-open-btn"
         >
           Open Folder…
+        </button>
+        <button
+          className="menu-bar-btn"
+          onClick={onRefreshFolder}
+          data-testid="menu-bar-refresh-btn"
+        >
+          Refresh Folder
         </button>
         <button
           className="menu-bar-btn"

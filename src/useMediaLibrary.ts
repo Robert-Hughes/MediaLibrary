@@ -87,6 +87,7 @@ export interface TauriApi {
 
 export interface MediaLibraryActions {
   openFolder: () => Promise<void>;
+  refreshFolder: () => Promise<void>;
   openRecent: (folder: string) => Promise<void>;
   closeFolder: () => void;
   prioritizeQueues: (visiblePaths: string[]) => void;
@@ -1156,6 +1157,12 @@ export function useMediaLibrary(
     await startScan(folder);
   }, [api, startScan]);
 
+  const refreshFolder = useCallback(async () => {
+    const current = appStateRef.current;
+    if (current.kind !== "loading" && current.kind !== "loaded") return;
+    await startScan(current.folder);
+  }, [startScan]);
+
   const openRecent = useCallback(
     async (folder: string) => {
       await startScan(folder);
@@ -1421,6 +1428,7 @@ export function useMediaLibrary(
   const mediaLibraryActions = useMemo(
     () => ({
       openFolder,
+      refreshFolder,
       openRecent,
       closeFolder,
       prioritizeQueues,
@@ -1437,6 +1445,7 @@ export function useMediaLibrary(
     }),
     [
       openFolder,
+      refreshFolder,
       openRecent,
       closeFolder,
       prioritizeQueues,

@@ -453,6 +453,7 @@ function LoadedView({
       />
       <MenuBar
         onOpenFolder={actions.openFolder}
+        onRefreshFolder={actions.refreshFolder}
         onCloseFolder={actions.closeFolder}
         onSelectColumns={() => setShowColumnDialog(true)}
         onOpenSettings={onOpenSettings}
@@ -907,6 +908,7 @@ export default function App() {
         <>
           <MenuBar
             onOpenFolder={actions.openFolder}
+            onRefreshFolder={actions.refreshFolder}
             onCloseFolder={actions.closeFolder}
             onSelectColumns={() => setShowColumnDialog(true)}
             onOpenSettings={() => setShowSettingsDialog(true)}
