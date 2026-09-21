@@ -5,9 +5,12 @@ Current
 
 - Check all photos at the end
   - Any missing GPS?
+    - Home address number is off-by-two in reverse-geocoded/tagged metadata; review and correct the textual location metadata.
+    - Clumped GPS
   - Any missing description/keywords?
   - Any missing dates?
     - Wedding photos from 2026 have wrong date! Check others?
+    - Anything whjere date doesn't match folder, or is out of sync with another date or nearby photos etc.
   - Move out of Unknown folder?
   - Try out some searches across fuill collection!
   - Try out the GPS view across the full collection!
