@@ -201,6 +201,7 @@ export function ColumnSelectionDialog({
               onChange={(e) => setSearchTerm(e.target.value)}
               className="column-search-input"
               autoFocus
+              data-modal-initial-focus="true"
             />
           </div>
 

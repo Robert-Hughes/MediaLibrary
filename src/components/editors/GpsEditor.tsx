@@ -247,6 +247,7 @@ export function GpsEditor({
                 data-testid="gps-editor-lat-input"
                 className="dialog-input"
                 autoFocus
+                data-modal-initial-focus="true"
               />
               <select
                 value={latRef}

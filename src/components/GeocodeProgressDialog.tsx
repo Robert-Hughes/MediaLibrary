@@ -242,6 +242,7 @@ function AwaitingConfirmPanel({
           onClick={onConfirm}
           data-testid="geocode-confirm-btn"
           autoFocus
+          data-modal-initial-focus="true"
         >
           Confirm and geocode
         </button>
@@ -337,6 +338,7 @@ export function GeocodeProgressDialog({
               onClick={onClose}
               data-testid="geocode-close-btn"
               autoFocus
+              data-modal-initial-focus="true"
             >
               Close
             </button>

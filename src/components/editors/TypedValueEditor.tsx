@@ -550,6 +550,7 @@ export function TypedValueEditor({
             <button
               type="button"
               autoFocus
+              data-modal-initial-focus="true"
               className="dialog-btn dialog-btn-primary"
               onClick={onCancel}
             >

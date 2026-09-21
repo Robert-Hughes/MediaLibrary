@@ -185,6 +185,7 @@ export function SettingsDialog({ onClose, onExifToolCommandSaved }: Props) {
                   placeholder="exiftool"
                   style={{ width: "100%", padding: 6, fontFamily: "monospace" }}
                   autoFocus
+                  data-modal-initial-focus="true"
                 />
                 <div
                   style={{

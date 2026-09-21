@@ -452,6 +452,7 @@ export function BulkMetadataEditorDialog({
                   onChange={(event) => setSearch(event.currentTarget.value)}
                   className="column-search-input"
                   autoFocus
+                  data-modal-initial-focus="true"
                 />
               </div>
               <div

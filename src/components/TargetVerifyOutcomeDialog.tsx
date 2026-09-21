@@ -258,6 +258,7 @@ export function TargetVerifyOutcomeDialog({
             className="dialog-btn dialog-btn-secondary"
             onClick={onDismissAll}
             autoFocus
+            data-modal-initial-focus="true"
           >
             Close
           </button>

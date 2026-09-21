@@ -74,9 +74,17 @@ describe("ModalDialog", () => {
     expect(close).toHaveBeenCalledTimes(closeCountBeforeUnmount);
   });
 
-  it("keeps Enter on the explicit autofocus action after showModal moves focus", async () => {
+  it("honours autofocus after opening when closed-dialog focus is rejected", async () => {
     const cancel = vi.fn();
     const confirm = vi.fn();
+    const nativeFocus = HTMLElement.prototype.focus;
+    const focus = vi
+      .spyOn(HTMLElement.prototype, "focus")
+      .mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+        const ownerDialog = this.closest("dialog");
+        if (ownerDialog && !ownerDialog.hasAttribute("open")) return;
+        nativeFocus.call(this, options);
+      });
     const show = vi
       .spyOn(HTMLDialogElement.prototype, "showModal")
       .mockImplementation(function (this: HTMLDialogElement) {
@@ -84,20 +92,24 @@ describe("ModalDialog", () => {
         this.querySelector<HTMLElement>("button")?.focus();
       });
 
-    render(
-      <ModalDialog open onDismiss={vi.fn()} aria-label="Default action">
-        <button onClick={cancel}>Cancel</button>
-        <button autoFocus onClick={confirm}>
-          Confirm
-        </button>
-      </ModalDialog>,
-    );
+    try {
+      render(
+        <ModalDialog open onDismiss={vi.fn()} aria-label="Default action">
+          <button onClick={cancel}>Cancel</button>
+          <button autoFocus data-modal-initial-focus="true" onClick={confirm}>
+            Confirm
+          </button>
+        </ModalDialog>,
+      );
 
-    expect(screen.getByRole("button", { name: "Confirm" })).toHaveFocus();
-    await userEvent.keyboard("{Enter}");
-    expect(confirm).toHaveBeenCalledOnce();
-    expect(cancel).not.toHaveBeenCalled();
-    show.mockRestore();
+      expect(screen.getByRole("button", { name: "Confirm" })).toHaveFocus();
+      await userEvent.keyboard("{Enter}");
+      expect(confirm).toHaveBeenCalledOnce();
+      expect(cancel).not.toHaveBeenCalled();
+    } finally {
+      show.mockRestore();
+      focus.mockRestore();
+    }
   });
 
   // ── cancel handling ─────────────────────────────────────────────────────

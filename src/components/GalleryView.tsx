@@ -568,6 +568,7 @@ export function GalleryView({
         data-testid="gallery-content"
         tabIndex={0}
         autoFocus
+        data-modal-initial-focus="true"
       >
         <button
           className="gallery-close"

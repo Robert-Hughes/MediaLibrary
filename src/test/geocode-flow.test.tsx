@@ -409,7 +409,9 @@ describe("Reverse-geocoding flow", () => {
     await user.click(
       await screen.findByRole("button", { name: "Reverse Geocode…" }),
     );
-    await user.click(await screen.findByTestId("geocode-confirm-btn"));
+    const confirm = await screen.findByTestId("geocode-confirm-btn");
+    expect(confirm).toHaveFocus();
+    await user.keyboard("{Enter}");
 
     await waitFor(() => {
       expect(mockApiInstance.lastGeocodeArgs?.items[0]).toEqual({

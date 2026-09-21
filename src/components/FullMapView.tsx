@@ -103,6 +103,7 @@ export function FullMapView({
               onClick={onClose}
               aria-label="Close file map"
               autoFocus
+              data-modal-initial-focus="true"
             >
               ✕
             </button>

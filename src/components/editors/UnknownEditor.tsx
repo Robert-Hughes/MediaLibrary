@@ -83,6 +83,7 @@ export function UnknownEditor({
             onClick={onCancel}
             data-testid="unknown-editor-close"
             autoFocus
+            data-modal-initial-focus="true"
           >
             Close
           </button>

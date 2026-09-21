@@ -319,6 +319,7 @@ export function DescribeProgressDialog({
               onClick={onConfirm}
               data-testid="describe-confirm-btn"
               autoFocus
+              data-modal-initial-focus="true"
             >
               Confirm and run
             </button>
@@ -385,6 +386,7 @@ export function DescribeProgressDialog({
               onClick={onClose}
               data-testid="describe-close-btn"
               autoFocus
+              data-modal-initial-focus="true"
             >
               Close
             </button>

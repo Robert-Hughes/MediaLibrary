@@ -52,6 +52,22 @@ if (typeof document !== "undefined" && !focusTracker.installed) {
   focusTracker.installed = true;
 }
 
+function focusModalInitialTarget(dialog: HTMLDialogElement) {
+  const targets = dialog.querySelectorAll<HTMLElement>(
+    '[data-modal-initial-focus="true"]',
+  );
+  for (const target of targets) {
+    if (target.closest("dialog") === dialog) {
+      target.focus();
+      return;
+    }
+  }
+}
+
+function showModalWithInitialFocus(dialog: HTMLDialogElement) {
+  dialog.showModal();
+  focusModalInitialTarget(dialog);
+}
 /** A controlled native modal. React state always remains authoritative. */
 export function ModalDialog({
   open,
@@ -92,13 +108,13 @@ export function ModalDialog({
               : active
             : null;
 
-        dialog.showModal();
-
-        // React applies `autoFocus` during commit, before this parent layout
-        // effect opens the native dialog. WebView's showModal() can then move
-        // focus to the first focusable control. Restore React's chosen target
-        // after opening so Enter activates the intended default action.
-        reactAutofocusTarget?.focus();
+        // React may attempt descendant `autoFocus` before this parent
+        // layout effect opens the native dialog. Some WebViews reject focus
+        // inside a closed <dialog>; showModal() can then focus the first
+        // focusable control instead. Open first, then honour the declarative
+        // autofocus target owned by this dialog so Enter reaches the intended
+        // default action consistently.
+        showModalWithInitialFocus(dialog);
       }
       unregisterApplicationErrorDialogRef.current ??=
         registerApplicationErrorDialog(dialog);
@@ -203,7 +219,7 @@ export function ModalDialog({
         queueMicrotask(() => {
           const dialog = ref.current;
           if (dialog?.isConnected && openRef.current && !dialog.open) {
-            dialog.showModal();
+            showModalWithInitialFocus(dialog);
             unregisterApplicationErrorDialogRef.current?.();
             unregisterApplicationErrorDialogRef.current =
               registerApplicationErrorDialog(dialog);

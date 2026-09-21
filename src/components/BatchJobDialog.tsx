@@ -67,6 +67,9 @@ export function BatchJobDialog({
         style={{ width }}
         tabIndex={phase === "estimating" || phase === "running" ? 0 : undefined}
         autoFocus={phase === "estimating" || phase === "running"}
+        data-modal-initial-focus={
+          phase === "estimating" || phase === "running" ? "true" : undefined
+        }
       >
         <div className="dialog-header">
           <span className="dialog-title">{title}</span>

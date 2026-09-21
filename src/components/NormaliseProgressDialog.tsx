@@ -711,6 +711,7 @@ function AwaitingConfirmPanel({
           onClick={onConfirm}
           data-testid="normalise-confirm-btn"
           autoFocus
+          data-modal-initial-focus="true"
           disabled={noneEnabled}
           title={noneEnabled ? "Enable at least one group to continue" : ""}
         >
@@ -963,6 +964,7 @@ export function NormaliseProgressDialog({
               onClick={onClose}
               data-testid="normalise-close-btn"
               autoFocus
+              data-modal-initial-focus="true"
             >
               Close
             </button>
