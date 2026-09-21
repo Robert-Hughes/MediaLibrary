@@ -213,6 +213,24 @@ describe("ColumnSelectionDialog tests", () => {
       expect(onClose).not.toHaveBeenCalled();
     });
 
+    it("does not hijack Enter from a focused dialog button", async () => {
+      const onSave = vi.fn();
+      render(
+        <ColumnSelectionDialog
+          allKeys={allKeys.slice(1, 3)}
+          visibleColumns={[]}
+          onSave={onSave}
+          onClose={() => {}}
+        />,
+      );
+
+      const selectAll = screen.getByRole("button", { name: "Select All" });
+      selectAll.focus();
+      await userEvent.keyboard("{Enter}");
+
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
     it("saves current selection state when Enter is pressed after making changes", async () => {
       const onClose = vi.fn();
       const onSave = vi.fn();

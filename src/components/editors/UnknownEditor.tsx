@@ -82,6 +82,7 @@ export function UnknownEditor({
             className="dialog-btn dialog-btn-primary"
             onClick={onCancel}
             data-testid="unknown-editor-close"
+            autoFocus
           >
             Close
           </button>

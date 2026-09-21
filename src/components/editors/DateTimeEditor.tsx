@@ -196,6 +196,12 @@ export function DateTimeEditor({
               setValue(e.target.value);
               setError(null);
             }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSave();
+              }
+            }}
             data-testid="datetime-editor-input"
             data-temporal-mode={mode}
           />

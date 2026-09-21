@@ -117,6 +117,35 @@ describe("TargetVerifyOutcomeDialog", () => {
     expect(screen.getByText("08:06:49+01:00")).toBeTruthy();
   });
 
+  it("focuses neutral Close rather than a reconciliation action", () => {
+    const entry = targetVerifyOutcomeFromBackend("focus.jpg", {
+      target: replacement,
+      draft_reconciliation: { kind: "Keep" },
+      display_name: "Subject",
+      kind: "Mismatch",
+      sent: { kind: "Text", value: "requested" },
+      before: null,
+      observed: { kind: "Text", value: "observed" },
+      message: null,
+    })!;
+
+    render(
+      <TargetVerifyOutcomeDialog
+        outcomes={{
+          "focus.jpg": {
+            [metadataDraftTargetSlotToken(replacement)]: entry,
+          },
+        }}
+        onAccept={vi.fn()}
+        onKeep={vi.fn()}
+        onDiscard={vi.fn()}
+        onDismissAll={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+  });
+
   it("renders complete replacement diagnostics and acts on the replacement target", () => {
     const entry = targetVerifyOutcomeFromBackend("replace.jpg", {
       target: {

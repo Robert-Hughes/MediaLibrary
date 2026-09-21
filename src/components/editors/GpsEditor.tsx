@@ -237,9 +237,16 @@ export function GpsEditor({
                   setLatDecimal(e.target.value);
                   setError(null);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSave();
+                  }
+                }}
                 placeholder="0–90"
                 data-testid="gps-editor-lat-input"
                 className="dialog-input"
+                autoFocus
               />
               <select
                 value={latRef}
@@ -264,6 +271,12 @@ export function GpsEditor({
                 onChange={(e) => {
                   setLonDecimal(e.target.value);
                   setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSave();
+                  }
                 }}
                 placeholder="0–180"
                 data-testid="gps-editor-lon-input"
@@ -293,6 +306,12 @@ export function GpsEditor({
               onChange={(e) => {
                 setAltMetres(e.target.value);
                 setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleSave();
+                }
               }}
               placeholder="optional"
               data-testid="gps-editor-alt-input"

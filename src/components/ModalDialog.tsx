@@ -81,19 +81,24 @@ export function ModalDialog({
     if (open) {
       if (!dialog.open) {
         const active = document.activeElement;
+        const reactAutofocusTarget =
+          active instanceof HTMLElement && dialog.contains(active)
+            ? active
+            : null;
         openerRef.current =
           active instanceof HTMLElement
-            ? dialog.contains(active)
+            ? reactAutofocusTarget
               ? focusTracker.previous
               : active
             : null;
 
         dialog.showModal();
 
-        if (!dialog.contains(document.activeElement)) {
-          const initial = dialog.querySelector<HTMLElement>("[autofocus]");
-          initial?.focus();
-        }
+        // React applies `autoFocus` during commit, before this parent layout
+        // effect opens the native dialog. WebView's showModal() can then move
+        // focus to the first focusable control. Restore React's chosen target
+        // after opening so Enter activates the intended default action.
+        reactAutofocusTarget?.focus();
       }
       unregisterApplicationErrorDialogRef.current ??=
         registerApplicationErrorDialog(dialog);

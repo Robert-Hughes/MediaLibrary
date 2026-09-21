@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import {
   BatchJobDialog,
@@ -27,6 +28,33 @@ describe.each<BatchJobPhase>(["estimating", "awaiting-confirm", "running"])(
         .dispatchEvent(new Event("cancel", { cancelable: true }));
       expect(onCancel).toHaveBeenCalledOnce();
       expect(onClose).not.toHaveBeenCalled();
+    });
+  },
+);
+
+describe.each<BatchJobPhase>(["estimating", "running"])(
+  "BatchJobDialog %s focus",
+  (phase) => {
+    it("keeps Enter neutral while the operation is in progress", async () => {
+      const onCancel = vi.fn();
+      render(
+        <BatchJobDialog
+          testidPrefix="job"
+          phase={phase}
+          title="Job"
+          onCancel={onCancel}
+          onClose={vi.fn()}
+        >
+          <button onClick={onCancel}>Cancel</button>
+        </BatchJobDialog>,
+      );
+
+      const content = screen
+        .getByRole("dialog")
+        .querySelector(".dialog-content");
+      expect(content).toHaveFocus();
+      await userEvent.keyboard("{Enter}");
+      expect(onCancel).not.toHaveBeenCalled();
     });
   },
 );

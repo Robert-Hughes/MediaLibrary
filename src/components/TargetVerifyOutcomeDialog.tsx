@@ -257,6 +257,7 @@ export function TargetVerifyOutcomeDialog({
           <button
             className="dialog-btn dialog-btn-secondary"
             onClick={onDismissAll}
+            autoFocus
           >
             Close
           </button>

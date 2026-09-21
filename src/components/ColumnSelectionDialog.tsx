@@ -156,13 +156,13 @@ export function ColumnSelectionDialog({
       testId="column-dialog-overlay"
       aria-label="Select columns"
       onKeyDown={(event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          onSave(
-            mergeSelection(orderBasis, selectedOS, selected, imageIds),
-            resetWidths,
-          );
-        }
+        if (event.key !== "Enter") return;
+        if (event.target instanceof HTMLButtonElement) return;
+        event.preventDefault();
+        onSave(
+          mergeSelection(orderBasis, selectedOS, selected, imageIds),
+          resetWidths,
+        );
       }}
     >
       <div className="dialog-content column-dialog" data-testid="column-dialog">
@@ -200,6 +200,7 @@ export function ColumnSelectionDialog({
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="column-search-input"
+              autoFocus
             />
           </div>
 

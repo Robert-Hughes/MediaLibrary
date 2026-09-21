@@ -291,6 +291,28 @@ describe("GalleryView", () => {
     await userEvent.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it("does not assign Enter to Close when the gallery opens", async () => {
+    const onClose = vi.fn();
+    render(
+      <GalleryView
+        onRemoveMetadataTargets={vi.fn()}
+        onDiscardTargetDraftBatch={vi.fn()}
+        files={PHOTOS}
+        currentIndex={0}
+        folderPath="/files"
+        onClose={onClose}
+        onNavigate={vi.fn()}
+        fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
+        loadMedia={fakeLoadMedia}
+      />,
+    );
+    await screen.findByTestId("gallery-image");
+
+    expect(screen.getByTestId("gallery-content")).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 describe("useMediaLibrary gallery state", () => {

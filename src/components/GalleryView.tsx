@@ -566,6 +566,8 @@ export function GalleryView({
       <div
         className={`gallery-content ${detailsVisible ? "gallery-content--with-details" : ""}`}
         data-testid="gallery-content"
+        tabIndex={0}
+        autoFocus
       >
         <button
           className="gallery-close"

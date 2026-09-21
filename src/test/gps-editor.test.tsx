@@ -162,6 +162,26 @@ describe("GpsEditor", () => {
     });
   });
 
+  it("focuses latitude initially and Enter in a numeric field saves", async () => {
+    const onSave = vi.fn();
+    render(
+      <GpsEditor
+        group={exampleGroup}
+        initialLatDecimal={51.5}
+        initialLatRef="N"
+        initialLonDecimal={0.13}
+        initialLonRef="W"
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+
+    const latitude = screen.getByTestId("gps-editor-lat-input");
+    expect(latitude).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(onSave).toHaveBeenCalledOnce();
+  });
+
   it("Save emits 6 paired semantic draft edits when altitude is filled", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();

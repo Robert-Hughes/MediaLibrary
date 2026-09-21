@@ -64,6 +64,8 @@ export function ApplyProgressDialog({
       <div
         className="dialog-content"
         style={{ width: 560, maxHeight: "85vh", overflowY: "auto" }}
+        tabIndex={applying ? 0 : undefined}
+        autoFocus={Boolean(applying)}
       >
         <div className="dialog-header">
           <span className="dialog-title">{title}</span>
@@ -193,7 +195,11 @@ export function ApplyProgressDialog({
         </div>
         {!applying ? (
           <div className="dialog-footer">
-            <button className="dialog-btn dialog-btn-primary" onClick={onClose}>
+            <button
+              className="dialog-btn dialog-btn-primary"
+              onClick={onClose}
+              autoFocus
+            >
               Close
             </button>
           </div>

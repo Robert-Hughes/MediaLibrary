@@ -281,6 +281,34 @@ describe("DateTimeEditor", () => {
     });
   });
 
+  it("Enter in the temporal input saves, matching other scalar editors", async () => {
+    const onSave = vi.fn();
+    render(
+      <DateTimeEditor
+        propertyKey="ExifIFD:DateTimeOriginal"
+        initialMetadataValue={{
+          kind: "DateTime",
+          value: {
+            date: { year: 2024, month: 1, day: 15 },
+            time: {
+              hour: 14,
+              minute: 30,
+              second: 0,
+              subsecond: null,
+              offset: null,
+            },
+          },
+        }}
+        onSave={onSave}
+        onCancel={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("datetime-editor-input")).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(onSave).toHaveBeenCalledOnce();
+  });
+
   it("rejects invalid input", () => {
     const onSave = vi.fn();
     render(

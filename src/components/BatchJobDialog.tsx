@@ -62,7 +62,12 @@ export function BatchJobDialog({
       testId={`${testidPrefix}-progress-dialog`}
       aria-label={title}
     >
-      <div className="dialog-content" style={{ width }}>
+      <div
+        className="dialog-content"
+        style={{ width }}
+        tabIndex={phase === "estimating" || phase === "running" ? 0 : undefined}
+        autoFocus={phase === "estimating" || phase === "running"}
+      >
         <div className="dialog-header">
           <span className="dialog-title">{title}</span>
         </div>

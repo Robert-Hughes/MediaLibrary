@@ -74,6 +74,32 @@ describe("ModalDialog", () => {
     expect(close).toHaveBeenCalledTimes(closeCountBeforeUnmount);
   });
 
+  it("keeps Enter on the explicit autofocus action after showModal moves focus", async () => {
+    const cancel = vi.fn();
+    const confirm = vi.fn();
+    const show = vi
+      .spyOn(HTMLDialogElement.prototype, "showModal")
+      .mockImplementation(function (this: HTMLDialogElement) {
+        this.setAttribute("open", "");
+        this.querySelector<HTMLElement>("button")?.focus();
+      });
+
+    render(
+      <ModalDialog open onDismiss={vi.fn()} aria-label="Default action">
+        <button onClick={cancel}>Cancel</button>
+        <button autoFocus onClick={confirm}>
+          Confirm
+        </button>
+      </ModalDialog>,
+    );
+
+    expect(screen.getByRole("button", { name: "Confirm" })).toHaveFocus();
+    await userEvent.keyboard("{Enter}");
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
+    show.mockRestore();
+  });
+
   // ── cancel handling ─────────────────────────────────────────────────────
 
   it("routes cancel through controlled dismissal", () => {

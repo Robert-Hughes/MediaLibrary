@@ -184,6 +184,7 @@ export function SettingsDialog({ onClose, onExifToolCommandSaved }: Props) {
                   onBlur={() => void persistExifToolCommand(settings)}
                   placeholder="exiftool"
                   style={{ width: "100%", padding: 6, fontFamily: "monospace" }}
+                  autoFocus
                 />
                 <div
                   style={{
