@@ -11,6 +11,7 @@ Current
   - Any missing dates?
     - Wedding photos from 2026 have wrong date! Check others?
     - Anything whjere date doesn't match folder, or is out of sync with another date or nearby photos etc.
+    - Facebook messenger photos tend to be bad for this
   - Move out of Unknown folder?
   - Try out some searches across fuill collection!
   - Try out the GPS view across the full collection!
