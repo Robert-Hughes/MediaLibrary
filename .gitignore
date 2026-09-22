@@ -22,3 +22,4 @@ test_images/MediaLibraryDraftEdits.jsonl
 
 # Local manual-validation fixtures
 manual-fixtures/
+experiments/openai_image_analysis/NORMALISE_LUNA_RESULTS.jsonl
