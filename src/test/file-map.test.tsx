@@ -145,6 +145,26 @@ describe("FileMap", () => {
     );
   });
 
+  it("resizes thumbnail icons without recreating or refitting the map", () => {
+    const items = [
+      { relativePath: "one.jpg", lat: 51.5, lon: -0.12, thumbnail: "PHOTO" },
+    ];
+    const { rerender } = render(
+      <FileMap fitRequest={0} items={items} thumbnailSize={48} />,
+    );
+    expect(vi.mocked(L.divIcon).mock.calls[0][0]).toEqual(
+      expect.objectContaining({ iconSize: [48, 58], iconAnchor: [24, 58] }),
+    );
+
+    rerender(<FileMap fitRequest={0} items={items} thumbnailSize={80} />);
+
+    expect(vi.mocked(L.divIcon).mock.lastCall?.[0]).toEqual(
+      expect.objectContaining({ iconSize: [80, 90], iconAnchor: [40, 90] }),
+    );
+    expect(L.map).toHaveBeenCalledTimes(1);
+    expect(mapInstance.setView).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores Leaflet's transient cluster position when sizing the footprint", () => {
     render(<FileMap fitRequest={0} items={[]} />);
 

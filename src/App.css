@@ -1870,6 +1870,25 @@ body {
   gap: 10px;
 }
 
+.full-map-thumbnail-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.full-map-thumbnail-size input {
+  width: 120px;
+  accent-color: var(--accent);
+}
+
+.full-map-thumbnail-size output {
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+
 .full-map-close {
   width: 36px;
   height: 36px;
@@ -1949,7 +1968,7 @@ body {
 
 .file-map-marker__tip {
   position: absolute;
-  left: 18px;
+  left: calc(50% - 6px);
   bottom: 4px;
   width: 12px;
   height: 12px;

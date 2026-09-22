@@ -15,6 +15,7 @@ export interface FileMapItem {
 interface FileMapProps {
   items: FileMapItem[];
   fitRequest: number;
+  thumbnailSize?: number;
 }
 
 const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -40,6 +41,7 @@ function escapeHtmlAttribute(value: string): string {
 function markerIcon(
   thumbnail: FileMapItem["thumbnail"],
   identifier: string,
+  size: number,
 ): L.DivIcon {
   const content =
     thumbnail === "loading" || thumbnail === "failed"
@@ -50,8 +52,8 @@ function markerIcon(
   return L.divIcon({
     className: "file-map-marker",
     html: `<span class="file-map-marker__frame" title="${escapedIdentifier}" aria-label="${escapedIdentifier}">${content}</span><span class="file-map-marker__tip"></span>`,
-    iconSize: [48, 58],
-    iconAnchor: [24, 58],
+    iconSize: [size, size + 10],
+    iconAnchor: [size / 2, size + 10],
   });
 }
 
@@ -101,7 +103,11 @@ function clusterIcon(
   });
 }
 
-export function FileMap({ items, fitRequest }: FileMapProps) {
+export function FileMap({
+  items,
+  fitRequest,
+  thumbnailSize = 48,
+}: FileMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
@@ -292,7 +298,7 @@ export function FileMap({ items, fitRequest }: FileMapProps) {
     markersRef.current = items.map((item, index) => {
       const coordinate = L.latLng(item.lat, longitudes[index]);
       const marker = L.marker([coordinate.lat, coordinate.lng], {
-        icon: markerIcon(item.thumbnail, item.relativePath),
+        icon: markerIcon(item.thumbnail, item.relativePath, thumbnailSize),
         interactive: false,
         keyboard: false,
       });
@@ -300,7 +306,7 @@ export function FileMap({ items, fitRequest }: FileMapProps) {
       return marker;
     });
     clusterGroup.addLayers(markersRef.current);
-  }, [items, longitudes]);
+  }, [items, longitudes, thumbnailSize]);
 
   useEffect(() => {
     const map = mapRef.current;

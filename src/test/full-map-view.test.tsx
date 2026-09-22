@@ -1,14 +1,21 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { FullMapView } from "../components/FullMapView";
 import { FileMetadataOccurrencesStore, ThumbnailStore } from "../types";
 import { makeFiles, mockOccurrences } from "./factories";
 
 vi.mock("../components/FileMap", () => ({
-  FileMap: ({ items }: { items: Array<{ relativePath: string }> }) => (
+  FileMap: ({
+    items,
+    thumbnailSize,
+  }: {
+    items: Array<{ relativePath: string }>;
+    thumbnailSize: number;
+  }) => (
     <div
       data-testid="file-map"
       data-paths={items.map((item) => item.relativePath).join(",")}
+      data-thumbnail-size={thumbnailSize}
     />
   ),
 }));
@@ -55,6 +62,21 @@ describe("FullMapView", () => {
     expect(screen.getByTestId("file-map")).toHaveAttribute(
       "data-paths",
       "located.jpg",
+    );
+    const slider = screen.getByRole("slider", { name: "Thumbnail size" });
+    expect(slider).toHaveValue("48");
+    expect(slider).toHaveAttribute("min", "16");
+    expect(slider).toHaveAttribute("max", "512");
+    fireEvent.change(slider, { target: { value: "512" } });
+    expect(screen.getByTestId("file-map")).toHaveAttribute(
+      "data-thumbnail-size",
+      "512",
+    );
+    expect(screen.getByText("512 px")).toBeInTheDocument();
+    fireEvent.change(slider, { target: { value: "16" } });
+    expect(screen.getByTestId("file-map")).toHaveAttribute(
+      "data-thumbnail-size",
+      "16",
     );
   });
 });

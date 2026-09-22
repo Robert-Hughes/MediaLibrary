@@ -29,6 +29,7 @@ export function FullMapView({
 }: FullMapViewProps) {
   const [, refreshStores] = useReducer((value: number) => value + 1, 0);
   const [fitRequest, setFitRequest] = useState(0);
+  const [thumbnailSize, setThumbnailSize] = useState(48);
 
   useEffect(() => {
     const unsubscribers = relativePaths.flatMap((path) => [
@@ -88,6 +89,21 @@ export function FullMapView({
             </div>
           </div>
           <div className="full-map-actions">
+            <label className="full-map-thumbnail-size">
+              <span>Thumbnail size</span>
+              <input
+                type="range"
+                aria-label="Thumbnail size"
+                min="16"
+                max="512"
+                step="8"
+                value={thumbnailSize}
+                onChange={(event) =>
+                  setThumbnailSize(Number(event.target.value))
+                }
+              />
+              <output>{thumbnailSize} px</output>
+            </label>
             <button
               type="button"
               className="secondary-button"
@@ -111,7 +127,11 @@ export function FullMapView({
         </header>
 
         <div className="full-map-canvas">
-          <FileMap items={mapItems} fitRequest={fitRequest} />
+          <FileMap
+            items={mapItems}
+            fitRequest={fitRequest}
+            thumbnailSize={thumbnailSize}
+          />
           {mapItems.length === 0 && (
             <div className="full-map-empty" data-testid="full-map-empty">
               None of the selected files currently has a GPS location.
