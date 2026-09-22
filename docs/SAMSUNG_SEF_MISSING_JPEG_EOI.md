@@ -354,8 +354,8 @@ writeFileSync(o, b);
 
 ### Confirmed 2026-08-05 repair set
 
-All three are Samsung Galaxy Z Fold5 files (4000x3000) in
-`2025\`. Verified pre-repair originals are under:
+All three are Samsung Galaxy Z Fold5 files (4000x3000) under
+`2025/`. Verified pre-repair originals are under:
 
 ```text
 D:\Temp\ml-otherimage-repair-2026-08-05\originals

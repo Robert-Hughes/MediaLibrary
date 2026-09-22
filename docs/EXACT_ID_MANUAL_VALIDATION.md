@@ -41,8 +41,8 @@ Prepare a representative folder containing:
 - optional malformed and historical draft/apply files for persistence checks.
 
 A prepared fixture pack is available at
-`manual-fixtures`. Open its `working`
-subfolder in MediaLibrary and read the pack's `README.md` before starting. Run
+`manual-fixtures`. Open its `working` subfolder in MediaLibrary and read the
+pack's `README.md` before starting. Run
 `scripts\reset-working.ps1` whenever a clean baseline is required.
 Keep the application log open and use an independent ExifTool invocation for
 readback comparisons.
