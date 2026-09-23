@@ -1,11 +1,9 @@
 Current
 =======
 
-- Continue from 2026
-
 - Check all photos at the end
   - Any missing GPS?
-    - Home address number is off-by-two in reverse-geocoded/tagged metadata; review and correct the textual location metadata.
+    - Home address number is off-by-two in reverse-geocoded/tagged metadata; review and correct the textual location metadata, maybe fix for future too, perhaps well-known locations?
     - Clumped GPS
   - Any missing description/keywords?
   - Any missing dates?
