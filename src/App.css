@@ -1937,6 +1937,12 @@ body {
   pointer-events: none;
 }
 
+.file-map-marker:not(.file-map-icon--snapshot):not(
+    .file-map-icon--departing
+  ):hover {
+  z-index: 2147483647 !important;
+}
+
 .file-map-marker__frame {
   position: absolute;
   inset: 0 0 10px;

@@ -32,6 +32,7 @@ const clusterGroupInstance = {
 const markerInstances: Array<{
   addTo: ReturnType<typeof vi.fn>;
   remove: ReturnType<typeof vi.fn>;
+  setIcon: ReturnType<typeof vi.fn>;
 }> = [];
 
 vi.mock("leaflet", () => ({
@@ -44,6 +45,7 @@ vi.mock("leaflet", () => ({
       const marker = {
         addTo: vi.fn().mockReturnThis(),
         remove: vi.fn(),
+        setIcon: vi.fn().mockReturnThis(),
       };
       markerInstances.push(marker);
       return marker;
@@ -145,7 +147,7 @@ describe("FileMap", () => {
     );
   });
 
-  it("resizes thumbnail icons without recreating or refitting the map", () => {
+  it("resizes thumbnail icons without collapsing clusters or refitting the map", () => {
     const items = [
       { relativePath: "one.jpg", lat: 51.5, lon: -0.12, thumbnail: "PHOTO" },
     ];
@@ -161,6 +163,12 @@ describe("FileMap", () => {
     expect(vi.mocked(L.divIcon).mock.lastCall?.[0]).toEqual(
       expect.objectContaining({ iconSize: [80, 90], iconAnchor: [40, 90] }),
     );
+    expect(markerInstances[0].setIcon).toHaveBeenCalledWith(
+      expect.objectContaining({ iconSize: [80, 90], iconAnchor: [40, 90] }),
+    );
+    expect(clusterGroupInstance.clearLayers).toHaveBeenCalledTimes(1);
+    expect(clusterGroupInstance.addLayers).toHaveBeenCalledTimes(1);
+    expect(L.marker).toHaveBeenCalledTimes(1);
     expect(L.map).toHaveBeenCalledTimes(1);
     expect(mapInstance.setView).toHaveBeenCalledTimes(1);
   });

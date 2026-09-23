@@ -113,6 +113,8 @@ export function FileMap({
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const markerCoordinatesRef = useRef(new WeakMap<L.Marker, L.LatLng>());
   const markersRef = useRef<L.Marker[]>([]);
+  const previousMarkerItemsRef = useRef<FileMapItem[]>([]);
+  const previousThumbnailSizeRef = useRef(thumbnailSize);
   const userMovedRef = useRef(false);
   const previousCoordinateKeyRef = useRef("");
   const previousFitRequestRef = useRef(fitRequest);
@@ -287,12 +289,38 @@ export function FileMap({
       mapRef.current = null;
       clusterGroupRef.current = null;
       markersRef.current = [];
+      previousMarkerItemsRef.current = [];
     };
   }, []);
 
   useEffect(() => {
     const clusterGroup = clusterGroupRef.current;
     if (!clusterGroup) return;
+
+    const previousItems = previousMarkerItemsRef.current;
+    const sameLocations =
+      markersRef.current.length === items.length &&
+      items.every(
+        (item, index) =>
+          item.relativePath === previousItems[index]?.relativePath &&
+          item.lat === previousItems[index].lat &&
+          item.lon === previousItems[index].lon,
+      );
+    if (sameLocations) {
+      items.forEach((item, index) => {
+        if (
+          item.thumbnail !== previousItems[index].thumbnail ||
+          thumbnailSize !== previousThumbnailSizeRef.current
+        ) {
+          markersRef.current[index].setIcon(
+            markerIcon(item.thumbnail, item.relativePath, thumbnailSize),
+          );
+        }
+      });
+      previousMarkerItemsRef.current = items;
+      previousThumbnailSizeRef.current = thumbnailSize;
+      return;
+    }
 
     clusterGroup.clearLayers();
     markersRef.current = items.map((item, index) => {
@@ -306,6 +334,8 @@ export function FileMap({
       return marker;
     });
     clusterGroup.addLayers(markersRef.current);
+    previousMarkerItemsRef.current = items;
+    previousThumbnailSizeRef.current = thumbnailSize;
   }, [items, longitudes, thumbnailSize]);
 
   useEffect(() => {
