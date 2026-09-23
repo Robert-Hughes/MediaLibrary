@@ -29,7 +29,8 @@ pub const MIN_CONCURRENCY: u16 = 1;
 pub const MAX_CONCURRENCY: u16 = 16;
 pub const MIN_BATCH_SIZE: u16 = 1;
 pub const MAX_BATCH_SIZE: u16 = 100;
-
+pub const MIN_MAP_THUMBNAIL_SIZE: u16 = 16;
+pub const MAX_MAP_THUMBNAIL_SIZE: u16 = 512;
 pub fn default_model() -> String {
     RECOMMENDED_MODELS[0].to_string()
 }
@@ -87,6 +88,10 @@ pub fn default_metadata_apply_concurrency() -> u16 {
 
 pub fn default_thumbnail_concurrency() -> u16 {
     available_parallelism_capped(8)
+}
+
+pub fn default_map_thumbnail_size() -> u16 {
+    48
 }
 
 fn available_parallelism_capped(cap: u16) -> u16 {
@@ -151,6 +156,9 @@ pub struct Settings {
     /// Number of thumbnail generation workers.
     #[serde(default = "default_thumbnail_concurrency")]
     pub thumbnail_concurrency: u16,
+    /// Thumbnail size used by the full map view, in CSS pixels.
+    #[serde(default = "default_map_thumbnail_size")]
+    pub map_thumbnail_size: u16,
 }
 
 impl Default for Settings {
@@ -169,6 +177,7 @@ impl Default for Settings {
             metadata_apply_batch_size: default_metadata_apply_batch_size(),
             metadata_apply_concurrency: default_metadata_apply_concurrency(),
             thumbnail_concurrency: default_thumbnail_concurrency(),
+            map_thumbnail_size: default_map_thumbnail_size(),
         }
     }
 }
@@ -225,6 +234,9 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
         &mut parsed.metadata_apply_concurrency,
     );
     clamp_loaded_concurrency("thumbnail_concurrency", &mut parsed.thumbnail_concurrency);
+    parsed.map_thumbnail_size = parsed
+        .map_thumbnail_size
+        .clamp(MIN_MAP_THUMBNAIL_SIZE, MAX_MAP_THUMBNAIL_SIZE);
     Ok(parsed)
 }
 
@@ -304,6 +316,11 @@ fn validate_settings(settings: &Settings) -> Result<(), String> {
     if !(MIN_BATCH_SIZE..=MAX_BATCH_SIZE).contains(&settings.metadata_apply_batch_size) {
         return Err(format!(
             "metadata_apply_batch_size must be between {MIN_BATCH_SIZE} and {MAX_BATCH_SIZE}"
+        ));
+    }
+    if !(MIN_MAP_THUMBNAIL_SIZE..=MAX_MAP_THUMBNAIL_SIZE).contains(&settings.map_thumbnail_size) {
+        return Err(format!(
+            "map_thumbnail_size must be between {MIN_MAP_THUMBNAIL_SIZE} and {MAX_MAP_THUMBNAIL_SIZE}"
         ));
     }
     Ok(())
@@ -476,6 +493,7 @@ mod tests {
             loaded.thumbnail_concurrency,
             default_thumbnail_concurrency()
         );
+        assert_eq!(loaded.map_thumbnail_size, default_map_thumbnail_size());
     }
 
     #[test]
@@ -523,7 +541,8 @@ mod tests {
                 "metadata_scan_batch_size": 999,
                 "metadata_apply_batch_size": 0,
                 "metadata_apply_concurrency": 99,
-                "thumbnail_concurrency": 0
+                "thumbnail_concurrency": 0,
+                "map_thumbnail_size": 999
             }"#,
         )
         .unwrap();
@@ -535,6 +554,7 @@ mod tests {
         assert_eq!(loaded.metadata_apply_batch_size, MIN_BATCH_SIZE);
         assert_eq!(loaded.metadata_apply_concurrency, MAX_CONCURRENCY);
         assert_eq!(loaded.thumbnail_concurrency, MIN_CONCURRENCY);
+        assert_eq!(loaded.map_thumbnail_size, MAX_MAP_THUMBNAIL_SIZE);
     }
 
     #[test]

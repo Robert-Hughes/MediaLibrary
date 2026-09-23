@@ -61,4 +61,8 @@ metadata_apply_concurrency: number,
 /**
  * Number of thumbnail generation workers.
  */
-thumbnail_concurrency: number, };
+thumbnail_concurrency: number,
+/**
+ * Thumbnail size used by the full map view, in CSS pixels.
+ */
+map_thumbnail_size: number, };

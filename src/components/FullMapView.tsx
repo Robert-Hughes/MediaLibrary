@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type {
   FileMetadataOccurrencesStore,
   FileInfo,
@@ -30,6 +31,49 @@ export function FullMapView({
   const [, refreshStores] = useReducer((value: number) => value + 1, 0);
   const [fitRequest, setFitRequest] = useState(0);
   const [thumbnailSize, setThumbnailSize] = useState(48);
+  const thumbnailSaveTimerRef = useRef<number | null>(null);
+  const pendingThumbnailSizeRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void invoke<{ map_thumbnail_size: number }>("load_settings_cmd")
+      .then((settings) => {
+        if (!cancelled) setThumbnailSize(settings.map_thumbnail_size);
+      })
+      .catch((error) =>
+        console.error("Failed to load map thumbnail size", error),
+      );
+
+    return () => {
+      cancelled = true;
+      if (thumbnailSaveTimerRef.current !== null) {
+        window.clearTimeout(thumbnailSaveTimerRef.current);
+      }
+      const pendingSize = pendingThumbnailSizeRef.current;
+      if (pendingSize !== null) {
+        void invoke("save_map_thumbnail_size_cmd", {
+          thumbnailSize: pendingSize,
+        }).catch((error) =>
+          console.error("Failed to save map thumbnail size", error),
+        );
+      }
+    };
+  }, []);
+
+  const updateThumbnailSize = (size: number) => {
+    setThumbnailSize(size);
+    pendingThumbnailSizeRef.current = size;
+    if (thumbnailSaveTimerRef.current !== null) {
+      window.clearTimeout(thumbnailSaveTimerRef.current);
+    }
+    thumbnailSaveTimerRef.current = window.setTimeout(() => {
+      thumbnailSaveTimerRef.current = null;
+      pendingThumbnailSizeRef.current = null;
+      void invoke("save_map_thumbnail_size_cmd", { thumbnailSize: size }).catch(
+        (error) => console.error("Failed to save map thumbnail size", error),
+      );
+    }, 250);
+  };
 
   useEffect(() => {
     const unsubscribers = relativePaths.flatMap((path) => [
@@ -99,7 +143,7 @@ export function FullMapView({
                 step="8"
                 value={thumbnailSize}
                 onChange={(event) =>
-                  setThumbnailSize(Number(event.target.value))
+                  updateThumbnailSize(Number(event.target.value))
                 }
               />
               <output>{thumbnailSize} px</output>

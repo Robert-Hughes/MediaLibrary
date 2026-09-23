@@ -22,6 +22,15 @@ const OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const CLUSTER_RADIUS_PX = 56;
 const CLUSTER_BADGE_SIZE_PX = 36;
 const CROSSFADE_DURATION_MS = 160;
+const SPIDERFY_FOOT_SEPARATION_PX = 25;
+const SPIDERFY_THUMBNAIL_GAP_PX = 8;
+
+function spiderfyDistanceMultiplier(thumbnailSize: number): number {
+  return Math.max(
+    1,
+    (thumbnailSize + SPIDERFY_THUMBNAIL_GAP_PX) / SPIDERFY_FOOT_SEPARATION_PX,
+  );
+}
 const PHOTO_ICON_SELECTOR = ".file-map-cluster, .file-map-marker";
 
 function escapeHtmlAttribute(value: string): string {
@@ -112,6 +121,7 @@ export function FileMap({
   const mapRef = useRef<L.Map | null>(null);
   const clusterGroupRef = useRef<L.MarkerClusterGroup | null>(null);
   const markerCoordinatesRef = useRef(new WeakMap<L.Marker, L.LatLng>());
+  const spiderfiedClusterRef = useRef<L.MarkerCluster | null>(null);
   const markersRef = useRef<L.Marker[]>([]);
   const previousMarkerItemsRef = useRef<FileMapItem[]>([]);
   const previousThumbnailSizeRef = useRef(thumbnailSize);
@@ -213,11 +223,23 @@ export function FileMap({
         clusterIcon(map, cluster, markerCoordinatesRef.current),
       zoomToBoundsOnClick: true,
       spiderfyOnMaxZoom: true,
+      spiderfyDistanceMultiplier: spiderfyDistanceMultiplier(thumbnailSize),
       showCoverageOnHover: false,
       removeOutsideVisibleBounds: true,
       chunkedLoading: true,
       animate: false,
     }).addTo(map);
+
+    const onSpiderfied = (event: { cluster: L.MarkerCluster }) => {
+      spiderfiedClusterRef.current = event.cluster;
+    };
+    const onUnspiderfied = (event: { cluster: L.MarkerCluster }) => {
+      if (spiderfiedClusterRef.current === event.cluster) {
+        spiderfiedClusterRef.current = null;
+      }
+    };
+    clusterGroup.on("spiderfied", onSpiderfied);
+    clusterGroup.on("unspiderfied", onUnspiderfied);
 
     const finishCrossfade = () => {
       const snapshot = crossfadeSnapshot;
@@ -284,6 +306,9 @@ export function FileMap({
       map.off("zoomstart", markZoomStart);
       map.off("zoomend", captureCrossfade);
       map.off("zoomend", finishCrossfade);
+      clusterGroup.off("spiderfied", onSpiderfied);
+      clusterGroup.off("unspiderfied", onUnspiderfied);
+      spiderfiedClusterRef.current = null;
       clearCrossfadeArtifacts();
       map.remove();
       mapRef.current = null;
@@ -298,6 +323,9 @@ export function FileMap({
     if (!clusterGroup) return;
 
     const previousItems = previousMarkerItemsRef.current;
+    (
+      clusterGroup.options as L.MarkerClusterGroupOptions
+    ).spiderfyDistanceMultiplier = spiderfyDistanceMultiplier(thumbnailSize);
     const sameLocations =
       markersRef.current.length === items.length &&
       items.every(
@@ -307,6 +335,8 @@ export function FileMap({
           item.lon === previousItems[index].lon,
       );
     if (sameLocations) {
+      const thumbnailSizeChanged =
+        thumbnailSize !== previousThumbnailSizeRef.current;
       items.forEach((item, index) => {
         if (
           item.thumbnail !== previousItems[index].thumbnail ||
@@ -317,6 +347,11 @@ export function FileMap({
           );
         }
       });
+      if (thumbnailSizeChanged && spiderfiedClusterRef.current) {
+        const spiderfiedCluster = spiderfiedClusterRef.current;
+        spiderfiedCluster.unspiderfy();
+        spiderfiedCluster.spiderfy();
+      }
       previousMarkerItemsRef.current = items;
       previousThumbnailSizeRef.current = thumbnailSize;
       return;

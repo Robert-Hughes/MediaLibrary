@@ -2569,6 +2569,7 @@ pub fn run() {
             preload_schema,
             commands::settings::load_settings_cmd,
             commands::settings::save_settings_cmd,
+            commands::settings::save_map_thumbnail_size_cmd,
             commands::settings::list_recommended_models,
             commands::settings::estimate_per_image_cost_cmd,
             commands::settings::estimate_per_file_normalise_cost_cmd,

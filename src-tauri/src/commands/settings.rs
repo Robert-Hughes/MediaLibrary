@@ -23,6 +23,14 @@ pub fn save_settings_cmd(app: AppHandle, settings_data: settings::Settings) -> R
     Ok(())
 }
 
+#[tauri::command]
+pub fn save_map_thumbnail_size_cmd(app: AppHandle, thumbnail_size: u16) -> Result<(), String> {
+    let dir = app_data_dir(&app)?;
+    let mut loaded = settings::load_settings(&dir)?;
+    loaded.map_thumbnail_size = thumbnail_size;
+    settings::save_settings(&dir, &loaded)
+}
+
 /// Returns the static list of vision models we recommend for image
 /// description, so the Settings dropdown stays in sync with the
 /// backend's pricing/cost-estimation knowledge.

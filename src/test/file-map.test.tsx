@@ -27,6 +27,7 @@ const clusterGroupInstance = {
   clearLayers: vi.fn().mockReturnThis(),
   on: vi.fn().mockReturnThis(),
   off: vi.fn().mockReturnThis(),
+  options: { spiderfyDistanceMultiplier: 1 },
 };
 
 const markerInstances: Array<{
@@ -157,8 +158,21 @@ describe("FileMap", () => {
     expect(vi.mocked(L.divIcon).mock.calls[0][0]).toEqual(
       expect.objectContaining({ iconSize: [48, 58], iconAnchor: [24, 58] }),
     );
+    const spiderfiedCluster = {
+      unspiderfy: vi.fn(),
+      spiderfy: vi.fn(),
+    } as unknown as L.MarkerCluster;
+    const onSpiderfied = clusterGroupInstance.on.mock.calls.find(
+      ([event]) => event === "spiderfied",
+    )?.[1] as ((event: { cluster: L.MarkerCluster }) => void) | undefined;
+    onSpiderfied?.({ cluster: spiderfiedCluster });
 
     rerender(<FileMap fitRequest={0} items={items} thumbnailSize={80} />);
+    expect(clusterGroupInstance.options.spiderfyDistanceMultiplier).toBeCloseTo(
+      88 / 25,
+    );
+    expect(spiderfiedCluster.unspiderfy).toHaveBeenCalledTimes(1);
+    expect(spiderfiedCluster.spiderfy).toHaveBeenCalledTimes(1);
 
     expect(vi.mocked(L.divIcon).mock.lastCall?.[0]).toEqual(
       expect.objectContaining({ iconSize: [80, 90], iconAnchor: [40, 90] }),

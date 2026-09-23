@@ -4,6 +4,12 @@ import { FullMapView } from "../components/FullMapView";
 import { FileMetadataOccurrencesStore, ThumbnailStore } from "../types";
 import { makeFiles, mockOccurrences } from "./factories";
 
+const mockInvoke = vi.hoisted(() => vi.fn());
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: mockInvoke,
+}));
+
 vi.mock("../components/FileMap", () => ({
   FileMap: ({
     items,
@@ -22,6 +28,11 @@ vi.mock("../components/FileMap", () => ({
 
 describe("FullMapView", () => {
   it("maps effective GPS files and reports selected files without GPS", async () => {
+    mockInvoke.mockImplementation((cmd: string) =>
+      cmd === "load_settings_cmd"
+        ? Promise.resolve({ map_thumbnail_size: 80 })
+        : Promise.resolve(),
+    );
     const files = makeFiles(["located.jpg", "missing.jpg"]);
     const thumbnails = new ThumbnailStore();
     thumbnails.add("located.jpg");
@@ -64,7 +75,7 @@ describe("FullMapView", () => {
       "located.jpg",
     );
     const slider = screen.getByRole("slider", { name: "Thumbnail size" });
-    expect(slider).toHaveValue("48");
+    await waitFor(() => expect(slider).toHaveValue("80"));
     expect(slider).toHaveAttribute("min", "16");
     expect(slider).toHaveAttribute("max", "512");
     fireEvent.change(slider, { target: { value: "512" } });
@@ -77,6 +88,11 @@ describe("FullMapView", () => {
     expect(screen.getByTestId("file-map")).toHaveAttribute(
       "data-thumbnail-size",
       "16",
+    );
+    await waitFor(() =>
+      expect(mockInvoke).toHaveBeenCalledWith("save_map_thumbnail_size_cmd", {
+        thumbnailSize: 16,
+      }),
     );
   });
 });
