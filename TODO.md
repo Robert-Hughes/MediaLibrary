@@ -1,25 +1,22 @@
 Current
 =======
 
-- Check all photos at the end
-  - Any missing GPS?
-    - Home address number is off-by-two in reverse-geocoded/tagged metadata; review and correct the textual location metadata, maybe fix for future too, perhaps well-known locations?
-    - Clumped GPS
-  - Any missing description/keywords?
-  - Any missing dates?
-    - Wedding photos from 2026 have wrong date! Check others?
-    - Anything whjere date doesn't match folder, or is out of sync with another date or nearby photos etc.
-    - Facebook messenger photos tend to be bad for this
-  - Move out of Unknown folder?
-  - Try out some searches across fuill collection!
-  - Try out the GPS view across the full collection!
-  - Check all videos, as we probably didn't process all these properly yet
+- Any missing GPS?
+  - Home address number is off-by-two in reverse-geocoded/tagged metadata; review and correct the textual location metadata, maybe fix for future too, perhaps well-known locations?
+  - Clumped GPS
+- Any missing description/keywords?
+- Any missing dates?
+  - Wedding photos from 2026 have wrong date! Check others?
+  - Anything whjere date doesn't match folder, or is out of sync with another date or nearby photos etc.
+  - Facebook messenger photos tend to be bad for this
+- Move out of Unknown folder?
+- Try out some searches across fuill collection!
+- Try out the GPS view across the full collection!
+- Check all videos, as we probably didn't process all these properly yet
 
 Bugs/quirks/tweaks/improvements
 =================================
 
-- Loading metadata is slow for large folders, maybe need to cache this in a local db file. Need a way to tell if out of date, e.g. file timestamp changed or some kind of hash?
-- Loading thumbnails might be slow for large folders, maybe need to cache this in a local db file. Need a way to tell if out of date, e.g. file timestamp changed or some kind of hash?
 
 Features
 ========
@@ -37,7 +34,6 @@ Features
   - This is the main architectural difference, but not necessarily a required gap unless results are worse.
 - Feature to fill in missing GPS location based on description/tags (which could itself have been AI-generated from the visual content). Could also be used to fix batches of photos all clustered to the exact same GPS location (e.g. by a coarse previous manual edit). e.g. 2010 london photos, or where incorrect GPS was recorded
 - Feature for facial/person recognition?
-- Reload/refresh folder button? (Equivalent to close + open)
 - Audio/video support
   - A better gallery experience would handle <audio>/<video> error events and show a clear message such as:
   - Thumbnails:
