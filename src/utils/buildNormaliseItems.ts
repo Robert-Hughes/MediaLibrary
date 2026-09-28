@@ -268,7 +268,10 @@ export function buildNormaliseItemForFile(
       description: scalar(effective, ID.xmpDescription) ?? null,
       imageDescription: scalar(effective, ID.imageDescription) ?? null,
       captionAbstract: scalar(effective, ID.iptcCaption) ?? null,
-      iptcCharsetIsUtf8:
+      currentIptcCharsetIsUtf8:
+        scalar(effective, ID.iptcCodedCharacterSet) === "UTF8" ||
+        scalar(effective, ID.iptcCodedCharacterSet) === "\u001b%G",
+      outputIptcCharsetIsUtf8:
         scalar(effective, ID.iptcCodedCharacterSet) === "UTF8" ||
         scalar(effective, ID.iptcCodedCharacterSet) === "\u001b%G",
       aiDescription: scalar(effective, ID.mlibAiDescription) ?? null,

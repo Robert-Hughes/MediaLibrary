@@ -25,11 +25,17 @@ imageDescription: string | null,
  */
 captionAbstract: string | null, 
 /**
- * Whether the file declares `IPTC:CodedCharacterSet` as UTF-8
- * (`ESC % G`). Controls whether `caption_abstract` is written as
- * UTF-8 or ASCII-folded.
+ * Whether the current file declares `IPTC:CodedCharacterSet` as UTF-8
+ * (`ESC % G`). Used only to interpret the existing `caption_abstract`
+ * when deciding whether current Description targets are equivalent.
  */
-iptcCharsetIsUtf8: boolean, 
+currentIptcCharsetIsUtf8: boolean,
+/**
+ * Whether a newly projected `IPTC:Caption-Abstract` should be UTF-8.
+ * Normally matches the current charset, but may differ when Group I
+ * prospectively upgrades IPTC to UTF-8 in the same normalise operation.
+ */
+outputIptcCharsetIsUtf8: boolean,
 /**
  * `XMP-mlib:AIDescription` — feeds the AI merge context.
  */

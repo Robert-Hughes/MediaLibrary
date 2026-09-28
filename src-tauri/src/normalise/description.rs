@@ -95,7 +95,8 @@ pub(super) fn derive_description_canonical_without_ai(input: &DescriptionInput) 
                 || image_desc == ascii_fold(candidate))
             && (caption.is_empty()
                 || caption == candidate.as_str()
-                || caption == project_caption_abstract(candidate, input.iptc_charset_is_utf8));
+                || caption
+                    == project_caption_abstract(candidate, input.current_iptc_charset_is_utf8));
         if compatible {
             return Some(candidate.clone());
         }
@@ -319,7 +320,8 @@ pub async fn normalise_description(
     }
 
     let projection_image = ascii_fold(&canonical);
-    let projection_caption = project_caption_abstract(&canonical, input.iptc_charset_is_utf8);
+    let projection_caption =
+        project_caption_abstract(&canonical, input.output_iptc_charset_is_utf8);
 
     let mut edits = SchemaMetadataEditMap::new();
     if input.description.as_deref() != Some(canonical.as_str()) {
@@ -446,7 +448,8 @@ mod tests {
         let trimmed = long.trim_end().to_string();
         let input = DescriptionInput {
             description: Some(trimmed.clone()),
-            iptc_charset_is_utf8: true,
+            current_iptc_charset_is_utf8: true,
+            output_iptc_charset_is_utf8: true,
             ..Default::default()
         };
         let out = normalise_description(&input, None).await;
@@ -594,7 +597,8 @@ mod tests {
             description: Some(canonical.into()),
             image_description: Some(ascii_fold(canonical)),
             caption_abstract: Some(canonical.into()),
-            iptc_charset_is_utf8: true,
+            current_iptc_charset_is_utf8: true,
+            output_iptc_charset_is_utf8: true,
             ..Default::default()
         };
 
@@ -614,7 +618,7 @@ mod tests {
             description: Some(canonical.into()),
             image_description: Some(projected.clone()),
             caption_abstract: Some(projected),
-            iptc_charset_is_utf8: false,
+            current_iptc_charset_is_utf8: false,
             ..Default::default()
         };
 
@@ -633,7 +637,8 @@ mod tests {
             description: Some(canonical.into()),
             image_description: Some(canonical.into()),
             caption_abstract: Some(canonical.into()),
-            iptc_charset_is_utf8: true,
+            current_iptc_charset_is_utf8: true,
+            output_iptc_charset_is_utf8: true,
             ..Default::default()
         };
 
@@ -654,7 +659,8 @@ mod tests {
             description: Some(canonical.clone()),
             image_description: Some(ascii_fold(&canonical)),
             caption_abstract: Some(project_caption_abstract(&canonical, true)),
-            iptc_charset_is_utf8: true,
+            current_iptc_charset_is_utf8: true,
+            output_iptc_charset_is_utf8: true,
             ..Default::default()
         };
 

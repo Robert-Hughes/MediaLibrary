@@ -142,6 +142,9 @@ adapt.
   smart-quotes, em-dash → `--`). EXIF spec is ASCII; do not write non-ASCII.
 - `Caption-Abstract` = canonical truncated to 2000 chars at a word boundary.
   Encoding follows `IPTC:CodedCharacterSet` if present; otherwise ASCII-fold.
+  Existing `Caption-Abstract` values are interpreted using the current marker. A
+  prospective Group I UTF-8 upgrade affects only newly projected caption output;
+  it must not reinterpret an existing legacy/ASCII caption during conflict detection.
 
 **Conflict policy.**
 

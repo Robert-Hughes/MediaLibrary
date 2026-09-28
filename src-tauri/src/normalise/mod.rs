@@ -668,12 +668,12 @@ pub async fn process_item(
             // Augment the caller-supplied bundle with pass-1
             // context. Caller-provided values win when both are set.
             let mut augmented = input.clone();
-            // If the user opted into IPTC UTF-8, Description should project
-            // its prospective Caption-Abstract as UTF-8 even when IPTC does
-            // not exist yet. The marker group runs after semantic groups and
-            // will become a no-op if none of them actually emits IPTC.
+            // Keep current charset interpretation separate from the charset
+            // used for newly projected output. If the user opted into IPTC
+            // UTF-8, Description should write its prospective Caption-Abstract
+            // as UTF-8 without reinterpreting an existing legacy caption.
             if write_enabled(NormaliseGroup::IptcUtf8) {
-                augmented.iptc_charset_is_utf8 = true;
+                augmented.output_iptc_charset_is_utf8 = true;
             }
             if augmented.keywords_context.is_empty() {
                 augmented.keywords_context = keywords_leaves.clone();
@@ -947,7 +947,7 @@ mod tests_dispatcher {
             group_inputs: GroupInputs {
                 description: Some(DescriptionInput {
                     description: Some(canonical.into()),
-                    iptc_charset_is_utf8: false,
+                    current_iptc_charset_is_utf8: false,
                     ..Default::default()
                 }),
                 iptc_utf8: Some(IptcUtf8Input::default()),
@@ -967,6 +967,60 @@ mod tests_dispatcher {
             edits[&crate::known_ids::iptc_caption()].value,
             Some(MetadataValue::Text(canonical.into()))
         );
+        assert_eq!(
+            edits[&crate::known_ids::iptc_coded_character_set()].value,
+            Some(MetadataValue::Text("UTF8".into()))
+        );
+    }
+
+    #[tokio::test]
+    async fn prospective_utf8_does_not_turn_legacy_description_projection_into_conflict() {
+        let canonical = "A sign reading “CYCLE ROUTE” points left.";
+        let projected = "A sign reading \"CYCLE ROUTE\" points left.".to_string();
+        let item = NormaliseRequestItem {
+            rel_path: "x.jpg".into(),
+            group_inputs: GroupInputs {
+                description: Some(DescriptionInput {
+                    description: Some(canonical.into()),
+                    image_description: Some(projected.clone()),
+                    caption_abstract: Some(projected),
+                    current_iptc_charset_is_utf8: false,
+                    ..Default::default()
+                }),
+                iptc_utf8: Some(IptcUtf8Input {
+                    has_iptc: true,
+                    coded_character_set: None,
+                }),
+                ..Default::default()
+            },
+        };
+
+        let (edits, stats, err, calls) = process_item(
+            &item,
+            &[NormaliseGroup::Description, NormaliseGroup::IptcUtf8],
+            None,
+            None,
+        )
+        .await;
+
+        assert!(
+            err.is_none(),
+            "equivalent legacy projections must not require AI"
+        );
+        assert!(
+            calls.is_empty(),
+            "equivalent legacy projections must not call AI"
+        );
+        assert_eq!(
+            stats.per_group[&NormaliseGroup::Description].n_normalised_deterministic,
+            1
+        );
+        assert_eq!(
+            edits[&crate::known_ids::iptc_caption()].value,
+            Some(MetadataValue::Text(canonical.into()))
+        );
+        assert!(!edits.contains_key(&crate::known_ids::xmp_description()));
+        assert!(!edits.contains_key(&crate::known_ids::image_description()));
         assert_eq!(
             edits[&crate::known_ids::iptc_coded_character_set()].value,
             Some(MetadataValue::Text("UTF8".into()))

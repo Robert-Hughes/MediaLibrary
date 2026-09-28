@@ -372,11 +372,16 @@ pub struct DescriptionInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption_abstract: Option<String>,
 
-    /// Whether the file declares `IPTC:CodedCharacterSet` as UTF-8
-    /// (`ESC % G`). Controls whether `caption_abstract` is written as
-    /// UTF-8 or ASCII-folded.
+    /// Whether the current file declares `IPTC:CodedCharacterSet` as UTF-8
+    /// (`ESC % G`). Used only to interpret the existing `caption_abstract`
+    /// when deciding whether current Description targets are equivalent.
     #[serde(default)]
-    pub iptc_charset_is_utf8: bool,
+    pub current_iptc_charset_is_utf8: bool,
+    /// Whether a newly projected `IPTC:Caption-Abstract` should be UTF-8.
+    /// Normally matches the current charset, but may differ when Group I
+    /// prospectively upgrades IPTC to UTF-8 in the same normalise operation.
+    #[serde(default)]
+    pub output_iptc_charset_is_utf8: bool,
 
     // ── Read-only AI inputs (XMP-mlib namespace) ──
     /// `XMP-mlib:AIDescription` — feeds the AI merge context.
