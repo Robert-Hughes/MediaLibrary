@@ -700,8 +700,8 @@ fn parse_date(s: &str) -> Option<DateValue> {
     let (year, month, day) = if s.len() == 8 && s.chars().all(|c| c.is_ascii_digit()) {
         (&s[0..4], &s[4..6], &s[6..8])
     } else if s.len() >= 10
-        && (&s[4..5] == ":" || &s[4..5] == "-")
-        && (&s[7..8] == ":" || &s[7..8] == "-")
+        && (&s[4..5] == ":" || &s[4..5] == "-" || &s[4..5] == "/")
+        && (&s[7..8] == ":" || &s[7..8] == "-" || &s[7..8] == "/")
     {
         (&s[0..4], &s[5..7], &s[8..10])
     } else {
@@ -1073,6 +1073,32 @@ mod tests {
                         hours: 1,
                         minutes: 0
                     })
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn datetime_parses_exiftool_numeric_slash_format() {
+        assert_eq!(
+            parse_metadata_value(
+                "ExifIFD:DateTimeOriginal",
+                Some(&TagKind::DateTime),
+                &json!("2011/07/25 19:22:48"),
+                None
+            ),
+            MetadataValue::DateTime(DateTimeValue {
+                date: DateValue {
+                    year: 2011,
+                    month: 7,
+                    day: 25
+                },
+                time: TimeValue {
+                    hour: 19,
+                    minute: 22,
+                    second: 48,
+                    subsecond: None,
+                    offset: None
                 }
             })
         );

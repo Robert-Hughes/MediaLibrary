@@ -328,8 +328,8 @@ without offset (do not invent UTC).
 
 **Conflict policy per sub-group.**
 
-1. All target sources empty (H1 only) → try the filename fallback, then the
-   OS timestamp fallback. See below.
+1. All target sources empty (H1 only) → try the filename fallback. If it does
+   not match, emit no H1 drafts.
 2. Exactly one target source non-empty → propagate to others (after
    normalisation to ISO form).
 3. Multiple target sources non-empty AND all equal after ISO normalisation →
@@ -358,16 +358,15 @@ Matches at any position in the file stem. Sanity bounds: 1900 ≤ year ≤
 
 **Filename fallback never overwrites an existing DTO.** It only fills.
 
-**OS timestamp fallback (H1 only).** If every H1 target source is empty and
-the filename fallback does not match, choose the older available value from
-the scanner's read-only OS Created and OS Modified Unix timestamps. Convert
-that instant to local wall-clock time using the offset in effect at the
-timestamp (including daylight-saving rules), then project it through the H1
-targets. This fallback never overrides embedded metadata or a filename match.
-If only one OS timestamp is available, use it; if neither is available, emit
-no H1 drafts.
+**Filesystem timestamps are not capture-time evidence.** H1 deliberately does
+not fall back to OS Created or OS Modified timestamps. Those values are easily
+changed by copies, downloads, restores, sync tools, metadata rewrites, and
+filesystem migration. When embedded H1 metadata is absent and the filename
+does not encode a supported timestamp, the normaliser leaves capture time
+unknown rather than manufacturing a precise-looking value from filesystem
+state.
 
-H2 has no filename or OS timestamp fallback. H3 is skipped entirely
+H2 has no filename fallback. H3 is skipped entirely
 (auto-managed).
 
 ### Group I — IPTC UTF-8

@@ -11,7 +11,7 @@ use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
 use crate::tag_schema::SchemaDefinitionId;
-use chrono::{Datelike, Offset, Timelike};
+use chrono::Offset;
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,8 +235,8 @@ fn parse_date_str(s: &str) -> Option<DateValue> {
     let (year, month, day) = if s.len() == 8 && s.chars().all(|c| c.is_ascii_digit()) {
         (&s[0..4], &s[4..6], &s[6..8])
     } else if s.len() >= 10
-        && (&s[4..5] == ":" || &s[4..5] == "-")
-        && (&s[7..8] == ":" || &s[7..8] == "-")
+        && (&s[4..5] == ":" || &s[4..5] == "-" || &s[4..5] == "/")
+        && (&s[7..8] == ":" || &s[7..8] == "-" || &s[7..8] == "/")
     {
         (&s[0..4], &s[5..7], &s[8..10])
     } else {
@@ -627,44 +627,6 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ComparableTimestamp, bool)> {
     None
 }
 
-fn os_timestamp_for_h1(timestamp: i64) -> Option<ComparableTimestamp> {
-    let local = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)?
-        .with_timezone(&chrono::Local);
-    let offset_seconds = local.offset().fix().local_minus_utc();
-    let sign = if offset_seconds < 0 {
-        OffsetSign::Minus
-    } else {
-        OffsetSign::Plus
-    };
-    let offset_abs = offset_seconds.unsigned_abs();
-    Some(ComparableTimestamp {
-        datetime: dt_value(
-            date_value(local.year(), local.month() as u8, local.day() as u8),
-            time_value(
-                local.hour() as u8,
-                local.minute() as u8,
-                local.second() as u8,
-                None,
-                Some(UtcOffsetValue {
-                    sign,
-                    hours: (offset_abs / 3600) as u8,
-                    minutes: ((offset_abs % 3600) / 60) as u8,
-                }),
-            ),
-        ),
-        offset_from_related_tag: None,
-    })
-}
-
-fn oldest_os_timestamp_for_h1(input: &DatesInput) -> Option<ComparableTimestamp> {
-    [input.file_date_created, input.file_date_modified]
-        .into_iter()
-        .flatten()
-        .filter_map(|timestamp| os_timestamp_for_h1(timestamp).map(|parsed| (timestamp, parsed)))
-        .min_by_key(|(timestamp, _)| *timestamp)
-        .map(|(_, parsed)| parsed)
-}
-
 fn normalise_dates_inner(
     input: &DatesInput,
     iptc_fallback_offset: Option<UtcOffsetValue>,
@@ -715,9 +677,8 @@ fn normalise_dates_inner(
                 }
             }
         }
-        if canonical_override.is_none() {
-            canonical_override = oldest_os_timestamp_for_h1(input);
-        }
+        // No filesystem timestamp fallback: Created/Modified times are mutable
+        // transport/storage metadata and are not reliable evidence of capture time.
     }
 
     let h1 = process_date_subgroup(
@@ -1235,6 +1196,21 @@ mod tests {
     }
 
     #[test]
+    fn slash_formatted_exif_datetime_is_parseable() {
+        let input = DatesInput {
+            date_time_original: Some(text("2011/07/25 19:22:48")),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, None);
+        assert_eq!(out.n_unparseable_inputs, 0);
+        let g = out.output.unwrap();
+        assert_eq!(
+            display(edit_value(&g, "XMP-photoshop:DateCreated")),
+            "2011-07-25T19:22:48"
+        );
+    }
+
+    #[test]
     fn text_fallback_input_is_counted_when_unparseable() {
         let input = DatesInput {
             date_time_original: Some(text("garbage")),
@@ -1303,7 +1279,7 @@ mod tests {
     }
 
     #[test]
-    fn filename_fallback_wins_over_os_timestamps() {
+    fn filename_fallback_remains_available_when_os_timestamps_are_present() {
         let input = DatesInput {
             file_stem: Some("IMG_20240615_143045".into()),
             file_date_created: Some(1_700_000_000),
@@ -1320,20 +1296,16 @@ mod tests {
     }
 
     #[test]
-    fn oldest_os_timestamp_is_final_h1_fallback() {
-        let older = 1_600_000_000;
+    fn os_timestamps_are_not_used_as_h1_fallback() {
         let input = DatesInput {
             file_stem: Some("received_without_date".into()),
             file_date_created: Some(1_700_000_000),
-            file_date_modified: Some(older),
+            file_date_modified: Some(1_600_000_000),
             ..Default::default()
         };
-        let expected =
-            MetadataValue::DateTime(os_timestamp_for_h1(older).unwrap().without_inline_offset());
 
         let out = normalise_dates_with_fallback_offset(&input, None);
-        let g = out.output.unwrap();
-        assert_eq!(edit_value(&g, "ExifIFD:DateTimeOriginal"), &expected);
+        assert!(out.output.is_none());
         assert_eq!(out.n_dto_from_filename, 0);
         assert_eq!(out.n_dto_from_filename_date_only, 0);
     }

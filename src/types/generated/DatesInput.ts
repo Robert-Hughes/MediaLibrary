@@ -73,10 +73,13 @@ iptcDigitalCreationTime: MetadataValue | null,
  */
 fileStem: string | null, 
 /**
- * OS file-modified time as Unix seconds. Read-only final H1 fallback.
+ * OS file-modified time as Unix seconds. Retained for wire compatibility;
+ * the Dates normaliser deliberately does not use filesystem timestamps as
+ * capture-time evidence.
  */
 fileDateModified: number | null, 
 /**
- * OS file-created time as Unix seconds. Read-only final H1 fallback.
+ * OS file-created time as Unix seconds. Retained for wire compatibility;
+ * deliberately ignored for capture-time normalisation.
  */
 fileDateCreated: number | null, };
