@@ -10,6 +10,8 @@ Operational guidance for coding agents and contributors working on MediaLibrary.
 - Do not hand-edit generated TypeScript under `src/types/generated/`.
 - Do not hand-edit generated Tauri icon outputs under `src-tauri/icons/`.
 
+- When metadata parsing semantics change (for example `metadata_value.rs`, scanner parsing, schema-to-value interpretation, or any change that can alter cached `MetadataOccurrences` without changing the media file), bump `METADATA_CACHE_GENERATION` in `src-tauri/src/media_cache_repository.rs`. This invalidates only cached parsed metadata while preserving valid thumbnails.
+
 ## Required Checks
 
 Frontend quick check:

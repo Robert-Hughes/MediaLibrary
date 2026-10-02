@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 const CACHE_DIRECTORY_NAME: &str = "MediaLibrary";
 const DATABASE_FILE_NAME: &str = "MediaLibraryMediaCache.sqlite3";
 const DATABASE_SCHEMA_VERSION: i64 = 3;
-const METADATA_CACHE_GENERATION: i64 = 1;
+const METADATA_CACHE_GENERATION: i64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MediaCacheFingerprint {
