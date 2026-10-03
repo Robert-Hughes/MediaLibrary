@@ -15,6 +15,7 @@ import {
 } from "./useMediaLibrary";
 import { ThumbnailStore, FileMetadataOccurrencesStore } from "./types";
 import type { AppState, TagInfo } from "./types";
+import type { FolderLifecycle } from "./folderLifecycle";
 import { installTagSchemaRegistry } from "./tagSchemaRegistry";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { MenuBar } from "./components/MenuBar";
@@ -167,6 +168,7 @@ function SchemaDiagnosticBlock({
 // Separated component so useMemo can depend on loaded state without conditional hooks.
 type LoadedState = Extract<AppState, { kind: "loaded" }> & {
   recentFolders: string[];
+  folderLifecycle: FolderLifecycle;
 };
 
 function LoadedView({
@@ -454,6 +456,7 @@ function LoadedView({
       <MenuBar
         onOpenFolder={actions.openFolder}
         onRefreshFolder={actions.refreshFolder}
+        folderLifecycle={state.folderLifecycle}
         onCloseFolder={actions.closeFolder}
         onSelectColumns={() => setShowColumnDialog(true)}
         onOpenSettings={onOpenSettings}
@@ -677,7 +680,7 @@ function LoadedView({
       <StatusBar
         fileCount={displayFiles.length}
         fileCountTotal={listSearchActive ? sortedFiles.length : undefined}
-        scanning={state.scanning}
+        folderLifecycle={state.folderLifecycle}
         metadataProgress={state.metadataProgress}
         selectedCount={selectionCount}
         onToggleFileSelection={() =>
@@ -896,47 +899,59 @@ export default function App() {
 
       {checkingCli && <div style={{ flex: 1 }} />}
 
-      {!checkingCli && showWelcome && (
-        <WelcomeScreen
-          onOpenFolder={actions.openFolder}
-          recentFolders={state.recentFolders}
-          onOpenRecent={actions.openRecent}
-        />
-      )}
-
-      {!checkingCli && state.kind === "loading" && (
-        <>
-          <MenuBar
+      {!checkingCli &&
+        showWelcome &&
+        state.folderLifecycle.phase === "idle" && (
+          <WelcomeScreen
             onOpenFolder={actions.openFolder}
-            onRefreshFolder={actions.refreshFolder}
-            onCloseFolder={actions.closeFolder}
-            onSelectColumns={() => setShowColumnDialog(true)}
-            onOpenSettings={() => setShowSettingsDialog(true)}
+            recentFolders={state.recentFolders}
+            onOpenRecent={actions.openRecent}
           />
-          <FileList
-            targetDraftEdits={{}}
-            files={[]}
-            thumbnails={new ThumbnailStore()}
-            fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
-            visibleColumns={state.visibleColumns}
-            columnWidths={state.columnWidths}
-            sortConfig={state.sortConfig}
-            onSortChange={() => {}}
-            selectedPath={null}
-            onSelect={() => {}}
-            onShowInExplorer={() => Promise.resolve()}
-            onVisibilityChange={() => {}}
-            onFileOpen={() => {}}
-            onSelectColumns={() => setShowColumnDialog(true)}
-          />
-          <StatusBar
-            fileCount={0}
-            scanning={true}
-            metadataProgress={null}
-            selectedCount={0}
-          />
-        </>
-      )}
+        )}
+
+      {!checkingCli &&
+        (state.kind === "loading" ||
+          (state.kind === "idle" &&
+            state.folderLifecycle.phase !== "idle")) && (
+          <>
+            <MenuBar
+              onOpenFolder={actions.openFolder}
+              onRefreshFolder={actions.refreshFolder}
+              folderLifecycle={state.folderLifecycle}
+              onCloseFolder={actions.closeFolder}
+              onSelectColumns={() => setShowColumnDialog(true)}
+              onOpenSettings={() => setShowSettingsDialog(true)}
+            />
+            <FileList
+              targetDraftEdits={{}}
+              files={[]}
+              thumbnails={new ThumbnailStore()}
+              fileMetadataOccurrences={new FileMetadataOccurrencesStore()}
+              visibleColumns={
+                state.kind === "loading" ? state.visibleColumns : []
+              }
+              columnWidths={state.kind === "loading" ? state.columnWidths : {}}
+              sortConfig={
+                state.kind === "loading"
+                  ? state.sortConfig
+                  : { primary: null, secondary: null }
+              }
+              onSortChange={() => {}}
+              selectedPath={null}
+              onSelect={() => {}}
+              onShowInExplorer={() => Promise.resolve()}
+              onVisibilityChange={() => {}}
+              onFileOpen={() => {}}
+              onSelectColumns={() => setShowColumnDialog(true)}
+            />
+            <StatusBar
+              fileCount={0}
+              folderLifecycle={state.folderLifecycle}
+              metadataProgress={null}
+              selectedCount={0}
+            />
+          </>
+        )}
 
       {!checkingCli && state.kind === "loaded" && (
         <ErrorBoundary name="LoadedView">

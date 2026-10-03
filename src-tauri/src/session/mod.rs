@@ -20,6 +20,7 @@ pub struct MediaLibrarySessionState {
     next_thumbnail_version: AtomicU64,
     next_apply_operation_id: AtomicU64,
     snapshot: Mutex<MediaLibrarySessionSnapshot>,
+    lifecycle_command: Mutex<()>,
     thumbnail_cache: Mutex<HashMap<String, String>>,
     superseded_scan_metadata: Mutex<BTreeSet<String>>,
     search: MediaLibrarySearchService,
@@ -55,6 +56,7 @@ impl MediaLibrarySessionState {
                 verification_outcomes: HashMap::new(),
                 batch_operations: HashMap::new(),
             }),
+            lifecycle_command: Mutex::new(()),
             thumbnail_cache: Mutex::new(HashMap::new()),
             superseded_scan_metadata: Mutex::new(BTreeSet::new()),
             search: MediaLibrarySearchService::new(),
@@ -110,6 +112,12 @@ impl MediaLibrarySessionState {
 
     pub fn snapshot(&self) -> MediaLibrarySessionSnapshot {
         self.snapshot.lock().unwrap().clone()
+    }
+
+    /// Keep multi-step open/close commands serial when they run on workers.
+    /// The separate lock leaves session readers and scan updates available.
+    pub fn lock_lifecycle_command(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.lifecycle_command.lock().unwrap()
     }
 
     pub fn search(&self) -> &MediaLibrarySearchService {
@@ -944,28 +952,68 @@ impl MediaLibrarySessionState {
     }
 
     pub fn begin_open(&self, folder: String) -> MediaLibrarySessionSnapshot {
+        let started = Instant::now();
         let session_id = self.next_session_id.fetch_add(1, Ordering::Relaxed);
+        let lock_started = Instant::now();
         let mut snapshot = self.snapshot.lock().unwrap();
-        snapshot.session_id = Some(session_id);
-        snapshot.revision += 1;
-        snapshot.lifecycle = MediaLibrarySessionLifecycle::Opening;
-        snapshot.folder = Some(folder);
-        snapshot.files.clear();
-        snapshot.discovery_running = false;
-        snapshot.issues.clear();
-        snapshot.metadata.clear();
-        snapshot.thumbnails.clear();
-        snapshot.drafts.clear();
-        snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::Loading;
-        snapshot.apply_operation = None;
-        snapshot.verification_outcomes.clear();
-        snapshot.batch_operations.clear();
-        self.superseded_scan_metadata.lock().unwrap().clear();
-        self.thumbnail_cache.lock().unwrap().clear();
+        let snapshot_lock_wait_ms = lock_started.elapsed().as_millis();
+        let swap_started = Instant::now();
+        let previous_files = snapshot.files.len();
+        let previous_metadata = snapshot.metadata.len();
+        let previous_thumbnails = snapshot.thumbnails.len();
+        // Retire allocations atomically, but free their potentially large
+        // object graphs only after readers can acquire the session lock again.
+        let replacement = MediaLibrarySessionSnapshot {
+            session_id: Some(session_id),
+            revision: snapshot.revision + 1,
+            lifecycle: MediaLibrarySessionLifecycle::Opening,
+            folder: Some(folder),
+            files: Vec::new(),
+            discovery_running: false,
+            issues: Vec::new(),
+            metadata: Vec::new(),
+            thumbnails: Vec::new(),
+            drafts: MetadataTargetDraftsByFile::new(),
+            draft_persistence: MediaLibrarySessionDraftPersistenceState::Loading,
+            apply_operation: None,
+            verification_outcomes: HashMap::new(),
+            batch_operations: HashMap::new(),
+        };
+        let mut retired = std::mem::replace(&mut *snapshot, replacement);
+        let retired_superseded =
+            std::mem::take(&mut *self.superseded_scan_metadata.lock().unwrap());
+        let retired_cache = std::mem::take(&mut *self.thumbnail_cache.lock().unwrap());
         let result = snapshot.clone();
         self.notify(SessionEvent::Snapshot(Box::new(result.clone())));
         drop(snapshot);
+        let snapshot_swap_ms = swap_started.elapsed().as_millis();
+        let search_started = Instant::now();
         self.search.reset(Some(session_id), result.revision);
+        let search_reset_ms = search_started.elapsed().as_millis();
+        let metadata_started = Instant::now();
+        drop(std::mem::take(&mut retired.metadata));
+        let metadata_drop_ms = metadata_started.elapsed().as_millis();
+        let cache_started = Instant::now();
+        drop(retired_cache);
+        let thumbnail_cache_drop_ms = cache_started.elapsed().as_millis();
+        let other_started = Instant::now();
+        drop(retired);
+        drop(retired_superseded);
+        let other_state_drop_ms = other_started.elapsed().as_millis();
+        log::info!(
+            "[scan_perf] phase=session_begin_open session_id={} previous_files={} previous_metadata={} previous_thumbnails={} snapshot_lock_wait_ms={} snapshot_swap_ms={} search_reset_ms={} metadata_drop_ms={} thumbnail_cache_drop_ms={} other_state_drop_ms={} duration_ms={}",
+            session_id,
+            previous_files,
+            previous_metadata,
+            previous_thumbnails,
+            snapshot_lock_wait_ms,
+            snapshot_swap_ms,
+            search_reset_ms,
+            metadata_drop_ms,
+            thumbnail_cache_drop_ms,
+            other_state_drop_ms,
+            started.elapsed().as_millis()
+        );
         result
     }
 
@@ -2150,6 +2198,70 @@ mod tests {
         assert_eq!(after.session_id, Some(second_id));
         assert_eq!(after.revision, before.revision);
         assert_eq!(after.metadata, before.metadata);
+    }
+
+    #[test]
+    fn reopening_a_populated_folder_retires_metadata_thumbnails_and_search() {
+        let state = MediaLibrarySessionState::new();
+        let folder = "C:/photos";
+        let first_id = state.begin_open(folder.into()).session_id.unwrap();
+        state.mark_loaded(first_id, folder).unwrap();
+        state
+            .add_files(first_id, vec![test_file("old.jpg")])
+            .unwrap();
+        state
+            .commit_metadata_results(
+                first_id,
+                vec![FileMetadata {
+                    relative_path: "old.jpg".into(),
+                    occurrences: MetadataOccurrences::default(),
+                }],
+            )
+            .unwrap();
+        let thumbnails = state
+            .commit_thumbnail_results(first_id, vec![("old.jpg".into(), Some("old-image".into()))])
+            .unwrap();
+        let MediaLibrarySessionThumbnailState::Ready { cache_key } = &thumbnails.entries[0].state
+        else {
+            panic!("expected ready thumbnail");
+        };
+        let previous_revision = state.snapshot().revision;
+
+        let opening = state.begin_open(folder.into());
+        let second_id = opening.session_id.unwrap();
+        assert_ne!(second_id, first_id);
+        assert_eq!(opening.revision, previous_revision + 1);
+        assert_eq!(opening.lifecycle, MediaLibrarySessionLifecycle::Opening);
+        assert!(opening.files.is_empty());
+        assert!(opening.metadata.is_empty());
+        assert!(opening.thumbnails.is_empty());
+        assert!(state
+            .thumbnail_payloads(first_id, std::slice::from_ref(cache_key))
+            .is_err());
+        assert!(state
+            .commit_thumbnail_results(
+                first_id,
+                vec![("old.jpg".into(), Some("late-image".into()))]
+            )
+            .is_err());
+
+        state.mark_loaded(second_id, folder).unwrap();
+        state
+            .add_files(second_id, vec![test_file("new.jpg")])
+            .unwrap();
+        assert!(state
+            .thumbnail_payloads(second_id, std::slice::from_ref(cache_key))
+            .unwrap()
+            .is_empty());
+        let search = state
+            .search()
+            .submit(crate::search_service::MediaLibrarySearchRequest {
+                session_id: second_id,
+                request_id: 1,
+                query: "old.jpg".into(),
+            })
+            .unwrap();
+        assert!(search.matched_paths.is_empty());
     }
 
     #[test]

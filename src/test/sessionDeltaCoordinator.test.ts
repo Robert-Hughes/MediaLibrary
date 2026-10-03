@@ -2,6 +2,114 @@ import { describe, expect, it, vi } from "vitest";
 import { createSessionDeltaCoordinator } from "../sessionDeltaCoordinator";
 
 describe("createSessionDeltaCoordinator", () => {
+  it("yields between bounded slices without reordering or consuming queued revisions", async () => {
+    let revision = 0;
+    let clock = 0;
+    let releaseFirst!: () => void;
+    let resume!: () => void;
+    const order: number[] = [];
+    const yieldToBrowser = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resume = resolve;
+        }),
+    );
+    const coordinator = createSessionDeltaCoordinator({
+      getActiveSessionId: () => 1,
+      getCurrentRevision: () => revision,
+      setCurrentRevision: (next) => {
+        revision = next;
+      },
+      refreshSnapshot: vi.fn(async () => {}),
+      isCancelled: () => false,
+      onError: vi.fn(),
+      now: () => clock,
+      yieldToBrowser,
+    });
+    const first = coordinator.enqueue({
+      sessionId: 1,
+      revision: 1,
+      apply: () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        }),
+    });
+    const remaining = [2, 3, 4].map((next) =>
+      coordinator.enqueue({
+        sessionId: 1,
+        revision: next,
+        apply: () => {
+          order.push(next);
+          clock += 4;
+        },
+      }),
+    );
+    releaseFirst();
+    await vi.waitFor(() => expect(yieldToBrowser).toHaveBeenCalledOnce());
+    expect(order).toEqual([2, 3]);
+    expect(revision).toBe(3);
+    resume();
+    await Promise.all([first, ...remaining]);
+    expect(order).toEqual([2, 3, 4]);
+    expect(revision).toBe(4);
+  });
+
+  it("discards the old session's backlog after yielding during replacement", async () => {
+    let activeSession = 1;
+    let revision = 0;
+    let clock = 0;
+    let releaseFirst!: () => void;
+    let resume!: () => void;
+    const staleApply = vi.fn();
+    const yieldToBrowser = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resume = resolve;
+        }),
+    );
+    const coordinator = createSessionDeltaCoordinator({
+      getActiveSessionId: () => activeSession,
+      getCurrentRevision: () => revision,
+      setCurrentRevision: (next) => {
+        revision = next;
+      },
+      refreshSnapshot: vi.fn(async () => {}),
+      isCancelled: () => false,
+      onError: vi.fn(),
+      now: () => clock,
+      yieldToBrowser,
+    });
+    const first = coordinator.enqueue({
+      sessionId: 1,
+      revision: 1,
+      apply: () =>
+        new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        }),
+    });
+    const stale = coordinator.enqueue({
+      sessionId: 1,
+      revision: 2,
+      apply: staleApply,
+    });
+    clock = 8;
+    releaseFirst();
+    await vi.waitFor(() => expect(yieldToBrowser).toHaveBeenCalledOnce());
+    activeSession = 2;
+    revision = 0;
+    const currentApply = vi.fn();
+    const current = coordinator.enqueue({
+      sessionId: 2,
+      revision: 1,
+      apply: currentApply,
+    });
+    resume();
+    await Promise.all([first, stale, current]);
+    expect(staleApply).not.toHaveBeenCalled();
+    expect(currentApply).toHaveBeenCalledOnce();
+    expect(revision).toBe(1);
+  });
+
   it("commits a revision only after asynchronous application succeeds", async () => {
     let revision = 4;
     let resolveApply!: () => void;

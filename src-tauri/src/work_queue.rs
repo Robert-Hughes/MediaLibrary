@@ -4,7 +4,7 @@
 /// has been called. The frontend calls `prioritize()` to move visible paths
 /// to the front so on-screen files are processed first.
 use std::collections::VecDeque;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
 #[derive(Clone)]
 pub struct WorkQueue {
@@ -80,22 +80,26 @@ impl WorkQueue {
         }
     }
 
+    /// Wait against one deadline, even if an empty/spurious wake occurs.
+    fn wait_for_work(&self, timeout: std::time::Duration) -> MutexGuard<'_, State> {
+        let (lock, cvar) = &*self.inner;
+        let state = lock.lock().unwrap();
+        cvar.wait_timeout_while(state, timeout, |state| {
+            state.queue.is_empty() && !state.done
+        })
+        .unwrap()
+        .0
+    }
+
     /// Block until an item is available or timeout is reached.
     pub fn pop_timeout(&self, timeout: std::time::Duration) -> PopResult<String> {
-        let (lock, cvar) = &*self.inner;
-        let mut state = lock.lock().unwrap();
-        loop {
-            if let Some(item) = state.queue.pop_front() {
-                return PopResult::Items(item);
-            }
-            if state.done {
-                return PopResult::Done;
-            }
-            let (new_state, wait_res) = cvar.wait_timeout(state, timeout).unwrap();
-            state = new_state;
-            if wait_res.timed_out() {
-                return PopResult::Timeout;
-            }
+        let mut state = self.wait_for_work(timeout);
+        if let Some(item) = state.queue.pop_front() {
+            PopResult::Items(item)
+        } else if state.done {
+            PopResult::Done
+        } else {
+            PopResult::Timeout
         }
     }
 
@@ -105,28 +109,14 @@ impl WorkQueue {
         max: usize,
         timeout: std::time::Duration,
     ) -> PopResult<Vec<String>> {
-        let (lock, cvar) = &*self.inner;
-        let mut state = lock.lock().unwrap();
-        loop {
-            if !state.queue.is_empty() {
-                let mut batch = Vec::with_capacity(max);
-                while batch.len() < max {
-                    if let Some(item) = state.queue.pop_front() {
-                        batch.push(item);
-                    } else {
-                        break;
-                    }
-                }
-                return PopResult::Items(batch);
-            }
-            if state.done {
-                return PopResult::Done;
-            }
-            let (new_state, wait_res) = cvar.wait_timeout(state, timeout).unwrap();
-            state = new_state;
-            if wait_res.timed_out() {
-                return PopResult::Timeout;
-            }
+        let mut state = self.wait_for_work(timeout);
+        if !state.queue.is_empty() {
+            let count = max.min(state.queue.len());
+            PopResult::Items(state.queue.drain(..count).collect())
+        } else if state.done {
+            PopResult::Done
+        } else {
+            PopResult::Timeout
         }
     }
 
@@ -442,6 +432,45 @@ mod tests {
     }
 
     // ── timeout-based flushing ────────────────────────────────────────────────
+
+    #[test]
+    fn empty_wakes_do_not_postpone_timed_pops() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+
+        for batched in [false, true] {
+            let queue = WorkQueue::new(vec![]);
+            let worker_queue = queue.clone();
+            let (result_tx, result_rx) = std::sync::mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                let timed_out = if batched {
+                    matches!(
+                        worker_queue.pop_batch_timeout(50, Duration::from_millis(40)),
+                        PopResult::Timeout
+                    )
+                } else {
+                    matches!(
+                        worker_queue.pop_timeout(Duration::from_millis(40)),
+                        PopResult::Timeout
+                    )
+                };
+                result_tx.send(timed_out).unwrap();
+            });
+            let stop = Arc::new(AtomicBool::new(false));
+            let wake_stop = stop.clone();
+            let waker = std::thread::spawn(move || {
+                while !wake_stop.load(Ordering::Relaxed) {
+                    queue.inner.1.notify_all();
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            });
+            let result = result_rx.recv_timeout(Duration::from_secs(2));
+            stop.store(true, Ordering::Relaxed);
+            waker.join().unwrap();
+            worker.join().unwrap();
+            assert!(result.unwrap());
+        }
+    }
 
     #[test]
     fn pop_timeout_returns_timeout_when_queue_is_empty() {

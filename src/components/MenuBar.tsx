@@ -1,4 +1,5 @@
 import { useTheme } from "../hooks/useTheme";
+import type { FolderLifecycle } from "../folderLifecycle";
 
 interface Props {
   onOpenFolder: () => void;
@@ -12,6 +13,7 @@ interface Props {
   /** True while the asynchronous Rust search service is processing the current
    * query. Renders an inline spinner next to the search box. */
   searching?: boolean;
+  folderLifecycle: FolderLifecycle;
 }
 
 export function MenuBar({
@@ -23,6 +25,7 @@ export function MenuBar({
   searchQuery,
   onSearchQueryChange,
   searching = false,
+  folderLifecycle,
 }: Props) {
   const { theme, toggle: toggleTheme } = useTheme();
 
@@ -32,6 +35,7 @@ export function MenuBar({
         <button
           className="menu-bar-btn"
           onClick={onOpenFolder}
+          disabled={!folderLifecycle.canOpen}
           data-testid="menu-bar-open-btn"
         >
           Open Folder…
@@ -39,13 +43,17 @@ export function MenuBar({
         <button
           className="menu-bar-btn"
           onClick={onRefreshFolder}
+          disabled={!folderLifecycle.canRefresh}
           data-testid="menu-bar-refresh-btn"
         >
-          Refresh Folder
+          {folderLifecycle.intent === "refresh"
+            ? "Refreshing…"
+            : "Refresh Folder"}
         </button>
         <button
           className="menu-bar-btn"
           onClick={onCloseFolder}
+          disabled={!folderLifecycle.canClose}
           data-testid="menu-bar-close-btn"
         >
           Close Folder

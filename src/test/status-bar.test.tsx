@@ -3,16 +3,30 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { StatusBar } from "../components/StatusBar";
 import { MetadataProgressStore } from "../types";
+import { makeFolderLifecycle } from "./factories";
 
 const noop = () => {};
 const base = {
   fileCount: 42,
-  scanning: false,
+  folderLifecycle: makeFolderLifecycle(),
   metadataProgress: null,
   selectedCount: 0,
 };
 
 describe("StatusBar", () => {
+  it("shows refresh activity instead of stale scan and metadata progress during reopening", () => {
+    render(
+      <StatusBar
+        {...base}
+        folderLifecycle={makeFolderLifecycle({
+          phase: "opening",
+          intent: "refresh",
+        })}
+      />,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Refreshing folder…");
+    expect(screen.queryByTestId("status-bar-scanning")).not.toBeInTheDocument();
+  });
   beforeEach(() => cleanup());
 
   it("shows total file count with no selection or filters", () => {
@@ -85,7 +99,12 @@ describe("StatusBar", () => {
   });
 
   it("shows scanning indicator while scanning", () => {
-    render(<StatusBar {...base} scanning={true} />);
+    render(
+      <StatusBar
+        {...base}
+        folderLifecycle={makeFolderLifecycle({ phase: "discovering" })}
+      />,
+    );
     expect(screen.getByTestId("status-bar-scanning")).toHaveTextContent(
       "Discovering files…",
     );
@@ -95,7 +114,13 @@ describe("StatusBar", () => {
     const progress = new MetadataProgressStore();
     progress.setTotal(10);
     progress.incrementReceived(5);
-    render(<StatusBar {...base} metadataProgress={progress} />);
+    render(
+      <StatusBar
+        {...base}
+        folderLifecycle={makeFolderLifecycle({ phase: "metadata" })}
+        metadataProgress={progress}
+      />,
+    );
     expect(
       screen.getByTestId("status-bar-metadata-spinner"),
     ).toBeInTheDocument();
@@ -108,7 +133,13 @@ describe("StatusBar", () => {
     const progress = new MetadataProgressStore();
     progress.setTotal(10);
     progress.incrementReceived(5);
-    render(<StatusBar {...base} scanning={true} metadataProgress={progress} />);
+    render(
+      <StatusBar
+        {...base}
+        folderLifecycle={makeFolderLifecycle({ phase: "discovering" })}
+        metadataProgress={progress}
+      />,
+    );
     expect(screen.queryByTestId("status-bar-metadata")).not.toBeInTheDocument();
   });
 

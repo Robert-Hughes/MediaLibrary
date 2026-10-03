@@ -125,6 +125,7 @@ export class ThumbnailStore {
 
   set(path: string, value: ThumbnailState) {
     if (!this.data.has(path)) return;
+    if (this.data.get(path) === value) return;
     this.data.set(path, value);
     this.subscribers.get(path)?.forEach((cb) => cb());
   }

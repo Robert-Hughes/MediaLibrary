@@ -345,7 +345,7 @@ impl BatchMetadataProgress {
     }
 }
 
-/// Count/age bounded event buffer for sequential batch jobs.
+/// Count/age bounded event buffer shared by batch jobs and scan streams.
 pub struct EventBatch<T> {
     items: Vec<T>,
     max_items: usize,
@@ -372,7 +372,7 @@ impl<T> EventBatch<T> {
             self.emit_first = false;
             return self.take();
         }
-        if self.items.len() >= self.max_items || self.last_flush.elapsed() >= self.max_age {
+        if self.items.len() >= self.max_items || self.time_until_flush().is_zero() {
             return self.take();
         }
         None
@@ -382,12 +382,49 @@ impl<T> EventBatch<T> {
         self.take()
     }
 
+    /// Wait only until the current flush deadline. Receiving another item must
+    /// not restart it. An empty buffer may wait for the full interval.
+    pub fn time_until_flush(&self) -> Duration {
+        if self.items.is_empty() {
+            self.max_age
+        } else {
+            self.max_age.saturating_sub(self.last_flush.elapsed())
+        }
+    }
+
     fn take(&mut self) -> Option<Vec<T>> {
         if self.items.is_empty() {
             return None;
         }
         self.last_flush = std::time::Instant::now();
         Some(std::mem::take(&mut self.items))
+    }
+}
+
+/// Drain a result stream with count and oldest-item age limits, including its
+/// final partial batch. Continuous arrivals cannot postpone a flush indefinitely.
+pub fn receive_event_batches<T>(
+    receiver: std::sync::mpsc::Receiver<T>,
+    max_items: usize,
+    max_age: Duration,
+    emit_first: bool,
+    mut emit: impl FnMut(Vec<T>),
+) {
+    let mut batch = EventBatch::new(max_items, max_age, emit_first);
+    loop {
+        let ready = match receiver.recv_timeout(batch.time_until_flush()) {
+            Ok(item) => batch.push(item),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => batch.flush(),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if let Some(items) = batch.flush() {
+                    emit(items);
+                }
+                break;
+            }
+        };
+        if let Some(items) = ready {
+            emit(items);
+        }
     }
 }
 
@@ -831,6 +868,55 @@ mod tests {
         assert_eq!(batch.push("b"), None);
         assert_eq!(batch.flush(), Some(vec!["a", "b"]));
         assert_eq!(batch.flush(), None);
+    }
+
+    #[test]
+    fn event_batch_arrivals_do_not_restart_pending_deadline() {
+        let mut batch = EventBatch::new(100, Duration::from_secs(1), false);
+        assert_eq!(batch.push(1), None);
+        let since = std::time::Instant::now() - Duration::from_secs(2);
+        batch.last_flush = since;
+        assert!(batch.time_until_flush().is_zero());
+        assert_eq!(batch.push(2), Some(vec![1, 2]));
+        assert_eq!(batch.time_until_flush(), Duration::from_secs(1));
+        assert_eq!(batch.push(3), None);
+        assert!(!batch.time_until_flush().is_zero());
+    }
+
+    #[test]
+    fn channel_batches_bound_continuous_results_and_preserve_tail() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        for item in 0..14396 {
+            sender.send(item).unwrap();
+        }
+        drop(sender);
+        let mut emitted = Vec::new();
+        receive_event_batches(receiver, 50, Duration::from_secs(60), true, |items| {
+            assert!(!items.is_empty());
+            assert!(items.len() <= 50);
+            emitted.extend(items);
+        });
+        assert_eq!(emitted, (0..14396).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn channel_batches_flush_partial_results_while_sender_remains_open() {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let (emitted_tx, emitted_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            receive_event_batches(receiver, 50, Duration::from_millis(20), false, |items| {
+                emitted_tx.send(items).unwrap();
+            });
+        });
+        sender.send(1).unwrap();
+        assert_eq!(
+            emitted_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+            vec![1]
+        );
+        sender.send(2).unwrap();
+        drop(sender);
+        worker.join().unwrap();
+        assert_eq!(emitted_rx.recv().unwrap(), vec![2]);
     }
 
     #[test]

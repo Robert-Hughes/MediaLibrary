@@ -1,4 +1,7 @@
 import { isPromiseLike } from "./utils/promiseLike";
+import { yieldToBrowser } from "./utils/yieldToBrowser";
+
+const PROJECTION_SLICE_MS = 8;
 
 export interface SessionDelta {
   sessionId: number;
@@ -26,6 +29,8 @@ export interface SessionDeltaCoordinatorOptions {
   isCancelled: () => boolean;
   onError: (error: unknown) => void;
   onDiagnostic?: (diagnostic: SessionRevisionDiagnostic) => void;
+  now?: () => number;
+  yieldToBrowser?: () => Promise<void>;
 }
 
 export interface SessionDeltaCoordinator {
@@ -55,6 +60,17 @@ export function createSessionDeltaCoordinator(
   const queue: QueuedDelta[] = [];
   let running = false;
   let refreshInFlight: Promise<void> | null = null;
+  const now = options.now ?? (() => performance.now());
+
+  const scheduleDrain = (): void => {
+    running = true;
+    void (options.yieldToBrowser ?? yieldToBrowser)()
+      .catch(options.onError)
+      .finally(() => {
+        running = false;
+        drain();
+      });
+  };
 
   const refresh = (): Promise<void> => {
     if (refreshInFlight === null) {
@@ -143,8 +159,13 @@ export function createSessionDeltaCoordinator(
   const drain = (): void => {
     if (running) return;
     running = true;
+    const started = now();
 
     while (queue.length > 0) {
+      if (now() - started >= PROJECTION_SLICE_MS) {
+        scheduleDrain();
+        return;
+      }
       const item = queue.shift()!;
       let result: void | Promise<void>;
       try {
@@ -178,7 +199,11 @@ export function createSessionDeltaCoordinator(
           .then(item.resolve, item.reject)
           .finally(() => {
             running = false;
-            drain();
+            if (queue.length > 0 && now() - started >= PROJECTION_SLICE_MS) {
+              scheduleDrain();
+            } else {
+              drain();
+            }
           });
         return;
       }

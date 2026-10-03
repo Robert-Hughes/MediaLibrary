@@ -1,3 +1,8 @@
+// Keep the allocator in the library so the app and Rust test binaries use it.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL_ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod apply_batch;
 pub mod apply_edits;
 pub mod apply_log;
@@ -281,6 +286,23 @@ pub(crate) fn emit_frontend_event_str(
     })
 }
 
+/// Register files before workers can produce results for them. A cached result
+/// may be ready immediately, before the next discovery batch is published.
+fn dispatch_discovered_files(
+    state: &session::MediaLibrarySessionState,
+    session_id: u64,
+    files: Vec<scanner::FileInfo>,
+    metadata_queue: &WorkQueue,
+    thumbnail_queue: &WorkQueue,
+) -> Result<(), String> {
+    let delta = state.add_files(session_id, files)?;
+    for file in delta.files {
+        metadata_queue.push(file.relative_path.clone());
+        thumbnail_queue.push(file.relative_path);
+    }
+    Ok(())
+}
+
 fn commit_session_metadata(
     app: &AppHandle,
     session_id: u64,
@@ -363,25 +385,30 @@ fn cache_scan_thumbnail(
 }
 
 #[tauri::command]
-fn get_media_library_thumbnails(
+async fn get_media_library_thumbnails(
     session_id: u64,
     cache_keys: Vec<String>,
-    session: State<'_, session::MediaLibrarySessionState>,
+    app: AppHandle,
 ) -> Result<Vec<session::MediaLibraryThumbnailPayload>, String> {
     let started = Instant::now();
-    let payloads = session.thumbnail_payloads(session_id, &cache_keys)?;
-    let thumbnail_chars = payloads
-        .iter()
-        .map(|payload| payload.thumbnail.len())
-        .sum::<usize>();
-    log::info!(
-        "[scan_perf] phase=thumbnail_payload_fetch requested={} returned={} thumbnail_chars={} duration_ms={}",
-        cache_keys.len(),
-        payloads.len(),
-        thumbnail_chars,
-        started.elapsed().as_millis()
-    );
-    Ok(payloads)
+    tauri::async_runtime::spawn_blocking(move || {
+        let session = app.state::<session::MediaLibrarySessionState>();
+        let payloads = session.thumbnail_payloads(session_id, &cache_keys)?;
+        let thumbnail_chars = payloads
+            .iter()
+            .map(|payload| payload.thumbnail.len())
+            .sum::<usize>();
+        log::info!(
+            "[scan_perf] phase=thumbnail_payload_fetch requested={} returned={} thumbnail_chars={} duration_ms={}",
+            cache_keys.len(),
+            payloads.len(),
+            thumbnail_chars,
+            started.elapsed().as_millis()
+        );
+        Ok(payloads)
+    })
+    .await
+    .map_err(|error| format!("Thumbnail payload worker failed: {error}"))?
 }
 
 fn record_session_issue(
@@ -446,38 +473,104 @@ fn record_media_library_session_issue(
 }
 
 #[tauri::command]
-fn open_media_library_session(
+async fn open_media_library_session(
     folder_path: String,
     app: AppHandle,
-    session_state: State<'_, session::MediaLibrarySessionState>,
-    scan_state: State<'_, ScanState>,
-    active_queues: State<'_, ActiveQueues>,
-    repository_state: State<'_, draft_edits::DraftRepositoryState>,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    stop_scan_impl(&scan_state, &active_queues);
-    let opening = session_state.begin_open(folder_path.clone());
-    let session_id = opening
-        .session_id
-        .ok_or_else(|| "Rust opened a session without an identity".to_string())?;
-    let app_data_dir = match commands::shared::app_data_dir(&app) {
-        Ok(path) => path,
-        Err(error) => return session_state.fail_session(session_id, "session-open", error),
-    };
-    let drafts =
-        draft_repository::load_metadata_draft_edits(&app_data_dir, &folder_path, &repository_state);
-    session_state.install_draft_load_result(session_id, drafts)
+    let requested = Instant::now();
+    log::info!("[scan_perf] phase=session_open_requested");
+    // Session replacement drops a potentially large metadata graph and reads
+    // drafts from SQLite. Neither operation may run on the app event thread.
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        log::info!(
+            "[scan_perf] phase=session_open_worker_start queue_wait_ms={}",
+            requested.elapsed().as_millis()
+        );
+        let session_state = app.state::<session::MediaLibrarySessionState>();
+        let transition_started = Instant::now();
+        let _transition = session_state.lock_lifecycle_command();
+        log::info!(
+            "[scan_perf] phase=session_open_transition_lock wait_ms={}",
+            transition_started.elapsed().as_millis()
+        );
+        let scan_state = app.state::<ScanState>();
+        let active_queues = app.state::<ActiveQueues>();
+        let repository_state = app.state::<draft_edits::DraftRepositoryState>();
+        let stop_started = Instant::now();
+        stop_scan_impl(&scan_state, &active_queues);
+        log::info!(
+            "[scan_perf] phase=session_scan_stop duration_ms={}",
+            stop_started.elapsed().as_millis()
+        );
+        let opening = session_state.begin_open(folder_path.clone());
+        let session_id = opening
+            .session_id
+            .ok_or_else(|| "Rust opened a session without an identity".to_string())?;
+        let app_data_dir = match commands::shared::app_data_dir(&app) {
+            Ok(path) => path,
+            Err(error) => return session_state.fail_session(session_id, "session-open", error),
+        };
+        let drafts_started = Instant::now();
+        let drafts = draft_repository::load_metadata_draft_edits(
+            &app_data_dir,
+            &folder_path,
+            &repository_state,
+        );
+        log::info!(
+            "[scan_perf] phase=session_draft_load session_id={} duration_ms={} success={}",
+            session_id,
+            drafts_started.elapsed().as_millis(),
+            drafts.is_ok()
+        );
+        let install_started = Instant::now();
+        let result = session_state.install_draft_load_result(session_id, drafts);
+        log::info!(
+            "[scan_perf] phase=session_draft_install session_id={} duration_ms={}",
+            session_id,
+            install_started.elapsed().as_millis()
+        );
+        result
+    })
+    .await
+    .map_err(|error| format!("Session open worker failed: {error}"))?;
+    log::info!(
+        "[scan_perf] phase=session_open_complete duration_ms={} success={}",
+        requested.elapsed().as_millis(),
+        result.is_ok()
+    );
+    result
 }
 
 #[tauri::command]
-fn close_media_library_session(
+async fn close_media_library_session(
     session_id: u64,
-    session_state: State<'_, session::MediaLibrarySessionState>,
-    scan_state: State<'_, ScanState>,
-    active_queues: State<'_, ActiveQueues>,
+    app: AppHandle,
 ) -> Result<session::MediaLibrarySessionSnapshot, String> {
-    session_state.begin_close(session_id)?;
-    stop_scan_impl(&scan_state, &active_queues);
-    session_state.finish_close(session_id)
+    let requested = Instant::now();
+    log::info!("[scan_perf] phase=session_close_requested session_id={session_id}");
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        log::info!(
+            "[scan_perf] phase=session_close_worker_start session_id={} queue_wait_ms={}",
+            session_id,
+            requested.elapsed().as_millis()
+        );
+        let session_state = app.state::<session::MediaLibrarySessionState>();
+        let _transition = session_state.lock_lifecycle_command();
+        let scan_state = app.state::<ScanState>();
+        let active_queues = app.state::<ActiveQueues>();
+        session_state.begin_close(session_id)?;
+        stop_scan_impl(&scan_state, &active_queues);
+        session_state.finish_close(session_id)
+    })
+    .await
+    .map_err(|error| format!("Session close worker failed: {error}"))?;
+    log::info!(
+        "[scan_perf] phase=session_close_complete session_id={} duration_ms={} success={}",
+        session_id,
+        requested.elapsed().as_millis(),
+        result.is_ok()
+    );
+    result
 }
 /// Start a background scan of `folder_path`.
 ///
@@ -622,25 +715,15 @@ fn start_scan(
                 let worker_scan_started = scan_started;
                 std::thread::spawn(move || {
                     let mut batch_results = Vec::new();
-                    let mut last_emit = std::time::Instant::now();
                     let emit_interval = std::time::Duration::from_millis(500);
+                    let mut pending_results = batch_job::EventBatch::new(100, emit_interval, true);
 
                     while !cancelled.load(Ordering::Relaxed) {
-                        let rel_paths = match queue.pop_batch_timeout(batch_size, emit_interval) {
+                        let rel_paths = match queue.pop_batch_timeout(batch_size, pending_results.time_until_flush()) {
                             crate::work_queue::PopResult::Items(items) => items,
                             crate::work_queue::PopResult::Timeout => {
-                                if !batch_results.is_empty() {
-                                    log::debug!(
-                                        "[metadata] Emitting batch of {} results (timeout flush)",
-                                        batch_results.len()
-                                    );
-                                    commit_session_metadata(
-                                        &app,
-                                        scan_id,
-                                        std::mem::take(&mut batch_results),
-                                        &perf_stats,
-                                    );
-                                    last_emit = std::time::Instant::now();
+                                if let Some(batch) = pending_results.flush() {
+                                    commit_session_metadata(&app, scan_id, batch, &perf_stats);
                                 }
                                 continue;
                             }
@@ -807,29 +890,15 @@ fn start_scan(
                             }
                         }
 
-                        // Emit batch if enough time has elapsed
-                        if last_emit.elapsed() >= emit_interval && !batch_results.is_empty() {
-                            log::debug!(
-                                "[metadata] Emitting batch of {} results",
-                                batch_results.len()
-                            );
-                            commit_session_metadata(
-                                &app,
-                                scan_id,
-                                std::mem::take(&mut batch_results),
-                                &perf_stats,
-                            );
-                            last_emit = std::time::Instant::now();
+                        for result in batch_results.drain(..) {
+                            if let Some(batch) = pending_results.push(result) {
+                                commit_session_metadata(&app, scan_id, batch, &perf_stats);
+                            }
                         }
                     }
 
-                    // Emit any remaining results
-                    if !batch_results.is_empty() {
-                        log::debug!(
-                            "[metadata] Emitting final batch of {} results",
-                            batch_results.len()
-                        );
-                        commit_session_metadata(&app, scan_id, batch_results, &perf_stats);
+                    if let Some(batch) = pending_results.flush() {
+                        commit_session_metadata(&app, scan_id, batch, &perf_stats);
                     }
 
                     let completed = perf_stats
@@ -859,30 +928,13 @@ fn start_scan(
             let app = app_clone.clone();
             let perf_stats = perf_stats.clone();
             std::thread::spawn(move || {
-                let mut batch = Vec::with_capacity(50);
-                let emit_interval = std::time::Duration::from_millis(500);
-
-                loop {
-                    match thumbnail_result_rx.recv_timeout(emit_interval) {
-                        Ok(result) => batch.push(result),
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            if !batch.is_empty() {
-                                commit_session_thumbnails(
-                                    &app,
-                                    scan_id,
-                                    std::mem::take(&mut batch),
-                                    &perf_stats,
-                                );
-                            }
-                        }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            if !batch.is_empty() {
-                                commit_session_thumbnails(&app, scan_id, batch, &perf_stats);
-                            }
-                            break;
-                        }
-                    }
-                }
+                batch_job::receive_event_batches(
+                    thumbnail_result_rx,
+                    50,
+                    std::time::Duration::from_millis(500),
+                    true,
+                    |batch| commit_session_thumbnails(&app, scan_id, batch, &perf_stats),
+                );
             })
         };
 
@@ -1036,13 +1088,8 @@ fn start_scan(
         // Run the directory walk in a separate thread so we can implement
         // timeout-based flushing even when the walk is slow.
         let discovery_started = Instant::now();
-        let file_queue = Arc::new(Mutex::new(Vec::new()));
-        let file_queue_clone = file_queue.clone();
-        let walk_complete = Arc::new(AtomicBool::new(false));
-        let walk_complete_clone = walk_complete.clone();
+        let (discovery_tx, discovery_rx) = mpsc::channel();
         let cancel_walk = cancel_clone.clone();
-        let file_metadata_queue_walk = file_metadata_queue.clone();
-        let thumb_queue_walk = thumb_queue.clone();
 
         let app_walk_err = app_clone.clone();
         let perf_stats_walk = perf_stats.clone();
@@ -1055,9 +1102,7 @@ fn start_scan(
                     perf_stats_walk
                         .discovered_files
                         .fetch_add(1, Ordering::Relaxed);
-                    file_metadata_queue_walk.push(file.relative_path.clone());
-                    thumb_queue_walk.push(file.relative_path.clone());
-                    file_queue_clone.lock().unwrap().push(file);
+                    let _ = discovery_tx.send(file);
                 },
                 |err| {
                     log::warn!("[walk] error: {} ({:?})", err.message, err.path);
@@ -1072,68 +1117,35 @@ fn start_scan(
                 },
             );
             ScanPerfStats::record(&perf_stats_walk.discovery_walk_ns, walk_started.elapsed());
-            walk_complete_clone.store(true, Ordering::Relaxed);
         });
 
-        // Flush thread: periodically emit batches even if no new files arrive
-        let file_queue_flush = file_queue.clone();
         let app_flush = app_clone.clone();
-        let walk_complete_flush = walk_complete.clone();
         let perf_stats_flush = perf_stats.clone();
+        let file_metadata_queue_flush = file_metadata_queue.clone();
+        let thumb_queue_flush = thumb_queue.clone();
         let flush_handle = std::thread::spawn(move || {
-            let emit_interval = std::time::Duration::from_millis(500);
-
-            loop {
-                std::thread::sleep(emit_interval);
-
-                let mut queue = file_queue_flush.lock().unwrap();
-                if !queue.is_empty() {
-                    let batch = std::mem::take(&mut *queue);
-                    drop(queue); // Release lock before emitting
-
+            batch_job::receive_event_batches(
+                discovery_rx,
+                500,
+                std::time::Duration::from_millis(500),
+                true,
+                |batch| {
                     let commit_started = Instant::now();
-                    match app_flush
-                        .state::<session::MediaLibrarySessionState>()
-                        .add_files(scan_id, batch)
-                    {
-                        Ok(_) => {}
-                        Err(error) => {
-                            log::debug!("[file-discovery] discarded stale batch: {error}")
-                        }
+                    if let Err(error) = dispatch_discovered_files(
+                        &app_flush.state::<session::MediaLibrarySessionState>(),
+                        scan_id,
+                        batch,
+                        &file_metadata_queue_flush,
+                        &thumb_queue_flush,
+                    ) {
+                        log::debug!("[file-discovery] discarded stale batch: {error}");
                     }
                     ScanPerfStats::record(
                         &perf_stats_flush.discovery_session_commit_ns,
                         commit_started.elapsed(),
                     );
-                } else {
-                    drop(queue); // Release lock even if queue is empty
-                }
-
-                // Check if walk is complete
-                if walk_complete_flush.load(Ordering::Relaxed) {
-                    // One final flush
-                    let mut queue = file_queue_flush.lock().unwrap();
-                    if !queue.is_empty() {
-                        let batch = std::mem::take(&mut *queue);
-                        drop(queue);
-                        let commit_started = Instant::now();
-                        match app_flush
-                            .state::<session::MediaLibrarySessionState>()
-                            .add_files(scan_id, batch)
-                        {
-                            Ok(_) => {}
-                            Err(error) => {
-                                log::debug!("[file-discovery] discarded stale final batch: {error}")
-                            }
-                        }
-                        ScanPerfStats::record(
-                            &perf_stats_flush.discovery_session_commit_ns,
-                            commit_started.elapsed(),
-                        );
-                    }
-                    break;
-                }
-            }
+                },
+            );
         });
 
         // Wait for walk to complete
@@ -1511,6 +1523,77 @@ mod tests {
     use super::*;
 
     #[test]
+    fn discovery_registers_files_before_immediate_worker_results() {
+        let state = Arc::new(session::MediaLibrarySessionState::new());
+        let session_id = state.begin_open("C:/photos".into()).session_id.unwrap();
+        state.mark_loaded(session_id, "C:/photos").unwrap();
+        let metadata_queue = WorkQueue::new(vec![]);
+        let thumbnail_queue = WorkQueue::new(vec![]);
+        let worker_queue = metadata_queue.clone();
+        let worker_state = state.clone();
+        let worker = std::thread::spawn(move || {
+            let mut completed = 0;
+            while let Some(relative_path) = worker_queue.pop() {
+                worker_state
+                    .commit_metadata_results(
+                        session_id,
+                        vec![scanner::FileMetadata {
+                            relative_path,
+                            occurrences: metadata_occurrence::MetadataOccurrences::default(),
+                        }],
+                    )
+                    .unwrap();
+                completed += 1;
+            }
+            completed
+        });
+        for index in 0..20 {
+            let path = format!("{index}.jpg");
+            dispatch_discovered_files(
+                &state,
+                session_id,
+                vec![scanner::FileInfo {
+                    relative_path: path.clone(),
+                    filename: path,
+                    media_kind: scanner::MediaKind::Image,
+                    date_modified: None,
+                    date_created: None,
+                }],
+                &metadata_queue,
+                &thumbnail_queue,
+            )
+            .unwrap();
+        }
+        metadata_queue.finish();
+        assert_eq!(worker.join().unwrap(), 20);
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.metadata.len(), 20);
+        assert!(snapshot.metadata.iter().all(|entry| matches!(
+            entry.state,
+            session::MediaLibrarySessionMetadataState::Ready { .. }
+        )));
+
+        let next_id = state.begin_open("C:/other".into()).session_id.unwrap();
+        state.mark_loaded(next_id, "C:/other").unwrap();
+        assert!(dispatch_discovered_files(
+            &state,
+            session_id,
+            vec![scanner::FileInfo {
+                relative_path: "stale.jpg".into(),
+                filename: "stale.jpg".into(),
+                media_kind: scanner::MediaKind::Image,
+                date_modified: None,
+                date_created: None,
+            }],
+            &metadata_queue,
+            &thumbnail_queue
+        )
+        .is_err());
+        assert!(metadata_queue.is_empty());
+        assert_eq!(thumbnail_queue.len(), 20);
+    }
+
+    #[test]
     fn scan_cache_helpers_populate_components_independently() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("photos");
@@ -1580,8 +1663,7 @@ mod tests {
 
     #[test]
     fn windows_explorer_keeps_select_switch_separate_from_regression_path() {
-        let path =
-            std::path::Path::new(r"D:\Photos\Example Wedding\00004.MTS");
+        let path = std::path::Path::new(r"D:\Photos\Example Wedding\00004.MTS");
 
         let spec = file_manager_command_spec(path, FileManager::WindowsExplorer).unwrap();
 
@@ -2585,6 +2667,14 @@ pub fn run() {
             commands::normalise::estimate_normalise_cost_cmd
         ])
         .setup(|app| {
+            log::info!(
+                "[startup] rust_allocator={}",
+                if cfg!(feature = "mimalloc") {
+                    "mimalloc"
+                } else {
+                    "system"
+                }
+            );
             if let Ok(dir) = commands::shared::app_data_dir(app.handle()) {
                 match settings::load_settings(&dir) {
                     Ok(settings) => {

@@ -22,6 +22,7 @@ crate-type = ["lib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+mimalloc = { version = "0.1.52", optional = true }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -57,7 +58,9 @@ ts-rs = { version = "10", features = ["no-serde-warnings"] }
 wiremock = "0.6"
 
 [features]
-default = []
+default = ["mimalloc"]
+# Build with --no-default-features to compare against Rust's system allocator.
+mimalloc = ["dep:mimalloc"]
 # Integration tier: tests that exec real exiftool against image fixtures
 # in `test_images/`. Run from the repo root with:
 # `cargo test --manifest-path src-tauri/Cargo.toml --features integration`.

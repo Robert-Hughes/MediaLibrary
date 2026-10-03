@@ -202,6 +202,41 @@ describe("App schema preloading", () => {
     _clearTagSchemaRegistryForTests();
   });
 
+  it("shows the shared opening phase before the first folder command responds", async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const { listen } = await import("@tauri-apps/api/event");
+    vi.mocked(listen).mockImplementation(() => Promise.resolve(() => {}));
+    let releaseOpen!: () => void;
+    const opening = new Promise<void>((resolve) => {
+      releaseOpen = resolve;
+    });
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      if (cmd === "open_media_library_session")
+        return opening.then(() => handleSessionCommand(cmd, args));
+      const sessionResult = handleSessionCommand(cmd, args);
+      if (sessionResult) return sessionResult;
+      if (cmd === "preload_schema") return Promise.resolve([]);
+      if (cmd === "pick_folder") return Promise.resolve("/files");
+      return Promise.resolve(null);
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByTestId("open-folder-btn")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByTestId("open-folder-btn"));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Opening folder…"),
+    );
+    expect(screen.getByTestId("menu-bar-open-btn")).toBeDisabled();
+    expect(screen.getByTestId("menu-bar-refresh-btn")).toBeDisabled();
+    expect(screen.getByTestId("menu-bar-close-btn")).toBeDisabled();
+    expect(screen.queryByTestId("welcome-screen")).not.toBeInTheDocument();
+    await act(async () => {
+      releaseOpen();
+      await opening;
+    });
+  });
+
   it("shows schema loading dialog before preload_schema resolves", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const mockInvoke = vi.mocked(invoke);

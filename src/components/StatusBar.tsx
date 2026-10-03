@@ -2,12 +2,13 @@ import { useSyncExternalStore } from "react";
 import { useSpinnerSync } from "../hooks/useSpinnerSync";
 import { ask } from "@tauri-apps/plugin-dialog";
 import type { MetadataProgressStore } from "../types";
+import type { FolderLifecycle } from "../folderLifecycle";
 
 interface Props {
   fileCount: number;
   /** When set and different from `fileCount`, count label shows "n of total" (filtered list). */
   fileCountTotal?: number;
-  scanning: boolean;
+  folderLifecycle: FolderLifecycle;
   metadataProgress: MetadataProgressStore | null;
   selectedCount: number;
   onToggleFileSelection?: () => void;
@@ -20,7 +21,7 @@ interface Props {
 export function StatusBar({
   fileCount,
   fileCountTotal,
-  scanning,
+  folderLifecycle,
   metadataProgress,
   selectedCount,
   onToggleFileSelection,
@@ -40,7 +41,6 @@ export function StatusBar({
     metadataProgress?.getTotalSnapshot().bind(metadataProgress) ?? (() => 0),
   );
 
-  const metadataLoading = !scanning && metadataRemaining > 0;
   const metadataLoaded = metadataTotal - metadataRemaining;
 
   const countLabel =
@@ -69,7 +69,29 @@ export function StatusBar({
           {countLabel}
         </button>
 
-        {scanning && (
+        {(folderLifecycle.phase === "opening" ||
+          folderLifecycle.phase === "closing") && (
+          <span
+            className="status-bar-item"
+            data-testid="status-bar-folder-operation"
+            role="status"
+          >
+            <span
+              style={spinStyle}
+              className="status-bar-spinner"
+              aria-hidden="true"
+            />
+            <span>
+              {folderLifecycle.phase === "closing"
+                ? "Closing folder…"
+                : folderLifecycle.intent === "refresh"
+                  ? "Refreshing folder…"
+                  : "Opening folder…"}
+            </span>
+          </span>
+        )}
+
+        {folderLifecycle.phase === "discovering" && (
           <span className="status-bar-item" data-testid="status-bar-scanning">
             <span
               style={spinStyle}
@@ -80,7 +102,7 @@ export function StatusBar({
           </span>
         )}
 
-        {metadataLoading && (
+        {folderLifecycle.phase === "metadata" && (
           <span className="status-bar-item" data-testid="status-bar-metadata">
             <span
               style={spinStyle}

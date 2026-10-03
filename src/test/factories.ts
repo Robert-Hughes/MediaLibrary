@@ -13,6 +13,22 @@ import type {
   SortKey,
   VisibleColumn,
 } from "../types";
+import type { FolderLifecycle } from "../folderLifecycle";
+
+export function makeFolderLifecycle(
+  overrides: Partial<FolderLifecycle> = {},
+): FolderLifecycle {
+  return {
+    phase: "ready",
+    folder: "/files",
+    sessionId: 1,
+    intent: null,
+    canOpen: true,
+    canRefresh: true,
+    canClose: true,
+    ...overrides,
+  };
+}
 import type { TargetDraftEditsByFile } from "../targetDraftEdits";
 import type { SchemaDraftDisplayProjection } from "../targetDraftView";
 import type { MetadataCollection } from "../utils/metadataCollection";

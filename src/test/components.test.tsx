@@ -15,6 +15,7 @@ import {
   imgCol,
   makeFile,
   makeFiles,
+  makeFolderLifecycle,
   mockMetadata,
   osCol,
   testId,
@@ -136,6 +137,7 @@ describe("WelcomeScreen", () => {
 
 describe("MenuBar", () => {
   const base = {
+    folderLifecycle: makeFolderLifecycle(),
     onOpenFolder: noop,
     onRefreshFolder: noop,
     onCloseFolder: noop,

@@ -337,9 +337,14 @@ body {
     color 0.1s;
 }
 
-.menu-bar-btn:hover {
+.menu-bar-btn:hover:not(:disabled) {
   background: var(--surface-alt);
   color: var(--text-primary);
+}
+
+.menu-bar-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .menu-bar-divider {

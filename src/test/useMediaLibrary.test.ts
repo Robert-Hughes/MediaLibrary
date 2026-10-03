@@ -188,6 +188,112 @@ describe("useMediaLibrary", () => {
     vi.useRealTimers();
   });
 
+  it("shows refresh immediately, rejects overlapping requests, and stays guarded through metadata loading", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+    await act(async () => {
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      mock.emitFileMetadataReady("a.jpg", {});
+      mock.emitScanComplete();
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    const originalInvoke = mock.api.invoke;
+    let releaseOpen!: () => void;
+    const openGate = new Promise<void>((resolve) => {
+      releaseOpen = resolve;
+    });
+    let openCalls = 0;
+    mock.api.invoke = async (command, args) => {
+      if (command === "open_media_library_session") {
+        openCalls += 1;
+        await openGate;
+      }
+      return originalInvoke(command, args);
+    };
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current[1].refreshFolder();
+      void result.current[1].refreshFolder();
+    });
+    expect(result.current[0].folderLifecycle).toMatchObject({
+      phase: "opening",
+      intent: "refresh",
+      canRefresh: false,
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openCalls).toBe(1);
+    expect(result.current[0].kind).toBe("loaded");
+    await act(async () => {
+      releaseOpen();
+      await first;
+    });
+    expect(result.current[0].folderLifecycle).toMatchObject({
+      phase: "discovering",
+      intent: "refresh",
+      canRefresh: false,
+    });
+    await act(async () => {
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      await result.current[1].refreshFolder();
+    });
+    expect(openCalls).toBe(1);
+    await act(async () => {
+      mock.emitScanComplete();
+      await vi.advanceTimersByTimeAsync(250);
+      await result.current[1].refreshFolder();
+    });
+    expect(openCalls).toBe(1);
+    await act(async () => {
+      mock.emitFileMetadataReady("a.jpg", {});
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => {
+      await result.current[1].refreshFolder();
+    });
+    expect(openCalls).toBe(2);
+  });
+
+  it("releases the opening guard when a refresh request fails", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+    await act(async () => {
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      mock.emitFileMetadataReady("a.jpg", {});
+      mock.emitScanComplete();
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    const originalInvoke = mock.api.invoke;
+    mock.api.invoke = async (command, args) => {
+      if (command === "open_media_library_session")
+        throw new Error("open failed");
+      return originalInvoke(command, args);
+    };
+    await act(async () => {
+      await expect(result.current[1].refreshFolder()).rejects.toThrow(
+        "open failed",
+      );
+    });
+    expect(result.current[0].folderLifecycle).toMatchObject({
+      phase: "ready",
+      canRefresh: true,
+    });
+    mock.api.invoke = originalInvoke;
+    await act(async () => {
+      await result.current[1].refreshFolder();
+    });
+    expect(mock.currentScanId).toBe(2);
+  });
+
   it("starts in idle state with empty recent folders", () => {
     const { api } = createMockTauriApi();
     const { result } = renderHook(() => useMediaLibrary(api));
@@ -525,6 +631,41 @@ describe("useMediaLibrary", () => {
       state.thumbnails as unknown as { data: Map<string, unknown> }
     ).data;
     expect(thumbnailData.has("a.jpg")).toBe(false);
+  });
+
+  it("advances metadata while a thumbnail download is still pending", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const originalInvoke = mock.api.invoke;
+    let finishDownload!: (payload: unknown) => void;
+    const download = new Promise<unknown>((resolve) => {
+      finishDownload = resolve;
+    });
+    mock.api.invoke = (command, args) =>
+      command === "get_media_library_thumbnails"
+        ? download
+        : originalInvoke(command, args);
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+    await act(async () => {
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      await vi.advanceTimersByTimeAsync(150);
+    });
+    await act(async () => {
+      mock.emitThumbnailReady("a.jpg", "thumbnail-data");
+      mock.emitFileMetadataReady("a.jpg", {});
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    const state = result.current[0];
+    expect(state.kind).toBe("loaded");
+    if (state.kind !== "loaded") throw new Error("Expected loaded session");
+    expect(state.thumbnails.get("a.jpg")).toBe("loading");
+    expect(state.metadataProgress.getRemaining()).toBe(0);
+    await act(async () => {
+      finishDownload([]);
+    });
   });
 
   it("stores canonical metadata from file_metadata_ready", async () => {

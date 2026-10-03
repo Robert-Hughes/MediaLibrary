@@ -1,5 +1,17 @@
 import { recycleBinName } from "./utils/platform";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {
+  createFolderLifecycle,
+  type FolderLifecycle,
+  type FolderIntent,
+} from "./folderLifecycle";
 import {
   ThumbnailStore,
   FileMetadataOccurrencesStore,
@@ -53,7 +65,7 @@ import type {
 import { projectApplyOperation } from "./applyProjection";
 import { mergeSessionIssues } from "./sessionIssueProjection";
 import { projectSessionMetadata } from "./sessionMetadataProjection";
-import { projectSessionThumbnails } from "./sessionThumbnailProjection";
+import { createSessionThumbnailProjector } from "./sessionThumbnailProjection";
 import { normalizeMetadataOccurrences } from "./utils/scanEvents";
 import { createSessionDeltaCoordinator } from "./sessionDeltaCoordinator";
 import { decodeMetadataDictionaryDelta } from "./sessionTransport";
@@ -183,9 +195,13 @@ export interface MediaLibraryActions {
   dismissAllTargetVerifyOutcomes: () => void;
 }
 
-export function useMediaLibrary(
-  api: TauriApi,
-): [AppState & { recentFolders: string[] }, MediaLibraryActions] {
+export function useMediaLibrary(api: TauriApi): [
+  AppState & {
+    recentFolders: string[];
+    folderLifecycle: FolderLifecycle;
+  },
+  MediaLibraryActions,
+] {
   const [appState, setAppState] = useState<AppState>({ kind: "idle" });
   const appStateRef = useRef<AppState>(appState);
   appStateRef.current = appState;
@@ -193,11 +209,31 @@ export function useMediaLibrary(
   const writableSchemaDefinitions = useWritableSchemaDefinitions();
 
   const thumbnailStoreRef = useRef<ThumbnailStore>(new ThumbnailStore());
+  const thumbnailProjectorRef = useRef<ReturnType<
+    typeof createSessionThumbnailProjector
+  > | null>(null);
   const fileMetadataOccurrencesStoreRef = useRef<FileMetadataOccurrencesStore>(
     new FileMetadataOccurrencesStore(),
   );
   const metadataProgressStoreRef = useRef<MetadataProgressStore>(
     new MetadataProgressStore(),
+  );
+  const folderLifecycleRef = useRef<ReturnType<
+    typeof createFolderLifecycle
+  > | null>(null);
+  if (folderLifecycleRef.current === null) {
+    folderLifecycleRef.current = createFolderLifecycle(() =>
+      metadataProgressStoreRef.current.getRemaining(),
+    );
+  }
+  const lifecycle = folderLifecycleRef.current;
+  const folderLifecycle = useSyncExternalStore(
+    lifecycle.subscribe,
+    lifecycle.getSnapshot,
+  );
+  useEffect(
+    () => metadataProgressStoreRef.current.subscribe(lifecycle.updateProgress),
+    [lifecycle],
   );
   // The scan_id of the most recently started scan. Events with a different
   // scan_id are stale (from a previous scan) and are discarded.
@@ -206,10 +242,6 @@ export function useMediaLibrary(
   const activeApplyOperationIdRef = useRef<string | null>(null);
   const sessionFilePathsRef = useRef<Set<string>>(new Set());
   const seenSessionIssueIdsRef = useRef<Set<number>>(new Set());
-  // Monotonic frontend lifecycle identity. Unlike scan_id, this also changes
-  // immediately when replacing or closing a scan and cannot collide when the
-  // same folder is reopened within one clock tick.
-  const scanLifecycleGenerationRef = useRef(0);
   const targetDraftEditsStoreRef = useRef<TargetDraftEditsStore>(
     new TargetDraftEditsStore(),
   );
@@ -280,10 +312,12 @@ export function useMediaLibrary(
         );
       }
       const previousRevision = sessionRevisionRef.current;
+      lifecycle.projectSnapshot(snapshot);
       sessionRevisionRef.current = snapshot.revision;
       activeApplyOperationIdRef.current =
         snapshot.apply_operation?.operation_id ?? null;
       if (snapshot.lifecycle === "idle") {
+        thumbnailProjectorRef.current?.reset();
         const hadActiveSession =
           activeScanIdRef.current !== -1 || activeFolderRef.current !== null;
         sessionFilePathsRef.current.clear();
@@ -386,18 +420,10 @@ export function useMediaLibrary(
           progress: metadataProgressStoreRef.current,
         });
         metadataProgressStoreRef.current.setTotal(snapshot.files.length);
-        let thumbnailProjection: Promise<void> | undefined;
         if (rebuildMetadataProjection) {
-          thumbnailProjection = projectSessionThumbnails(
+          thumbnailProjectorRef.current?.project(
             sessionId,
             snapshot.thumbnails,
-            {
-              store: thumbnailStoreRef.current,
-              invoke: api.invoke,
-              isCurrentSession: (sessionId) =>
-                activeScanIdRef.current === sessionId &&
-                sessionRevisionRef.current === snapshot.revision,
-            },
           );
         }
         for (const issue of snapshot.issues) {
@@ -467,10 +493,9 @@ export function useMediaLibrary(
           next.applyCompletion = projectedApply.completion;
           return next;
         });
-        return thumbnailProjection;
       }
     },
-    [api, loadedStateFromProjection],
+    [loadedStateFromProjection, lifecycle],
   );
 
   const pushApplicationIssue = useCallback(
@@ -528,40 +553,56 @@ export function useMediaLibrary(
   const listenersReadyRef = useRef<Promise<void>>(Promise.resolve());
 
   const startScan = useCallback(
-    async (folder: string) => {
-      // Invalidate work from the previous folder/scan before any asynchronous
-      // shutdown or setup step can yield.
-      scanLifecycleGenerationRef.current += 1;
-      // Wait for event listeners to be registered before starting the scan so
-      // Wait for session listeners before opening so no authoritative deltas
-      // can arrive before the projection is ready.
-      await listenersReadyRef.current;
-      const session = (await api.invoke("open_media_library_session", {
-        folderPath: folder,
-      })) as MediaLibrarySessionSnapshot;
-      if (session.session_id === null || session.folder !== folder) {
-        throw new Error("Rust opened an invalid media-library session");
-      }
-      await applySessionSnapshot(session);
-      if (session.lifecycle === "failed") return;
-      if (session.lifecycle !== "opening") {
-        throw new Error("Rust returned an invalid session lifecycle");
-      }
-      const scanId = session.session_id;
-      console.debug(`[startScan] folder=${folder} sessionId=${scanId}`);
-      api
-        .invoke("set_window_title", { title: `Media Library — ${folder}` })
-        .catch(() => {});
+    async (folder: string, intent: FolderIntent = "open") => {
+      if (!lifecycle.beginOpen(folder, intent)) return;
+      let failed = true;
+      try {
+        // Wait for session listeners before opening so no authoritative deltas
+        // can arrive before the projection is ready.
+        await listenersReadyRef.current;
+        const session = (await api.invoke("open_media_library_session", {
+          folderPath: folder,
+        })) as MediaLibrarySessionSnapshot;
+        if (session.session_id === null || session.folder !== folder) {
+          throw new Error("Rust opened an invalid media-library session");
+        }
+        await applySessionSnapshot(session);
+        if (session.lifecycle === "failed") return;
+        if (session.lifecycle !== "opening") {
+          throw new Error("Rust returned an invalid session lifecycle");
+        }
+        const scanId = session.session_id;
+        console.debug(`[startScan] folder=${folder} sessionId=${scanId}`);
+        api
+          .invoke("set_window_title", { title: `Media Library — ${folder}` })
+          .catch(() => {});
 
-      await api.invoke("start_scan", { scanId, folderPath: folder });
-      pushRecentFolder(folder);
+        await api.invoke("start_scan", { scanId, folderPath: folder });
+        pushRecentFolder(folder);
+        failed = false;
+      } finally {
+        lifecycle.finishOpen(failed);
+      }
     },
-    [api, applySessionSnapshot, pushRecentFolder],
+    [api, applySessionSnapshot, pushRecentFolder, lifecycle],
   );
 
   useEffect(() => {
     const unlisteners: Array<() => void> = [];
     let cancelled = false;
+    const thumbnailProjector = createSessionThumbnailProjector({
+      store: thumbnailStoreRef.current,
+      invoke: api.invoke,
+      isCurrentSession: (sessionId) =>
+        !cancelled && activeScanIdRef.current === sessionId,
+      onError: (error) => pushApplicationError("thumbnail-transport", error),
+      onBatch: ({ sessionId, entries, durationMs, pendingEntries }) => {
+        console.info(
+          `[scan_perf_ui] phase=thumbnail_payload_project session_id=${sessionId} entries=${entries} project_ms=${durationMs} pending=${pendingEntries}`,
+        );
+      },
+    });
+    thumbnailProjectorRef.current = thumbnailProjector;
 
     const deltaCoordinator = createSessionDeltaCoordinator({
       getActiveSessionId: () => activeScanIdRef.current,
@@ -836,14 +877,12 @@ export function useMediaLibrary(
             sessionId: delta.session_id,
             revision: delta.revision,
             source: "media_library_session_thumbnails_changed",
-            apply: async () => {
+            apply: () => {
               const applyStarted = Date.now();
-              await projectSessionThumbnails(delta.session_id, delta.entries, {
-                store: thumbnailStoreRef.current,
-                invoke: api.invoke,
-                isCurrentSession: (sessionId) =>
-                  activeScanIdRef.current === sessionId,
-              });
+              thumbnailProjectorRef.current?.project(
+                delta.session_id,
+                delta.entries,
+              );
               console.info(
                 `[scan_perf_ui] phase=thumbnail_event_project revision=${delta.revision} entries=${delta.entries.length} queue_ms=${applyStarted - receivedAt} project_ms=${Date.now() - applyStarted}`,
               );
@@ -1020,6 +1059,10 @@ export function useMediaLibrary(
             revision: delta.revision,
             source: "media_library_session_discovery_changed",
             apply: () => {
+              lifecycle.projectDiscovery(
+                delta.session_id,
+                delta.discovery_running,
+              );
               setAppState((previous) =>
                 previous.kind === "loaded"
                   ? { ...previous, scanning: delta.discovery_running }
@@ -1142,6 +1185,7 @@ export function useMediaLibrary(
     });
     return () => {
       cancelled = true;
+      thumbnailProjector.reset();
       unlisteners.forEach((fn) => fn());
     };
   }, [
@@ -1149,19 +1193,21 @@ export function useMediaLibrary(
     applySessionSnapshot,
     loadedStateFromProjection,
     pushApplicationError,
+    lifecycle,
   ]);
 
   const openFolder = useCallback(async () => {
+    if (!lifecycle.getCurrent().canOpen) return;
     const folder = (await api.invoke("pick_folder")) as string | null;
     if (!folder) return;
     await startScan(folder);
-  }, [api, startScan]);
+  }, [api, startScan, lifecycle]);
 
   const refreshFolder = useCallback(async () => {
-    const current = appStateRef.current;
-    if (current.kind !== "loading" && current.kind !== "loaded") return;
-    await startScan(current.folder);
-  }, [startScan]);
+    const current = lifecycle.getCurrent();
+    if (!current.canRefresh || current.folder === null) return;
+    await startScan(current.folder, "refresh");
+  }, [startScan, lifecycle]);
 
   const openRecent = useCallback(
     async (folder: string) => {
@@ -1171,7 +1217,7 @@ export function useMediaLibrary(
   );
   const closeFolder = useCallback(() => {
     const sessionId = activeScanIdRef.current;
-    if (sessionId < 0) return;
+    if (sessionId < 0 || !lifecycle.beginClose()) return;
     api
       .invoke("close_media_library_session", { sessionId })
       .then((snapshot) => {
@@ -1186,8 +1232,9 @@ export function useMediaLibrary(
         } else {
           console.error("Discarded stale session-close failure", error);
         }
-      });
-  }, [api, applySessionSnapshot, pushApplicationError]);
+      })
+      .finally(lifecycle.finishClose);
+  }, [api, applySessionSnapshot, pushApplicationError, lifecycle]);
 
   const prioritizeQueues = useCallback(
     (visiblePaths: string[]) => {
@@ -1462,5 +1509,5 @@ export function useMediaLibrary(
     ],
   );
 
-  return [{ ...appState, recentFolders }, mediaLibraryActions];
+  return [{ ...appState, recentFolders, folderLifecycle }, mediaLibraryActions];
 }
