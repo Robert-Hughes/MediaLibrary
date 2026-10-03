@@ -223,7 +223,9 @@ export function FileMap({
         clusterIcon(map, cluster, markerCoordinatesRef.current),
       zoomToBoundsOnClick: true,
       spiderfyOnMaxZoom: true,
-      spiderfyDistanceMultiplier: spiderfyDistanceMultiplier(thumbnailSize),
+      spiderfyDistanceMultiplier: spiderfyDistanceMultiplier(
+        previousThumbnailSizeRef.current,
+      ),
       showCoverageOnHover: false,
       removeOutsideVisibleBounds: true,
       chunkedLoading: true,

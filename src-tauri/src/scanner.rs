@@ -1813,14 +1813,16 @@ mod tests {
         assert!(!wire_object.contains_key("metadata"));
         assert!(!wire["occurrences"].as_array().unwrap().is_empty());
 
+        let resolution_schema = SchemaDefinitionId {
+            table: "Exif::Main".into(),
+            tag_id: "282".into(),
+            index: None,
+        };
         let resolutions: Vec<_> = result
             .occurrences
             .iter()
             .filter(|occurrence| {
-                occurrence
-                    .tag_info
-                    .as_ref()
-                    .is_some_and(|info| info.name == "XResolution")
+                occurrence.schema_id == resolution_schema
                     && matches!(
                         occurrence
                             .write_target
@@ -1856,7 +1858,7 @@ mod tests {
         assert_eq!(ifd1.id.runtime_tag_id, "282");
         assert_eq!(ifd1.id.tag_id_scope, ifd0.id.tag_id_scope);
         assert!(ifd1.id.copy > 0);
-        assert_eq!(ifd0.tag_info, ifd1.tag_info);
+        assert_eq!(ifd0.schema_id, ifd1.schema_id);
         assert_eq!(
             ifd0.write_target.as_ref().unwrap().selector(),
             "1IFD0:7ID-282:XResolution"
@@ -1908,10 +1910,13 @@ mod tests {
         assert_eq!(wire.as_object().unwrap().len(), 2);
         assert!(wire.get("metadata").is_none());
         let transported = wire["occurrences"].as_array().unwrap();
+        assert!(transported
+            .iter()
+            .all(|item| item.get("tag_info").is_none()));
         assert!(
             transported
                 .iter()
-                .filter(|item| { item["tag_info"]["id"] == serde_json::to_value(&schema).unwrap() })
+                .filter(|item| item["schema_id"] == serde_json::to_value(&schema).unwrap())
                 .count()
                 >= 2
         );

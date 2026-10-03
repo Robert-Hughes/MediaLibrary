@@ -156,12 +156,7 @@ fn target_entries(
             let matches: Vec<_> = image
                 .occurrences
                 .iter()
-                .filter(|occurrence| {
-                    occurrence
-                        .tag_info
-                        .as_ref()
-                        .is_some_and(|info| info.id == entry.schema_id)
-                })
+                .filter(|occurrence| occurrence.schema_id == entry.schema_id)
                 .collect();
             let target = if matches.is_empty() {
                 let info = medialibrary_tauri_lib::tag_schema::get_registry()

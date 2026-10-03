@@ -582,7 +582,7 @@ mod tests {
 
     thread_local! {
         static TEST_SCHEMA_INFOS: RefCell<BTreeMap<SchemaDefinitionId, TagInfo>> =
-            RefCell::new(BTreeMap::new());
+            const { RefCell::new(BTreeMap::new()) };
     }
 
     fn remember_test_schema(info: &TagInfo) {
@@ -923,7 +923,7 @@ mod tests {
             Path::new("file.jpg"),
             std::slice::from_ref(&entry),
             &image(vec![fresh]),
-            |id| test_schema_lookup(id),
+            test_schema_lookup,
         )
         .unwrap();
 
@@ -956,7 +956,7 @@ mod tests {
                 Path::new("animation.gif"),
                 &[set],
                 &image(vec![existing.clone()]),
-                |id| test_schema_lookup(id),
+                test_schema_lookup,
             ),
             Err(TargetApplyError::ArgumentPlanningFailure { reason, .. })
                 if reason.contains("not supported by this file format")
@@ -966,7 +966,7 @@ mod tests {
             Path::new("animation.gif"),
             &[delete],
             &image(vec![existing]),
-            |id| test_schema_lookup(id),
+            test_schema_lookup,
         )
         .expect("deleting an existing writable EXIF occurrence from GIF is safe");
         assert_eq!(planned.targets.len(), 1);
@@ -1028,7 +1028,7 @@ mod tests {
             Path::new("file.jpg"),
             &[non_ascii],
             &image(vec![location]),
-            |id| test_schema_lookup(id),
+            test_schema_lookup,
         )
         .err()
         .expect("missing CodedCharacterSet must reject non-ASCII IPTC");
@@ -1083,7 +1083,7 @@ mod tests {
             Path::new("file.jpg"),
             &entries,
             &image(vec![charset, location]),
-            |id| test_schema_lookup(id),
+            test_schema_lookup,
         )
         .expect("the marker draft in this apply makes the non-ASCII write safe");
         assert_eq!(planned.targets.len(), 2);
@@ -1137,7 +1137,7 @@ mod tests {
             Path::new("file.jpg"),
             std::slice::from_ref(&marker_draft),
             &image(vec![charset, location.clone()]),
-            |id| test_schema_lookup(id),
+            test_schema_lookup,
         )
         .unwrap();
 
@@ -1203,7 +1203,7 @@ mod tests {
             Path::new("file.jpg"),
             &entries,
             &image(vec![charset, keywords]),
-            |id| test_schema_lookup(id),
+            test_schema_lookup,
         )
         .unwrap();
         let list_plan = planned
