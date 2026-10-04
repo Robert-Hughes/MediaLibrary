@@ -59,6 +59,7 @@ interface Props {
    *  Set during scanning to make it visually clear that sorting isn't active. */
   sortingDisabled?: boolean;
   selectedPath: string | null;
+  preserveMissingSelection?: boolean;
   onSelect: (relativePath: string | null) => void;
   onShowInExplorer: (index: number) => void;
   onVisibilityChange: (visiblePaths: string[]) => void;
@@ -341,6 +342,7 @@ function FileListImpl(
     onSortChange,
     sortingDisabled,
     selectedPath,
+    preserveMissingSelection,
     onSelect,
     onShowInExplorer,
     onVisibilityChange,
@@ -536,6 +538,7 @@ function FileListImpl(
   const { selectedIndices, toggleAll, handleRowSelect, handleRowContextMenu } =
     useRowSelection({
       paths: filePaths,
+      preserveMissingPaths: preserveMissingSelection,
       selectedPath,
       onSelect,
       onFileOpen,

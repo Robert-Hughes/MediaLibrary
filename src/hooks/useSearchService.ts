@@ -30,6 +30,8 @@ export interface UseSearchServiceArgs {
 export interface UseSearchServiceResult {
   matched: Set<string> | null;
   pending: boolean;
+  /** The current session/query has finished a request, including failure. */
+  settled: boolean;
 }
 
 export function useSearchService({
@@ -44,6 +46,11 @@ export function useSearchService({
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [matched, setMatched] = useState<Set<string> | null>(null);
   const [pending, setPending] = useState(false);
+  const submittedQueryRef = useRef(query);
+  const [completedSearch, setCompletedSearch] = useState<{
+    sessionId: number | null;
+    query: string;
+  } | null>(null);
 
   currentSessionRef.current = sessionId;
   currentQueryRef.current = query;
@@ -53,6 +60,10 @@ export function useSearchService({
     if (result.request_id !== requestIdRef.current) return;
     setMatched(new Set(result.matched_paths));
     setPending(false);
+    setCompletedSearch({
+      sessionId: result.session_id,
+      query: submittedQueryRef.current,
+    });
   }, []);
 
   useEffect(() => {
@@ -79,14 +90,20 @@ export function useSearchService({
     requestIdRef.current += 1;
     setMatched(null);
     setPending(false);
+    setCompletedSearch(null);
   }, [sessionId]);
 
   const submitNow = useCallback(
     (submittedSessionId: number | null, submittedQuery: string) => {
       const requestId = ++requestIdRef.current;
+      submittedQueryRef.current = submittedQuery;
       if (submittedSessionId === null || submittedQuery.trim().length === 0) {
         setMatched(null);
         setPending(false);
+        setCompletedSearch({
+          sessionId: submittedSessionId,
+          query: submittedQuery,
+        });
         return;
       }
 
@@ -107,6 +124,10 @@ export function useSearchService({
             requestIdRef.current === requestId
           ) {
             setPending(false);
+            setCompletedSearch({
+              sessionId: submittedSessionId,
+              query: submittedQuery,
+            });
           }
         });
     },
@@ -134,5 +155,11 @@ export function useSearchService({
     };
   }, [debounceMs, query, sessionId, submitNow]);
 
-  return { matched, pending };
+  return {
+    matched,
+    pending,
+    settled:
+      completedSearch?.sessionId === sessionId &&
+      completedSearch.query === query,
+  };
 }

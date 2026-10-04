@@ -70,9 +70,25 @@ describe("useSearchService", () => {
 
     await waitFor(() => expect(api.invokes).toHaveLength(1));
     expect(result.current.pending).toBe(true);
+    expect(result.current.settled).toBe(false);
     act(() => api.invokes[0].resolve(resultFor(api.invokes[0].request, [])));
     await waitFor(() => expect(result.current.pending).toBe(false));
     expect(result.current.matched).toEqual(new Set());
+    expect(result.current.settled).toBe(true);
+  });
+
+  it("settles a failed refreshed search and resets completion for a new session", async () => {
+    const api = new FakeSearchApi();
+    const { result, rerender } = renderHook(
+      ({ sessionId }) =>
+        useSearchService({ sessionId, query: "jpg", debounceMs: 0, api }),
+      { initialProps: { sessionId: 7 } },
+    );
+    await act(async () => api.invokes[0].reject(new Error("search failed")));
+    expect(result.current.settled).toBe(true);
+    expect(result.current.pending).toBe(false);
+    rerender({ sessionId: 8 });
+    expect(result.current.settled).toBe(false);
   });
 
   it("accepts only the latest request when command results arrive out of order", async () => {

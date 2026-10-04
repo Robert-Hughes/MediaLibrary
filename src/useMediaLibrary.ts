@@ -475,7 +475,12 @@ export function useMediaLibrary(api: TauriApi): [
             presentation,
           );
           next.batchOperations = snapshot.batch_operations ?? {};
-          if (previous.kind === "loaded") {
+          if (
+            previous.kind === "loaded" &&
+            (previous.sessionId === sessionId ||
+              (previous.folder === folder &&
+                lifecycle.getCurrent().intent === "refresh"))
+          ) {
             next.selectedPath = previous.selectedPath;
             next.metadataVersion = previous.metadataVersion;
           }

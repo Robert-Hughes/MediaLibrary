@@ -202,6 +202,147 @@ describe("App schema preloading", () => {
     _clearTagSchemaRegistryForTests();
   });
 
+  it.each([false, true])(
+    "preserves refresh selection through empty and partial discovery (search: %s)",
+    async (withSearch) => {
+      localStorage.clear();
+      const { invoke } = await import("@tauri-apps/api/core");
+      const { listen } = await import("@tauri-apps/api/event");
+      const handlers = new Map<string, (event: { payload: unknown }) => void>();
+      vi.mocked(listen).mockImplementation((event, handler) => {
+        handlers.set(event, handler as (event: { payload: unknown }) => void);
+        return Promise.resolve(() => handlers.delete(event));
+      });
+      const emit = (event: string, payload: unknown) =>
+        handlers.get(event)?.({ payload });
+      let releaseSearch: (() => void) | undefined;
+      vi.mocked(invoke).mockImplementation((cmd, args) => {
+        const sessionResult = handleSessionCommand(cmd, args);
+        if (sessionResult) return sessionResult;
+        if (cmd === "preload_schema") return Promise.resolve([]);
+        if (cmd === "pick_folder") return Promise.resolve("/files");
+        if (cmd === "start_scan") {
+          sessionSnapshot = {
+            ...sessionSnapshot,
+            revision: sessionSnapshot.revision + 1,
+            lifecycle: "loaded",
+            discovery_running: true,
+          };
+          emit("media_library_session_changed", {
+            ...sessionSnapshot,
+            apply_operation: null,
+          });
+        }
+        if (cmd === "search_media_library_session") {
+          const request = (
+            args as { request: { session_id: number; request_id: number } }
+          ).request;
+          const result = {
+            ...request,
+            matched_paths: sessionSnapshot.files.map(
+              (file) => file.relative_path,
+            ),
+          };
+          if (request.session_id === 2) {
+            return new Promise((resolve) => {
+              releaseSearch = () => resolve(result);
+            });
+          }
+          return Promise.resolve(result);
+        }
+        return Promise.resolve(null);
+      });
+      const complete = async () => {
+        await act(async () => {
+          emitSessionMetadata(emit, {
+            scan_id: sessionSnapshot.session_id!,
+            results: sessionSnapshot.files.map((file) => ({
+              relative_path: file.relative_path,
+              occurrences: [],
+            })),
+          });
+          sessionSnapshot = {
+            ...sessionSnapshot,
+            revision: sessionSnapshot.revision + 1,
+            discovery_running: false,
+          };
+          emit("media_library_session_discovery_changed", {
+            session_id: sessionSnapshot.session_id,
+            revision: sessionSnapshot.revision,
+            discovery_running: false,
+          });
+        });
+      };
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByTestId("open-folder-btn")).toBeInTheDocument(),
+      );
+      await act(async () =>
+        fireEvent.click(screen.getByTestId("open-folder-btn")),
+      );
+      await act(async () =>
+        emitSessionFiles(
+          emit,
+          1,
+          ["a.jpg", "b.jpg", "c.jpg"].map((relative_path) =>
+            makeFile({ relative_path }),
+          ),
+        ),
+      );
+      await complete();
+      await waitFor(() =>
+        expect(screen.getByTestId("menu-bar-refresh-btn")).toBeEnabled(),
+      );
+      if (withSearch) {
+        fireEvent.change(screen.getByTestId("list-search-input"), {
+          target: { value: "jpg" },
+        });
+        await waitFor(() =>
+          expect(
+            vi
+              .mocked(invoke)
+              .mock.calls.some(
+                ([cmd]) => cmd === "search_media_library_session",
+              ),
+          ).toBe(true),
+        );
+      }
+      fireEvent.click(screen.getAllByTestId("file-row")[0]);
+      fireEvent.click(screen.getAllByTestId("file-row")[1], { ctrlKey: true });
+      fireEvent.click(screen.getAllByTestId("file-row")[2], { ctrlKey: true });
+      await act(async () =>
+        fireEvent.click(screen.getByTestId("menu-bar-refresh-btn")),
+      );
+      expect(screen.queryAllByTestId("file-row")).toHaveLength(0);
+      await act(async () =>
+        emitSessionFiles(emit, 2, [makeFile({ relative_path: "b.jpg" })]),
+      );
+      expect(screen.getByTestId("file-row")).toHaveClass("file-row--selected");
+      await act(async () =>
+        emitSessionFiles(emit, 2, [makeFile({ relative_path: "a.jpg" })]),
+      );
+      await complete();
+      if (withSearch) {
+        await waitFor(() => expect(releaseSearch).toBeDefined());
+        expect(
+          screen
+            .getAllByTestId("file-row")
+            .every((row) => row.classList.contains("file-row--selected")),
+        ).toBe(true);
+        await act(async () => releaseSearch!());
+      }
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByTestId("file-row")
+            .every((row) => row.classList.contains("file-row--selected")),
+        ).toBe(true),
+      );
+      // The removed primary (c.jpg) must not clear a.jpg and b.jpg.
+      expect(screen.getAllByTestId("file-row")).toHaveLength(2);
+    },
+  );
+
   it("shows the shared opening phase before the first folder command responds", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const { listen } = await import("@tauri-apps/api/event");

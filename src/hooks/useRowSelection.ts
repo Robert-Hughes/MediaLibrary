@@ -16,6 +16,7 @@ function pathRange(
 
 export interface RowSelectionConfig {
   paths: readonly string[];
+  preserveMissingPaths?: boolean;
   selectedPath: string | null;
   onSelect: (relativePath: string | null) => void;
   onFileOpen: (relativePath: string) => void;
@@ -42,6 +43,7 @@ function isFileListShortcutEventSafe(event: KeyboardEvent): boolean {
 export function useRowSelection(cfg: RowSelectionConfig) {
   const {
     paths,
+    preserveMissingPaths = false,
     selectedPath,
     onSelect,
     onFileOpen,
@@ -94,6 +96,7 @@ export function useRowSelection(cfg: RowSelectionConfig) {
 
   // A completed filter change deliberately prunes hidden selections.
   useEffect(() => {
+    if (preserveMissingPaths) return;
     const visible = new Set(paths);
     setSelectedPaths((prev) => {
       const trimmed = new Set([...prev].filter((path) => visible.has(path)));
@@ -103,7 +106,14 @@ export function useRowSelection(cfg: RowSelectionConfig) {
       anchorPathRef.current =
         selectedPath && visible.has(selectedPath) ? selectedPath : null;
     }
-  }, [paths, selectedPath]);
+    if (selectedPath !== null && !visible.has(selectedPath)) {
+      // Keep surviving multi-selection when the primary file was removed.
+      const retained = [...selectedPathsRef.current].find((path) =>
+        visible.has(path),
+      );
+      onSelect(retained ?? null);
+    }
+  }, [paths, selectedPath, preserveMissingPaths, onSelect]);
 
   const selectAll = useCallback(() => {
     if (paths.length === 0) return;

@@ -288,10 +288,29 @@ function LoadedView({
   // Search is maintained from the Rust-authoritative session. The frontend
   // submits only the active query and filters its existing sorted list by the
   // returned relative-path set.
-  const { matched: searchMatched, pending: searchPending } = useSearchService({
-    sessionId: state.kind === "loaded" ? state.sessionId : null,
+  const refreshing = state.folderLifecycle.intent === "refresh";
+  const [selectionRefreshFolder, setSelectionRefreshFolder] = useState<
+    string | null
+  >(null);
+  const {
+    matched: searchMatched,
+    pending: searchPending,
+    settled: searchSettled,
+  } = useSearchService({
+    // Submit the retained query against the complete refreshed session.
+    sessionId: refreshing ? null : state.sessionId,
     query: listSearchQuery,
   });
+  const preserveMissingSelection =
+    refreshing ||
+    (selectionRefreshFolder === state.folder &&
+      ((state.folderLifecycle.phase !== "ready" &&
+        state.folderLifecycle.phase !== "failed") ||
+        (listSearchQuery.trim().length > 0 && !searchSettled)));
+  useEffect(() => {
+    if (refreshing) setSelectionRefreshFolder(state.folder);
+    else if (!preserveMissingSelection) setSelectionRefreshFolder(null);
+  }, [refreshing, preserveMissingSelection, state.folder]);
   const parsedListSearchQuery = useMemo(
     () => parseSearchQuery(listSearchQuery),
     [listSearchQuery],
@@ -323,22 +342,10 @@ function LoadedView({
   );
 
   useEffect(() => {
-    if (
-      state.selectedPath !== null &&
-      !displayFiles.some((file) => file.relative_path === state.selectedPath)
-    ) {
-      actions.selectFile(null);
-    }
     if (state.galleryPath !== null && galleryIndex < 0) {
       actions.closeGallery();
     }
-  }, [
-    displayFiles,
-    galleryIndex,
-    state.selectedPath,
-    state.galleryPath,
-    actions,
-  ]);
+  }, [displayFiles, galleryIndex, state.galleryPath, actions]);
 
   const onShowInExplorer = useCallback(
     async (index: number) => {
@@ -478,6 +485,7 @@ function LoadedView({
         onSortChange={actions.setSortConfig}
         sortingDisabled={sortingDisabled}
         selectedPath={state.selectedPath}
+        preserveMissingSelection={preserveMissingSelection}
         onSelect={actions.selectFile}
         onShowInExplorer={onShowInExplorer}
         onVisibilityChange={actions.prioritizeQueues}

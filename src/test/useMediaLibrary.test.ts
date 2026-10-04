@@ -188,6 +188,44 @@ describe("useMediaLibrary", () => {
     vi.useRealTimers();
   });
 
+  it("retains the selected path on refresh but clears it when opening another folder", async () => {
+    const mock = createMockTauriApi();
+    mock.pickFolderResolves("/files");
+    const { result } = renderHook(() => useMediaLibrary(mock.api));
+    await act(async () => {
+      await result.current[1].openFolder();
+    });
+    await act(async () => {
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      mock.emitFileMetadataReady("a.jpg", {});
+      mock.emitScanComplete();
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    act(() => result.current[1].selectFile("a.jpg"));
+    await act(async () => {
+      await result.current[1].refreshFolder();
+    });
+    expect(result.current[0]).toMatchObject({
+      kind: "loaded",
+      files: [],
+      selectedPath: "a.jpg",
+    });
+    await act(async () => {
+      mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
+      mock.emitFileMetadataReady("a.jpg", {});
+      mock.emitScanComplete();
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(result.current[0]).toMatchObject({ selectedPath: "a.jpg" });
+    await act(async () => {
+      await result.current[1].openRecent("/other");
+    });
+    expect(result.current[0]).toMatchObject({
+      folder: "/other",
+      selectedPath: null,
+    });
+  });
+
   it("shows refresh immediately, rejects overlapping requests, and stays guarded through metadata loading", async () => {
     const mock = createMockTauriApi();
     mock.pickFolderResolves("/files");
@@ -273,6 +311,7 @@ describe("useMediaLibrary", () => {
       await vi.advanceTimersByTimeAsync(250);
     });
     const originalInvoke = mock.api.invoke;
+    act(() => result.current[1].selectFile("a.jpg"));
     mock.api.invoke = async (command, args) => {
       if (command === "open_media_library_session")
         throw new Error("open failed");
@@ -287,6 +326,7 @@ describe("useMediaLibrary", () => {
       phase: "ready",
       canRefresh: true,
     });
+    expect(result.current[0]).toMatchObject({ selectedPath: "a.jpg" });
     mock.api.invoke = originalInvoke;
     await act(async () => {
       await result.current[1].refreshFolder();
