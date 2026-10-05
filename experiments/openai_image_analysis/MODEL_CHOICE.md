@@ -1,126 +1,180 @@
 # Model Choice for Photo-Library Tagging
 
-Final analysis of vision models for unsupervised bulk media-library tagging,
-informed by a side-by-side run of candidate models (including the new GPT-5.6 series) on a 21-photo test set
-covering portraits, landmarks, transit interiors, OCR-heavy maps, beach,
-landscape, museum exhibits, motion blur, screenshots, and more.
+Current analysis of OpenAI vision models for unsupervised bulk media-library tagging.
+The October 2026 refresh reran the production image-description prompt against a
+24-case corpus: the original 20-photo 2010 set, three known false-animal
+regressions from `TODO.md`, and a current Google Maps screenshot. All five
+models completed all 24 requests with valid structured output (120/120 total).
 
-Pricing reflects cost to process 10,000 1024x1024 images via the Responses API
-(input tokens only; output ~250 tokens adds a small constant).
+Pricing below is standard Responses API pricing as of 2026-10-05. Batch and
+Flex are 50% cheaper where supported. Image inputs are billed as input tokens.
 
-## Excluded Models
+## Current pricing
 
-| Model                                         | Reason                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------- |
-| `gpt-4o-transcribe`, `gpt-4o-mini-transcribe` | Audio transcription models; vision is incidental, not their job.          |
-| `gpt-5.3-codex`                               | Code-tuned variant; no advantage for image description.                   |
-| `gpt-4o-mini` ($38/10k)                       | Strictly dominated by `gpt-5.4-mini` ($12/10k) — newer, cheaper, smarter. |
-| `gpt-4.1-mini` ($102/10k)                     | Severely dominated; mini-tier priced like a flagship (patch-token math).  |
-| `gpt-4.1-nano` ($25/10k)                      | Dominated by `gpt-5.4-mini` ($12/10k).                                    |
-| `gpt-4.1` ($19/10k)                           | Tied with `gpt-4o` on price; no clear quality edge.                       |
-| `gpt-5.4-pro`, `gpt-5.5-pro` ($498/10k)       | 10–40x cost of flagship for marginal quality on this task. Overkill.      |
-| `gpt-5.6-terra` ($41/10k)                     | Dominated by `gpt-5.6-luna` due to Westminster Bridge regression.         |
+| Model          | Input / 1M | Cached read / 1M | Cache write / 1M | Output / 1M | October benchmark role                         |
+| -------------- | ---------: | ---------------: | ---------------: | ----------: | ---------------------------------------------- |
+| `gpt-6-luna`   |      $0.10 |            $0.01 |           $0.125 |       $0.50 | New bulk/default candidate                     |
+| `gpt-5.6-luna` |      $0.20 |            $0.02 |            $0.25 |       $1.20 | Previous default/control                       |
+| `gpt-6-sol`    |      $2.00 |            $0.20 |            $2.50 |      $10.00 | GPT-6 Sol comparison                           |
+| `gpt-6.1-sol`  |      $2.00 |            $0.10 |            $2.50 |      $10.00 | New quality/cost candidate                     |
+| `gpt-6-astra`  |     $10.00 |            $1.00 |           $12.50 |      $50.00 | Maximum-quality reference                      |
+| `gpt-5.6-sol`  |      $4.00 |            $0.40 |            $5.00 |      $20.00 | Historical flagship; current promotional price |
+| `gpt-5.4-mini` |      $0.75 |           $0.075 |            $0.75 |       $4.50 | Historical inexpensive tier                    |
+| `gpt-4o`       |      $2.50 |            $1.25 |            $2.50 |      $10.00 | Historical vision baseline                     |
 
-## Pareto Frontier
+`gpt-5.4-nano` was deprecated on 2026-10-01 and is intentionally no longer a
+supported Media Library model. OpenAI recommends `gpt-6-luna` as its
+replacement.
 
-| Tier                 | Model          | 10k cost | When to choose                                                                                                     |
-| -------------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------------ |
-| Floor                | `gpt-5.4-nano` | $5       | Bulk tagging only; tolerates weak OCR/fine objects                                                                 |
-| Sweet spot           | `gpt-5.4-mini` | $12      | Solid OCR + cleaner descriptions than nano                                                                         |
-| Reasoning Sweet Spot | `gpt-5.6-luna` | $17      | **Recommended Default** — Native reasoning, smart OCR, names landmarks (St Pancras, London Eye, sculptor Paul Day) |
-| Baseline             | `gpt-4o`       | $19      | Standard vision model; names London landmarks reliably                                                             |
-| Premium              | `gpt-5.4`      | $41      | Slightly better prose; marginal landmark gain                                                                      |
-| Flagship             | `gpt-5.6-sol`  | $83      | Ultimate recognition (e.g. Scroby Sands Wind Farm), but high cost                                                  |
+## October 2026 benchmark cost
 
-## Test Set Results
+The five fresh runs used the same 24 images and the production prompt/schema.
+No prompt-cache reads or writes occurred, which is expected for unique-photo
+workloads with the explicit no-breakpoint policy.
 
-A 21-photo set covering wide content types (see `TEST_SET.md`). Key axis evaluated:
-**landmark/place recognition**, since for an unsupervised tagger that's the
-difference between "ferris wheel" and "London Eye" in search results.
+| Model          | Input tokens | Output tokens | Reasoning tokens | Actual 24-image cost | Extrapolated / 10k | Batch/Flex / 10k* |
+| -------------- | -----------: | ------------: | ---------------: | -------------------: | -----------------: | ----------------: |
+| `gpt-6-luna`   |       36,068 |         4,637 |              922 |        **$0.005925** |          **$2.47** |         **$1.23** |
+| `gpt-5.6-luna` |       36,068 |         5,108 |            1,256 |            $0.013343 |              $5.56 |             $2.78 |
+| `gpt-6-sol`    |       36,068 |         3,918 |              667 |            $0.111316 |             $46.38 |            $23.19 |
+| `gpt-6.1-sol`  |       36,068 |         4,832 |              276 |            $0.120456 |             $50.19 |            $25.10 |
+| `gpt-6-astra`  |       36,068 |         4,924 |              233 |            $0.606880 |            $252.87 |           $126.43 |
 
-> [!NOTE]
-> The 21st image (`Screenshot_20260508_112540_Samsung Browser.jpg`) was replaced in the 5.6 evaluations with `Screenshot_20260623_130708_Maps.jpg` to serve as the adversarial OCR screenshot category.
+\*Simple 50% extrapolation from this token profile. Actual cost depends on the
+images and generated output.
 
-### Landmark Recognition Scoreboard
+GPT-6 Luna was about **56% cheaper than GPT-5.6 Luna** on the measured corpus.
 
-✅ = named correctly; ⚠️ = partial / better than generic but no name; ❌ = generic only
+## Visual recognition results
 
-| Photo                                 | nano   | mini   | gpt-4o | gpt-5.4  | 5.6-luna | 5.6-terra | 5.6-sol | opus-4.7 (chat)                                         |
-| ------------------------------------- | ------ | ------ | ------ | -------- | -------- | --------- | ------- | ------------------------------------------------------- |
-| 0036 St Pancras Renaissance Hotel     | ❌     | ❌     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅ (+ "former Midland Grand Hotel")                     |
-| 0042 The Meeting Place statue         | ❌     | ❌     | ✅     | ✅       | ✅ (1)   | ✅ (1)    | ✅ (1)  | ✅ (+ named sculptor "Paul Day")                        |
-| 0066 Westminster Bridge / County Hall | ❌     | ❌     | ✅     | ✅       | ✅       | ❌ (2)    | ✅      | ✅ (+ "green copper-domed kiosk")                       |
-| 0125 London Eye                       | ❌     | ✅     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅                                                      |
-| 0514 Tower of London                  | ❌     | ❌     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅                                                      |
-| 0136 Hungerford + Golden Jubilee Br   | ❌     | ❌     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅ (+ noted "from inside a London Eye capsule")         |
-| 0028 St Pancras Station interior      | ❌     | ❌     | ❌     | ❌       | ❌ (3)   | ❌        | ❌      | ⚠️ (named "King's Cross" + read "EAST COAST" off train) |
-| 0322 Forth Bridge model (Sci. Museum) | ❌     | ❌     | ⚠️     | ❌       | ❌ (4)   | ❌        | ❌      | ✅ (Forth Bridge + Science Museum)                      |
-| 0381 Queen's House / ORNC             | ❌     | ❌     | ✅     | ❌ (reg) | ✅       | ✅        | ✅      | ✅✅ (+ Old Royal Naval College)                        |
-| 0381 Greenwich Park / Power Station   | ❌     | ❌     | ✅     | ❌       | ✅       | ✅ (5)    | ✅      | ✅                                                      |
-| 0581 Scroby Sands Wind Farm           | ❌     | ❌     | ❌     | ❌       | ❌       | ❌        | ✅ (6)  | ⚠️ (named "offshore wind farm")                         |
-| 0501 Thames Barrier                   | ❌     | ❌     | ❌     | ❌       | ❌       | ❌        | ❌      | ❌ (all models missed this)                             |
-| 0686 Punting (Cambridge)              | ❌     | ✅ (7) | ✅     | ✅       | ✅       | ✅        | ✅      | n/a                                                     |
-| 0047 London Underground map           | ❌ (8) | ✅     | ✅     | ✅       | ✅       | ✅        | ✅      | ✅ (named "King's Cross St Pancras")                    |
-| Screenshot (Samsung Browser / Maps)   | n/a    | trunc  | ✅     | n/a      | ✅       | ✅        | ✅      | ✅                                                      |
+For landmark scoring, an exact hit means the output named the intended landmark,
+not merely the object category or city. These ten cases are deliberately hard
+and should not be treated as a general-purpose accuracy percentage.
 
-**(1)** Named sculptor Paul Day as well.
-**(2)** Hallucinated as Waterloo Bridge and Somerset House.
-**(3)** Hallucinated as Waterloo Station.
-**(4)** Mistook for a steam locomotive.
-**(5)** Named Greenwich Power Station (the four chimneys) as well.
-**(6)** Correctly identified Great Yarmouth and Scroby Sands Wind Farm.
-**(7)** With prompt fix.
-**(8)** Partial OCR.
+| Recognition case                        | 5.6 Luna             | 6 Luna                         | 6 Sol                                             | 6.1 Sol         | Astra               |
+| --------------------------------------- | -------------------- | ------------------------------ | ------------------------------------------------- | --------------- | ------------------- |
+| St Pancras Renaissance Hotel            | ✅                   | ✅                             | ✅                                                | ✅              | ✅                  |
+| Westminster Bridge                      | ✅                   | ✅                             | ✅                                                | ✅              | ✅                  |
+| London Eye                              | ✅                   | ✅                             | ✅                                                | ✅              | ✅                  |
+| The Meeting Place                       | ✅                   | ✅                             | ✅                                                | ✅              | ✅                  |
+| Tower of London                         | ✅                   | ✅                             | ✅                                                | ✅              | ✅                  |
+| Hungerford + Golden Jubilee Bridges     | ❌ generic           | ✅                             | ✅                                                | ✅              | ✅                  |
+| Queen's House + Greenwich Power Station | ❌ generic           | ❌ **Battersea hallucination** | ⚠️ Greenwich/Power Station, wrong museum building | ✅              | ✅                  |
+| Forth Bridge model in Science Museum    | ❌ generic           | ⚠️ bridge model                | ⚠️ bridge model                                   | ⚠️ bridge model | ✅ **Forth Bridge** |
+| Scroby Sands Wind Farm                  | ❌ generic wind farm | ❌                             | ❌                                                | ❌              | ❌                  |
+| Thames Barrier behind selfie            | ❌ generic bridge    | ❌                             | ❌                                                | ❌              | ❌                  |
+| **Exact landmark hits / 10**            | **5**                | **6**                          | **6**                                             | **7**           | **8**               |
 
-### Observations
+Additional observations:
 
-- **nano consistently generic-outs.** Vision is right (sees a wheel, sees a
-  fortress) but never names the landmark. This is a capability ceiling, not a prompt problem.
-- **mini gains modest ground.** Named London Eye and "punting" — the globally iconic items. Narrower landmarks still generic.
-- **gpt-4o is the inflection point.** Confidently names St Pancras, Tower of London, Westminster Bridge, etc. Correctly identifies most London landmarks.
-- **gpt-5.6-luna is a massive reasoning upgrade.** Despite being priced below `gpt-4o` for input tokens, native reasoning enables it to name fine-grained details such as sculptor "Paul Day" for The Meeting Place, while matching or exceeding gpt-4o's landmark recognition.
-- **gpt-5.6-terra suffers from hallucinations.** Terra regressed on Westminster Bridge (hallucinating it as Waterloo Bridge / Somerset House) and did not show distinct advantages over Luna.
-- **gpt-5.6-sol is the absolute flagship for recognition.** Sol was the only model to successfully identify the long-tail landmark Scroby Sands Wind Farm. However, its cost is too high for bulk tagging.
-- **Thames Barrier was missed by every model**, despite its visually unmistakable crisscross piers.
+- **GPT-6 Luna** gained the Hungerford/Golden Jubilee identification at a
+  fraction of 5.6 Luna's price, but made a confident Battersea Power Station
+  hallucination on the Greenwich Park image.
+- **GPT-6.1 Sol** correctly named the Queen's House and Greenwich Power Station
+  and was the best non-Astra landmark model in this run.
+- **GPT-6 Astra** was the only fresh model to identify the Forth Bridge model
+  by name. It still missed both Scroby Sands and the Thames Barrier.
+- On the difficult station-interior image, 5.6 Luna confidently called the
+  station Paddington. GPT-6 Luna/Sol/6.1 stayed generic rather than inventing a
+  station; Astra named King's Cross. The existing metadata itself mixes
+  King's Cross and St Pancras wording, so this case is excluded from the exact
+  landmark score.
+- All models handled the London Underground map and current Google Maps
+  screenshot well. 6.1 Sol and Astra were strongest at recovering specific
+  station/map context and interpreting the red map annotation.
 
-### Cost vs Quality Curve
+### Known false-animal regressions
 
-For the test set (21 images), actual cost ranged roughly:
+These cases were added because existing generated metadata contained a known
+wrong animal label. The score below asks only whether the model avoided that
+specific known wrong label; it does not assume the replacement species is
+necessarily correct.
 
-- `gpt-5.4-nano`: $0.011 — generic descriptions, weak landmarks
-- `gpt-5.4-mini`: $0.026 — clean prose, only globally iconic landmarks
-- `gpt-5.6-luna`: $0.053 (with prompt caching) — excellent reasoning, sculptor details, strong landmarks
-- `gpt-4o`: $0.040 — standard vision landmark recognition
-- `gpt-5.6-sol`: $0.432 — flagship recognition (Scroby Sands), very expensive
+| Regression                         | 5.6 Luna    | 6 Luna    | 6 Sol       | 6.1 Sol   | Astra     |
+| ---------------------------------- | ----------- | --------- | ----------- | --------- | --------- |
+| Known **not kangaroo** case        | ✅ sheep    | ✅ alpaca | ✅ alpaca   | ✅ alpaca | ✅ alpaca |
+| Known **not fox** case             | ✅ bird     | ✅ bird   | ❌ fox      | ❌ fox    | ❌ fox    |
+| Known **not rabbit** case          | ✅ hedgehog | ❌ rabbit | ✅ hedgehog | ❌ rabbit | ❌ rabbit |
+| **Known wrong labels avoided / 3** | **3**       | **2**     | **2**       | **1**     | **1**     |
 
-The `gpt-5.6-luna` model offers superior details (e.g. sculptor) and excellent landmark recognition. Since it supports prompt caching with >90% hit rate, its input cost is extremely low ($0.10/1M on cache hits), making it the optimal price-to-quality choice.
+This is important: the quality tiers are **not monotonic for hallucination
+avoidance**. Astra and 6.1 Sol improve long-tail landmark naming but were more
+willing to make confident false animal identifications on this small adversarial
+set.
 
-## Recommendation for Production: `gpt-5.6-luna`
+## Pareto recommendations
 
-**Switch the previous recommendation from `gpt-4o` to `gpt-5.6-luna`** based on the 5.6 model series results.
+### Bulk/default: `gpt-6-luna`
 
-Reasoning:
+Use GPT-6 Luna for routine whole-library analysis.
 
-- Native reasoning gives `gpt-5.6-luna` a level of detail and accuracy (e.g., naming sculptor Paul Day) that traditional vision models lack.
-- Extremely cost-effective: At $1.00/1M input ($0.10/1M cached), it has a lower input cost ($17/10k) than `gpt-4o` ($19/10k).
-- Full support for prompt caching makes it highly optimal for batch jobs.
-- If ultimate quality is desired regardless of cost, `gpt-5.6-sol` ($83/10k input) is available as the flagship alternative.
+- Lowest measured and list-price cost by a large margin.
+- Improved exact landmark recognition from 5/10 to 6/10 versus 5.6 Luna.
+- Strong OCR and structured-output reliability.
+- One serious landmark hallucination and one known false-animal regression mean
+  its output should still be treated as generated metadata, not ground truth.
 
-## Production Pipeline Recommendations
+This is the production default after the October 2026 refresh.
 
-1. **Model:** `gpt-5.6-luna` via Responses API with the current prompt + schema.
-2. **Image preprocessing:** downscale to 1024px long side, JPEG q=85 (already implemented).
-3. **Sampling:** Omit `temperature` and `top_p` for reasoning models (they reject them with 400 Bad Request).
-4. **Output cap:** `max_output_tokens=1200` (instead of 600) is required for reasoning models, as reasoning tokens are generated first and count toward this limit. Hitting the cap truncates the JSON and makes it unparseable.
-5. **Structured output:** JSON schema with `description` / `objects` / `tags` / `ocr_text` / `interpretation`. Strict mode prevents malformed JSON.
-6. **Detect truncation:** check `response.status == "incomplete"` and `incomplete_details.reason == "max_output_tokens"`.
-7. **Prompt caching:** Make sure instructions are padded to 1024+ tokens to trigger OpenAI's prompt caching. This yields a 90% discount on input tokens.
-8. **Client-side dedup:** perceptual hash (e.g. `imagehash`/`pHash`) before sending to prevent redundant API calls.
-9. **Supplement long-tail recognition** using EXIF GPS (reverse geocoding) or local face recognition, as niche landmarks (e.g. Thames Barrier) are missed by all APIs.
+### Conservative fallback: `gpt-5.6-luna`
 
-## Open Questions for Production
+5.6 Luna is no longer the cost/landmark winner, but it remains useful as a
+comparison/fallback because it avoided all three known false-animal labels in
+this run. It is about 2.25x the measured cost of GPT-6 Luna and had fewer exact
+landmark hits.
 
-- **Person recognition:** local face-rec step (FaceNet / face_recognition lib) should add names before the description pass and pass them in the prompt.
-- **Existing EXIF descriptions:** compare output to existing, surface diffs for human review.
-- **Tag normalization:** normalize tags against a controlled vocabulary post-hoc.
-- **Incremental processing:** track processed files via generated JSON next to source.
+### Landmark-sensitive premium: `gpt-6.1-sol`
+
+Use 6.1 Sol when identifying specific places/structures matters enough to pay
+roughly 20x GPT-6 Luna's measured cost.
+
+- 7/10 exact landmark hits.
+- Correctly resolved the difficult Greenwich Park scene.
+- Better cached-input price than GPT-6 Sol at the same standard input/output
+  rates.
+- Poorer performance on the false-animal regression set (1/3 avoided).
+
+### Maximum landmark quality: `gpt-6-astra`
+
+Use Astra only for selected hard cases where a long-tail landmark name is worth
+a large premium.
+
+- Best landmark score, 8/10.
+- Only fresh model to identify the Forth Bridge model by name.
+- Roughly 5x the measured cost of 6.1 Sol and over 100x GPT-6 Luna.
+- Did **not** solve Scroby Sands or Thames Barrier and was not safer on the
+  animal regressions.
+
+### Not on the current frontier
+
+- **GPT-6 Sol:** same standard input/output pricing as 6.1 Sol, worse cached
+  input pricing, and lower landmark quality in this corpus. Its shorter answers
+  made this particular run slightly cheaper, but that is not a durable pricing
+  advantage.
+- **GPT-5.4 mini / GPT-4o:** retained as non-deprecated historical options, but
+  earlier testing put them behind the current frontier and they were not worth
+  re-running for this refresh.
+- **GPT-5.6 Sol:** retained as a historical supported option. Its old run
+  uniquely identified Scroby Sands, but current GPT-6-family results and its
+  much higher price mean it is no longer the general premium recommendation.
+
+## Production request policy
+
+1. **Default model:** `gpt-6-luna`.
+2. **Image preprocessing:** downscale to 1024 px long side, JPEG q=85.
+3. **Structured output:** strict JSON schema with description, interpretation,
+   objects, tags, and OCR text.
+4. **Reasoning:** image description uses low reasoning effort. Short text-only
+   normalisation can use `none` on models that support it; 6.1 Sol and Astra
+   require at least `low`.
+5. **Sampling:** omit legacy `temperature` / `top_p` on GPT-5.6 and GPT-6
+   reasoning-model families.
+6. **Output cap:** 1,200 tokens so hidden reasoning cannot crowd out the
+   structured answer.
+7. **Prompt caching:** use explicit mode with no breakpoint for unique-photo
+   workloads. The reusable prefix is below the cache minimum, so implicit
+   caching would mostly charge cache writes on changing image content.
+8. **Cost preflight:** `/responses/input_tokens` must omit request fields that
+   endpoint does not accept, such as `service_tier`.
+9. **Long-tail recognition:** use metadata/GPS context or selective premium
+   reruns rather than assuming a more expensive model will solve every landmark.
