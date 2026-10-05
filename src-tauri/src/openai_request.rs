@@ -33,23 +33,48 @@ pub(crate) fn find_output_text(response: &serde_json::Value) -> Option<String> {
         .map(str::to_string)
 }
 
+/// GPT-5.6 and later use the modern prompt-cache controls. This is also a
+/// useful compatibility boundary for Responses API request parameters: these
+/// models are reasoning-first and should not receive legacy sampling knobs.
+pub(crate) fn uses_modern_prompt_cache(model: &str) -> bool {
+    model.starts_with("gpt-5.6") || model.starts_with("gpt-6")
+}
+
+pub(crate) fn supports_reasoning_controls(model: &str) -> bool {
+    model.starts_with("gpt-5") || model.starts_with("gpt-6")
+}
+
+/// Reasoning effort used for short metadata-normalisation responses. Prefer
+/// `none` when the model supports it so hidden reasoning cannot consume the
+/// tight structured-output budget. GPT-6.1 Sol and GPT-6 Astra start at `low`.
+pub(crate) fn short_response_reasoning_effort(model: &str) -> Option<&'static str> {
+    if model.starts_with("gpt-5.6") || model == "gpt-6-luna" || model == "gpt-6-sol" {
+        Some("none")
+    } else if model == "gpt-6.1-sol" || model == "gpt-6-astra" {
+        Some(LOW_REASONING_EFFORT)
+    } else {
+        None
+    }
+}
+
 /// Add sampling and reasoning parameters supported by `model`.
 ///
-/// GPT-5.6 reasoning models reject `temperature` and `top_p`; older models use
-/// deterministic sampling. GPT-5 models accept an explicit reasoning effort.
+/// GPT-5.6 and GPT-6-family models use reasoning controls and omit legacy
+/// `temperature` / `top_p` settings. Earlier models keep deterministic
+/// sampling for backwards-compatible output.
 pub(crate) fn apply_responses_model_parameters(
     request: &mut serde_json::Value,
     model: &str,
     reasoning_effort: Option<&str>,
 ) {
-    if !model.starts_with("gpt-5.6") {
+    if !uses_modern_prompt_cache(model) {
         if let Some(object) = request.as_object_mut() {
             object.insert("temperature".into(), serde_json::json!(0));
             object.insert("top_p".into(), serde_json::json!(1));
         }
     }
 
-    if model.starts_with("gpt-5") {
+    if supports_reasoning_controls(model) {
         if let Some(effort) = reasoning_effort {
             request["reasoning"] = serde_json::json!({ "effort": effort });
         }
@@ -67,6 +92,22 @@ mod tests {
         assert!(request.get("temperature").is_none());
         assert!(request.get("top_p").is_none());
         assert_eq!(request["reasoning"]["effort"], "low");
+    }
+
+    #[test]
+    fn gpt_6_uses_reasoning_without_sampling_parameters() {
+        let mut request = serde_json::json!({});
+        apply_responses_model_parameters(&mut request, "gpt-6-luna", Some(LOW_REASONING_EFFORT));
+        assert!(request.get("temperature").is_none());
+        assert!(request.get("top_p").is_none());
+        assert_eq!(request["reasoning"]["effort"], "low");
+    }
+
+    #[test]
+    fn gpt_6_1_sol_uses_low_for_short_responses() {
+        assert_eq!(short_response_reasoning_effort("gpt-6.1-sol"), Some("low"));
+        assert_eq!(short_response_reasoning_effort("gpt-6-astra"), Some("low"));
+        assert_eq!(short_response_reasoning_effort("gpt-6-luna"), Some("none"));
     }
 
     #[test]

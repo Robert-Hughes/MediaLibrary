@@ -25,7 +25,8 @@ use crate::normalise::{
 };
 use crate::openai_http::OpenAiHttp;
 use crate::openai_request::{
-    apply_responses_model_parameters, find_output_text, LOW_REASONING_EFFORT,
+    apply_responses_model_parameters, find_output_text, short_response_reasoning_effort,
+    uses_modern_prompt_cache, LOW_REASONING_EFFORT,
 };
 
 /// Version stamp recorded in the audit log per AI call. Bump when
@@ -155,7 +156,7 @@ pub fn estimate_location_cost_from_tokens(
         .ok_or_else(|| format!("no pricing entry for model {}", model))?;
     let cache_writes = call_count.min(LOCATION_CACHE_PARTITIONS) as u64;
     let cache_reads = call_count.saturating_sub(LOCATION_CACHE_PARTITIONS) as u64;
-    let (cached_tokens, cache_write_tokens) = if model.starts_with("gpt-5.6") {
+    let (cached_tokens, cache_write_tokens) = if uses_modern_prompt_cache(model) {
         (
             cache_reads * u64::from(LOCATION_CACHE_PREFIX_TOKENS),
             cache_writes * u64::from(LOCATION_CACHE_PREFIX_TOKENS),
@@ -251,10 +252,9 @@ fn build_request_body(
         },
         "max_output_tokens": max_output_tokens,
     });
-    // Luna performed best in the controlled title/description corpus with
-    // reasoning disabled. This also keeps the small title token budget entirely
-    // available for the structured response instead of hidden reasoning tokens.
-    let reasoning_effort = model.starts_with("gpt-5.6").then_some("none");
+    // Keep short structured responses out of hidden-reasoning truncation where
+    // the selected model permits it. GPT-6.1 Sol and Astra require at least low.
+    let reasoning_effort = short_response_reasoning_effort(model);
     apply_responses_model_parameters(&mut request, model, reasoning_effort);
     request
 }
@@ -313,7 +313,7 @@ fn build_location_request_body(model: &str, evidence: &str) -> serde_json::Value
         NORMALISE_PROMPT_VERSION,
         location_cache_partition(evidence)
     );
-    let system_content = if model.starts_with("gpt-5.6") {
+    let system_content = if uses_modern_prompt_cache(model) {
         serde_json::json!([{
             "type": "input_text",
             "text": LOCATION_SYSTEM_PROMPT,
@@ -340,7 +340,7 @@ fn build_location_request_body(model: &str, evidence: &str) -> serde_json::Value
         "max_output_tokens": LOCATION_OUTPUT_TOKENS,
         "prompt_cache_key": cache_key,
     });
-    if model.starts_with("gpt-5.6") {
+    if uses_modern_prompt_cache(model) {
         request["prompt_cache_options"] = serde_json::json!({ "mode": "explicit" });
     }
     apply_responses_model_parameters(&mut request, model, Some(LOW_REASONING_EFFORT));
@@ -533,14 +533,14 @@ mod tests {
     #[test]
     fn description_request_body_has_strict_schema() {
         let body = build_request_body(
-            "gpt-5.4-nano",
+            "gpt-5.4-mini",
             DESCRIPTION_SYSTEM_PROMPT,
             serde_json::json!({"foo": "bar"}),
             description_schema(),
             "description_merge",
             400,
         );
-        assert_eq!(body["model"], "gpt-5.4-nano");
+        assert_eq!(body["model"], "gpt-5.4-mini");
         assert_eq!(body["service_tier"], "default");
         assert_eq!(body["text"]["format"]["type"], "json_schema");
         assert_eq!(body["text"]["format"]["strict"], true);
@@ -569,7 +569,7 @@ mod tests {
     #[test]
     fn title_request_body_has_short_token_cap() {
         let body = build_request_body(
-            "gpt-5.4-nano",
+            "gpt-5.4-mini",
             TITLE_SYSTEM_PROMPT,
             serde_json::json!({}),
             title_schema(),
@@ -584,7 +584,7 @@ mod tests {
     fn location_request_uses_location_model_and_nullable_strict_schema() {
         let client = OpenAiNormaliseClient {
             http: OpenAiHttp::new("http://localhost", "test", 0),
-            metadata_model: "gpt-5.4-nano".into(),
+            metadata_model: "gpt-5.4-mini".into(),
             location_model: "gpt-5.6-luna".into(),
         };
         let body = client.location_request_body(&LocationResolvePrompt {

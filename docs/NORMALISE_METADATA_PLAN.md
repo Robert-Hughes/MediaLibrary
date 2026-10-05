@@ -158,7 +158,7 @@ adapt.
    **AI merge** produces canonical, then project to all derivatives.
 
 **AI merge/generation.** Single call to the configured normalisation model (default
-`gpt-5.4-nano`). Inputs and prompt: §6.
+`gpt-5.6-luna`). Inputs and prompt: §6.
 
 ### Group C — Title
 
@@ -499,8 +499,8 @@ before deciding).
 
 ## 6. AI integration
 
-**Model.** New setting `normalise_metadata_model`, default `gpt-5.4-nano`.
-Picker UI mirrors the existing `ai_describe_model` setting; instead of
+**Model.** Setting `normalise_metadata_model`, default `gpt-5.6-luna`.
+Picker UI mirrors the image-description model setting; instead of
 showing the estimated cost to describe one file, the dropdown shows the
 estimated cost to **normalise** one file's metadata when AI is required.
 
@@ -544,7 +544,7 @@ pub fn typical_normalise_cost_per_image(model: &str) -> Option<f64> {
 }
 ```
 
-The dropdown label format matches describe: `gpt-5.4-nano (≈ $0.0001 per photo when AI fires)`.
+The dropdown label format matches describe and uses the shared live pricing table, for example `gpt-5.6-luna (≈ $… per photo when AI fires)`.
 
 **Where AI is used.**
 

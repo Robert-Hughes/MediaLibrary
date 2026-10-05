@@ -22,7 +22,7 @@ interface Props {
 /**
  * Format a USD cost compactly for the model dropdown. Sub-cent figures
  * keep four decimal places so users can compare cheap models meaningfully
- * (gpt-5.4-nano at $0.0003 vs gpt-5.4-mini at $0.0014).
+ * (gpt-6-luna at about $0.0003 vs gpt-5.4-mini at about $0.0021).
  */
 function formatPerImageCost(usd: number): string {
   if (usd < 0.01) return `~$${usd.toFixed(4)}`;
@@ -273,10 +273,10 @@ export function SettingsDialog({ onClose, onExifToolCommandSaved }: Props) {
                     color: "var(--text-secondary)",
                   }}
                 >
-                  gpt-5.6-luna is the recommended default: native reasoning
-                  names landmarks reliably at low cost (≈$0.0018 per 1024px
-                  image). See docs/IMAGE_ANALYSIS.md for the model-choice
-                  rationale.
+                  gpt-6-luna is the recommended visual default: it roughly
+                  halved measured cost versus gpt-5.6-luna while keeping strong
+                  overall recognition. See docs/IMAGE_ANALYSIS.md for the
+                  benchmark tradeoffs and known regressions.
                 </div>
 
                 <label

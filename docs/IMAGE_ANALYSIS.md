@@ -109,10 +109,12 @@ struct Settings {
 }
 ```
 
-Recommended models hard-coded (from MODEL_CHOICE.md):
-`gpt-5.4-nano`, `gpt-5.4-mini`, `gpt-4o` (default), `gpt-5.4`, `gpt-5.5`.
-Pricing table inlined; no `is_recommended_for_image_description` filter
-function needed since the list is already the recommended set.
+Supported model choices are hard-coded in `src-tauri/src/settings.rs` and
+priced centrally by `openai_describe::pricing_for`. The October 2026 visual
+benchmark makes `gpt-6-luna` the default, with `gpt-5.6-luna` retained as the
+previous-control/conservative fallback and `gpt-6.1-sol` / `gpt-6-astra` as
+premium tiers. Deprecated `gpt-5.4-nano` is intentionally excluded. See
+`experiments/openai_image_analysis/MODEL_CHOICE.md` for measured tradeoffs.
 
 ### Custom XMP namespace — embedded config
 

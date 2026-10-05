@@ -84,9 +84,9 @@ describe("SettingsDialog", () => {
     mockApiInstance.settings = {
       exiftool_command: "/opt/homebrew/bin/exiftool",
       openai_api_key: "sk-existing",
-      openai_model: "gpt-5.4",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      openai_model: "gpt-6.1-sol",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "exact",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -114,14 +114,14 @@ describe("SettingsDialog", () => {
     const modelSelect = screen.getByTestId(
       "settings-model-select",
     ) as HTMLSelectElement;
-    expect(modelSelect.value).toBe("gpt-5.4");
+    expect(modelSelect.value).toBe("gpt-6.1-sol");
     const estimateModeSelect = screen.getByTestId(
       "settings-ai-cost-estimate-mode-select",
     ) as HTMLSelectElement;
     const locationModelSelect = screen.getByTestId(
       "settings-normalise-location-model-select",
     ) as HTMLSelectElement;
-    expect(locationModelSelect.value).toBe("gpt-5.4-nano");
+    expect(locationModelSelect.value).toBe("gpt-5.6-luna");
     expect(estimateModeSelect.value).toBe("exact");
     const describeConcurrencySelect = screen.getByTestId(
       "settings-describe-concurrency-select",
@@ -232,9 +232,9 @@ describe("SettingsDialog", () => {
     // dollar-scale context at the point of decision.
     mockApiInstance.perImageCosts = {
       "gpt-4o": 0.00525,
-      "gpt-5.4-nano": 0.00053,
+      "gpt-5.6-luna": 0.00053,
     };
-    mockApiInstance.recommendedModels = ["gpt-4o", "gpt-5.4-nano"];
+    mockApiInstance.recommendedModels = ["gpt-4o", "gpt-5.6-luna"];
     const { user } = await openFolderWithFile();
     await user.click(screen.getByTestId("menu-bar-settings-btn"));
     const select = (await screen.findByTestId(
@@ -249,7 +249,7 @@ describe("SettingsDialog", () => {
       ).toBe(true);
       expect(
         labels.some(
-          (l) => l && l.includes("gpt-5.4-nano") && /\$0\.000\d/.test(l),
+          (l) => l && l.includes("gpt-5.6-luna") && /\$0\.000\d/.test(l),
         ),
       ).toBe(true);
     });
@@ -292,8 +292,8 @@ describe("AI-description flow", () => {
       exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -393,8 +393,8 @@ describe("AI-description flow", () => {
       exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -519,8 +519,8 @@ describe("AI-description flow", () => {
       exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -569,8 +569,8 @@ describe("AI-description flow", () => {
       exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -626,8 +626,8 @@ describe("AI-description flow", () => {
       exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,
@@ -657,8 +657,8 @@ describe("AI-description flow", () => {
       exiftool_command: "exiftool",
       openai_api_key: "sk-test",
       openai_model: "gpt-4o",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 6,
       normalise_concurrency: 4,

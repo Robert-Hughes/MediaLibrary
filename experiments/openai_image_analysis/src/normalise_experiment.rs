@@ -39,7 +39,8 @@ impl ReasoningSetting {
     fn apply(self, body: &mut Value) {
         match self {
             Self::Omitted => {
-                body.as_object_mut().map(|object| object.remove("reasoning"));
+                body.as_object_mut()
+                    .map(|object| object.remove("reasoning"));
             }
             Self::None => body["reasoning"] = serde_json::json!({ "effort": "none" }),
             Self::Low => body["reasoning"] = serde_json::json!({ "effort": "low" }),
@@ -124,8 +125,13 @@ fn first_string(value: Option<&Value>) -> Option<String> {
 }
 
 fn string_list(value: Option<&Value>) -> Vec<String> {
-    let Some(value) = value else { return Vec::new() };
-    let values = value.as_array().cloned().unwrap_or_else(|| vec![value.clone()]);
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let values = value
+        .as_array()
+        .cloned()
+        .unwrap_or_else(|| vec![value.clone()]);
     values
         .iter()
         .filter_map(|item| first_string(Some(item)))
@@ -172,7 +178,11 @@ fn load_case(path: &Path) -> Result<NormaliseCase, Box<dyn std::error::Error>> {
 
     let current_description = first_string(metadata_value(
         row,
-        &["XMP-dc:Description", "IFD0:ImageDescription", "IPTC:Caption-Abstract"],
+        &[
+            "XMP-dc:Description",
+            "IFD0:ImageDescription",
+            "IPTC:Caption-Abstract",
+        ],
     ))
     .ok_or_else(|| format!("{} has no existing normalized description", path.display()))?;
     let current_title = first_string(metadata_value(row, &["XMP-dc:Title", "IPTC:ObjectName"]))
@@ -223,12 +233,15 @@ fn load_case(path: &Path) -> Result<NormaliseCase, Box<dyn std::error::Error>> {
     })
 }
 
-fn generated_description_prompt(case: &NormaliseCase) -> medialibrary_tauri_lib::normalise::DescriptionMergePrompt {
+fn generated_description_prompt(
+    case: &NormaliseCase,
+) -> medialibrary_tauri_lib::normalise::DescriptionMergePrompt {
     build_description_merge_prompt(&DescriptionInput {
         description: None,
         image_description: None,
         caption_abstract: None,
-        iptc_charset_is_utf8: true,
+        current_iptc_charset_is_utf8: true,
+        output_iptc_charset_is_utf8: true,
         ai_description: case.ai_description.clone(),
         ai_interpretation: case.ai_interpretation.clone(),
         ai_ocr_text: case.ai_ocr_text.clone(),
@@ -464,7 +477,11 @@ pub async fn run(
         return Err("normalise experiment requires at least one --normalise-case".into());
     }
     let reasoning_settings: Vec<ReasoningSetting> = if reasoning_settings.is_empty() {
-        vec![ReasoningSetting::Omitted, ReasoningSetting::None, ReasoningSetting::Low]
+        vec![
+            ReasoningSetting::Omitted,
+            ReasoningSetting::None,
+            ReasoningSetting::Low,
+        ]
     } else {
         reasoning_settings.to_vec()
     };
@@ -487,13 +504,19 @@ pub async fn run(
         .unwrap_or(0);
     println!(
         "Normalise experiment: {} case(s), reasoning={:?}, generation calls={}, judge calls={}",
-        cases.len(), reasoning_settings, generation_calls, judge_calls
+        cases.len(),
+        reasoning_settings,
+        generation_calls,
+        judge_calls
     );
     for case in &cases {
         println!("  {}", case.path.display());
     }
     if !yes {
-        print!("Send {} request(s) to OpenAI API? (y/n): ", generation_calls + judge_calls);
+        print!(
+            "Send {} request(s) to OpenAI API? (y/n): ",
+            generation_calls + judge_calls
+        );
         std::io::stdout().flush()?;
         let mut confirmation = String::new();
         std::io::stdin().read_line(&mut confirmation)?;
@@ -554,7 +577,10 @@ pub async fn run(
                 generation_usage.add(&usage);
             }
             println!("Current title: {}", case.current_title);
-            println!("Luna title: {}", title.value.as_deref().unwrap_or("<failed>"));
+            println!(
+                "Luna title: {}",
+                title.value.as_deref().unwrap_or("<failed>")
+            );
 
             let judge = match (
                 judge_model,
@@ -576,10 +602,18 @@ pub async fn run(
                         judge_usage.add(&usage);
                     }
                     if let Some(winner) = resolved_winner(&judged, "descriptionWinner") {
-                        description_wins[match winner { "luna" => 0, "existing" => 1, _ => 2 }] += 1;
+                        description_wins[match winner {
+                            "luna" => 0,
+                            "existing" => 1,
+                            _ => 2,
+                        }] += 1;
                     }
                     if let Some(winner) = resolved_winner(&judged, "titleWinner") {
-                        title_wins[match winner { "luna" => 0, "existing" => 1, _ => 2 }] += 1;
+                        title_wins[match winner {
+                            "luna" => 0,
+                            "existing" => 1,
+                            _ => 2,
+                        }] += 1;
                     }
                     println!("Judge: {}", serde_json::to_string_pretty(&judged.result)?);
                     Some(judged)

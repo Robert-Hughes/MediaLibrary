@@ -24,17 +24,23 @@ description and location-normalization evaluations.
 
 ## Usage
 
-Edit `main.rs` to configure:
+The harness is command-line driven and reuses the production request builder and
+pricing table. List the supported benchmark models with:
 
-- **Model**: Change `"gpt-4o"` to another model
-- **Text prompts**: Modify the text in `build_response_request()` or `build_text_only_request()`
-- **Images**: Add paths to the `sample_images` vector (relative to project root or absolute paths)
+```sh
+cargo run -- --list-models
+```
 
-The app will:
+Run one or more images by repeating `--image`:
 
-1. List available models from your account
-2. Show the text-only request structure
-3. If images are configured, send a combined text+image request and print the response
+```sh
+cargo run -- --model gpt-6-luna --image photo1.jpg --image photo2.jpg
+```
+
+Use `--output-next-to-image` only on temporary benchmark copies; it writes each
+structured result beside its input. Use `--yes` for reviewed unattended runs.
+The end-of-run summary reports actual token usage, cost, prompt-cache behavior,
+and estimate error.
 
 ## Location normalization
 

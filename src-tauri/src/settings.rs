@@ -11,18 +11,21 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+pub const RECOMMENDED_VISION_MODEL: &str = "gpt-6-luna";
 pub const RECOMMENDED_LOCATION_MODEL: &str = "gpt-5.6-luna";
 
-/// Recommended vision models for image description, in cost order.  Mirrors
-/// the pareto-frontier set from
-/// `experiments/openai_image_analysis/MODEL_CHOICE.md`. The first entry is
-/// the default for new installs.
+/// Supported vision models for image description. GPT-6 Luna is the default
+/// after the October 2026 visual benchmark; text-only normalisation/location
+/// keep their separately tested GPT-5.6 Luna defaults.
 pub const RECOMMENDED_MODELS: &[&str] = &[
-    RECOMMENDED_LOCATION_MODEL, // default — native reasoning, smart and cheap
-    "gpt-4o",                   // legacy fallback — names landmarks reliably
-    "gpt-5.4-nano",             // cheapest; generic descriptions
-    "gpt-5.4-mini",             // cheap with globally-iconic landmarks
-    "gpt-5.6-sol",              // flagship reasoning model
+    RECOMMENDED_VISION_MODEL, // default — lowest-cost current vision model
+    "gpt-5.6-luna",           // previous default / benchmark control
+    "gpt-6-sol",              // GPT-6 quality tier
+    "gpt-6.1-sol",            // newer Sol revision; cheaper cached input
+    "gpt-6-astra",            // maximum-quality reference tier
+    "gpt-4o",                 // historical vision baseline
+    "gpt-5.4-mini",           // retained non-deprecated historical tier
+    "gpt-5.6-sol",            // retained non-deprecated historical flagship
 ];
 
 pub const MIN_CONCURRENCY: u16 = 1;
@@ -32,7 +35,7 @@ pub const MAX_BATCH_SIZE: u16 = 100;
 pub const MIN_MAP_THUMBNAIL_SIZE: u16 = 16;
 pub const MAX_MAP_THUMBNAIL_SIZE: u16 = 512;
 pub fn default_model() -> String {
-    RECOMMENDED_MODELS[0].to_string()
+    RECOMMENDED_VISION_MODEL.to_string()
 }
 
 /// Default text-only model for metadata-normalisation description and title AI calls.
@@ -374,7 +377,7 @@ mod tests {
         let s = Settings {
             openai_api_key: "sk-test-abc".into(),
             openai_model: "gpt-4o".into(),
-            normalise_metadata_model: "gpt-5.4-nano".into(),
+            normalise_metadata_model: "gpt-5.6-luna".into(),
             normalise_location_model: "gpt-5.6-luna".into(),
             ai_cost_estimate_mode: AiCostEstimateMode::Exact,
             ..Settings::default()
@@ -442,11 +445,11 @@ mod tests {
         let path = settings_file_path(dir.path());
         std::fs::write(
             &path,
-            br#"{"openai_model":"gpt-4o","normalise_metadata_model":"gpt-5.4-nano","normalise_location_model":"unknown"}"#,
+            br#"{"openai_model":"gpt-4o","normalise_metadata_model":"gpt-5.6-luna","normalise_location_model":"unknown"}"#,
         )
         .unwrap();
         let loaded = load_settings(dir.path()).unwrap();
-        assert_eq!(loaded.normalise_metadata_model, "gpt-5.4-nano");
+        assert_eq!(loaded.normalise_metadata_model, "gpt-5.6-luna");
         assert_eq!(
             loaded.normalise_location_model,
             default_normalise_location_model()
@@ -464,6 +467,7 @@ mod tests {
         .unwrap();
         let loaded = load_settings(dir.path()).unwrap();
         assert_eq!(loaded.ai_cost_estimate_mode, AiCostEstimateMode::Heuristic);
+        assert_eq!(loaded.normalise_metadata_model, default_normalise_model());
         assert_eq!(
             loaded.normalise_location_model,
             default_normalise_location_model()

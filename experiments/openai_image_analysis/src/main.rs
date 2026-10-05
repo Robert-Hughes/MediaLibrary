@@ -1,8 +1,11 @@
 use base64::Engine;
 use clap::{Parser, ValueEnum};
 use image::ImageReader;
+use medialibrary_tauri_lib::openai_describe::{
+    build_describe_request_body, estimate_typical_cost_per_image, pricing_for, ModelPricing,
+    EXPECTED_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS,
+};
 use reqwest::Client;
-use medialibrary_tauri_lib::openai_describe::build_describe_request_body;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -21,20 +24,8 @@ use normalise_experiment::ReasoningSetting;
 /// effective input it would have used, at a fraction of the upload size.
 const MAX_IMAGE_DIMENSION: u32 = 1024;
 
-/// Hard cap on output tokens per response.
-///
-/// Hitting this cap does NOT cause the model to gracefully compact its
-/// response — generation is a hard cutoff mid-token, leaving the structured
-/// JSON output truncated and unparseable. So this must be set comfortably
-/// above the realistic worst case, and we must check `status == "incomplete"`
-/// on the response to detect cases where we underestimated.
-const MAX_OUTPUT_TOKENS: u32 = 1200;
-
-/// Expected output tokens for a typical photo (used for cost estimation only).
-///
-/// Description ~100 tokens, objects/tags arrays ~120, ocr_text often empty.
-/// Bounded above by MAX_OUTPUT_TOKENS.
-const EXPECTED_OUTPUT_TOKENS: u32 = 250;
+// Image-description token budgets come directly from production so cost
+// preflight and truncation behavior stay aligned with the app.
 
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 
@@ -155,8 +146,8 @@ struct Args {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum PromptCacheMode {
-    /// Production's current GPT-5.6 behaviour: implicit breakpoint on the
-    /// latest message, which includes each changing image.
+    /// Modern GPT-5.6/GPT-6 implicit-cache behavior: breakpoint on the latest
+    /// message, which includes each changing image.
     Implicit,
     /// Disable the implicit breakpoint and provide no explicit breakpoint.
     /// This avoids cache-write charges when no prefix is long enough to reuse.
@@ -194,195 +185,39 @@ impl LocationPromptVariant {
     }
 }
 
-/// Pricing information for a model
-#[derive(Debug, Clone)]
-struct ModelPricing {
-    input_per_1m: f64,
-    cached_input_per_1m: f64,
-    output_per_1m: f64,
-    supports_batch: bool,
+/// Models kept in the image-analysis harness. Pricing itself comes from
+/// production so experiments cannot silently drift away from the app.
+const IMAGE_BENCHMARK_MODELS: &[&str] = &[
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-6.1-sol",
+    "gpt-6-astra",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-4o",
+    "gpt-5.4-mini",
+];
+
+fn get_model_pricing() -> HashMap<String, ModelPricing> {
+    IMAGE_BENCHMARK_MODELS
+        .iter()
+        .filter_map(|model| pricing_for(model).map(|pricing| ((*model).to_string(), pricing)))
+        .collect()
 }
 
-/// Get pricing information for models (prices per 1M tokens in USD)
-fn get_model_pricing() -> HashMap<String, ModelPricing> {
-    let mut pricing = HashMap::new();
-
-    // Standard models
-    pricing.insert("gpt-5.6-sol".to_string(), ModelPricing {
-        input_per_1m: 5.00,
-        cached_input_per_1m: 0.50,
-        output_per_1m: 30.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.6-terra".to_string(), ModelPricing {
-        input_per_1m: 2.00,
-        cached_input_per_1m: 0.20,
-        output_per_1m: 12.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.6-luna".to_string(), ModelPricing {
-        input_per_1m: 0.20,
-        cached_input_per_1m: 0.02,
-        output_per_1m: 1.20,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.5".to_string(), ModelPricing {
-        input_per_1m: 5.00,
-        cached_input_per_1m: 0.50,
-        output_per_1m: 30.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.5-pro".to_string(), ModelPricing {
-        input_per_1m: 30.00,
-        cached_input_per_1m: 0.0,
-        output_per_1m: 180.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.4".to_string(), ModelPricing {
-        input_per_1m: 2.50,
-        cached_input_per_1m: 0.25,
-        output_per_1m: 15.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.4-mini".to_string(), ModelPricing {
-        input_per_1m: 0.75,
-        cached_input_per_1m: 0.075,
-        output_per_1m: 4.50,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.4-nano".to_string(), ModelPricing {
-        input_per_1m: 0.20,
-        cached_input_per_1m: 0.02,
-        output_per_1m: 1.25,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.4-pro".to_string(), ModelPricing {
-        input_per_1m: 30.00,
-        cached_input_per_1m: 0.0,
-        output_per_1m: 180.00,
-        supports_batch: true,
-    });
-
-    // Realtime models
-    pricing.insert("gpt-realtime-1.5".to_string(), ModelPricing {
-        input_per_1m: 4.00,  // Text input
-        cached_input_per_1m: 0.40,
-        output_per_1m: 16.00,
-        supports_batch: false,
-    });
-
-    pricing.insert("gpt-realtime-mini".to_string(), ModelPricing {
-        input_per_1m: 0.60,  // Text input
-        cached_input_per_1m: 0.06,
-        output_per_1m: 2.40,
-        supports_batch: false,
-    });
-
-    // Image generation models
-    pricing.insert("gpt-image-2".to_string(), ModelPricing {
-        input_per_1m: 5.00,  // Text input
-        cached_input_per_1m: 1.25,
-        output_per_1m: 30.00,
-        supports_batch: false,
-    });
-
-    pricing.insert("gpt-image-1.5".to_string(), ModelPricing {
-        input_per_1m: 5.00,  // Text input
-        cached_input_per_1m: 1.25,
-        output_per_1m: 10.00,
-        supports_batch: false,
-    });
-
-    pricing.insert("gpt-image-1-mini".to_string(), ModelPricing {
-        input_per_1m: 2.00,  // Text input
-        cached_input_per_1m: 0.20,
-        output_per_1m: 8.00,
-        supports_batch: false,
-    });
-
-    // Transcription models
-    pricing.insert("gpt-4o-transcribe".to_string(), ModelPricing {
-        input_per_1m: 2.50,
-        cached_input_per_1m: 0.0,
-        output_per_1m: 10.00,
-        supports_batch: false,
-    });
-
-    pricing.insert("gpt-4o-mini-transcribe".to_string(), ModelPricing {
-        input_per_1m: 1.25,
-        cached_input_per_1m: 0.0,
-        output_per_1m: 5.00,
-        supports_batch: false,
-    });
-
-    // Legacy models
-    pricing.insert("gpt-5.3-chat-latest".to_string(), ModelPricing {
-        input_per_1m: 1.75,
-        cached_input_per_1m: 0.175,
-        output_per_1m: 14.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-5.3-codex".to_string(), ModelPricing {
-        input_per_1m: 1.75,
-        cached_input_per_1m: 0.175,
-        output_per_1m: 14.00,
-        supports_batch: true,
-    });
-
-    // GPT-4 series (legacy)
-    pricing.insert("gpt-4o".to_string(), ModelPricing {
-        input_per_1m: 2.50,
-        cached_input_per_1m: 1.25,
-        output_per_1m: 10.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-4o-mini".to_string(), ModelPricing {
-        input_per_1m: 0.15,
-        cached_input_per_1m: 0.075,
-        output_per_1m: 0.60,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-4.1".to_string(), ModelPricing {
-        input_per_1m: 2.50,
-        cached_input_per_1m: 1.25,
-        output_per_1m: 10.00,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-4.1-mini".to_string(), ModelPricing {
-        input_per_1m: 0.40,
-        cached_input_per_1m: 0.20,
-        output_per_1m: 1.60,
-        supports_batch: true,
-    });
-
-    pricing.insert("gpt-4.1-nano".to_string(), ModelPricing {
-        input_per_1m: 0.10,
-        cached_input_per_1m: 0.05,
-        output_per_1m: 0.40,
-        supports_batch: true,
-    });
-
-    pricing
+fn supports_discount_processing(model: &str) -> bool {
+    model.starts_with("gpt-6")
+        || model.starts_with("gpt-5.6")
+        || model == "gpt-5.4-mini"
+        || model == "gpt-4o"
 }
 
 /// Check if a model is a checkpoint/snapshot with a date
 fn is_checkpoint_model(model_id: &str) -> bool {
     // Look for date patterns like 2024-01-01, 20240101, etc.
     let date_patterns = [
-        r"\d{4}-\d{2}-\d{2}",  // 2024-01-01
-        r"\d{8}",              // 20240101
+        r"\d{4}-\d{2}-\d{2}",   // 2024-01-01
+        r"\d{8}",               // 20240101
         r"\d{4}\.\d{2}\.\d{2}", // 2024.01.01
     ];
 
@@ -395,108 +230,21 @@ fn is_checkpoint_model(model_id: &str) -> bool {
     false
 }
 
-/// Models we consider worth listing for this task (photo description /
-/// tagging).
-///
-/// The full OpenAI catalogue includes many vision-capable models that are
-/// either strictly cost-dominated, role-mismatched (audio transcribers,
-/// code-tuned variants), or overkill ("pro" tier at ~10–40x flagship cost for
-/// negligible gain here). See MODEL_CHOICE.md for the detailed analysis.
-/// `--list-models` filters to just the pareto-frontier set so the table is
-/// actually a useful decision aid.
+/// Models we consider worth listing for this task. The list is explicit so
+/// deprecated, code-tuned and otherwise irrelevant catalogue entries cannot
+/// sneak into benchmark decisions merely because the account can access them.
 fn is_recommended_for_image_description(model_id: &str) -> bool {
-    matches!(
-        model_id,
-        "gpt-5.4-nano" | "gpt-5.4-mini" | "gpt-4o" | "gpt-5.4" | "gpt-5.5" | "gpt-5.6-luna" | "gpt-5.6-terra" | "gpt-5.6-sol"
-    )
+    IMAGE_BENCHMARK_MODELS.contains(&model_id)
 }
 
-/// Check if a model supports vision/image inputs
-/// Based on https://developers.openai.com/api/docs/guides/images-vision
+/// Every model in IMAGE_BENCHMARK_MODELS is documented to accept image input.
+/// Keep this separate from pricing so an accidental non-vision addition is
+/// caught by the model-list filtering and tests.
 fn supports_vision(model_id: &str) -> bool {
-    // Models that support vision according to the documentation
-    let vision_models = [
-        // GPT-5 series
-        "gpt-5.6",
-        "gpt-5.5",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.4-nano",
-        "gpt-5.2",
-        "gpt-5-mini",
-        "gpt-5-nano",
-        // GPT-4 series
-        "gpt-4o",
-        "gpt-4.1",
-        "gpt-4o-mini",
-        "gpt-4.1-mini",
-        "gpt-4.1-nano",
-        // Codex variants
-        "gpt-5.3-codex",
-        "gpt-5-codex-mini",
-        "gpt-5.1-codex-mini",
-        "gpt-5.2-codex",
-        // Chat variants
-        "gpt-5.2-chat-latest",
-        // o-series
-        "o4-mini",
-        "o1",
-        "o1-pro",
-        "o3",
-        // Special models
-        "computer-use-preview",
-    ];
-
-    // Check if the model ID starts with any of the vision model prefixes
-    vision_models.iter().any(|&vm| model_id.starts_with(vm))
-}
-
-/// Calculate the number of tokens an image will use based on its dimensions and the model
-fn calculate_image_tokens(width: u32, height: u32, model_id: &str) -> u32 {
-    let is_gpt4_o_mini = model_id.starts_with("gpt-4o-mini") || model_id.starts_with("gpt-4.1-mini") || model_id.starts_with("gpt-4.1-nano");
-    let is_o1 = model_id.starts_with("o1") || model_id.starts_with("o3");
-    let is_patch_model = model_id.starts_with("gpt-5") || model_id.starts_with("o4");
-
-    if is_patch_model {
-        let multiplier = if model_id.ends_with("-nano") {
-            2.46
-        } else if model_id.ends_with("-mini") {
-            if model_id.starts_with("o4") { 1.72 } else { 1.62 }
-        } else {
-            1.62 // Default fallback
-        };
-        let patches = ((width as f64 / 32.0).ceil() * (height as f64 / 32.0).ceil()) as u32;
-        return (patches as f64 * multiplier).ceil() as u32;
-    }
-
-    let base_tokens = if is_gpt4_o_mini { 2833 } else if is_o1 { 75 } else { 85 };
-    let tile_tokens = if is_gpt4_o_mini { 5667 } else if is_o1 { 150 } else { 170 };
-
-    // Initial resize to fit within 2048x2048
-    let mut w = width as f64;
-    let mut h = height as f64;
-    if w > 2048.0 || h > 2048.0 {
-        let aspect_ratio = w / h;
-        if aspect_ratio > 1.0 {
-            w = 2048.0;
-            h = 2048.0 / aspect_ratio;
-        } else {
-            h = 2048.0;
-            w = 2048.0 * aspect_ratio;
-        }
-    }
-
-    // Scale short side to 768px
-    if w < h && w > 768.0 {
-        h = h * (768.0 / w);
-        w = 768.0;
-    } else if h <= w && h > 768.0 {
-        w = w * (768.0 / h);
-        h = 768.0;
-    }
-
-    let tiles = (w / 512.0).ceil() as u32 * (h / 512.0).ceil() as u32;
-    tiles * tile_tokens + base_tokens
+    model_id.starts_with("gpt-6")
+        || model_id.starts_with("gpt-5.6")
+        || model_id == "gpt-5.4-mini"
+        || model_id == "gpt-4o"
 }
 /// Initialize logging
 fn init_logging() {
@@ -643,15 +391,14 @@ async fn call_responses_api(
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let url = format!("{}/responses", OPENAI_BASE_URL);
 
-    let request_body = build_response_request(
-        model,
-        image_paths,
-        prompt_cache_mode,
-        prompt_cache_key,
-    )?;
+    let request_body =
+        build_response_request(model, image_paths, prompt_cache_mode, prompt_cache_key)?;
 
     tracing::info!("Sending request to {}", url);
-    tracing::debug!("Request body: {}", serde_json::to_string_pretty(&request_body)?);
+    tracing::debug!(
+        "Request body: {}",
+        serde_json::to_string_pretty(&request_body)?
+    );
 
     let response = client
         .post(&url)
@@ -711,7 +458,10 @@ fn load_location_cases(
         if !selected.is_empty() && !selected.contains(path) {
             continue;
         }
-        let Some(value) = row.pointer("/sent/value").and_then(serde_json::Value::as_str) else {
+        let Some(value) = row
+            .pointer("/sent/value")
+            .and_then(serde_json::Value::as_str)
+        else {
             continue;
         };
         let case = by_path.entry(path.to_owned()).or_default();
@@ -731,7 +481,11 @@ fn load_location_cases(
             .filter(|path| !by_path.contains_key(*path))
             .collect();
         if !missing.is_empty() {
-            return Err(format!("location cases not found in apply log: {}", missing.join(", ")).into());
+            return Err(format!(
+                "location cases not found in apply log: {}",
+                missing.join(", ")
+            )
+            .into());
         }
     }
 
@@ -786,7 +540,10 @@ fn build_location_request(
 ) -> serde_json::Value {
     let mut payload = serde_json::Map::new();
     if let Some(value) = &case.geocode_json {
-        payload.insert("geocode_json".into(), serde_json::Value::String(value.clone()));
+        payload.insert(
+            "geocode_json".into(),
+            serde_json::Value::String(value.clone()),
+        );
     }
     if let Some(value) = &case.json_v2 {
         payload.insert("json_v2".into(), serde_json::Value::String(value.clone()));
@@ -904,11 +661,7 @@ async fn run_location_experiment(
         args.repeat,
         request_count
     );
-    println!(
-        "Model: {}  Prompt: {}",
-        model,
-        args.location_prompt.label()
-    );
+    println!("Model: {}  Prompt: {}", model, args.location_prompt.label());
     for case in &cases {
         println!("  {}: {}", case.id, location_evidence_label(case));
     }
@@ -996,7 +749,10 @@ async fn run_location_experiment(
         println!("Wrote {}", path);
     }
 
-    let errors = records.iter().filter(|record| record.error.is_some()).count();
+    let errors = records
+        .iter()
+        .filter(|record| record.error.is_some())
+        .count();
     println!(
         "\nLocation summary: requests={} errors={} input_tokens={} cached={} output_tokens={} reasoning_tokens={}",
         records.len(),
@@ -1013,7 +769,10 @@ async fn run_location_experiment(
 }
 
 /// Example: List available models (for debugging)
-async fn list_models(client: &Client, api_key: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+async fn list_models(
+    client: &Client,
+    api_key: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let url = format!("{}/models", OPENAI_BASE_URL);
 
     let response = client
@@ -1029,7 +788,10 @@ async fn list_models(client: &Client, api_key: &str) -> Result<serde_json::Value
 }
 
 /// List models with pricing information
-async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn list_models_with_pricing(
+    client: &Client,
+    api_key: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
     let models_response = list_models(client, api_key).await?;
     let pricing_table = get_model_pricing();
 
@@ -1057,25 +819,17 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         return Ok(());
     }
 
-    // Sort by estimated cost for a 1024x1024 image (descending)
+    // Sort by the same typical-photo estimate shown in production. Exact
+    // benchmark runs still preflight every real image through /input_tokens.
     vision_models.sort_by(|a, b| {
-        let pricing_a = pricing_table.get(&a.0);
-        let pricing_b = pricing_table.get(&b.0);
-
-        let cost_a = pricing_a.map(|p| {
-            let tokens = calculate_image_tokens(1024, 1024, &a.0);
-            (tokens as f64 / 1_000_000.0) * p.input_per_1m
-        }).unwrap_or(0.0);
-
-        let cost_b = pricing_b.map(|p| {
-            let tokens = calculate_image_tokens(1024, 1024, &b.0);
-            (tokens as f64 / 1_000_000.0) * p.input_per_1m
-        }).unwrap_or(0.0);
-
-        cost_b.partial_cmp(&cost_a).unwrap_or(std::cmp::Ordering::Equal)
+        let cost_a = estimate_typical_cost_per_image(&a.0).unwrap_or(f64::INFINITY);
+        let cost_b = estimate_typical_cost_per_image(&b.0).unwrap_or(f64::INFINITY);
+        cost_a
+            .partial_cmp(&cost_b)
+            .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    use comfy_table::{Table, Cell, CellAlignment};
+    use comfy_table::{Cell, CellAlignment, Table};
 
     let mut table = Table::new();
     table.load_preset(comfy_table::presets::ASCII_MARKDOWN);
@@ -1083,62 +837,37 @@ async fn list_models_with_pricing(client: &Client, api_key: &str) -> Result<(), 
         Cell::new("Model").set_alignment(CellAlignment::Left),
         Cell::new("Input").set_alignment(CellAlignment::Right),
         Cell::new("Cached").set_alignment(CellAlignment::Right),
+        Cell::new("Cache write").set_alignment(CellAlignment::Right),
         Cell::new("Output").set_alignment(CellAlignment::Right),
-        Cell::new("Batch / Flex").set_alignment(CellAlignment::Center),
-        Cell::new("1024x1024").set_alignment(CellAlignment::Right),
-        Cell::new("10k Images").set_alignment(CellAlignment::Right),
-        Cell::new("Images/$1").set_alignment(CellAlignment::Right),
+        Cell::new("Batch/Flex 50%").set_alignment(CellAlignment::Center),
+        Cell::new("Typical photo").set_alignment(CellAlignment::Right),
+        Cell::new("10k typical").set_alignment(CellAlignment::Right),
         Cell::new("Created").set_alignment(CellAlignment::Right),
     ]);
 
     for (model_id, model) in vision_models {
-        let created_str = if let Some(created) = model["created"].as_i64() {
-            chrono::DateTime::from_timestamp(created, 0)
-                .map(|dt| dt.format("%Y-%m-%d").to_string())
-                .unwrap_or_else(|| "-".to_string())
-        } else {
-            "-".to_string()
-        };
+        let created_str = model["created"]
+            .as_i64()
+            .and_then(|created| chrono::DateTime::from_timestamp(created, 0))
+            .map(|dt| dt.format("%Y-%m-%d").to_string())
+            .unwrap_or_else(|| "-".to_string());
 
         if let Some(pricing) = pricing_table.get(&model_id) {
-            let tokens_1024 = calculate_image_tokens(1024, 1024, &model_id);
-            let cost_1024 = (tokens_1024 as f64 / 1_000_000.0) * pricing.input_per_1m;
-            let cost_10k = cost_1024 * 10_000.0;
-            let flex_str = if pricing.supports_batch { "Yes" } else { "No" };
-
-            let cached_str = if pricing.cached_input_per_1m > 0.0 {
-                format!("${:.2}", pricing.cached_input_per_1m)
-            } else {
-                "-".to_string()
-            };
-
-            let images_per_dollar = if cost_1024 > 0.0 {
-                format!("{}", (1.0 / cost_1024).floor() as u64)
-            } else {
-                "N/A".to_string()
-            };
-
+            let typical_cost = estimate_typical_cost_per_image(&model_id).unwrap_or(0.0);
             table.add_row(vec![
-                model_id,
-                format!("${:.2}", pricing.input_per_1m),
-                cached_str,
+                model_id.clone(),
+                format!("${:.3}", pricing.input_per_1m),
+                format!("${:.3}", pricing.cached_input_per_1m),
+                format!("${:.3}", pricing.cache_write_input_per_1m),
                 format!("${:.2}", pricing.output_per_1m),
-                flex_str.to_string(),
-                format!("${:.6}", cost_1024),
-                format!("${:.2}", cost_10k),
-                images_per_dollar,
-                created_str,
-            ]);
-        } else {
-            table.add_row(vec![
-                model_id,
-                "N/A".to_string(),
-                "N/A".to_string(),
-                "N/A".to_string(),
-                "-".to_string(),
-                "N/A".to_string(),
-                "N/A".to_string(),
-                "N/A".to_string(),
+                if supports_discount_processing(&model_id) {
+                    "Yes"
+                } else {
+                    "-"
+                }
+                .to_string(),
+                format!("${:.6}", typical_cost),
+                format!("${:.2}", typical_cost * 10_000.0),
                 created_str,
             ]);
         }
@@ -1165,18 +894,16 @@ async fn count_input_tokens(
     prompt_cache_mode: PromptCacheMode,
     prompt_cache_key: Option<&str>,
 ) -> Result<u32, Box<dyn std::error::Error>> {
-    let request_body = build_response_request(
-        model,
-        &[image_path],
-        prompt_cache_mode,
-        prompt_cache_key,
-    )?;
+    let request_body =
+        build_response_request(model, &[image_path], prompt_cache_mode, prompt_cache_key)?;
     let mut count_body = request_body;
     if let Some(obj) = count_body.as_object_mut() {
         for k in [
             "temperature",
             "top_p",
             "max_output_tokens",
+            "service_tier",
+            "reasoning",
             "prompt_cache_options",
             "prompt_cache_key",
         ] {
@@ -1211,10 +938,7 @@ async fn count_input_tokens(
 fn output_path_for(image_path: &str, model: &str) -> std::path::PathBuf {
     let p = std::path::Path::new(image_path);
     let parent = p.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let stem = p
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("output");
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("output");
     parent.join(format!("{} ({}).json", stem, model))
 }
 
@@ -1238,7 +962,10 @@ fn write_error_stub(
     });
     let out = output_path_for(image_path, model);
     std::fs::write(&out, serde_json::to_string_pretty(&stub)?)?;
-    println!("Wrote error stub to {} (replaces any stale prior output)", out.display());
+    println!(
+        "Wrote error stub to {} (replaces any stale prior output)",
+        out.display()
+    );
     Ok(())
 }
 
@@ -1292,10 +1019,9 @@ impl UsageStats {
             .saturating_sub(self.cached_input_tokens)
             .saturating_sub(self.cache_write_input_tokens);
         let input_cost = (non_cached_input as f64 / 1_000_000.0) * p.input_per_1m;
-        let cached_cost =
-            (self.cached_input_tokens as f64 / 1_000_000.0) * p.cached_input_per_1m;
+        let cached_cost = (self.cached_input_tokens as f64 / 1_000_000.0) * p.cached_input_per_1m;
         let cache_write_cost =
-            (self.cache_write_input_tokens as f64 / 1_000_000.0) * p.input_per_1m * 1.25;
+            (self.cache_write_input_tokens as f64 / 1_000_000.0) * p.cache_write_input_per_1m;
         // `output_tokens` already includes reasoning tokens; the nested
         // reasoning count is a diagnostic subset and must not be billed twice.
         let output_cost = (self.output_tokens as f64 / 1_000_000.0) * p.output_per_1m;
@@ -1431,7 +1157,10 @@ async fn process_image(
                 image_path,
                 model,
                 "incomplete",
-                &format!("Response truncated (reason: {}). Raise MAX_OUTPUT_TOKENS.", reason),
+                &format!(
+                    "Response truncated (reason: {}). Raise MAX_OUTPUT_TOKENS.",
+                    reason
+                ),
                 &raw_text,
             )?;
         }
@@ -1455,7 +1184,10 @@ async fn process_image(
         Err(e) => {
             tracing::warn!("Response text was not valid JSON: {}", e);
             println!("=== Text Response (raw) ===\n{}", raw_text);
-            println!("=== Full Response JSON ===\n{}", serde_json::to_string_pretty(&response).unwrap());
+            println!(
+                "=== Full Response JSON ===\n{}",
+                serde_json::to_string_pretty(&response).unwrap()
+            );
             if write_next_to_image {
                 write_error_stub(image_path, model, "invalid_json", &e.to_string(), &raw_text)?;
             }
@@ -1479,7 +1211,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // instead of complaining about OPENAI_API_KEY.
     if !args.list_models {
         if args.model.is_none() {
-            return Err("--model is required (or pass --list-models). No default — choose explicitly.".into());
+            return Err(
+                "--model is required (or pass --list-models). No default — choose explicitly."
+                    .into(),
+            );
         }
         let image_mode = !args.images.is_empty();
         let location_mode = args.location_apply_log.is_some();
@@ -1574,8 +1309,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(p) = pricing {
         let input_cost = (total_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
-        let expected_output_cost =
-            (total_expected_output as f64 / 1_000_000.0) * p.output_per_1m;
+        let expected_output_cost = (total_expected_output as f64 / 1_000_000.0) * p.output_per_1m;
         let max_output_cost = (total_max_output as f64 / 1_000_000.0) * p.output_per_1m;
         let expected_total = input_cost + expected_output_cost;
         let upper_bound_total = input_cost + max_output_cost;
@@ -1588,15 +1322,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Upper-bound cost (Standard): ${:.6}  (Input: ${:.6}, Output: ${:.6} @ {} tok/image cap)",
             upper_bound_total, input_cost, max_output_cost, MAX_OUTPUT_TOKENS
         );
-        if p.supports_batch {
-            println!("Expected cost    (Flex):     ${:.6}", expected_total * 0.5);
+        if supports_discount_processing(model) {
             println!(
-                "Upper-bound cost (Flex):     ${:.6}",
+                "Expected cost    (Batch/Flex): ${:.6}",
+                expected_total * 0.5
+            );
+            println!(
+                "Upper-bound cost (Batch/Flex): ${:.6}",
                 upper_bound_total * 0.5
             );
         }
     } else {
-        println!("Cost estimation unavailable: model '{}' not in pricing table.", model);
+        println!(
+            "Cost estimation unavailable: model '{}' not in pricing table.",
+            model
+        );
     }
     println!("==================================");
 
@@ -1659,10 +1399,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     if let Some(p) = pricing {
         let actual_total = aggregate_usage.cost(p);
-        let predicted_input_cost =
-            (repeated_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
-        let predicted_output_cost =
-            (total_expected_output as f64 / 1_000_000.0) * p.output_per_1m;
+        let predicted_input_cost = (repeated_input_tokens as f64 / 1_000_000.0) * p.input_per_1m;
+        let predicted_output_cost = (total_expected_output as f64 / 1_000_000.0) * p.output_per_1m;
         let predicted_total = predicted_input_cost + predicted_output_cost;
         let delta = actual_total - predicted_total;
         let pct = if predicted_total > 0.0 {
@@ -1681,8 +1419,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             0.0
         };
         let cache_write_pct = if aggregate_usage.input_tokens > 0 {
-            (aggregate_usage.cache_write_input_tokens as f64
-                / aggregate_usage.input_tokens as f64)
+            (aggregate_usage.cache_write_input_tokens as f64 / aggregate_usage.input_tokens as f64)
                 * 100.0
         } else {
             0.0
@@ -1725,14 +1462,14 @@ mod tests {
 
     #[test]
     fn location_request_matches_sampling_support() {
-        let nano = build_location_request(
-            "gpt-5.4-nano",
+        let mini = build_location_request(
+            "gpt-5.4-mini",
             LocationPromptVariant::Baseline,
             &location_case(),
         );
-        assert_eq!(nano["temperature"], 0);
-        assert_eq!(nano["top_p"], 1);
-        assert_eq!(nano["max_output_tokens"], LOCATION_MAX_OUTPUT_TOKENS);
+        assert_eq!(mini["temperature"], 0);
+        assert_eq!(mini["top_p"], 1);
+        assert_eq!(mini["max_output_tokens"], LOCATION_MAX_OUTPUT_TOKENS);
 
         let luna = build_location_request(
             "gpt-5.6-luna",
@@ -1779,8 +1516,8 @@ mod tests {
         let pricing = ModelPricing {
             input_per_1m: 0.20,
             cached_input_per_1m: 0.02,
+            cache_write_input_per_1m: 0.25,
             output_per_1m: 1.20,
-            supports_batch: true,
         };
         let expected = (500.0 * 0.20 + 200.0 * 0.02 + 300.0 * 0.25) / 1_000_000.0;
         assert!((usage.cost(&pricing) - expected).abs() < f64::EPSILON);
@@ -1798,8 +1535,8 @@ mod tests {
         let pricing = ModelPricing {
             input_per_1m: 1.0,
             cached_input_per_1m: 0.1,
+            cache_write_input_per_1m: 1.25,
             output_per_1m: 6.0,
-            supports_batch: true,
         };
         let expected = (800.0 * 1.0 + 200.0 * 0.1 + 500.0 * 6.0) / 1_000_000.0;
         assert!((usage.cost(&pricing) - expected).abs() < f64::EPSILON);

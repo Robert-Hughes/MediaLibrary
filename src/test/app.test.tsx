@@ -497,9 +497,9 @@ describe("App schema preloading", () => {
     const settings = {
       exiftool_command: "exiftool",
       openai_api_key: "",
-      openai_model: "gpt-5.4",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      openai_model: "gpt-6.1-sol",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 4,
       normalise_concurrency: 4,
@@ -577,9 +577,9 @@ describe("App schema preloading", () => {
     const settings = {
       exiftool_command: "exiftool",
       openai_api_key: "",
-      openai_model: "gpt-5.4",
-      normalise_metadata_model: "gpt-5.4-nano",
-      normalise_location_model: "gpt-5.4-nano",
+      openai_model: "gpt-6.1-sol",
+      normalise_metadata_model: "gpt-5.6-luna",
+      normalise_location_model: "gpt-5.6-luna",
       ai_cost_estimate_mode: "heuristic",
       describe_concurrency: 4,
       normalise_concurrency: 4,
@@ -747,7 +747,6 @@ describe("App CLI folder argument", () => {
     });
 
     render(<App />);
-
     // Wait for error to be logged
     await waitFor(() => {
       expect(consoleError).toHaveBeenCalledWith(

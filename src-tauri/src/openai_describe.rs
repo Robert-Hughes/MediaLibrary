@@ -30,7 +30,8 @@ use crate::metadata_value::{
 };
 use crate::openai_http::OpenAiHttp;
 use crate::openai_request::{
-    apply_responses_model_parameters, find_output_text, LOW_REASONING_EFFORT,
+    apply_responses_model_parameters, find_output_text, uses_modern_prompt_cache,
+    LOW_REASONING_EFFORT,
 };
 
 /// Long-side cap before upload.  See experiment for rationale: server-side
@@ -147,10 +148,35 @@ pub struct ModelPricing {
     pub output_per_1m: f64,
 }
 
-/// Pricing for the recommended-model set only.  Other model ids return
-/// `None`; the settings module guarantees we never store an unknown id.
+/// Current standard-processing pricing for models supported by Media Library
+/// (USD per 1M tokens, short-context tier). Keep this table aligned with the
+/// official OpenAI model pages. Deprecated models are deliberately omitted.
 pub fn pricing_for(model: &str) -> Option<ModelPricing> {
     Some(match model {
+        "gpt-6-luna" => ModelPricing {
+            input_per_1m: 0.10,
+            cached_input_per_1m: 0.01,
+            cache_write_input_per_1m: 0.125,
+            output_per_1m: 0.50,
+        },
+        "gpt-6-sol" => ModelPricing {
+            input_per_1m: 2.00,
+            cached_input_per_1m: 0.20,
+            cache_write_input_per_1m: 2.50,
+            output_per_1m: 10.00,
+        },
+        "gpt-6.1-sol" => ModelPricing {
+            input_per_1m: 2.00,
+            cached_input_per_1m: 0.10,
+            cache_write_input_per_1m: 2.50,
+            output_per_1m: 10.00,
+        },
+        "gpt-6-astra" => ModelPricing {
+            input_per_1m: 10.00,
+            cached_input_per_1m: 1.00,
+            cache_write_input_per_1m: 12.50,
+            output_per_1m: 50.00,
+        },
         "gpt-5.6-luna" => ModelPricing {
             input_per_1m: 0.20,
             cached_input_per_1m: 0.02,
@@ -164,22 +190,16 @@ pub fn pricing_for(model: &str) -> Option<ModelPricing> {
             output_per_1m: 12.00,
         },
         "gpt-5.6-sol" => ModelPricing {
-            input_per_1m: 5.00,
-            cached_input_per_1m: 0.50,
-            cache_write_input_per_1m: 6.25,
-            output_per_1m: 30.00,
+            input_per_1m: 4.00,
+            cached_input_per_1m: 0.40,
+            cache_write_input_per_1m: 5.00,
+            output_per_1m: 20.00,
         },
         "gpt-4o" => ModelPricing {
             input_per_1m: 2.50,
             cached_input_per_1m: 1.25,
             cache_write_input_per_1m: 2.50,
             output_per_1m: 10.00,
-        },
-        "gpt-5.4-nano" => ModelPricing {
-            input_per_1m: 0.20,
-            cached_input_per_1m: 0.02,
-            cache_write_input_per_1m: 0.20,
-            output_per_1m: 1.25,
         },
         "gpt-5.4-mini" => ModelPricing {
             input_per_1m: 0.75,
@@ -439,14 +459,11 @@ pub fn build_describe_request_body(model: &str, image_bytes: &[u8]) -> serde_jso
     // short schema. Low preserves reasoning while reserving enough budget
     // for the user-visible description fields.
     apply_responses_model_parameters(&mut request, model, Some(DESCRIBE_REASONING_EFFORT));
-    apply_responses_model_parameters(&mut request, model, Some(DESCRIBE_REASONING_EFFORT));
 
-    if model.starts_with("gpt-5.6") {
-        // GPT-5.6 implicit caching anchors at the changing image message, so
-        // unique-photo workloads pay cache-write rates without useful reuse.
-        // Explicit mode disables that implicit breakpoint. We deliberately add
-        // no explicit breakpoint: the reusable instructions/schema prefix is
-        // below the 1,024-token cache minimum, so a breakpoint would not help.
+    if uses_modern_prompt_cache(model) {
+        // GPT-5.6 and later place an implicit breakpoint on the changing image
+        // message. Unique-photo workloads would pay cache-write rates without
+        // useful reuse, so use explicit-only mode with no breakpoint.
         request["prompt_cache_options"] = serde_json::json!({
             "mode": "explicit",
             "ttl": "30m"
@@ -844,6 +861,44 @@ mod tests {
         assert_eq!(terra.cached_input_per_1m, 0.20);
         assert_eq!(terra.cache_write_input_per_1m, 2.50);
         assert_eq!(terra.output_per_1m, 12.00);
+    }
+
+    #[test]
+    fn gpt_6_pricing_matches_current_rate_card() {
+        let luna = pricing_for("gpt-6-luna").unwrap();
+        assert_eq!(luna.input_per_1m, 0.10);
+        assert_eq!(luna.cached_input_per_1m, 0.01);
+        assert_eq!(luna.cache_write_input_per_1m, 0.125);
+        assert_eq!(luna.output_per_1m, 0.50);
+
+        let sol = pricing_for("gpt-6-sol").unwrap();
+        assert_eq!(sol.input_per_1m, 2.00);
+        assert_eq!(sol.cached_input_per_1m, 0.20);
+        assert_eq!(sol.cache_write_input_per_1m, 2.50);
+        assert_eq!(sol.output_per_1m, 10.00);
+
+        let sol_61 = pricing_for("gpt-6.1-sol").unwrap();
+        assert_eq!(sol_61.input_per_1m, 2.00);
+        assert_eq!(sol_61.cached_input_per_1m, 0.10);
+        assert_eq!(sol_61.cache_write_input_per_1m, 2.50);
+        assert_eq!(sol_61.output_per_1m, 10.00);
+
+        let astra = pricing_for("gpt-6-astra").unwrap();
+        assert_eq!(astra.input_per_1m, 10.00);
+        assert_eq!(astra.cached_input_per_1m, 1.00);
+        assert_eq!(astra.cache_write_input_per_1m, 12.50);
+        assert_eq!(astra.output_per_1m, 50.00);
+
+        let old_sol = pricing_for("gpt-5.6-sol").unwrap();
+        assert_eq!(old_sol.input_per_1m, 4.00);
+        assert_eq!(old_sol.cached_input_per_1m, 0.40);
+        assert_eq!(old_sol.cache_write_input_per_1m, 5.00);
+        assert_eq!(old_sol.output_per_1m, 20.00);
+    }
+
+    #[test]
+    fn deprecated_gpt_5_4_nano_has_no_pricing_entry() {
+        assert!(pricing_for("gpt-5.4-nano").is_none());
     }
 
     #[test]
