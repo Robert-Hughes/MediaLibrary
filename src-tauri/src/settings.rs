@@ -12,11 +12,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub const RECOMMENDED_VISION_MODEL: &str = "gpt-6-luna";
-pub const RECOMMENDED_LOCATION_MODEL: &str = "gpt-5.6-luna";
+pub const RECOMMENDED_LOCATION_MODEL: &str = RECOMMENDED_VISION_MODEL;
 
-/// Supported vision models for image description. GPT-6 Luna is the default
-/// after the October 2026 visual benchmark; text-only normalisation/location
-/// keep their separately tested GPT-5.6 Luna defaults.
+/// Supported OpenAI models. GPT-6 Luna is the default across image description,
+/// metadata normalisation, and location normalisation after the October 2026
+/// visual and text-only benchmark refresh.
 pub const RECOMMENDED_MODELS: &[&str] = &[
     RECOMMENDED_VISION_MODEL, // default — lowest-cost current vision model
     "gpt-5.6-luna",           // previous default / benchmark control
@@ -39,15 +39,15 @@ pub fn default_model() -> String {
 }
 
 /// Default text-only model for metadata-normalisation description and title AI calls.
-/// Controlled comparisons in `experiments/openai_image_analysis` found Luna
-/// materially better than nano, while explicit `reasoning.effort = none`
-/// avoided hidden-token truncation in the short title response budget.
+/// GPT-6 Luna matched the prior GPT-5.6 Luna quality tier on the 12-photo
+/// normalisation corpus at materially lower token pricing; `reasoning.effort =
+/// none` avoids hidden-token truncation in the short title response budget.
 pub fn default_normalise_model() -> String {
-    "gpt-5.6-luna".to_string()
+    RECOMMENDED_VISION_MODEL.to_string()
 }
 
-/// Location hierarchy resolution benefits from native reasoning. Repeated
-/// prompt/model experiments use Luna as the quality/cost recommendation.
+/// Location hierarchy resolution benefits from native reasoning. GPT-6 Luna
+/// uses the same canonical prompt with lower pricing and is the default here too.
 pub fn default_normalise_location_model() -> String {
     RECOMMENDED_LOCATION_MODEL.to_string()
 }
@@ -363,6 +363,7 @@ mod tests {
         let s = load_settings(dir.path()).expect("missing-file load should succeed");
         assert_eq!(s, Settings::default());
         assert_eq!(s.openai_model, default_model());
+        assert_eq!(s.normalise_metadata_model, default_normalise_model());
         assert_eq!(s.normalise_location_model, RECOMMENDED_LOCATION_MODEL);
         assert_eq!(s.describe_concurrency, 12);
         assert_eq!(s.normalise_concurrency, 12);

@@ -363,8 +363,9 @@ export function SettingsDialog({ onClose, onExifToolCommandSaved }: Props) {
                   Used only when GeocodeJSON or JSONv2 evidence exists and
                   LocationCreated is absent. This setting is separate so
                   location-name quality can be compared independently.
-                  gpt-5.6-luna is the recommended default for consistent address
-                  hierarchy resolution.
+                  gpt-6-luna is the recommended default for consistent address
+                  hierarchy resolution at the current bulk-processing price
+                  point.
                 </div>
               </section>
 

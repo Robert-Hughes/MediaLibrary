@@ -567,12 +567,13 @@ fn build_location_request(
         },
         "max_output_tokens": LOCATION_MAX_OUTPUT_TOKENS,
     });
-    // Current 5.6 reasoning models reject sampling parameters.
-    if !model.starts_with("gpt-5.6") {
-        if let Some(object) = request.as_object_mut() {
-            object.insert("temperature".into(), serde_json::json!(0));
-            object.insert("top_p".into(), serde_json::json!(1));
-        }
+    // Match production model parameters for location resolution: modern
+    // reasoning models reject sampling controls and use low reasoning here.
+    if model.starts_with("gpt-5.6") || model.starts_with("gpt-6") {
+        request["reasoning"] = serde_json::json!({ "effort": "low" });
+    } else if let Some(object) = request.as_object_mut() {
+        object.insert("temperature".into(), serde_json::json!(0));
+        object.insert("top_p".into(), serde_json::json!(1));
     }
     request
 }
@@ -1471,17 +1472,27 @@ mod tests {
         assert_eq!(mini["top_p"], 1);
         assert_eq!(mini["max_output_tokens"], LOCATION_MAX_OUTPUT_TOKENS);
 
-        let luna = build_location_request(
+        let luna_56 = build_location_request(
             "gpt-5.6-luna",
             LocationPromptVariant::Strict,
             &location_case(),
         );
-        assert!(luna.get("temperature").is_none());
-        assert!(luna.get("top_p").is_none());
-        assert!(luna["input"][0]["content"]
+        assert!(luna_56.get("temperature").is_none());
+        assert!(luna_56.get("top_p").is_none());
+        assert_eq!(luna_56["reasoning"]["effort"], "low");
+        assert!(luna_56["input"][0]["content"]
             .as_str()
             .unwrap()
             .contains("Never put a county"));
+
+        let luna_6 = build_location_request(
+            "gpt-6-luna",
+            LocationPromptVariant::Baseline,
+            &location_case(),
+        );
+        assert!(luna_6.get("temperature").is_none());
+        assert!(luna_6.get("top_p").is_none());
+        assert_eq!(luna_6["reasoning"]["effort"], "low");
     }
 
     #[test]

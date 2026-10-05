@@ -158,7 +158,7 @@ adapt.
    **AI merge** produces canonical, then project to all derivatives.
 
 **AI merge/generation.** Single call to the configured normalisation model (default
-`gpt-5.6-luna`). Inputs and prompt: §6.
+`gpt-6-luna`). Inputs and prompt: §6.
 
 ### Group C — Title
 
@@ -499,18 +499,18 @@ before deciding).
 
 ## 6. AI integration
 
-**Model.** Setting `normalise_metadata_model`, default `gpt-5.6-luna`.
+**Model.** Setting `normalise_metadata_model`, default `gpt-6-luna`.
 Picker UI mirrors the image-description model setting; instead of
 showing the estimated cost to describe one file, the dropdown shows the
 estimated cost to **normalise** one file's metadata when AI is required.
 
 Location uses a second setting, `normalise_location_model`, with the same
-recommended-model picker but defaults to `gpt-5.6-luna`. Repeated hierarchy
-experiments showed that the stricter canonical prompt made nano consistent,
-but Luna was required to distinguish settlements from administrative
-districts reliably. It is separate because reverse-geocode hierarchy selection
-is a distinct quality/cost workload from description merging and title
-generation.
+recommended-model picker and also defaults to `gpt-6-luna`. Earlier hierarchy
+experiments established the Luna capability tier was needed to distinguish
+settlements from administrative districts reliably. The October 2026 GPT-6
+refresh kept that tier while materially reducing token cost. It remains a
+separate setting because reverse-geocode hierarchy selection is a distinct
+quality/cost workload from description merging and title generation.
 
 **Settings dropdown preview cost.** At settings-time there is no
 selection to dry-run, so the dropdown uses a synthetic typical-cost-per-
@@ -544,7 +544,7 @@ pub fn typical_normalise_cost_per_image(model: &str) -> Option<f64> {
 }
 ```
 
-The dropdown label format matches describe and uses the shared live pricing table, for example `gpt-5.6-luna (≈ $… per photo when AI fires)`.
+The dropdown label format matches describe and uses the shared live pricing table, for example `gpt-6-luna (≈ $… per photo when AI fires)`.
 
 **Where AI is used.**
 
