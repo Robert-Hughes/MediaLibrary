@@ -4,9 +4,9 @@ import type { MetadataValue } from "./MetadataValue";
 /**
  * Dates-group input bundle (plan §1 Group H, H1 + H2 sub-groups).
  *
- * H3 (Modify time) is intentionally omitted — exiftool auto-updates
- * modify timestamps on every write, so normalising them is pointless
- * and fights the tool.
+ * H3 (Modify time) is intentionally omitted: modification history is not
+ * a capture/digitisation mirror. ExifTool's filesystem modification-time
+ * behaviour does not imply automatic correction of embedded modify tags.
  *
  * Date/time fields hold semantic `MetadataValue` values as parsed at
  * scan time. Related EXIF offset tags stay separate `TimeOffset`

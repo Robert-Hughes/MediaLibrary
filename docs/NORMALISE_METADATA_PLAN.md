@@ -311,7 +311,26 @@ explicit semantic interpretation and legacy-projection step.
 | ----------------- | -------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | H1 Shutter time   | `ExifIFD:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`          | Moment shutter fired                                                     |
 | H2 Digitised time | `ExifIFD:CreateDate`             | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
-| H3 Modify time    | (skipped)                        | —                                                                             | Auto-updated by exiftool on every write; do not normalise                |
+| H3 Modify time    | (skipped)                        | —                                                                             | Modification history, not capture or digitisation time; excluded         |
+
+H1 and H2 are independent. They normally coincide for camera-original digital
+photos, but a film photo taken in 1995 and scanned in 2026 legitimately has
+different capture and digitisation dates. The normaliser never copies H1 into
+H2, even when one sub-group is missing or the two disagree.
+
+**Coverage.** The table lists the complete set of date/time write targets for
+this group. `XMP-exif:DateTimeOriginal` is not currently an H1 mirror. Camera
+maker-note timestamps such as `Panasonic:TimeStamp` and video-specific capture
+timestamps are also outside this group's inputs and outputs. These are current
+coverage limits, not a claim that those timestamps cannot require correction.
+Maker-note and video fields need interpretation specific to their format before
+they can safely participate in a mirror group.
+
+EXIF `ModifyDate`, XMP `ModifyDate`/`MetadataDate`, and filesystem creation and
+modification times are not synchronised to capture or digitisation time.
+ExifTool normally changes the filesystem modification time when writing
+metadata (unless preservation is requested); that does **not** mean it
+automatically corrects embedded EXIF `ModifyDate` or every modification tag.
 
 **Canonical form per sub-group.** ISO 8601 datetime with timezone offset if
 known: `YYYY-MM-DDTHH:MM:SS±HH:MM`. Sub-second precision preserved if any
@@ -319,8 +338,15 @@ source has it (`ExifIFD:SubSecTimeOriginal` for H1, `SubSecTimeDigitized` for
 H2).
 
 **Timezone.** Offset taken from `ExifIFD:OffsetTimeOriginal` (H1) /
-`ExifIFD:OffsetTime` (H2) when present. If absent, write the datetime portion
-without offset (do not invent UTC).
+`ExifIFD:OffsetTimeDigitized` (H2) when present. An inline datetime offset takes
+precedence over the related EXIF offset tag. `ExifIFD:OffsetTime` belongs to
+modification time and is retained in the input model only for wire compatibility;
+it is not used for H2. The normaliser does not write EXIF offset or subsecond
+tags. Without a known source offset, EXIF/XMP datetime drafts remain offsetless.
+For IPTC time drafts, an existing IPTC offset is preserved first, then the
+source offset is used; if neither exists, the implementation falls back to the
+current PC local offset. That fallback is not historical timezone evidence and
+does not infer the camera's original timezone.
 
 **Derivation.**
 
@@ -369,8 +395,19 @@ does not encode a supported timestamp, the normaliser leaves capture time
 unknown rather than manufacturing a precise-looking value from filesystem
 state.
 
-H2 has no filename fallback. H3 is skipped entirely
-(auto-managed).
+H2 has no filename fallback. H3 is skipped entirely because modification
+history is not a capture-time mirror.
+
+**Correcting a camera clock.** Normalisation reads effective metadata, including
+pending target drafts, and stages its results rather than applying them to the
+files. Correcting EXIF `DateTimeOriginal` propagates within H1 only; correcting
+EXIF `CreateDate` propagates within H2 only. The corrected EXIF values win over
+conflicting XMP/IPTC mirrors, with the conflict reported. Both EXIF source fields
+must therefore be corrected when both contain the same camera clock error.
+The normaliser can create missing supported mirrors, so it is not an
+existing-fields-only repair workflow. To preserve the existing set of fields,
+stage explicit ExistingOccurrence edits instead and review any out-of-group
+timestamps separately.
 
 ### Group I — IPTC UTF-8
 
