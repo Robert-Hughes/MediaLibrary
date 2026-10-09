@@ -112,6 +112,14 @@ For each requested file, the backend:
 8. persists all changed rows in the chunk in one transaction; and
 9. appends a target-aware audit record.
 
+Write eligibility checks ExifTool's writable flag, the supported semantic
+datatype, and the file-format allow-list of raw family-0 sections. JPEG
+includes `MakerNotes`: fields such as `Panasonic:TimeStamp` belong to that
+section, rather than `EXIF`, even though their bytes are inside EXIF. Writable
+maker-note fields can therefore be corrected in existing JPEG occurrences.
+This does not make read-only fields writable or enable AVCHD/H264 timestamp
+writes. A rejected field blocks the complete file's batch before any write.
+
 ### IPTC IIM character-set safety
 
 IPTC IIM text is safe for non-ASCII writes only when the effective

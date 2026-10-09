@@ -17,6 +17,7 @@ const FORMAT_GROUP0_SUPPORT: &[FormatGroup0Support] = &[
             "Adobe",
             "Ducky",
             "EXIF",
+            "MakerNotes",
             "XMP",
             "IPTC",
             "ICC_Profile",

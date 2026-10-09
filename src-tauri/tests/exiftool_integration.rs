@@ -1647,6 +1647,69 @@ fn roundtrip_datetime_preserves_explicit_utc_offset_and_exact_id() {
 }
 
 #[test]
+fn roundtrip_existing_panasonic_maker_note_timestamp_in_jpeg() {
+    let Some(src) = fixture_path("keywords_basic.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    // A minimal little-endian EXIF block containing only Make, ExifIFD,
+    // and an existing Panasonic TimeStamp. Offsets are TIFF-relative.
+    let mut tiff = b"II\x2a\x00\x08\x00\x00\x00".to_vec();
+    fn entry(bytes: &mut Vec<u8>, tag: u16, datatype: u16, count: u32, offset: u32) {
+        bytes.extend(tag.to_le_bytes());
+        bytes.extend(datatype.to_le_bytes());
+        bytes.extend(count.to_le_bytes());
+        bytes.extend(offset.to_le_bytes());
+    }
+    tiff.extend(2u16.to_le_bytes());
+    entry(&mut tiff, 0x010f, 2, 10, 38);
+    entry(&mut tiff, 0x8769, 4, 1, 48);
+    tiff.extend(0u32.to_le_bytes());
+    tiff.extend(b"Panasonic\0");
+    tiff.extend(1u16.to_le_bytes());
+    entry(&mut tiff, 0x927c, 7, 50, 66);
+    tiff.extend(0u32.to_le_bytes());
+    tiff.extend(b"Panasonic\0\0\0");
+    tiff.extend(1u16.to_le_bytes());
+    entry(&mut tiff, 0x00af, 2, 20, 96);
+    tiff.extend(0u32.to_le_bytes());
+    tiff.extend(b"2025:05:09 12:11:58\0");
+    assert_eq!(tiff.len(), 116);
+    let jpeg = fs::read(&dst).unwrap();
+    assert_eq!(&jpeg[..2], &[0xff, 0xd8]);
+    let mut bytes = jpeg[..2].to_vec();
+    bytes.extend([0xff, 0xe1]);
+    bytes.extend(((tiff.len() + 8) as u16).to_be_bytes());
+    bytes.extend(b"Exif\0\0");
+    bytes.extend(tiff);
+    bytes.extend(&jpeg[2..]);
+    fs::write(&dst, bytes).unwrap();
+
+    let rel = rel_of(dir.path(), &dst);
+    let id = SchemaDefinitionId {
+        table: "Panasonic::Main".into(),
+        tag_id: "175".into(),
+        index: None,
+    };
+    let before = read_one(dir.path(), &dst);
+    assert_eq!(
+        schema_value(&before, &id),
+        Some(MetadataValue::Text("2025:05:09 12:11:58".into()))
+    );
+    let value = MetadataValue::Text("2026:05:09 12:11:58".into());
+    let outcome = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: id.clone(),
+            edit: metadata_set(value.clone()),
+        }],
+    );
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    assert_eq!(schema_value(&read_one(dir.path(), &dst), &id), Some(value));
+}
+
+#[test]
 fn location_created_struct_round_trips_as_one_atomic_location() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;

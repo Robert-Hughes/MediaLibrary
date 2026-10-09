@@ -674,10 +674,23 @@ mod tests {
         let exif = info("EXIF", true, TagKind::Text);
         let xmp = info("XMP", true, TagKind::Text);
         let iptc = info("IPTC", true, TagKind::Text);
+        let maker_notes = info("MakerNotes", true, TagKind::Text);
 
         assert!(exif
             .metadata_write_eligibility("photo.JPEG", MetadataWriteOperation::Set)
             .is_ok());
+        assert!(maker_notes
+            .metadata_write_eligibility("photo.JPG", MetadataWriteOperation::Set)
+            .is_ok());
+        assert_eq!(
+            maker_notes.metadata_write_eligibility("image.png", MetadataWriteOperation::Set),
+            Err(MetadataWriteIneligibility::UnsupportedSectionForFormat)
+        );
+        assert_eq!(
+            info("MakerNotes", false, TagKind::Text)
+                .metadata_write_eligibility("photo.jpg", MetadataWriteOperation::Set),
+            Err(MetadataWriteIneligibility::ReadOnlySchema)
+        );
         assert!(xmp
             .metadata_write_eligibility("animation.gif", MetadataWriteOperation::Set)
             .is_ok());
