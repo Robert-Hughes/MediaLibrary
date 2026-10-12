@@ -110,6 +110,8 @@ const WRITE_DEFINITIONS: Array<
   [KNOWN_METADATA_IDS.artist, "IFD0", "Artist"],
   [KNOWN_METADATA_IDS.copyright, "IFD0", "Copyright"],
   [KNOWN_METADATA_IDS.dateTimeOriginal, "ExifIFD", "DateTimeOriginal"],
+  [KNOWN_METADATA_IDS.offsetTimeOriginal, "ExifIFD", "OffsetTimeOriginal"],
+  [KNOWN_METADATA_IDS.subSecTimeOriginal, "ExifIFD", "SubSecTimeOriginal"],
   [KNOWN_METADATA_IDS.createDate, "ExifIFD", "CreateDate"],
   [KNOWN_METADATA_IDS.gpsLatitudeRef, "GPS", "GPSLatitudeRef"],
   [KNOWN_METADATA_IDS.gpsLatitude, "GPS", "GPSLatitude"],

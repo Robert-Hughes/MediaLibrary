@@ -1609,6 +1609,83 @@ fn roundtrip_gps_preserves_each_exact_id() {
 }
 
 #[test]
+fn unix_filename_normalisation_roundtrips_utc_fraction_and_is_idempotent() {
+    use medialibrary_tauri_lib::{
+        known_ids,
+        normalise::{normalise_dates, DatesInput},
+    };
+
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("shared_1500122345839_photo.jpg");
+    fs::copy(src, &dst).unwrap();
+    let cleared = Command::new("exiftool")
+        .args(["-all=", "-overwrite_original"])
+        .arg(&dst)
+        .output()
+        .expect("clear metadata on private fixture copy");
+    assert!(
+        cleared.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cleared.stderr)
+    );
+    let input_from = |image: &scanner::FileMetadata| DatesInput {
+        file_stem: Some("shared_1500122345839_photo".into()),
+        date_time_original: schema_value(image, &known_ids::date_time_original()),
+        offset_time_original: schema_value(image, &known_ids::offset_time_original()),
+        sub_sec_time_original: schema_value(image, &known_ids::sub_sec_time_original()),
+        photoshop_date_created: schema_value(image, &known_ids::xmp_date_created()),
+        iptc_date_created: schema_value(image, &known_ids::iptc_date_created()),
+        iptc_time_created: schema_value(image, &known_ids::iptc_time_created()),
+        ..Default::default()
+    };
+    let before = read_one(dir.path(), &dst);
+    let result = normalise_dates(&input_from(&before));
+    assert_eq!(result.n_dto_from_filename, 1);
+    let edits = result.output.unwrap().edits;
+    assert_eq!(edits.len(), 6);
+    let rel = rel_of(dir.path(), &dst);
+    let outcome = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        edits
+            .iter()
+            .map(|(schema_id, edit)| SchemaMetadataEdit {
+                schema_id: schema_id.clone(),
+                edit: edit.clone(),
+            })
+            .collect(),
+    );
+    assert!(outcome.error.is_none(), "apply failed: {:?}", outcome.error);
+    let after = read_one(dir.path(), &dst);
+    for (id, edit) in &edits {
+        assert_eq!(schema_value(&after, id), edit.value, "{id:?}");
+    }
+    assert_eq!(
+        schema_value(&after, &known_ids::offset_time_original()),
+        Some(MetadataValue::TimeOffset(UtcOffsetValue {
+            sign: OffsetSign::Plus,
+            hours: 0,
+            minutes: 0
+        }))
+    );
+    assert_eq!(
+        schema_value(&after, &known_ids::sub_sec_time_original()),
+        Some(MetadataValue::Text("839".into()))
+    );
+    assert!(schema_value(&after, &known_ids::create_date()).is_none());
+    let repeated = normalise_dates(&input_from(&after));
+    assert!(
+        repeated.output.is_none(),
+        "repeat staged new edits: {:?}",
+        repeated.output
+    );
+    assert_eq!(repeated.n_dto_from_filename, 0);
+}
+
+#[test]
 fn roundtrip_datetime_preserves_explicit_utc_offset_and_exact_id() {
     let Some(src) = fixture_path("real_with_exif.jpg") else {
         return;

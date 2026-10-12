@@ -341,8 +341,13 @@ H2).
 `ExifIFD:OffsetTimeDigitized` (H2) when present. An inline datetime offset takes
 precedence over the related EXIF offset tag. `ExifIFD:OffsetTime` belongs to
 modification time and is retained in the input model only for wire compatibility;
-it is not used for H2. The normaliser does not write EXIF offset or subsecond
-tags. Without a known source offset, EXIF/XMP datetime drafts remain offsetless.
+it is not used for H2. Ordinary mirror normalisation does not write EXIF offset
+or subsecond tags. Unix-millisecond filename derivation is an explicit exception:
+it writes `OffsetTimeOriginal=+00:00` and `SubSecTimeOriginal` with three digits,
+while writing whole seconds to EXIF `DateTimeOriginal`. XMP retains the full
+UTC datetime and milliseconds; IPTC retains UTC at whole-second precision.
+Orphan EXIF/IPTC offset and subsecond hints cannot override this known instant.
+Without a known source offset, EXIF/XMP datetime drafts remain offsetless.
 For IPTC time drafts, an existing IPTC offset is preserved first, then the
 source offset is used; if neither exists, the implementation falls back to the
 current PC local offset. That fallback is not historical timezone evidence and
@@ -357,7 +362,7 @@ does not infer the camera's original timezone.
 
 **Conflict policy per sub-group.**
 
-1. All target sources empty (H1 only) → try the filename fallback. If it does
+1. No target source has a usable parsed date (H1 only) → try the filename fallback. If it does
    not match, emit no H1 drafts.
 2. Exactly one target source non-empty → propagate to others (after
    normalisation to ISO form).
@@ -366,26 +371,37 @@ does not infer the camera's original timezone.
 4. Multiple target sources non-empty AND distinct → primary (EXIF side) wins.
    Recorded in stats as `n_date_conflict`. No AI.
 
-**Filename fallback (H1 only).** Triggered when _all_ H1 target fields are
-empty. Regex table tried in order:
+**Filename fallback (H1 only).** Triggered when none of the EXIF, Photoshop XMP,
+or IPTC H1 sources supplies a usable parsed date. This includes empty or
+unparseable inputs; any usable source blocks fallback. Regex table tried in order:
 
-| Pattern                                                                         | Source               | Notes                                |
-| ------------------------------------------------------------------------------- | -------------------- | ------------------------------------ |
-| `IMG[_-](\d{8})[_-](\d{6})`                                                     | iOS / Android camera | YYYYMMDD_HHMMSS                      |
-| `PXL[_-](\d{8})[_-](\d{6})(\d{3})`                                              | Pixel                | Last 3 digits subsec                 |
-| `VID[_-](\d{8})[_-](\d{6})`                                                     | Video filenames      | Same datetime                        |
-| `Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?` | iOS/macOS screenshot | Time optional                        |
-| `(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[.\-:](\d{2})[.\-:](\d{2})`                 | Generic ISO-ish      |                                      |
-| `(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})`                               | Compact              |                                      |
-| `(\d{4})-(\d{2})-(\d{2})`                                                       | Date-only            | Time defaults to `00:00:00`, flagged |
+| Pattern                                                                         | Source               | Notes                                 |
+| ------------------------------------------------------------------------------- | -------------------- | ------------------------------------- |
+| `IMG[_-](\d{8})[_-](\d{6})`                                                     | iOS / Android camera | YYYYMMDD_HHMMSS                       |
+| `PXL[_-](\d{8})[_-](\d{6})(\d{3})`                                              | Pixel                | Last 3 digits subsec                  |
+| `VID[_-](\d{8})[_-](\d{6})`                                                     | Video filenames      | Same datetime                         |
+| `Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?` | iOS/macOS screenshot | Time optional                         |
+| `(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[.\-:](\d{2})[.\-:](\d{2})`                 | Generic ISO-ish      |                                       |
+| `(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})`                               | Compact              |                                       |
+| `(\d{4})-(\d{2})-(\d{2})`                                                       | Date-only            | Time defaults to `00:00:00`, flagged  |
+| A digit-bounded run of exactly 13 ASCII digits                                  | Unix milliseconds    | UTC instant; three-digit milliseconds |
 
 Matches at any position in the file stem. Sanity bounds: 1900 ≤ year ≤
 (current year + 1).
 
+Unix milliseconds are tried after the calendar patterns. The 13-digit run may
+appear anywhere in the stem, without a required Messenger prefix, but may not
+be part of a longer number. Decode using integer milliseconds, apply the same
+year bounds, and skip an ambiguous filename with multiple plausible Unix
+timestamps. A shared-image filename may represent sending or saving rather
+than the original shutter time. Unix derivation uses the existing
+`n_dto_from_filename` count; no persistent provenance label is added.
+
 **Date-only filename match** writes `DTO=YYYY-MM-DDT00:00:00` and increments
 `n_dto_from_filename_date_only` in stats so the user can audit.
 
-**Filename fallback never overwrites an existing DTO.** It only fills.
+**Filename fallback never overwrites a usable existing capture date.** Invalid
+unparseable dates may be replaced by a usable filename-derived date.
 
 **Filesystem timestamps are not capture-time evidence.** H1 deliberately does
 not fall back to OS Created or OS Modified timestamps. Those values are easily

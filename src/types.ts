@@ -819,6 +819,8 @@ export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
   ],
   dates: [
     ID.dateTimeOriginal,
+    ID.offsetTimeOriginal,
+    ID.subSecTimeOriginal,
     ID.xmpDateCreated,
     ID.iptcDateCreated,
     ID.iptcTimeCreated,

@@ -550,6 +550,16 @@ fn overwrites_for_group(
                     &mut out,
                 );
                 scalar_value(
+                    &crate::known_ids::offset_time_original(),
+                    b.offset_time_original.as_ref(),
+                    &mut out,
+                );
+                scalar_value(
+                    &crate::known_ids::sub_sec_time_original(),
+                    b.sub_sec_time_original.as_ref(),
+                    &mut out,
+                );
+                scalar_value(
                     &crate::known_ids::xmp_date_created(),
                     b.photoshop_date_created.as_ref(),
                     &mut out,

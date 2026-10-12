@@ -1402,6 +1402,8 @@ pub(super) fn is_normalise_schema(
         normalise::NormaliseGroup::Dates => matches!(
             (id.table.as_str(), id.tag_id.as_str()),
             ("Exif::Main", "36867")
+                | ("Exif::Main", "36881")
+                | ("Exif::Main", "37521")
                 | ("XMP::photoshop", "DateCreated")
                 | ("IPTC::ApplicationRecord", "55")
                 | ("IPTC::ApplicationRecord", "60")
@@ -2123,6 +2125,12 @@ mod tests {
  <tag id='36867' name='DateTimeOriginal' type='string' writable='true' g1='ExifIFD'>
   <desc lang='en'>Date/Time Original</desc>
  </tag>
+ <tag id='36881' name='OffsetTimeOriginal' type='string' writable='true' g1='ExifIFD'>
+  <desc lang='en'>Offset Time Original</desc>
+ </tag>
+ <tag id='37521' name='SubSecTimeOriginal' type='string' writable='true' g1='ExifIFD'>
+  <desc lang='en'>Sub Sec Time Original</desc>
+ </tag>
 </table>
 </taginfo>"#,
         )
@@ -2170,6 +2178,41 @@ mod tests {
             apply_operation: None,
             verification_outcomes: HashMap::new(),
             batch_operations: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn unix_filename_companion_fields_reach_session_drafts() {
+        let registry = fixture_registry();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edits = vec![
+            draft_edits::SchemaMetadataEdit {
+                schema_id: crate::known_ids::offset_time_original(),
+                edit: set_edit("+00:00"),
+            },
+            draft_edits::SchemaMetadataEdit {
+                schema_id: crate::known_ids::sub_sec_time_original(),
+                edit: set_edit("839"),
+            },
+        ];
+        let planned = plan_session_normalise_drafts(
+            &snapshot,
+            "photo.jpg",
+            &edits,
+            &[normalise::NormaliseGroup::Dates],
+            &registry,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(planned.len(), 2);
+        for edit in &edits {
+            assert!(planned.iter().any(
+                |entry| entry.target.schema_id() == &edit.schema_id && entry.edit == edit.edit
+            ));
         }
     }
 

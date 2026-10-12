@@ -9,11 +9,9 @@ Current
   - Some st. pauls photos misidentified objects?
   - The Windsor close-up is the Curfew Tower, despite its description calling it the Round Tower
 - Any missing dates?
-  - Panasonic camera's timestamp seems to be off by one hour - fix all?
-  - Wedding photos from 2026 have wrong date! Check others?
   - Anything whjere date doesn't match folder, or is out of sync with another date or nearby photos etc.
   - Facebook messenger photos tend to be bad for this
-  - 1500122345839 is a Unix timestamp in milliseconds
+  - 1500122345839 is a Unix timestamp in milliseconds - use this as a fallback option for date normalisation?
 - Move out of Unknown folder? (and AI describe, normalize etc., not touched these at all yet!)
 - Confirm all are "normalised"
   - Have GPS, date, description/keywords and pass normalise test

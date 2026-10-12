@@ -11,7 +11,7 @@ use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
 use crate::tag_schema::SchemaDefinitionId;
-use chrono::Offset;
+use chrono::{Datelike, Offset, Timelike};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -624,7 +624,53 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ComparableTimestamp, bool)> {
             ));
         }
     }
-    None
+    parse_unix_milliseconds_filename(stem, year_max).map(|timestamp| (timestamp, false))
+}
+
+fn parse_unix_milliseconds_filename(stem: &str, year_max: i32) -> Option<ComparableTimestamp> {
+    static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| regex::Regex::new(r"[0-9]{13}").unwrap());
+    let mut candidate = None;
+    for matched in pattern.find_iter(stem) {
+        // Do not mistake a fragment of a longer numeric identifier for a date.
+        let bytes = stem.as_bytes();
+        if matched.start() > 0 && bytes[matched.start() - 1].is_ascii_digit()
+            || matched.end() < bytes.len() && bytes[matched.end()].is_ascii_digit()
+        {
+            continue;
+        }
+        let milliseconds = matched.as_str().parse::<i64>().ok()?;
+        let datetime = chrono::DateTime::from_timestamp_millis(milliseconds)?;
+        if !(1900..=year_max).contains(&datetime.year()) {
+            continue;
+        }
+        if candidate.is_some() {
+            // More than one plausible timestamp has no unambiguous winner.
+            return None;
+        }
+        candidate = Some(ComparableTimestamp {
+            datetime: dt_value(
+                date_value(
+                    datetime.year(),
+                    datetime.month() as u8,
+                    datetime.day() as u8,
+                ),
+                time_value(
+                    datetime.hour() as u8,
+                    datetime.minute() as u8,
+                    datetime.second() as u8,
+                    Some(format!("{:03}", datetime.timestamp_subsec_millis())),
+                    Some(UtcOffsetValue {
+                        sign: OffsetSign::Plus,
+                        hours: 0,
+                        minutes: 0,
+                    }),
+                ),
+            ),
+            offset_from_related_tag: None,
+        });
+    }
+    candidate
 }
 
 fn normalise_dates_inner(
@@ -681,12 +727,20 @@ fn normalise_dates_inner(
         // transport/storage metadata and are not reliable evidence of capture time.
     }
 
-    let h1 = process_date_subgroup(
+    let unix_filename = canonical_override
+        .as_ref()
+        .filter(|timestamp| timestamp.effective_offset().is_some());
+    let mut h1 = process_date_subgroup(
         exif_h1.as_ref(),
         xmp_h1.as_ref(),
         iptc_h1.as_ref(),
         input.iptc_date_created.as_ref(),
-        input.iptc_time_created.as_ref(),
+        // An orphan IPTC time's offset cannot override the filename's known UTC.
+        if unix_filename.is_some() {
+            None
+        } else {
+            input.iptc_time_created.as_ref()
+        },
         canonical_override.as_ref(),
         known_ids::date_time_original(),
         known_ids::xmp_date_created(),
@@ -694,6 +748,29 @@ fn normalise_dates_inner(
         known_ids::iptc_time_created(),
         iptc_fallback_offset.as_ref(),
     );
+    if let Some(timestamp) = unix_filename {
+        // EXIF stores the fraction and offset in companion tags rather than
+        // DateTimeOriginal. Project all three so write/read and repeat runs agree.
+        if let Some(edit) = h1.edits.get_mut(&known_ids::date_time_original()) {
+            let mut datetime = timestamp.without_inline_offset();
+            datetime.time.subsecond = None;
+            edit.value = Some(MetadataValue::DateTime(datetime));
+        }
+        let offset = timestamp.effective_offset().unwrap();
+        if offset_from_value(input.offset_time_original.as_ref()).as_ref() != Some(offset) {
+            h1.edits.insert(
+                known_ids::offset_time_original(),
+                set_edit(MetadataValue::TimeOffset(offset.clone())),
+            );
+        }
+        let subsecond = timestamp.datetime.time.subsecond.as_ref().unwrap();
+        if subsecond_from_value(input.sub_sec_time_original.as_ref()).as_ref() != Some(subsecond) {
+            h1.edits.insert(
+                known_ids::sub_sec_time_original(),
+                set_edit(MetadataValue::Text(subsecond.clone())),
+            );
+        }
+    }
     if h1.conflict {
         n_conflict += 1;
         conflicts.push(date_conflict_detail("H1", &h1));
@@ -817,12 +894,12 @@ mod tests {
     }
 
     fn edit_value<'a>(g: &'a GroupOutput, k: &str) -> &'a MetadataValue {
-        g.edits
-            .get(&crate::known_ids::test_id(k))
-            .unwrap()
-            .value
-            .as_ref()
-            .unwrap()
+        let id = match k {
+            "ExifIFD:OffsetTimeOriginal" => known_ids::offset_time_original(),
+            "ExifIFD:SubSecTimeOriginal" => known_ids::sub_sec_time_original(),
+            _ => crate::known_ids::test_id(k),
+        };
+        g.edits.get(&id).unwrap().value.as_ref().unwrap()
     }
 
     fn display(v: &MetadataValue) -> String {
@@ -1227,6 +1304,116 @@ mod tests {
         assert!(out.output.is_none());
         assert_eq!(out.n_date_conflict, 0);
         assert_eq!(out.n_unparseable_inputs, 0);
+    }
+
+    #[test]
+    fn unix_filename_fallback_projects_utc_and_milliseconds_without_touching_h2() {
+        let input = DatesInput {
+            file_stem: Some("upload_1500122345839_photo".into()),
+            // Orphan hints must not replace the timestamp's known fraction/UTC.
+            offset_time_original: Some(MetadataValue::TimeOffset(off(1))),
+            sub_sec_time_original: Some(text("123")),
+            iptc_time_created: Some(time(9, 0, 0, Some(off(2)))),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, Some(off(5)));
+        assert_eq!(out.n_dto_from_filename, 1);
+        assert_eq!(out.n_dto_from_filename_date_only, 0);
+        let g = out.output.unwrap();
+        assert_eq!(g.edits.len(), 6);
+        assert_eq!(
+            display(edit_value(&g, "ExifIFD:DateTimeOriginal")),
+            "2017-07-15T12:39:05"
+        );
+        assert_eq!(
+            edit_value(&g, "ExifIFD:OffsetTimeOriginal"),
+            &MetadataValue::TimeOffset(off(0))
+        );
+        assert_eq!(edit_value(&g, "ExifIFD:SubSecTimeOriginal"), &text("839"));
+        assert_eq!(
+            display(edit_value(&g, "XMP-photoshop:DateCreated")),
+            "2017-07-15T12:39:05.839+00:00"
+        );
+        assert_eq!(
+            display(edit_value(&g, "IPTC:TimeCreated")),
+            "12:39:05+00:00"
+        );
+
+        let reread = DatesInput {
+            date_time_original: Some(edit_value(&g, "ExifIFD:DateTimeOriginal").clone()),
+            offset_time_original: Some(edit_value(&g, "ExifIFD:OffsetTimeOriginal").clone()),
+            sub_sec_time_original: Some(edit_value(&g, "ExifIFD:SubSecTimeOriginal").clone()),
+            photoshop_date_created: Some(edit_value(&g, "XMP-photoshop:DateCreated").clone()),
+            iptc_date_created: Some(edit_value(&g, "IPTC:DateCreated").clone()),
+            iptc_time_created: Some(edit_value(&g, "IPTC:TimeCreated").clone()),
+            ..input
+        };
+        let repeated = normalise_dates_with_fallback_offset(&reread, Some(off(5)));
+        assert!(repeated.output.is_none());
+        assert_eq!(repeated.n_dto_from_filename, 0);
+    }
+
+    #[test]
+    fn unix_filename_detection_accepts_runs_but_rejects_long_ids_and_ambiguity() {
+        for stem in [
+            "1500122345839",
+            "FB_IMG_1500122345839",
+            "USER_SCOPED_TEMP_DATA_MSGR_PHOTO_FOR_UPLOAD_1500122345839_6829147487384714442",
+            "photo1500122345839copy",
+        ] {
+            let (timestamp, date_only) = parse_filename_for_h1(stem).unwrap();
+            assert_eq!(
+                render_ts(&timestamp),
+                "2017-07-15 12:39:05.839+00:00",
+                "{stem}"
+            );
+            assert!(!date_only);
+        }
+        for stem in [
+            "150012234583",
+            "15001223458390",
+            "01500122345839",
+            "received_6829147487384714442",
+            "9999999999999",
+            "1500122345839_1500122345840",
+        ] {
+            assert!(parse_filename_for_h1(stem).is_none(), "{stem}");
+        }
+        assert!(parse_unix_milliseconds_filename("1500122345839", 2016).is_none());
+        let zero_fraction = parse_filename_for_h1("1500122345000").unwrap().0;
+        assert_eq!(
+            zero_fraction.datetime.time.subsecond.as_deref(),
+            Some("000")
+        );
+        // Existing calendar patterns keep their precedence.
+        assert_eq!(
+            render_ts(
+                &parse_filename_for_h1("IMG_20240615_143045_1500122345839")
+                    .unwrap()
+                    .0
+            ),
+            "2024-06-15 14:30:45"
+        );
+    }
+
+    #[test]
+    fn unix_filename_never_overrides_a_usable_capture_source() {
+        for source in 0..3 {
+            let mut input = DatesInput {
+                file_stem: Some("1500122345839".into()),
+                ..Default::default()
+            };
+            match source {
+                0 => input.date_time_original = Some(dt(2020, 1, 1, 0, 0, 0, None)),
+                1 => input.photoshop_date_created = Some(dt(2020, 1, 1, 0, 0, 0, None)),
+                _ => input.iptc_date_created = Some(date(2020, 1, 1)),
+            }
+            let out = normalise_dates_with_fallback_offset(&input, None);
+            assert_eq!(out.n_dto_from_filename, 0);
+            let g = out.output.unwrap();
+            assert!(!g.edits.contains_key(&known_ids::offset_time_original()));
+            assert!(!g.edits.contains_key(&known_ids::sub_sec_time_original()));
+        }
     }
 
     #[test]
