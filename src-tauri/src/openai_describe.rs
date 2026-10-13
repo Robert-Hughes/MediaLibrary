@@ -90,52 +90,14 @@ pub fn estimate_describe_cost_from_input_tokens(
 /// Prompt + schema version.  Bump when either changes so the audit log and
 /// the `XMP-mlib:AIPromptVersion` written to each file can distinguish
 /// runs.
-pub const PROMPT_VERSION: &str = "v1";
+pub const PROMPT_VERSION: &str = "v2";
 
 /// Re-exported for callers that still reference the old name.
 pub use crate::openai_http::DEFAULT_BASE_URL;
 
-/// System-level prompt sent in `instructions`.  Adds an explicit cap on OCR
-/// transcription length (see `docs/IMAGE_ANALYSIS.md`) so document-heavy
-/// images don't blow past `max_output_tokens`.
-pub const SYSTEM_INSTRUCTIONS: &str = "\
-You describe images for a personal media library. Your output is consumed \
-by both software (for indexing and search) and a human (for browsing), so \
-it should be informative and engaging — not robotically factual. \
-\
-For `description`: 2-4 sentences in present tense. Lead with the most \
-salient content. **Name landmarks, famous buildings, sculptures, locations, \
-and recognizable activities by their proper names when you are confident** \
-— e.g. 'London Eye' not 'ferris wheel', 'Tower of London' not 'castle', \
-'St Pancras Renaissance Hotel' not 'red-brick building', 'punting' not \
-'paddling a boat', 'The Meeting Place statue' not 'bronze sculpture of two \
-people'. Fall back to generic terms only when you are not confident. Do \
-not start with filler ('The image shows', 'This is a photo of', 'I can see') \
-— begin directly with the description. Keep `description` factual: what is \
-actually present in the image. Speculation about intent, meaning, or \
-emotion goes in `interpretation`, not here. \
-\
-For `tags`: lowercase, hyphenated, single-concept search terms a photographer \
-would use to organise the image — subject ('portrait', 'landscape', \
-'still-life'), setting ('beach', 'urban', 'indoor'), notable content \
-('sunset', 'crowd', 'wedding'), style ('black-and-white', 'long-exposure', \
-'macro'), and **specific places, landmarks, or named activities when known** \
-('london-eye', 'st-pancras', 'thames', 'punting'). Aim for 5-15 tags. \
-\
-For `ocr_text`: each distinct text region transcribed verbatim, as its own \
-entry. If the image contains many text regions or block text longer than \
-~50 words (e.g. document scans, dense signs, screenshots of articles), \
-transcribe only the largest or most prominent regions and add a final \
-entry `\"[...and additional text omitted]\"` rather than transcribing the \
-full text. Empty array if no text. \
-\
-For `interpretation`: ONE short sentence (or empty string) of explicitly \
-labelled speculation about the photographer's intent, the mood, or the \
-emotional tone of the image. Use hedging language ('appears', 'likely', \
-'seems', 'mood is'). Leave empty if nothing meaningful can be said. \
-\
-If the image is blank, blurry, or unidentifiable, say so plainly in the \
-description.";
+/// Evaluated evidence-first prompt sent in `instructions`.
+/// Kept as a standalone resource so production uses the exact tested text.
+pub const SYSTEM_INSTRUCTIONS: &str = include_str!("../resources/description-v2.txt");
 
 // ── Pricing ──────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,24 @@
 # AI Image Description (OpenAI Responses API) — V1 Design
 
-Status: design, pre-implementation. Companion to
+Status: implemented. This document records the original V1 feature design and
+subsequent changes. Companion to
 `experiments/openai_image_analysis/MODEL_CHOICE.md`.
+
+## Production prompt (v2)
+
+New description requests use the exact evaluated evidence-first prompt in
+`src-tauri/resources/description-v2.txt`. It requires visible evidence before
+naming species, landmarks and architectural features, applies the same standard
+to objects and tags, and allows concise descriptions and fewer tags when evidence
+is limited. The output schema and image preprocessing are unchanged.
+
+`PROMPT_VERSION` is `v2`, so new drafts and audit records distinguish these runs.
+Existing captions, keywords and AI metadata are not automatically regenerated.
+The paired harness freezes v1 and v2 prompt snapshots and checks production text
+against the tested v2 snapshot. See
+[the evaluation results](../experiments/openai_image_analysis/DESCRIPTION_V2_RESULTS.md)
+for the reduction in false identities and the loss of some correct specificity.
+Reverse-geocoded context and filename inputs remain proposed, not implemented.
 
 ## Goal
 
