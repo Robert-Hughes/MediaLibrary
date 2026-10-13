@@ -1,0 +1,502 @@
+{
+  "version": "description-v2-20261013-mara-and-wellington-reference-corrected",
+  "cases": [
+    {
+      "id": "r01_alpaca",
+      "group": "regression",
+      "relative_path": "2024/Potten End/P2080807.JPG",
+      "truth": "White alpaca grazing; no evidence for Australia.",
+      "exact": ["\\balpacas?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b", "\\bcamelids?\\b"],
+      "forbidden": ["\\baustralia\\b"],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "r02_small_road_animal",
+      "group": "regression",
+      "relative_path": "2018/MSGR_PHOTO_FOR_UPLOAD_1525725143418.jpg_1525725145539.jpg",
+      "truth": "Not fox or bird; crop favours ginger cat, identity provisional. Broad animal is acceptable.",
+      "exact": ["\\b(?:cats?|feline)\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": true
+    },
+    {
+      "id": "r03_night_animal",
+      "group": "regression",
+      "relative_path": "2017/1503780879913.jpg",
+      "truth": "Not rabbit; crop favours hedgehog, identity provisional. Broad animal is acceptable.",
+      "exact": ["\\bhedgehogs?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": true
+    },
+    {
+      "id": "r04_curfew_tower",
+      "group": "regression",
+      "relative_path": "2022/IMG_1756.JPG",
+      "truth": "Curfew Tower; not Round Tower.",
+      "exact": ["\\bcurfew[ -]tower\\b"],
+      "generic": [
+        "\\b(?:building|tower|castle|fortification|architecture|cathedral|church)\\b"
+      ],
+      "forbidden": ["\\bround[ -]tower\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r05_longhaired_cat",
+      "group": "regression",
+      "relative_path": "2019/20190308_083847-EFFECTS.jpg",
+      "truth": "Long-haired cat beside path.",
+      "exact": ["\\b(?:cats?|feline)\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "r06_walking_cat",
+      "group": "regression",
+      "relative_path": "2019/IMG_1711.JPG",
+      "truth": "Dark cat with white paws, walking across daisies.",
+      "exact": ["\\b(?:cats?|feline)\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "r07_ginger_cat",
+      "group": "regression",
+      "relative_path": "2017/20170625_215615.jpg",
+      "truth": "Ginger-and-white cat sitting at dusk.",
+      "exact": ["\\b(?:cats?|feline)\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "r08_tabby_cat",
+      "group": "regression",
+      "relative_path": "2023/Cats/20230714_115738.jpg",
+      "truth": "Tabby cat crouching on path.",
+      "exact": ["\\b(?:cats?|feline)\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "r09_two_lemurs",
+      "group": "regression",
+      "relative_path": "2020/20200213_140837.jpg",
+      "truth": "Two red ruffed lemurs on railing; not red panda.",
+      "exact": ["\\blemurs?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "r10_stpauls_dome",
+      "group": "regression",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_1929.JPG",
+      "truth": "Dome of St Paul's Cathedral, London.",
+      "exact": ["\\bst[ .-]*paul"],
+      "generic": [
+        "\\b(?:building|tower|castle|fortification|architecture|cathedral|church)\\b",
+        "\\b(?:dome|domed|cupola|vaulted)[ -](?:interior|ceiling)\\b",
+        "\\bdome\\b"
+      ],
+      "forbidden": ["\\bst[ .-]*peter", "\\bvatican\\b", "\\brome\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r11_spiral_stairs",
+      "group": "regression",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_1937.JPG",
+      "truth": "Visitors on spiral staircase, not a lift.",
+      "exact": ["\\b(?:spiral[ -])?(?:staircase|stairs|stairwell)\\b"],
+      "generic": ["\\b(?:steps|stairway)\\b", "\\bstair-like[ -]structure\\b"],
+      "forbidden": ["\\b(?:elevator|lift)\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r12_altar_canopy",
+      "group": "regression",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_1972.JPG",
+      "truth": "Wellington Monument in St Paul's Cathedral, including its bronze effigy/sarcophagus, stone canopy and equestrian sculpture; not the high altar and not a French memorial.",
+      "exact": ["\\bwellington\\b"],
+      "generic": [
+        "\\b(?:monument|memorial|tomb|sarcophagus|canopy|columns?)\\b"
+      ],
+      "forbidden": [
+        "\\b(?:turenne|napoleon|invalides|paris|vatican|rome|high[ -]altar)\\b"
+      ],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r13_stpauls_nave",
+      "group": "regression",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_1970.JPG",
+      "truth": "St Paul's nave and baptismal font, not Vatican holy-water font.",
+      "exact": ["\\bst[ .-]*paul", "\\b(?:baptismal|baptism)[ -]font\\b"],
+      "generic": ["\\b(?:church|cathedral|font|nave)\\b"],
+      "forbidden": [
+        "\\bst[ .-]*peter",
+        "\\b(?:vatican|rome)\\b",
+        "\\bholy[ -]water\\b"
+      ],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r14_circular_grille",
+      "group": "regression",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_1982.JPG",
+      "truth": "Circular iron grille/aperture with mosaics beyond; not clock.",
+      "exact": ["\\b(?:grille|grill|ironwork|metalwork|tracery|lattice)\\b"],
+      "generic": [
+        "\\b(?:circular|round|ornate|decorative)[ -](?:opening|window|aperture|screen|pattern)\\b"
+      ],
+      "forbidden": [
+        "\\b(?:clock|clockface|clock[ -]face|clock[ -]hands|stained[ -]glass)\\b"
+      ],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r15_london_not_leeds",
+      "group": "regression",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_2005.JPG",
+      "truth": "London view from Shard, not Leeds/Bridgewater Place.",
+      "exact": ["\\blondon\\b", "\\bshard\\b"],
+      "generic": ["\\b(?:cityscape|city|skyline|urban|buildings|panorama)\\b"],
+      "forbidden": ["\\b(?:leeds|bridgewater|manchester)\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r16_london_not_manchester",
+      "group": "regression",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_2007.JPG",
+      "truth": "London view from Shard, not Manchester.",
+      "exact": ["\\blondon\\b", "\\bshard\\b"],
+      "generic": ["\\b(?:cityscape|city|skyline|urban|buildings|panorama)\\b"],
+      "forbidden": ["\\b(?:manchester|leeds)\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r17_ely_not_paris",
+      "group": "regression",
+      "relative_path": "2023/Ely/IMG_2056.JPG",
+      "truth": "Ely Cathedral decorated interior, not Sainte-Chapelle.",
+      "exact": ["\\bely\\b"],
+      "generic": [
+        "\\b(?:building|tower|castle|fortification|architecture|cathedral|church)\\b",
+        "\\b(?:gothic|chapel|vaulted)[ -]interior\\b",
+        "\\bchapel\\b"
+      ],
+      "forbidden": [
+        "\\bsainte[ -]chapelle\\b",
+        "\\b(?:paris|france|vatican)\\b"
+      ],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r18_birmingham_train",
+      "group": "regression",
+      "relative_path": "2024/20240710_160942.jpg",
+      "truth": "Passenger train at Birmingham New Street; not London Underground.",
+      "exact": ["\\bbirmingham\\b", "\\bnew[ -]street\\b"],
+      "generic": ["\\b(?:train|railway|railroad|station|platform)\\b"],
+      "forbidden": [
+        "\\blondon\\b",
+        "\\b(?:underground|metro|subway|tube)[ -](?:train|station|platform)\\b"
+      ],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r19_york_wheel",
+      "group": "regression",
+      "relative_path": "2012/IMAG0401.jpg",
+      "truth": "Observation wheel in York; not London Eye.",
+      "exact": ["\\byork\\b"],
+      "generic": ["\\b(?:observation|ferris|large|white)[ -]wheel\\b"],
+      "forbidden": ["\\blondon\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "r20_canary_wharf",
+      "group": "regression",
+      "relative_path": "2010/Image0428.jpg",
+      "truth": "Canary Wharf London office tower; not New York/Times Square.",
+      "exact": [
+        "\\bcanary[ -]wharf\\b",
+        "\\bone[ -]canada[ -]square\\b",
+        "\\blondon\\b"
+      ],
+      "generic": [
+        "\\b(?:building|tower|castle|fortification|architecture|cathedral|church)\\b",
+        "\\b(?:office[ -])?(?:skyscraper|tower)\\b"
+      ],
+      "forbidden": ["\\bnew[ -]york\\b", "\\btimes[ -]square\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c01_wallaby",
+      "group": "control",
+      "relative_path": "2024/Potten End/P2080676.JPG",
+      "truth": "Wallaby portrait.",
+      "exact": ["\\bwallab(?:y|ies)\\b"],
+      "generic": [
+        "\\b(?:animals?|mammals?|creatures?)\\b",
+        "\\bmarsupials?\\b",
+        "\\bkangaroo-(?:like|family)\\b"
+      ],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c02_otters",
+      "group": "control",
+      "relative_path": "2024/Potten End/P2080644.JPG",
+      "truth": "Several otters in vegetation.",
+      "exact": ["\\botters?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c03_mara",
+      "group": "control",
+      "relative_path": "2024/Potten End/P2080649.JPG",
+      "truth": "Patagonian mara close-up, identified from long upright ears, grey/orange coat and claws in adjacent P2080640; Smithsonian morphological reference. Old AI capybara label is wrong.",
+      "exact": ["\\b(?:patagonian[ -])?(?:maras?|cav(?:y|ies))\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b", "\\brodents?\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c04_lemur",
+      "group": "control",
+      "relative_path": "2020/20200213_140612.jpg",
+      "truth": "Red ruffed lemur on railing.",
+      "exact": ["\\blemurs?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c05_red_panda",
+      "group": "control",
+      "relative_path": "2020/20200213_141633.jpg",
+      "truth": "Red panda at enclosure hatch.",
+      "exact": ["\\bred[ -]pandas?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c06_rabbit",
+      "group": "control",
+      "relative_path": "2020/20200502_125422.jpg",
+      "truth": "Clearly visible rabbit on lawn.",
+      "exact": ["\\brabbits?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c07_squirrel",
+      "group": "control",
+      "relative_path": "2022/20220507_140039.jpg",
+      "truth": "Grey squirrel on fence.",
+      "exact": ["\\bsquirrels?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c08_raccoon",
+      "group": "control",
+      "relative_path": "2017/20170428_175421.jpg",
+      "truth": "Raccoon climbing on person indoors.",
+      "exact": ["\\braccoons?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c09_muntjac",
+      "group": "control",
+      "relative_path": "2026/20260326_175815.jpg",
+      "truth": "Muntjac deer beside brick building.",
+      "exact": ["\\bmuntjacs?\\b"],
+      "generic": ["\\b(?:animals?|mammals?|creatures?)\\b", "\\bdeer\\b"],
+      "forbidden": [],
+      "animal": true,
+      "provisional": false
+    },
+    {
+      "id": "c10_round_tower",
+      "group": "control",
+      "relative_path": "2022/IMG_1754.JPG",
+      "truth": "Actual Windsor Castle Round Tower above railway.",
+      "exact": ["\\bround[ -]tower\\b", "\\bwindsor\\b"],
+      "generic": [
+        "\\b(?:building|tower|castle|fortification|architecture|cathedral|church)\\b"
+      ],
+      "forbidden": ["\\bcurfew\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c11_stpauls_nave",
+      "group": "control",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_1928.JPG",
+      "truth": "Actual nave of St Paul's Cathedral.",
+      "exact": ["\\bst[ .-]*paul"],
+      "generic": [
+        "\\b(?:building|tower|castle|fortification|architecture|cathedral|church)\\b"
+      ],
+      "forbidden": ["\\bst[ .-]*peter", "\\b(?:vatican|rome|paris)\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c12_shard_cafe",
+      "group": "control",
+      "relative_path": "2023/St. Paul's & The Shard/20230420_164732.jpg",
+      "truth": "Food/drinks and panoramic guide at Shard observation deck.",
+      "exact": ["\\bshard\\b"],
+      "generic": [
+        "\\b(?:observation|viewing)[ -](?:deck|platform|level)\\b",
+        "\\b(?:cafe|café|table|drinks|cake)\\b"
+      ],
+      "forbidden": [
+        "\\b(?:inside|in|from)[ -](?:the[ -])?london[ -]eye\\b",
+        "\\bcapsule\\b"
+      ],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c13_london_eye",
+      "group": "control",
+      "relative_path": "2010/Image0125.jpg",
+      "truth": "Close-up actual London Eye structure.",
+      "exact": ["\\blondon[ -]eye\\b"],
+      "generic": ["\\b(?:observation|ferris)[ -]wheel\\b"],
+      "forbidden": [],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c14_westminster_bridge",
+      "group": "control",
+      "relative_path": "2010/Image0066.jpg",
+      "truth": "Actual Westminster Bridge/Thames.",
+      "exact": ["\\bwestminster[ -]bridge\\b"],
+      "generic": ["\\bbridge\\b"],
+      "forbidden": [
+        "\\btower[ -]bridge\\b",
+        "\\bwaterloo[ -]bridge\\b",
+        "\\bsomerset[ -]house\\b"
+      ],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c15_stpancras",
+      "group": "control",
+      "relative_path": "2010/Image0036.jpg",
+      "truth": "St Pancras Renaissance Hotel facade.",
+      "exact": ["\\bst[ .-]*pancras\\b"],
+      "generic": [
+        "\\b(?:building|tower|castle|fortification|architecture|cathedral|church)\\b"
+      ],
+      "forbidden": [],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c16_tower_bridge",
+      "group": "control",
+      "relative_path": "2023/St. Paul's & The Shard/IMG_2010.JPG",
+      "truth": "Actual Tower Bridge over Thames.",
+      "exact": ["\\btower[ -]bridge\\b"],
+      "generic": ["\\bbridge\\b"],
+      "forbidden": ["\\bwestminster[ -]bridge\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c17_transit_map",
+      "group": "control",
+      "relative_path": "2010/Image0047.jpg",
+      "truth": "London Underground map and station information, with text as depicted content.",
+      "exact": [
+        "\\b(?:london[ -])?(?:underground|tube)[ -](?:line[ -]|route[ -])?(?:maps?|diagrams?)\\b"
+      ],
+      "generic": ["\\b(?:map|diagram|sign|information)\\b"],
+      "forbidden": [],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c18_punting",
+      "group": "control",
+      "relative_path": "2010/Image0686.jpg",
+      "truth": "Punting scene.",
+      "exact": ["\\bpunt(?:ing|s)?\\b"],
+      "generic": ["\\b(?:boats?|boating|river)\\b"],
+      "forbidden": ["\\b(?:canoe|kayak|rowing)\\b"],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c19_portrait",
+      "group": "control",
+      "relative_path": "2010/Image0001.jpg",
+      "truth": "Portrait of person; basic content should survive stricter prompt.",
+      "exact": ["\\b(?:person|man|woman|portrait)\\b"],
+      "generic": ["\\b(?:someone|people|individual)\\b"],
+      "forbidden": [],
+      "animal": false,
+      "provisional": false
+    },
+    {
+      "id": "c20_motion_blur",
+      "group": "control",
+      "relative_path": "2010/Image0021.jpg",
+      "truth": "Motion-blurred scene; acknowledge limited detail.",
+      "exact": ["\\b(?:blur(?:red|ry)?|motion[ -]blur)\\b"],
+      "generic": ["\\b(?:indistinct|unclear|streaks?|movement)\\b"],
+      "forbidden": [],
+      "animal": false,
+      "provisional": false
+    }
+  ]
+}

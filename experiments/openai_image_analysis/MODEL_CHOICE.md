@@ -1,6 +1,10 @@
 # Model Choice for Photo-Library Tagging
 
 Current analysis of OpenAI vision models for unsupervised bulk media-library tagging.
+The later [v1/v2 prompt comparison](DESCRIPTION_V2_RESULTS.md) evaluates
+**gpt-6-luna only** with ground-truth scoring that distinguishes correct identity,
+useful broader descriptions and new wrong replacements. The historical
+wrong-label-avoidance ticks below are not recognition accuracy.
 The October 2026 refresh reran the production image-description prompt against a
 24-case corpus: the original 20-photo 2010 set, three known false-animal
 regressions from `TODO.md`, and a current Google Maps screenshot. All five

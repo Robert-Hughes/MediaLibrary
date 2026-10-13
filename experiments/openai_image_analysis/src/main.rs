@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::io::{BufRead, Cursor};
 
+mod description_eval;
 mod normalise_experiment;
 use normalise_experiment::ReasoningSetting;
 
@@ -86,6 +87,23 @@ struct Args {
     /// responses are only printed to stdout.
     #[arg(long)]
     output_next_to_image: bool,
+
+    /// Paired v1/v2 description evaluation, restricted to gpt-6-luna.
+    #[arg(long, value_name = "JSON")]
+    description_corpus: Option<String>,
+
+    /// Library root containing the corpus's relative image paths.
+    #[arg(long, value_name = "DIRECTORY")]
+    description_image_root: Option<String>,
+
+    /// New output directory for prompts, raw responses and offline scores.
+    #[arg(long, value_name = "DIRECTORY")]
+    description_eval_output: Option<String>,
+
+    /// Snapshot of full paths, existing LocationCreated and capture timestamps.
+    /// Compares v2 image-only with v2 plus these contextual inputs.
+    #[arg(long, value_name = "JSON", requires = "description_corpus")]
+    description_context: Option<String>,
 
     /// Evaluate location normalization using evidence extracted from a
     /// MediaLibrary target-aware apply audit log. Mutually exclusive with
@@ -1220,16 +1238,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let image_mode = !args.images.is_empty();
         let location_mode = args.location_apply_log.is_some();
         let normalise_mode = !args.normalise_cases.is_empty();
-        if [image_mode, location_mode, normalise_mode]
-            .into_iter()
-            .filter(|enabled| *enabled)
-            .count()
+        let description_eval_mode = args.description_corpus.is_some();
+        if [
+            image_mode,
+            location_mode,
+            normalise_mode,
+            description_eval_mode,
+        ]
+        .into_iter()
+        .filter(|enabled| *enabled)
+        .count()
             != 1
         {
             return Err(
-                "Choose exactly one input mode: --image, --location-apply-log, or --normalise-case."
+                "Choose exactly one input mode: --image, --location-apply-log, --normalise-case, or --description-corpus."
                     .into(),
             );
+        }
+        if description_eval_mode {
+            description_eval::validate_model(args.model.as_deref().expect("validated above"))?;
+            if args.output_next_to_image || args.normalise_judge_model.is_some() {
+                return Err(
+                    "description evaluation has no model judge and never writes beside images"
+                        .into(),
+                );
+            }
+            if args.description_image_root.is_none() || args.description_eval_output.is_none() {
+                return Err(
+                    "--description-image-root and --description-eval-output are required".into(),
+                );
+            }
         }
     }
 
@@ -1245,6 +1283,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model = args.model.as_deref().expect("validated above");
 
     tracing::info!("Model: {}", model);
+
+    if let Some(corpus) = &args.description_corpus {
+        return description_eval::run(
+            corpus,
+            args.description_image_root
+                .as_deref()
+                .expect("validated above"),
+            args.description_eval_output
+                .as_deref()
+                .expect("validated above"),
+            args.repeat,
+            &client,
+            &api_key,
+            args.yes,
+            args.description_context.as_deref(),
+        )
+        .await;
+    }
 
     if args.location_apply_log.is_some() {
         return run_location_experiment(&args, &client, &api_key, model).await;
