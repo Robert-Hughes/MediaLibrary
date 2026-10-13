@@ -3266,7 +3266,7 @@ mod tests {
 
         assert!(outcome.error.is_none());
         assert!(outcome.warning.as_deref().is_some_and(|warning| {
-            warning.contains("numeric readback is equivalent within 0.000001")
+            warning.contains("numeric readback is equivalent within 0.00001")
         }));
         assert_eq!(outcome.targets_to_clear, vec![entry.target.clone()]);
         assert_eq!(outcome.outcomes[0].kind, "Coerced");

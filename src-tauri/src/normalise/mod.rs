@@ -157,6 +157,17 @@ pub(crate) fn bag_edit(items: &[String]) -> MetadataDraftEdit {
     }
 }
 
+/// Build an ordered text sequence, preserving canonical creator order.
+pub(crate) fn seq_edit(items: &[String]) -> MetadataDraftEdit {
+    MetadataDraftEdit {
+        value: Some(MetadataValue::List {
+            list_kind: ListKind::Seq,
+            items: items.iter().cloned().map(MetadataValue::Text).collect(),
+        }),
+        intent: EditIntent::Set,
+    }
+}
+
 /// Collapse any run of whitespace (including newlines) into a single
 /// space and trim the result. Used as the single-line normaliser by
 /// Group F (Copyright), Group D (Headline) and Group C (Title) — none

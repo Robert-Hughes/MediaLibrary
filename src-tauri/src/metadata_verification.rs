@@ -260,7 +260,8 @@ fn metadata_empty_or_absent(value: Option<&MetadataValue>) -> bool {
 }
 
 const STRICT_FLOAT_EPS: f64 = 1e-9;
-const COERCED_FLOAT_EPS: f64 = 1e-6;
+// Allow ExifTool rational-storage rounding, including nested GPS altitude values.
+const COERCED_FLOAT_EPS: f64 = 1e-5;
 
 fn metadata_strict_eq(left: &MetadataValue, right: &MetadataValue) -> bool {
     match (left, right) {
@@ -527,7 +528,7 @@ mod tests {
         assert_eq!(
             verify_set_value(
                 &key,
-                Some(&MetadataValue::Real(51.500001)),
+                Some(&MetadataValue::Real(51.500009)),
                 Some(&MetadataValue::Real(51.5)),
                 None
             )
@@ -537,7 +538,7 @@ mod tests {
         assert_eq!(
             verify_set_value(
                 &key,
-                Some(&MetadataValue::Real(51.5000011)),
+                Some(&MetadataValue::Real(51.500011)),
                 Some(&MetadataValue::Real(51.5)),
                 None
             )
@@ -611,8 +612,8 @@ mod tests {
         assert_eq!(
             verify_set_value(
                 &key,
-                Some(&location(75.39599757)),
-                Some(&location(75.3959975742874)),
+                Some(&location(1369.099)),
+                Some(&location(1369.09900990099)),
                 None,
             )
             .0,

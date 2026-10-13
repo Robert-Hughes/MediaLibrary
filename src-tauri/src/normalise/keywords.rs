@@ -13,12 +13,40 @@
 //! promoted to degenerate single-component paths.
 
 use super::{
-    bag_edit, join_hierarchical_path, normalise_keyword, split_hierarchical_path, GroupOutput,
-    KeywordsInput,
+    bag_edit, join_hierarchical_path, normalise_keyword, split_hierarchical_path, truncate_at_word,
+    GroupOutput, KeywordsInput,
 };
 use crate::draft_edits::SchemaMetadataEditMap;
 use crate::known_ids;
 use std::collections::HashSet;
+
+const IPTC_KEYWORD_LIMIT: usize = 64;
+
+fn iptc_keyword_projection(keyword: &str) -> String {
+    let bounded = truncate_at_word(keyword, IPTC_KEYWORD_LIMIT);
+    // Keywords use hyphens for word boundaries. Avoid partial trailing words
+    // and recognize the same bounded aliases produced by existing IIM writes.
+    let bounded = if keyword.len() > IPTC_KEYWORD_LIMIT {
+        bounded
+            .rfind('-')
+            .filter(|cut| *cut > 0)
+            .map_or(bounded.as_str(), |cut| &bounded[..cut])
+    } else {
+        bounded.as_str()
+    };
+    normalise_keyword(bounded)
+}
+
+fn iptc_keywords_projection(leaves: &[String]) -> Vec<String> {
+    let mut projected: Vec<_> = leaves
+        .iter()
+        .map(|leaf| iptc_keyword_projection(leaf))
+        .filter(|leaf| !leaf.is_empty())
+        .collect();
+    projected.sort();
+    projected.dedup();
+    projected
+}
 
 // Target tags written by Group A. Coherent-replacement rule (plan §4)
 // means every entry here either gets a set-value draft (canonical
@@ -72,16 +100,11 @@ pub fn derive_keywords_canonical(input: &KeywordsInput) -> (Vec<String>, Vec<Str
 
     // ── Step 2: promote orphan flat keywords ──
     //
-    // Walk (dc_subject → iptc_keywords → ai_tags → ai_objects) to gather
+    // Walk (dc_subject → ai_tags → ai_objects, then bounded IPTC) to gather
     // orphans. Discovery order is unimportant — `paths` is sorted at the
     // end of derivation — but the fixed walk order keeps the
     // pre-sort state deterministic for debugging.
-    for flat_source in [
-        &input.dc_subject,
-        &input.iptc_keywords,
-        &input.ai_tags,
-        &input.ai_objects,
-    ] {
+    for flat_source in [&input.dc_subject, &input.ai_tags, &input.ai_objects] {
         for raw in flat_source.iter() {
             let leaf = normalise_keyword(raw);
             if leaf.is_empty() || leaf_set.contains(&leaf) {
@@ -91,6 +114,22 @@ pub fn derive_keywords_canonical(input: &KeywordsInput) -> (Vec<String>, Vec<Str
                 paths.push(leaf.clone());
                 leaf_set.insert(leaf);
             }
+        }
+    }
+
+    // Absorb bounded IPTC copies when full leaves exist in XMP or AI input.
+    let projected_leaves: HashSet<_> = leaf_set
+        .iter()
+        .map(|leaf| iptc_keyword_projection(leaf))
+        .collect();
+    for raw in &input.iptc_keywords {
+        let leaf = normalise_keyword(raw);
+        if leaf.is_empty() || leaf_set.contains(&leaf) || projected_leaves.contains(&leaf) {
+            continue;
+        }
+        if path_set.insert(leaf.clone()) {
+            paths.push(leaf.clone());
+            leaf_set.insert(leaf);
         }
     }
 
@@ -133,7 +172,7 @@ fn keywords_is_normalised(
     if input.dc_subject != canonical_leaves {
         return false;
     }
-    if input.iptc_keywords != canonical_leaves {
+    if input.iptc_keywords != iptc_keywords_projection(canonical_leaves) {
         return false;
     }
     true
@@ -168,7 +207,10 @@ pub fn normalise_keywords_with_canonical(
         bag_edit(canonical_paths),
     );
     edits.insert(known_ids::xmp_subject(), bag_edit(canonical_leaves));
-    edits.insert(known_ids::iptc_keywords(), bag_edit(canonical_leaves));
+    edits.insert(
+        known_ids::iptc_keywords(),
+        bag_edit(&iptc_keywords_projection(canonical_leaves)),
+    );
 
     Some(GroupOutput { edits })
 }
@@ -418,5 +460,60 @@ mod tests {
         assert!(paths.contains(&"travel|france|paris".to_string()));
         assert!(paths.contains(&"people|family|mum".to_string()));
         assert!(paths.contains(&"eiffel-tower".to_string()));
+    }
+}
+
+#[cfg(test)]
+mod projection_tests {
+    use super::*;
+    #[test]
+    fn bounded_iptc_projection_preserves_full_xmp_and_is_idempotent() {
+        let full = "blue-multi-car-tourist-road-train-with-open-sided-carriages-and-canopy-roofs"
+            .to_string();
+        let input = KeywordsInput {
+            dc_subject: vec![full.clone()],
+            iptc_keywords: vec![
+                "blue-multi-car-tourist-road-train-with-open-sided-carriages-and-".into(),
+            ],
+            ..Default::default()
+        };
+        let (paths, leaves) = derive_keywords_canonical(&input);
+        let projected = iptc_keywords_projection(&leaves);
+        assert!(projected[0].len() <= 64);
+        assert_ne!(projected, leaves);
+        let output = normalise_keywords(&input).unwrap();
+        assert_eq!(
+            output.edits[&known_ids::xmp_subject()].value,
+            bag_edit(std::slice::from_ref(&full)).value
+        );
+        assert_eq!(
+            output.edits[&known_ids::iptc_keywords()].value,
+            bag_edit(&projected).value
+        );
+        let after = KeywordsInput {
+            hierarchical_subject: paths,
+            dc_subject: leaves,
+            iptc_keywords: projected,
+            ..Default::default()
+        };
+        assert_eq!(derive_keywords_canonical(&after).0, vec![full]);
+        assert!(normalise_keywords(&after).is_none());
+    }
+    #[test]
+    fn keyword_projection_bounds_utf8_and_deduplicates_collisions() {
+        let prefix = "é".repeat(32);
+        assert_eq!(iptc_keyword_projection(&prefix), prefix);
+        assert_eq!(
+            iptc_keywords_projection(&[format!("{prefix}a"), format!("{prefix}b")]),
+            vec![prefix]
+        );
+        let input = KeywordsInput {
+            iptc_keywords: vec!["unique-iptc-keyword".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            derive_keywords_canonical(&input).0,
+            vec!["unique-iptc-keyword"]
+        );
     }
 }

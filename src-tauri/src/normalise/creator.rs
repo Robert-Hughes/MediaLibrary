@@ -4,7 +4,7 @@
 //! (no name normalisation). Union of all non-empty sources, dedup
 //! case-sensitive, preserve first-seen order.
 
-use super::{bag_edit, text_edit, CreatorInput, GroupOutput};
+use super::{bag_edit, seq_edit, text_edit, CreatorInput, GroupOutput};
 use crate::draft_edits::SchemaMetadataEditMap;
 use crate::known_ids;
 use std::collections::HashSet;
@@ -92,7 +92,7 @@ pub fn normalise_creator(input: &CreatorInput) -> Option<GroupOutput> {
     }
 
     let mut edits = SchemaMetadataEditMap::new();
-    edits.insert(known_ids::xmp_creator(), bag_edit(&canonical));
+    edits.insert(known_ids::xmp_creator(), seq_edit(&canonical));
     edits.insert(
         known_ids::artist(),
         text_edit(canonical.join(ARTIST_SEPARATOR)),
@@ -277,5 +277,35 @@ mod tests {
             list(&out, "XMP-dc:Creator"),
             vec!["Alice".to_string(), "Bob".to_string(), "Carol".to_string()],
         );
+    }
+}
+
+#[cfg(test)]
+mod list_kind_tests {
+    use super::*;
+    use crate::metadata_value::{ListKind, MetadataValue};
+    #[test]
+    fn creator_is_ordered_but_iptc_byline_is_a_bag() {
+        let output = normalise_creator(&CreatorInput {
+            artist: Some("Picasa; Alice".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        for (id, expected_kind) in [
+            (known_ids::xmp_creator(), ListKind::Seq),
+            (known_ids::iptc_by_line(), ListKind::Bag),
+        ] {
+            let Some(MetadataValue::List { list_kind, items }) = &output.edits[&id].value else {
+                panic!("expected list")
+            };
+            assert_eq!(*list_kind, expected_kind);
+            assert_eq!(
+                items,
+                &vec![
+                    MetadataValue::Text("Picasa".into()),
+                    MetadataValue::Text("Alice".into())
+                ]
+            );
+        }
     }
 }

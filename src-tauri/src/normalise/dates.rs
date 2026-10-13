@@ -545,6 +545,14 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ComparableTimestamp, bool)> {
                 false,
             ),
             (
+                // These names spell out HHMMSS after a separated date. The
+                // optional two-digit suffix has no confirmed precision meaning.
+                // Try this before Screenshot's optional date-only match.
+                regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2})[ _T-](\d{2})(\d{2})(\d{2})(?:\d{2})?(?:$|[^\d])").unwrap(),
+                true,
+                false,
+            ),
+            (
                 regex::Regex::new(r"Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?").unwrap(),
                 true,
                 false,
@@ -630,7 +638,8 @@ fn parse_filename_for_h1(stem: &str) -> Option<(ComparableTimestamp, bool)> {
 fn parse_unix_milliseconds_filename(stem: &str, year_max: i32) -> Option<ComparableTimestamp> {
     static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
     let pattern = PATTERN.get_or_init(|| regex::Regex::new(r"[0-9]{13}").unwrap());
-    let mut candidate = None;
+    let mut earliest: Option<i64> = None;
+    let mut latest: Option<i64> = None;
     for matched in pattern.find_iter(stem) {
         // Do not mistake a fragment of a longer numeric identifier for a date.
         let bytes = stem.as_bytes();
@@ -644,33 +653,36 @@ fn parse_unix_milliseconds_filename(stem: &str, year_max: i32) -> Option<Compara
         if !(1900..=year_max).contains(&datetime.year()) {
             continue;
         }
-        if candidate.is_some() {
-            // More than one plausible timestamp has no unambiguous winner.
+        earliest = Some(earliest.map_or(milliseconds, |value| value.min(milliseconds)));
+        latest = Some(latest.map_or(milliseconds, |value| value.max(milliseconds)));
+        if latest.unwrap() - earliest.unwrap() > 60_000 {
+            // Check the total spread, not adjacent gaps: chained timestamps
+            // must not turn a genuinely conflicting date into a valid fallback.
             return None;
         }
-        candidate = Some(ComparableTimestamp {
-            datetime: dt_value(
-                date_value(
-                    datetime.year(),
-                    datetime.month() as u8,
-                    datetime.day() as u8,
-                ),
-                time_value(
-                    datetime.hour() as u8,
-                    datetime.minute() as u8,
-                    datetime.second() as u8,
-                    Some(format!("{:03}", datetime.timestamp_subsec_millis())),
-                    Some(UtcOffsetValue {
-                        sign: OffsetSign::Plus,
-                        hours: 0,
-                        minutes: 0,
-                    }),
-                ),
-            ),
-            offset_from_related_tag: None,
-        });
     }
-    candidate
+    let datetime = chrono::DateTime::from_timestamp_millis(earliest?)?;
+    Some(ComparableTimestamp {
+        datetime: dt_value(
+            date_value(
+                datetime.year(),
+                datetime.month() as u8,
+                datetime.day() as u8,
+            ),
+            time_value(
+                datetime.hour() as u8,
+                datetime.minute() as u8,
+                datetime.second() as u8,
+                Some(format!("{:03}", datetime.timestamp_subsec_millis())),
+                Some(UtcOffsetValue {
+                    sign: OffsetSign::Plus,
+                    hours: 0,
+                    minutes: 0,
+                }),
+            ),
+        ),
+        offset_from_related_tag: None,
+    })
 }
 
 fn normalise_dates_inner(
@@ -1375,7 +1387,7 @@ mod tests {
             "01500122345839",
             "received_6829147487384714442",
             "9999999999999",
-            "1500122345839_1500122345840",
+            "1500122345839_1500122405840",
         ] {
             assert!(parse_filename_for_h1(stem).is_none(), "{stem}");
         }
@@ -1394,6 +1406,33 @@ mod tests {
             ),
             "2024-06-15 14:30:45"
         );
+    }
+
+    #[test]
+    fn unix_filename_nearby_timestamps_choose_earliest_within_one_minute() {
+        for stem in [
+            "orca-image-1514031538419.jpg_1514031538972",
+            "orca-image-1514031538972.jpg_1514031538419",
+            "1514031538419_1514031598419",
+            "1514031538419_1514031538419",
+            "1514031568419_1514031538419_1514031598419",
+            "9999999999999_1514031538419_1514031538972",
+        ] {
+            let (timestamp, date_only) = parse_filename_for_h1(stem).unwrap();
+            assert_eq!(
+                render_ts(&timestamp),
+                "2017-12-23 12:18:58.419+00:00",
+                "{stem}"
+            );
+            assert!(!date_only);
+        }
+        for stem in [
+            "1514031538419_1514031598420",
+            "1514031628419_1514031538419",
+            "1514031538419_1514031583419_1514031628419",
+        ] {
+            assert!(parse_filename_for_h1(stem).is_none(), "{stem}");
+        }
     }
 
     #[test]
@@ -1430,6 +1469,69 @@ mod tests {
         );
         assert_eq!(out.n_dto_from_filename, 1);
         assert_eq!(out.n_dto_from_filename_date_only, 0);
+    }
+
+    #[test]
+    fn filename_fallback_separated_date_compact_clock() {
+        for (stem, expected) in [
+            ("IMG_2016-07-23-12190350", "2016-07-23T12:19:03"),
+            ("IMG_2017-08-19-17305482", "2017-08-19T17:30:54"),
+            ("IMG_2017-12-02-19143216", "2017-12-02T19:14:32"),
+            ("Screenshot 2017-12-02 19143216", "2017-12-02T19:14:32"),
+            ("photo_2024-06-15_143045", "2024-06-15T14:30:45"),
+            ("2024-06-15T143045", "2024-06-15T14:30:45"),
+            ("IMG_2024-06-15-14304550_copy", "2024-06-15T14:30:45"),
+        ] {
+            let input = DatesInput {
+                file_stem: Some(stem.into()),
+                ..Default::default()
+            };
+            let out = normalise_dates_with_fallback_offset(&input, None);
+            assert_eq!(out.n_dto_from_filename, 1, "{stem}");
+            assert_eq!(out.n_dto_from_filename_date_only, 0, "{stem}");
+            let g = out.output.unwrap();
+            assert_eq!(
+                display(edit_value(&g, "ExifIFD:DateTimeOriginal")),
+                expected,
+                "{stem}"
+            );
+            assert_eq!(
+                display(edit_value(&g, "XMP-photoshop:DateCreated")),
+                expected,
+                "{stem}"
+            );
+        }
+    }
+
+    #[test]
+    fn separated_date_clock_does_not_consume_long_ids_or_invalid_times() {
+        for stem in [
+            "IMG_2017-12-02-1914321",
+            "IMG_2017-12-02-191432161",
+            "IMG_2017-12-02-25143216",
+            "IMG_2017-12-02-19643216",
+            "IMG_2017-12-02-19146216",
+        ] {
+            // The date-only fallback remains available, but malformed numeric
+            // suffixes must not be represented as a trustworthy clock time.
+            let (ts, date_only) = parse_filename_for_h1(stem).unwrap();
+            assert!(date_only, "{stem}");
+            assert_eq!(render_ts(&ts), "2017-12-02 00:00:00", "{stem}");
+        }
+        let input = DatesInput {
+            file_stem: Some("IMG_2017-12-02-19143216".into()),
+            date_time_original: Some(dt(2020, 1, 1, 10, 0, 0, None)),
+            ..Default::default()
+        };
+        let out = normalise_dates_with_fallback_offset(&input, None);
+        assert_eq!(out.n_dto_from_filename, 0);
+        assert_eq!(
+            display(edit_value(
+                &out.output.unwrap(),
+                "XMP-photoshop:DateCreated"
+            )),
+            "2020-01-01T10:00:00"
+        );
     }
 
     #[test]

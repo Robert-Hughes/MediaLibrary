@@ -104,7 +104,11 @@ Derivative projection:
 
 - `dc:Subject` = sorted unique leaves of canonical paths
   (`[3, c, d]` in the example).
-- `IPTC:Keywords` = same set.
+- `IPTC:Keywords` = leaves projected to the 64-byte IIM limit using the shared
+  UTF-8-safe truncation helper and hyphen word boundaries, then normalized,
+  sorted and deduplicated. Full
+  text remains in XMP. Recognized IPTC projections are absorbed during
+  derivation rather than promoted as new canonical leaves.
 
 This means the flat-derivative fields will always be a strict subset of the
 information in `HierarchicalSubject` after normalisation. Round-tripping is
@@ -375,25 +379,38 @@ does not infer the camera's original timezone.
 or IPTC H1 sources supplies a usable parsed date. This includes empty or
 unparseable inputs; any usable source blocks fallback. Regex table tried in order:
 
-| Pattern                                                                         | Source               | Notes                                 |
-| ------------------------------------------------------------------------------- | -------------------- | ------------------------------------- |
-| `IMG[_-](\d{8})[_-](\d{6})`                                                     | iOS / Android camera | YYYYMMDD_HHMMSS                       |
-| `PXL[_-](\d{8})[_-](\d{6})(\d{3})`                                              | Pixel                | Last 3 digits subsec                  |
-| `VID[_-](\d{8})[_-](\d{6})`                                                     | Video filenames      | Same datetime                         |
-| `Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?` | iOS/macOS screenshot | Time optional                         |
-| `(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[.\-:](\d{2})[.\-:](\d{2})`                 | Generic ISO-ish      |                                       |
-| `(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})`                               | Compact              |                                       |
-| `(\d{4})-(\d{2})-(\d{2})`                                                       | Date-only            | Time defaults to `00:00:00`, flagged  |
-| A digit-bounded run of exactly 13 ASCII digits                                  | Unix milliseconds    | UTC instant; three-digit milliseconds |
+| Pattern                                                                         | Source                         | Notes                                 |
+| ------------------------------------------------------------------------------- | ------------------------------ | ------------------------------------- |
+| `PXL[_-](\d{8})[_-](\d{6})(\d{3})`                                              | Pixel                          | Last 3 digits subsec                  |
+| `IMG[_-](\d{8})[_-](\d{6})`                                                     | iOS / Android camera           | YYYYMMDD_HHMMSS                       |
+| `VID[_-](\d{8})[_-](\d{6})`                                                     | Video filenames                | Same datetime                         |
+| `YYYY-MM-DD[ _T-]HHMMSS`, optionally followed by two digits                     | Separated date + compact clock | Optional two trailing digits ignored  |
+| `Screenshot[ _](\d{4})-(\d{2})-(\d{2})(?:[ _](\d{2})[.\-](\d{2})[.\-](\d{2}))?` | iOS/macOS screenshot           | Time optional                         |
+| `(\d{4})-(\d{2})-(\d{2})[ _T](\d{2})[.\-:](\d{2})[.\-:](\d{2})`                 | Generic ISO-ish                |                                       |
+| `(\d{4})(\d{2})(\d{2})[_-]?(\d{2})(\d{2})(\d{2})`                               | Compact                        |                                       |
+| `(\d{4})-(\d{2})-(\d{2})`                                                       | Date-only                      | Time defaults to `00:00:00`, flagged  |
+| A digit-bounded run of exactly 13 ASCII digits                                  | Unix milliseconds              | UTC instant; three-digit milliseconds |
 
 Matches at any position in the file stem. Sanity bounds: 1900 ≤ year ≤
 (current year + 1).
 
+Separated-date compact-clock names such as `IMG_2016-07-23-12190350`
+derive `2016-07-23T12:19:03`, before considering the date-only fallback.
+Exactly six clock digits, optionally followed by two extra digits, are accepted;
+longer numeric runs are not truncated into a clock. The two extra digits are
+not interpreted as fractional seconds without a confirmed naming convention.
+As with other calendar filename patterns, no timezone is inferred. These count
+as full-time filename derivations rather than date-only fallbacks, and usable
+embedded capture dates still take priority.
+
 Unix milliseconds are tried after the calendar patterns. The 13-digit run may
 appear anywhere in the stem, without a required Messenger prefix, but may not
 be part of a longer number. Decode using integer milliseconds, apply the same
-year bounds, and skip an ambiguous filename with multiple plausible Unix
-timestamps. A shared-image filename may represent sending or saving rather
+year bounds. If multiple plausible Unix timestamps appear, use the earliest
+only when the total earliest-to-latest spread is at most 60,000 milliseconds
+(inclusive). Reject wider spreads, including chains whose adjacent gaps are
+each within a minute but whose total spread exceeds it. Preserve the chosen
+timestamp's UTC offset and milliseconds. A shared-image filename may represent sending or saving rather
 than the original shutter time. Unix derivation uses the existing
 `n_dto_from_filename` count; no persistent provenance label is added.
 

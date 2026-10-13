@@ -1609,6 +1609,54 @@ fn roundtrip_gps_preserves_each_exact_id() {
 }
 
 #[test]
+fn separated_date_filename_clock_roundtrips_in_png() {
+    use medialibrary_tauri_lib::{
+        known_ids,
+        normalise::{normalise_dates, DatesInput},
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let stem = "IMG_2016-07-23-12190350";
+    let dst = dir.path().join(format!("{stem}.png"));
+    image::RgbImage::from_pixel(16, 16, image::Rgb([32, 64, 96]))
+        .save(&dst)
+        .unwrap();
+    let result = normalise_dates(&DatesInput {
+        file_stem: Some(stem.into()),
+        ..Default::default()
+    });
+    assert_eq!(result.n_dto_from_filename, 1);
+    assert_eq!(result.n_dto_from_filename_date_only, 0);
+    // PNG supports EXIF/XMP, not the IPTC IIM destinations. The session planner
+    // likewise filters format-incompatible generated fields before staging.
+    let edits: Vec<_> = result
+        .output
+        .unwrap()
+        .edits
+        .into_iter()
+        .filter(|(id, _)| id.table != "IPTC::ApplicationRecord")
+        .map(|(schema_id, edit)| SchemaMetadataEdit { schema_id, edit })
+        .collect();
+    assert_eq!(edits.len(), 2);
+    let rel = rel_of(dir.path(), &dst);
+    let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits.clone());
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    let reread = read_one(dir.path(), &dst);
+    for edit in edits {
+        assert_eq!(schema_value(&reread, &edit.schema_id), edit.edit.value);
+    }
+    let Some(MetadataValue::DateTime(actual)) =
+        schema_value(&reread, &known_ids::date_time_original())
+    else {
+        panic!("missing EXIF capture time");
+    };
+    assert_eq!(
+        (actual.time.hour, actual.time.minute, actual.time.second),
+        (12, 19, 3)
+    );
+    assert!(actual.time.subsecond.is_none());
+}
+
+#[test]
 fn unix_filename_normalisation_roundtrips_utc_fraction_and_is_idempotent() {
     use medialibrary_tauri_lib::{
         known_ids,
@@ -1619,7 +1667,9 @@ fn unix_filename_normalisation_roundtrips_utc_fraction_and_is_idempotent() {
         return;
     };
     let dir = tempfile::tempdir().unwrap();
-    let dst = dir.path().join("shared_1500122345839_photo.jpg");
+    // Two filename timestamps exactly one minute apart use the earlier instant.
+    let stem = "shared_1500122345839_photo_1500122405839";
+    let dst = dir.path().join(format!("{stem}.jpg"));
     fs::copy(src, &dst).unwrap();
     let cleared = Command::new("exiftool")
         .args(["-all=", "-overwrite_original"])
@@ -1632,7 +1682,7 @@ fn unix_filename_normalisation_roundtrips_utc_fraction_and_is_idempotent() {
         String::from_utf8_lossy(&cleared.stderr)
     );
     let input_from = |image: &scanner::FileMetadata| DatesInput {
-        file_stem: Some("shared_1500122345839_photo".into()),
+        file_stem: Some(stem.into()),
         date_time_original: schema_value(image, &known_ids::date_time_original()),
         offset_time_original: schema_value(image, &known_ids::offset_time_original()),
         sub_sec_time_original: schema_value(image, &known_ids::sub_sec_time_original()),
@@ -1894,4 +1944,85 @@ fn missing_exact_schema_is_rejected_before_write() {
     assert!(error.to_ascii_lowercase().contains("schema"), "{error}");
     assert!(outcome.outcomes.is_empty());
     assert_eq!(fs::read(&dst).expect("read after"), before);
+}
+
+#[test]
+fn normaliser_creator_keywords_and_rounded_location_roundtrip() {
+    use medialibrary_tauri_lib::{
+        known_ids,
+        normalise::{normalise_creator, normalise_keywords, CreatorInput, KeywordsInput},
+    };
+    let Some(src) = fixture_path("real_with_exif.jpg") else {
+        return;
+    };
+    let (dir, dst) = copy_to_temp(&src);
+    let full =
+        "blue-multi-car-tourist-road-train-with-open-sided-carriages-and-canopy-roofs".to_string();
+    let mut edits = normalise_keywords(&KeywordsInput {
+        dc_subject: vec![full.clone()],
+        ..Default::default()
+    })
+    .unwrap()
+    .edits;
+    edits.extend(
+        normalise_creator(&CreatorInput {
+            artist: Some("Picasa; Alice".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .edits,
+    );
+    edits.insert(
+        known_ids::xmp_location_created(),
+        metadata_set(MetadataValue::List {
+            list_kind: ListKind::Bag,
+            items: vec![MetadataValue::Struct(BTreeMap::from([
+                ("GPSAltitude".into(), MetadataValue::Real(1369.099)),
+                ("City".into(), MetadataValue::Text("Shipka".into())),
+            ]))],
+        }),
+    );
+    let outcome = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel_of(dir.path(), &dst),
+        edits
+            .iter()
+            .map(|(id, edit)| SchemaMetadataEdit {
+                schema_id: id.clone(),
+                edit: edit.clone(),
+            })
+            .collect(),
+    );
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    let after = read_one(dir.path(), &dst);
+    for id in [
+        known_ids::xmp_subject(),
+        known_ids::iptc_keywords(),
+        known_ids::xmp_creator(),
+    ] {
+        assert_eq!(schema_value(&after, &id), edits[&id].value, "{id:?}");
+    }
+    let strings = |id: &SchemaDefinitionId| {
+        let Some(MetadataValue::List { items, .. }) = schema_value(&after, id) else {
+            panic!("expected list")
+        };
+        items
+            .into_iter()
+            .map(|v| {
+                let MetadataValue::Text(s) = v else {
+                    panic!("expected text")
+                };
+                s
+            })
+            .collect::<Vec<_>>()
+    };
+    let repeat = KeywordsInput {
+        hierarchical_subject: strings(&known_ids::xmp_hierarchical_subject()),
+        dc_subject: strings(&known_ids::xmp_subject()),
+        iptc_keywords: strings(&known_ids::iptc_keywords()),
+        ..Default::default()
+    };
+    assert_eq!(repeat.dc_subject, vec![full]);
+    assert!(repeat.iptc_keywords.iter().all(|s| s.len() <= 64));
+    assert!(normalise_keywords(&repeat).is_none());
 }

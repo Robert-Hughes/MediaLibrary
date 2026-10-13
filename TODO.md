@@ -8,16 +8,10 @@ Current
   - 1503780879913 not a rabbit
   - Some st. pauls photos misidentified objects?
   - The Windsor close-up is the Curfew Tower, despite its description calling it the Round Tower
-- Any missing dates?
-  - Anything whjere date doesn't match folder, or is out of sync with another date or nearby photos etc.
-  - Facebook messenger photos tend to be bad for this
-  - 1500122345839 is a Unix timestamp in milliseconds - use this as a fallback option for date normalisation?
-- Move out of Unknown folder? (and AI describe, normalize etc., not touched these at all yet!)
 - Confirm all are "normalised"
   - Have GPS, date, description/keywords and pass normalise test
 - Try out some searches across fuill collection!
 - Try out the GPS view across the full collection!
-- Check all videos, as we probably didn't process all these properly yet
 - Delete "Update Metadata Scripts" folder?
 
 Bugs/quirks/tweaks/improvements
@@ -30,6 +24,7 @@ Features
 
 - GPS map editor could show draft location as well as the file's location (crossed out)
 - Search by approx GPS location, inc. a "near this photo" search
+- Search in particular fields
 - XMP-exif GPS coords (separate to GPS::MAIN EXIF fields that we currently use). This would allow other file formats like .gif to support GPS properly.
 - BATCHING OR FLEX for half-price API?
 - Multi-batch chaining context
