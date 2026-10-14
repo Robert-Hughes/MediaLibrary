@@ -2,22 +2,15 @@ Current
 =======
 
 - Home address number is off-by-two in reverse-geocoded/tagged metadata; review and correct the textual location metadata, maybe fix for future too, perhaps well-known locations?
-- incorrect descriptions etc.
-  - P2080807 is not a kangaroo!
-  - MSGR_PHOTO_FOR_UPLOAD_1525725143418 not a fox
-  - 1503780879913 not a rabbit
-  - Some st. pauls photos misidentified objects?
-  - The Windsor close-up is the Curfew Tower, despite its description calling it the Round Tower
 - Confirm all are "normalised"
-  - Have GPS, date, description/keywords and pass normalise test
-- Try out some searches across fuill collection!
-- Try out the GPS view across the full collection!
+  - Have GPS, DateTimeOriginal (or equivalent for non-pictures), description/keywords/AI description and are idempotent to Normalisation test
 - Delete "Update Metadata Scripts" folder?
 
 Bugs/quirks/tweaks/improvements
 =================================
 
 - Copying to clipboard doesn't seem to go into Win+V only from this app??
+- When searching in the list view, the highlighted field values seem to lose whitespace around them
 
 Features
 ========
