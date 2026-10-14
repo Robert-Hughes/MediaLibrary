@@ -8,7 +8,8 @@
 //! ## Coherent-replacement rule (important!)
 //!
 //! `compose_geocode_edits` replaces both evidence fields together. It never
-//! writes `LocationCreated` or the ten legacy location mirrors.
+//! writes `LocationCreated` or the ten legacy location mirrors. Saved-area matches
+//! bypass provider lookup and stage canonical location and mirrors directly.
 //!
 //! ## All-empty result is a failure, not a success
 //!
@@ -58,6 +59,7 @@ pub struct GeocodeRequestItem {
 pub struct GeocodeSummary {
     pub n_succeeded_from_nominatim: u32,
     pub n_succeeded_from_cache: u32,
+    pub n_succeeded_from_saved_location: u32,
     pub n_no_gps: u32,
     pub n_failed: u32,
 }
@@ -796,6 +798,32 @@ where
     S: GeocodeEventSink + ?Sized,
     F: FnOnce(&GeocodeCacheFile) -> Result<(), String>,
 {
+    run_geocode_batch_with_saved_locations(
+        items,
+        client,
+        cache,
+        cancel_flag,
+        sink,
+        save_cache,
+        &Default::default(),
+    )
+    .await
+}
+
+/// Saved-area drafts are computed from one authoritative session/settings snapshot.
+pub async fn run_geocode_batch_with_saved_locations<S, F>(
+    items: &[GeocodeRequestItem],
+    client: &GeocodeClient,
+    cache: &mut GeocodeCacheFile,
+    cancel_flag: &std::sync::atomic::AtomicBool,
+    sink: &S,
+    save_cache: F,
+    saved: &std::collections::BTreeMap<String, Result<SchemaMetadataEditMap, String>>,
+) -> GeocodeBatchOutcome
+where
+    S: GeocodeEventSink + ?Sized,
+    F: FnOnce(&GeocodeCacheFile) -> Result<(), String>,
+{
     use std::sync::atomic::Ordering;
     let total = items.len();
     sink.started(total);
@@ -843,6 +871,28 @@ where
             lon
         );
 
+        if let Some(result) = saved.get(&rel) {
+            match result {
+                Ok(edits) => {
+                    log::info!("[geocode] saved-location {} drafts={}", rel, edits.len());
+                    sink.progress(current, total, &rel, "ok", None, Some(edits));
+                    succeeded.push(rel);
+                    summary.n_succeeded_from_saved_location += 1;
+                }
+                Err(detail) => {
+                    log::warn!("[geocode] saved-location failed {} detail={}", rel, detail);
+                    let kind = crate::batch_job::BatchFailureKind::PreflightFailed;
+                    sink.progress(current, total, &rel, kind.as_wire(), Some(detail), None);
+                    failed.push(crate::batch_job::BatchFailureRow {
+                        relative_path: rel,
+                        kind,
+                        detail: detail.clone(),
+                    });
+                    summary.n_failed += 1;
+                }
+            }
+            continue;
+        }
         match geocode_one(client, cache, &mut limiter, cancel_flag, lat, lon).await {
             Ok(result) => {
                 let edits = compose_geocode_edits(&result.geocode_json, &result.json_v2);

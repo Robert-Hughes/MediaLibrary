@@ -112,6 +112,9 @@ pub fn default_exiftool_command() -> String {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct Settings {
+    /// User-defined reverse-geocoding areas; empty for existing installations.
+    #[serde(default)]
+    pub saved_locations: Vec<crate::saved_locations::SavedLocation>,
     /// ExifTool executable or absolute path used for metadata operations.
     #[serde(default = "default_exiftool_command")]
     pub exiftool_command: String,
@@ -167,6 +170,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            saved_locations: Vec::new(),
             exiftool_command: default_exiftool_command(),
             openai_api_key: String::new(),
             openai_model: default_model(),
@@ -240,6 +244,7 @@ pub fn load_settings(app_data_dir: &Path) -> Result<Settings, String> {
     parsed.map_thumbnail_size = parsed
         .map_thumbnail_size
         .clamp(MIN_MAP_THUMBNAIL_SIZE, MAX_MAP_THUMBNAIL_SIZE);
+    crate::saved_locations::validate_saved_locations(&parsed.saved_locations)?;
     Ok(parsed)
 }
 
@@ -274,6 +279,7 @@ fn clamp_loaded_batch_size(name: &str, value: &mut u16) {
 }
 
 fn validate_settings(settings: &Settings) -> Result<(), String> {
+    crate::saved_locations::validate_saved_locations(&settings.saved_locations)?;
     if settings.exiftool_command.trim().is_empty() {
         return Err("exiftool_command must not be empty".into());
     }

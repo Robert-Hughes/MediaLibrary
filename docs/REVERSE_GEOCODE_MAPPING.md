@@ -1,5 +1,11 @@
 # Reverse-Geocode Evidence and Location Normalization
 
+Saved-area rules are an explicit exception to provider-evidence generation:
+Reverse Geocode stages final canonical location and mirrors directly for matches.
+They need no Location Normalize step. Existing provider evidence is retained and
+canonical metadata continues to take precedence. See the saved-location settings
+and matching contract in [REVERSE_GEOCODE_PLAN.md](REVERSE_GEOCODE_PLAN.md).
+
 ## Why the API responses are not mapped directly
 
 Nominatim GeocodeJSON and JSONv2 are views over the same selected OSM feature,
@@ -14,7 +20,8 @@ formatter is universally better for photographic metadata:
   reverse lookup but is not the venue a person would use to describe a photo.
 
 Hard-coded field precedence therefore encodes accidental formatter semantics.
-Place-specific corrections such as a London rule are explicitly excluded.
+Hard-coded place-specific corrections such as a London rule are explicitly excluded;
+user-defined saved areas provide explicit overrides.
 Instead, Reverse Geocode preserves both raw responses and Normalize Metadata
 performs the semantic interpretation.
 

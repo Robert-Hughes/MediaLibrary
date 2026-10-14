@@ -884,6 +884,8 @@ export interface GeocodeFailure {
 export interface GeocodeSummary {
   nSucceededFromNominatim: number;
   nSucceededFromCache: number;
+  /** Backend-only saved-area source counter; older backends omit it. */
+  nSucceededFromSavedLocation?: number;
   nNoGps: number;
   nFailed: number;
 }

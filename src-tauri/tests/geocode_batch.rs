@@ -28,6 +28,47 @@ use medialibrary_tauri_lib::geocode_cache::{CachedResult, GeocodeCacheEntry, Geo
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+#[tokio::test]
+async fn saved_location_bypasses_cache_and_network_and_reports_errors_per_file() {
+    let server = MockServer::start().await;
+    let client = GeocodeClient::with_base(server.uri());
+    let mut cache = cache_with_entry(0.12346, 0.23457, "Neighbouring Place");
+    let before = serde_json::to_value(&cache).unwrap();
+    let sink = RecordingSink::default();
+    let cancel = AtomicBool::new(false);
+    let edits = std::collections::BTreeMap::from([
+        ("home.jpg".into(), Ok(SchemaMetadataEditMap::new())),
+        (
+            "conflict.jpg".into(),
+            Err("Conflicting saved locations".into()),
+        ),
+    ]);
+    let outcome = geocode::run_geocode_batch_with_saved_locations(
+        &[
+            item("home.jpg", 0.12346, 0.23457),
+            item("conflict.jpg", 0.12346, 0.23457),
+            item_no_gps("no-gps.jpg"),
+        ],
+        &client,
+        &mut cache,
+        &cancel,
+        &sink,
+        |_| Ok(()),
+        &edits,
+    )
+    .await;
+    assert_eq!(outcome.summary.n_succeeded_from_saved_location, 1);
+    assert_eq!(outcome.summary.n_succeeded_from_cache, 0);
+    assert_eq!(outcome.summary.n_succeeded_from_nominatim, 0);
+    assert_eq!(outcome.summary.n_failed, 1);
+    assert_eq!(outcome.summary.n_no_gps, 1);
+    assert_eq!(serde_json::to_value(&cache).unwrap(), before);
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert!(
+        matches!(&sink.progress_events()[0], SinkEvent::Progress { status, edits: Some(edits), .. } if status == "ok" && edits.is_empty())
+    );
+}
+
 // ── Reusable test infrastructure ───────────────────────────────────────────
 //
 // `RecordingSink` is a `GeocodeEventSink` impl that appends every

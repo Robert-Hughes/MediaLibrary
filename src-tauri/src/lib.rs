@@ -35,6 +35,7 @@ pub mod openai_http;
 pub mod openai_normalise;
 mod openai_request;
 mod recycle;
+pub mod saved_locations;
 pub mod scanner;
 pub mod search_service;
 pub mod session;

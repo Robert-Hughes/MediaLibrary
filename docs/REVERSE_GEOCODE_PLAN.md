@@ -1,6 +1,45 @@
 # Reverse Geocoding
 
-Reverse Geocode sends each photo's effective GPS latitude/longitude to
+## Saved locations (backend settings)
+
+`settings.json` supports a `saved_locations` array, defaulting to empty for old
+settings. Each entry has a unique stable `id`, an internal `name`, `enabled`,
+`latitude`, `longitude`, positive `radius_m`, and a complete `location` object.
+All seven descriptive members are required strings: `LocationName`, `Sublocation`,
+`City`, `ProvinceState`, `CountryName`, `CountryCode`, and `WorldRegion`. Empty
+strings clear members; omitted members and null values are invalid. CountryCode
+must be empty or two uppercase letters. Settings are validated on load and save.
+
+At batch execution the backend snapshots settings and session metadata/drafts.
+It tests effective request GPS against enabled circles **before** the 50 m cache
+or Nominatim. The smallest containing circle wins. Equal smallest-radius rules
+with different descriptive values produce a per-file failure. Invalid GPS,
+unavailable metadata, ambiguous exact input schemas, pending list operations,
+and multiple/invalid LocationCreated structures produce failures without edits.
+
+A match stages the complete descriptive replacement in canonical
+`XMP-iptcExt:LocationCreated` and the ten applicable XMP/IPTC mirrors using the
+existing location normalizer projection (including IIM truncation and country
+code padding). The file's effective GPS is retained, never replaced with the rule
+centre; altitude and unrelated structured members are preserved. LocationId is
+replaced by `urn:medialibrary:saved-location:<id>` rather than an OSM identity.
+Missing canonical metadata is created. Already correct effective values produce
+no further drafts, using the existing apply-verification numeric storage tolerance.
+Existing draft and physical destination checks still apply; unsupported format
+writes are omitted by the normal generated-target planner.
+
+Matched files make no provider or AI calls and do not write any `XMP-mlib` raw
+evidence fields. Existing genuine raw evidence remains untouched. Therefore
+**Reverse Geocode -> review/apply** is sufficient for saved-area matches. A later
+Location Normalize treats the canonical LocationCreated as authoritative and is
+a no-op once its mirrors agree, even if old evidence names the wrong neighbour.
+Unmatched files retain the two-stage **Reverse Geocode -> Normalize** workflow
+below. Saving settings alone never alters metadata or creates photo drafts.
+
+There is no saved-location UI or preview. The backend summary adds
+`nSucceededFromSavedLocation`; existing provider/cache counters remain separate.
+
+For photos outside saved areas, Reverse Geocode sends each photo's effective GPS latitude/longitude to
 OpenStreetMap Nominatim and stages the two exact API response bodies as
 evidence. Images are never uploaded. Reverse Geocode deliberately does not
 interpret or modify canonical/legacy location metadata.
@@ -24,7 +63,7 @@ The normalization contract and rationale are in
 
 ## Draft behavior
 
-Each success produces two Set drafts:
+Each provider/cache success produces two Set drafts:
 
 - `XMP-mlib:ReverseGeocodeGeocodeJSON`
 - `XMP-mlib:ReverseGeocodeJSONv2`
@@ -38,7 +77,7 @@ An all-empty GeocodeJSON fallback sequence produces a `nominatim_empty`
 failure and no drafts. Failure to obtain either required live response also
 produces no drafts. Missing GPS produces `no_gps`. Existing
 `LocationCreated`, EXIF GPS, and legacy flat location fields are never changed
-by Reverse Geocode.
+by the provider-evidence path of Reverse Geocode.
 
 The Location normalizer owns interoperability with the older five XMP/IIM
 pairs. See [NORMALISE_METADATA_PLAN.md](NORMALISE_METADATA_PLAN.md).

@@ -1340,12 +1340,13 @@ pub(super) fn plan_session_describe_drafts(
 }
 
 pub(super) fn is_geocode_schema(id: &tag_schema::SchemaDefinitionId) -> bool {
-    id.table == "UserDefined::mlib"
-        && id.index.is_none()
-        && matches!(
-            id.tag_id.as_str(),
-            "ReverseGeocodeGeocodeJSON" | "ReverseGeocodeJSONv2"
-        )
+    is_normalise_schema(id, &[normalise::NormaliseGroup::Location])
+        || id.table == "UserDefined::mlib"
+            && id.index.is_none()
+            && matches!(
+                id.tag_id.as_str(),
+                "ReverseGeocodeGeocodeJSON" | "ReverseGeocodeJSONv2"
+            )
 }
 
 pub(super) fn is_normalise_schema(
@@ -2473,6 +2474,70 @@ mod tests {
         let error =
             plan_session_geocode_drafts(&snapshot, "photo.jpg", &edits, &registry).unwrap_err();
         assert!(error.contains("Reverse geocoding is not allowed"));
+    }
+
+    #[test]
+    fn saved_location_generation_reaches_exact_session_drafts() {
+        let registry = crate::tag_schema::get_registry().unwrap();
+        let snapshot = snapshot_with(
+            "photo.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let place = crate::saved_locations::SavedLocation {
+            id: "home".into(),
+            name: "Home".into(),
+            enabled: true,
+            latitude: 0.12346,
+            longitude: 0.23457,
+            radius_m: 20.0,
+            location: crate::saved_locations::SavedLocationFields {
+                location_name: "Example Place".into(),
+                sublocation: "Example Place".into(),
+                city: "Example City".into(),
+                province_state: "England".into(),
+                country_name: "United Kingdom".into(),
+                country_code: "GB".into(),
+                world_region: "Europe".into(),
+            },
+        };
+        let item = crate::geocode::GeocodeRequestItem {
+            rel_path: "photo.jpg".into(),
+            lat: Some(0.12346),
+            lon: Some(0.23457),
+        };
+        let edits = crate::saved_locations::plan_saved_location(&snapshot, &item, &place).unwrap();
+        assert_eq!(edits.len(), 11);
+        let entries = draft_edits::schema_metadata_edit_entries(edits);
+        let planned = plan_session_geocode_drafts(&snapshot, "photo.jpg", &entries, registry)
+            .unwrap()
+            .unwrap();
+        assert_eq!(planned.len(), 11);
+        assert!(planned
+            .iter()
+            .all(|entry| entry.target.schema_id().table != "UserDefined::mlib"));
+        let mut staged = snapshot;
+        staged.drafts.insert("photo.jpg".into(), planned);
+        assert!(
+            crate::saved_locations::plan_saved_location(&staged, &item, &place)
+                .unwrap()
+                .is_empty()
+        );
+        let city = staged
+            .drafts
+            .get_mut("photo.jpg")
+            .unwrap()
+            .iter_mut()
+            .find(|entry| entry.target.schema_id() == &crate::known_ids::xmp_city())
+            .unwrap();
+        city.edit = delete_edit();
+        let refreshed =
+            crate::saved_locations::plan_saved_location(&staged, &item, &place).unwrap();
+        assert_eq!(refreshed.len(), 1);
+        assert!(refreshed.contains_key(&crate::known_ids::xmp_city()));
+        assert!(!is_describe_schema(
+            &crate::known_ids::xmp_location_created()
+        ));
     }
 
     #[test]

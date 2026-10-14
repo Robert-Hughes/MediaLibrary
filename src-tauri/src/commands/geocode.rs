@@ -77,6 +77,26 @@ pub async fn geocode_files_cmd(
         emitter.fail(error.clone());
         return Err(error);
     }
+    let settings_dir = app_data_dir(&app).inspect_err(|error| emitter.fail(error.clone()))?;
+    let settings = crate::settings::load_settings(&settings_dir)
+        .inspect_err(|error| emitter.fail(error.clone()))?;
+    let mut saved = std::collections::BTreeMap::new();
+    for item in &items {
+        if let (Some(lat), Some(lon)) = (item.lat, item.lon) {
+            match crate::saved_locations::matching_location(&settings.saved_locations, lat, lon) {
+                Ok(Some(place)) => {
+                    saved.insert(
+                        item.rel_path.clone(),
+                        crate::saved_locations::plan_saved_location(&snapshot, item, place),
+                    );
+                }
+                Err(error) => {
+                    saved.insert(item.rel_path.clone(), Err(error));
+                }
+                Ok(None) => {}
+            }
+        }
+    }
     let cancel_flag = geocode_state.install();
     let client = geocode::GeocodeClient::new();
     let app_data = app_data_dir(&app).ok();
@@ -89,24 +109,32 @@ pub async fn geocode_files_cmd(
 
     let sink = TauriGeocodeSink { emitter };
 
-    let outcome =
-        geocode::run_geocode_batch(&items, &client, &mut cache, &cancel_flag, &sink, |c| {
+    let outcome = geocode::run_geocode_batch_with_saved_locations(
+        &items,
+        &client,
+        &mut cache,
+        &cancel_flag,
+        &sink,
+        |c| {
             match &app_data {
                 // No app_data_dir means this batch cannot be memoised across
                 // restarts; generated drafts are still staged by Rust.
                 Some(dir) => geocode_cache::save(dir, c),
                 None => Ok(()),
             }
-        })
-        .await;
+        },
+        &saved,
+    )
+    .await;
 
     log::info!(
-        "[geocode] finished succeeded={} failed={} no_gps={} from_cache={} from_nominatim={}",
+        "[geocode] finished succeeded={} failed={} no_gps={} from_cache={} from_nominatim={} from_saved_location={}",
         outcome.succeeded.len(),
         outcome.summary.n_failed,
         outcome.summary.n_no_gps,
         outcome.summary.n_succeeded_from_cache,
         outcome.summary.n_succeeded_from_nominatim,
+        outcome.summary.n_succeeded_from_saved_location,
     );
 
     geocode_state.clear();

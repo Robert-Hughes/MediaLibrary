@@ -38,6 +38,82 @@ use medialibrary_tauri_lib::{
 };
 
 #[test]
+fn saved_location_roundtrip_is_final_and_idempotent() {
+    use medialibrary_tauri_lib::{
+        known_ids,
+        normalise::{normalise_location, LocationInput},
+        saved_locations::{compose_saved_location_edits, SavedLocation, SavedLocationFields},
+    };
+    let src = fixture_path("real_with_exif.jpg").expect("required JPEG fixture");
+    let (dir, dst) = copy_to_temp(&src);
+    let place = SavedLocation {
+        id: "home".into(),
+        name: "Home".into(),
+        enabled: true,
+        latitude: 0.123456789012345,
+        longitude: 0.234567890123456,
+        radius_m: 20.0,
+        location: SavedLocationFields {
+            location_name: "Example Place".into(),
+            sublocation: "Example Place".into(),
+            city: "Example City".into(),
+            province_state: "England".into(),
+            country_name: "United Kingdom".into(),
+            country_code: "GB".into(),
+            world_region: "Europe".into(),
+        },
+    };
+    let input = LocationInput {
+        gps_altitude: Some(15.25),
+        gps_altitude_ref: Some(0),
+        ..Default::default()
+    };
+    let edits =
+        compose_saved_location_edits(&place, &input, place.latitude, place.longitude).unwrap();
+    let outcome = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel_of(dir.path(), &dst),
+        edits
+            .iter()
+            .map(|(id, edit)| SchemaMetadataEdit {
+                schema_id: id.clone(),
+                edit: edit.clone(),
+            })
+            .collect(),
+    );
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    let after = read_one(dir.path(), &dst);
+    let text = |id: SchemaDefinitionId| match schema_value(&after, &id) {
+        Some(MetadataValue::Text(value)) => Some(value),
+        None => None,
+        other => panic!("{id:?}: {other:?}"),
+    };
+    let final_input = LocationInput {
+        location_created: schema_value(&after, &known_ids::xmp_location_created()),
+        location_xmp: text(known_ids::xmp_location()),
+        location_iptc: text(known_ids::iptc_sub_location()),
+        city_xmp: text(known_ids::xmp_city()),
+        city_iptc: text(known_ids::iptc_city()),
+        state_xmp: text(known_ids::xmp_state()),
+        state_iptc: text(known_ids::iptc_province_state()),
+        country_xmp: text(known_ids::xmp_country()),
+        country_iptc: text(known_ids::iptc_country_name()),
+        country_code_xmp: text(known_ids::xmp_country_code()),
+        country_code_iptc: text(known_ids::iptc_country_code()),
+        ..Default::default()
+    };
+    assert_eq!(final_input.location_xmp.as_deref(), Some("Example Place"));
+    assert_eq!(final_input.city_xmp.as_deref(), Some("Example City"));
+    assert!(normalise_location(&final_input).output.is_none());
+    assert!(
+        compose_saved_location_edits(&place, &final_input, place.latitude, place.longitude)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(schema_value(&after, &known_ids::mlib_reverse_geocode_json_v2()).is_none());
+}
+
+#[test]
 fn writable_registry_groups_and_schema_family7_ids_fit_the_selector_grammar() {
     let registry = get_registry().expect("load the real ExifTool schema registry");
     let failures = registry
