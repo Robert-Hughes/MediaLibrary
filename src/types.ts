@@ -857,6 +857,17 @@ export const ALL_NORMALISE_GROUPS: readonly NormaliseGroup[] = [
 export const GEOCODE_TARGET_TAGS: readonly SchemaDefinitionId[] = [
   ID.mlibReverseGeocodeGeocodeJson,
   ID.mlibReverseGeocodeJsonV2,
+  ID.xmpLocationCreated,
+  ID.xmpLocation,
+  ID.iptcSubLocation,
+  ID.xmpCity,
+  ID.iptcCity,
+  ID.xmpState,
+  ID.iptcProvinceState,
+  ID.xmpCountry,
+  ID.iptcCountryName,
+  ID.xmpCountryCode,
+  ID.iptcCountryCode,
 ] as const;
 
 export type GeocodePhase = "awaiting-confirm" | "running" | "done";
@@ -884,7 +895,7 @@ export interface GeocodeFailure {
 export interface GeocodeSummary {
   nSucceededFromNominatim: number;
   nSucceededFromCache: number;
-  /** Backend-only saved-area source counter; older backends omit it. */
+  /** Saved-area source counter; older backends omit it. */
   nSucceededFromSavedLocation?: number;
   nNoGps: number;
   nFailed: number;

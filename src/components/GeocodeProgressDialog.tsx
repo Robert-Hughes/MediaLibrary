@@ -1,22 +1,6 @@
 /**
- * Modal that drives the reverse-geocoding flow for a set of files.
- *
- * Three phases (no estimating step — there's nothing to compute up
- * front, and no cost):
- *
- *   awaiting-confirm → user reads the upload + tag-write warning,
- *                      confirms or cancels
- *   running          → backend hits Nominatim,
- *                      drafts arrive per-image
- *   done             → succeeded/failed breakdown + source counters
- *
- * Thin wrapper around `BatchJobDialog` — the overlay, header, dialog
- * body frame, and Escape handling live there. This file supplies the
- * geocode-specific awaiting-confirm copy (which must spell out the
- * coherent-replacement rule from docs/REVERSE_GEOCODE_PLAN.md §1 —
- * fields the geocoder doesn't return are cleared on apply, so the user
- * understands what they're confirming) and the per-source done-panel
- * breakdown.
+ * Reverse-geocoding confirmation, progress and results for saved areas,
+ * cached provider evidence and live Nominatim lookups.
  */
 import type {
   GeocodeFailure,
@@ -38,7 +22,7 @@ interface Props {
   state: GeocodeProgressState;
   /**
    * Pre-computed by the caller: how many of the selected files
-   * already carry any §1 location target tag (in metadata or drafts).
+   * already carry location data or provider evidence (in metadata or drafts).
    * When `existingCount > 0` the awaiting-confirm panel surfaces an
    * inline overwrite notice.
    */
@@ -114,10 +98,7 @@ function SkippedList({ skipped }: { skipped: GeocodeFailure[] }) {
 }
 
 function SummaryBreakdown({ s }: { s: GeocodeSummary }) {
-  // Each counter rendered separately so the user can see exactly what
-  // came from cache vs. the network — useful both for trust ("did this
-  // hit the API at all?") and for understanding why a second run is
-  // fast.
+  // Distinguish local saved-area matches, cached evidence and web lookups.
   return (
     <div
       style={{ marginTop: 10, fontSize: 12, color: "var(--text-secondary)" }}
@@ -125,6 +106,7 @@ function SummaryBreakdown({ s }: { s: GeocodeSummary }) {
     >
       <BatchSummaryCountersRow
         counters={[
+          { label: "Saved areas", value: s.nSucceededFromSavedLocation ?? 0 },
           { label: "Cache hits", value: s.nSucceededFromCache },
           { label: "Nominatim", value: s.nSucceededFromNominatim },
         ]}
@@ -139,12 +121,7 @@ function SummaryBreakdown({ s }: { s: GeocodeSummary }) {
   );
 }
 
-/**
- * Awaiting-confirm panel body. Spells out exactly what data leaves
- * the machine, what tags will be written, and the coherent-replacement
- * rule (fields the geocoder doesn't return will be cleared). The
- * wording is deliberate — see docs/REVERSE_GEOCODE_PLAN.md §1 and §4.
- */
+/** Explain both draft paths and which coordinates leave the machine. */
 function AwaitingConfirmPanel({
   state,
   overwriteInfo,
@@ -163,18 +140,20 @@ function AwaitingConfirmPanel({
   return (
     <>
       <div className="dialog-hint" data-testid="geocode-confirm-summary">
-        Ready to reverse-geocode {state.total} {word} using OpenStreetMap
-        Nominatim GeocodeJSON and JSONv2 evidence.
-      </div>
-      <div
-        style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
-      >
-        The <strong>GPS coordinates</strong> of each file will be sent to{" "}
-        <code>nominatim.openstreetmap.org</code>. The files themselves are{" "}
-        <strong>not</strong> uploaded. There is no cost.
+        Ready to reverse-geocode {state.total} {word} using saved areas or
+        OpenStreetMap Nominatim.
       </div>
       <div style={{ marginTop: 12, fontSize: 12 }}>
-        Two raw evidence tags will be proposed per file:
+        <strong>Saved-area matches:</strong> use the configured location names
+        to update <code>LocationCreated</code> and the related XMP/IPTC
+        location, city, province/state, country and country-code fields. Blank
+        configured fields clear the corresponding values. GPS coordinates are
+        preserved. No web lookup or AI call is needed. Review and apply the
+        drafts; Normalise Location is not needed for these matches.
+      </div>
+      <div style={{ marginTop: 12, fontSize: 12 }}>
+        <strong>Other files:</strong> use cached Nominatim responses or a web
+        lookup to propose the two raw evidence fields:
         <ul style={{ marginTop: 6, paddingLeft: 18, lineHeight: 1.5 }}>
           <li>
             <code>XMP-mlib:ReverseGeocodeGeocodeJSON</code>
@@ -183,14 +162,18 @@ function AwaitingConfirmPanel({
             <code>XMP-mlib:ReverseGeocodeJSONv2</code>
           </li>
         </ul>
+        This path preserves existing location fields. Use Normalise Location
+        afterwards to interpret the evidence into LocationCreated and its
+        related XMP/IPTC fields.
       </div>
       <div
         style={{ marginTop: 12, fontSize: 12, color: "var(--text-secondary)" }}
       >
-        These fields preserve Nominatim&apos;s responses verbatim. Existing
-        location and EXIF GPS fields are not modified. Use Normalise Location to
-        interpret the evidence into LocationCreated and its older XMP/IIM
-        mirrors. Nothing is written until you apply drafts.
+        Saved areas are checked before the cache or web lookup. Only the{" "}
+        <strong>GPS coordinates</strong> of files needing a web lookup are sent
+        to <code>nominatim.openstreetmap.org</code>. The files themselves are{" "}
+        <strong>not</strong> uploaded. Reverse geocoding has no cost. Nothing is
+        written until you apply drafts.
       </div>
       {overwriteInfo && (
         <OverwriteNotice
@@ -198,14 +181,14 @@ function AwaitingConfirmPanel({
           input={{
             existingCount: overwriteInfo.existingCount,
             totalCount: overwriteInfo.totalCount,
-            title: "Overwrite reverse-geocode evidence?",
+            title: "Update existing location data?",
             subjectSingular: "file",
             subjectPlural: "files",
-            dataPhrase: "reverse-geocode evidence",
+            dataPhrase: "location data or reverse-geocode evidence",
             actionSingle:
-              "Reverse-geocoding will replace the GeocodeJSON and JSONv2 evidence drafts; LocationCreated, EXIF GPS, and legacy location fields are not touched.",
+              "Saved-area matches can replace LocationCreated and related XMP/IPTC fields; other files replace the GeocodeJSON and JSONv2 evidence drafts. EXIF GPS is preserved.",
             actionPluralPartial:
-              "Reverse-geocoding will replace the GeocodeJSON and JSONv2 evidence drafts for those files; LocationCreated, EXIF GPS, and legacy location fields are not touched.",
+              "For those files, saved-area matches can replace LocationCreated and related XMP/IPTC fields; other files replace the GeocodeJSON and JSONv2 evidence drafts. EXIF GPS is preserved.",
           }}
         />
       )}

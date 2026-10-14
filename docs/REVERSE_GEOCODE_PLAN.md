@@ -36,7 +36,8 @@ a no-op once its mirrors agree, even if old evidence names the wrong neighbour.
 Unmatched files retain the two-stage **Reverse Geocode -> Normalize** workflow
 below. Saving settings alone never alters metadata or creates photo drafts.
 
-There is no saved-location UI or preview. The backend summary adds
+There is no saved-location editor or preview. The Reverse Geocode dialog explains
+both draft paths and includes a Saved areas counter from
 `nSucceededFromSavedLocation`; existing provider/cache counters remain separate.
 
 For photos outside saved areas, Reverse Geocode sends each photo's effective GPS latitude/longitude to

@@ -1269,7 +1269,7 @@ export function DetailsPane({
             <button
               className="button button--secondary"
               data-testid="details-pane-geocode-btn"
-              title="Reverse-geocode this image's GPS via OpenStreetMap Nominatim"
+              title="Look up this image's location using saved areas or OpenStreetMap Nominatim"
               onClick={() => onGeocode()}
             >
               Reverse Geocode…

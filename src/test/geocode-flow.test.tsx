@@ -244,7 +244,7 @@ describe("Reverse-geocoding flow", () => {
   });
 
   it("walks straight to awaiting-confirm (no estimate phase) and shows the warning copy", async () => {
-    // Pin the two evidence targets and Normalize guidance.
+    // Explain saved-area final location drafts and the provider evidence path.
     const { user } = await openFolderAndSelectFile("test.jpg", {
       "GPS:GPSLatitude": { kind: "Real", value: 51.5001 },
       "GPS:GPSLatitudeRef": { kind: "Text", value: "N" },
@@ -266,6 +266,12 @@ describe("Reverse-geocoding flow", () => {
     );
     expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
       /Normalise Location/i,
+    );
+    expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
+      /Normalise Location is not needed for these matches/i,
+    );
+    expect(screen.getByTestId("geocode-progress-dialog")).toHaveTextContent(
+      /Only the GPS coordinates of files needing a web lookup are sent/i,
     );
   });
 
@@ -602,8 +608,10 @@ describe("Reverse-geocoding flow", () => {
     await user.click(screen.getByTestId("details-pane-geocode-btn"));
     expect(askMock).not.toHaveBeenCalled();
     const notice = await screen.findByTestId("geocode-overwrite-notice");
-    expect(notice).toHaveTextContent(/Overwrite reverse-geocode evidence\?/);
-    expect(notice).toHaveTextContent(/already has reverse-geocode evidence/i);
+    expect(notice).toHaveTextContent(/Update existing location data\?/);
+    expect(notice).toHaveTextContent(
+      /already has location data or reverse-geocode evidence/i,
+    );
     expect(notice).toHaveTextContent(/replace the GeocodeJSON and JSONv2/i);
   });
 
