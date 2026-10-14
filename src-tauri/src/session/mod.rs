@@ -1153,11 +1153,7 @@ impl MediaLibrarySessionState {
         self.commit_draft_rows(session_id, vec![(relative_path, entries)])
     }
 
-    pub fn mark_draft_save_failed(
-        &self,
-        session_id: u64,
-        error: String,
-    ) -> Result<MediaLibrarySessionSnapshot, String> {
+    pub fn mark_draft_save_failed(&self, session_id: u64, error: String) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle != MediaLibrarySessionLifecycle::Loaded
@@ -1168,7 +1164,6 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         snapshot.draft_persistence = MediaLibrarySessionDraftPersistenceState::SaveFailed { error };
-        let result = snapshot.clone();
         self.notify(SessionEvent::DraftPersistenceChanged(Box::new(
             MediaLibrarySessionDraftPersistenceChanged {
                 session_id,
@@ -1176,7 +1171,7 @@ impl MediaLibrarySessionState {
                 state: snapshot.draft_persistence.clone(),
             },
         )));
-        Ok(result)
+        Ok(())
     }
 
     pub fn mark_loaded(
@@ -1673,7 +1668,7 @@ impl MediaLibrarySessionState {
         }
     }
 
-    pub fn begin_close(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
+    pub fn begin_close(&self, session_id: u64) -> Result<(), String> {
         let mut snapshot = self.snapshot.lock().unwrap();
         if snapshot.session_id != Some(session_id)
             || snapshot.lifecycle == MediaLibrarySessionLifecycle::Idle
@@ -1682,14 +1677,13 @@ impl MediaLibrarySessionState {
         }
         snapshot.revision += 1;
         snapshot.lifecycle = MediaLibrarySessionLifecycle::Closing;
-        let result = snapshot.clone();
         self.notify(SessionEvent::RevisionAdvanced(
             MediaLibrarySessionRevisionAdvanced {
                 session_id,
                 revision: snapshot.revision,
             },
         ));
-        Ok(result)
+        Ok(())
     }
 
     pub fn finish_close(&self, session_id: u64) -> Result<MediaLibrarySessionSnapshot, String> {
@@ -1809,6 +1803,56 @@ mod tests {
         assert_eq!(
             events.remove(0).into_payload(),
             serde_json::json!({ "total": 1 })
+        );
+    }
+
+    #[test]
+    fn close_and_draft_save_failure_emit_only_small_state_events() {
+        let (notifier, receiver) = mpsc::channel();
+        let state = MediaLibrarySessionState::with_event_channel(notifier, receiver);
+        let receiver = state.take_event_receiver().unwrap();
+        let id = state.begin_open("C:/photos".into()).session_id.unwrap();
+        state
+            .install_draft_load_result(id, Ok(Default::default()))
+            .unwrap();
+        state.mark_loaded(id, "C:/photos").unwrap();
+        state.add_files(id, vec![test_file("a.jpg")]).unwrap();
+        let _: Vec<_> = receiver.try_iter().collect();
+
+        let before = state.inspect(|snapshot| snapshot.revision);
+        assert!(state
+            .mark_draft_save_failed(id + 1, "stale".into())
+            .is_err());
+        assert_eq!(state.inspect(|snapshot| snapshot.revision), before);
+        state
+            .mark_draft_save_failed(id, "disk unavailable".into())
+            .unwrap();
+        let events: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        let SessionEvent::DraftPersistenceChanged(event) = &events[0] else {
+            panic!("expected persistence delta")
+        };
+        assert_eq!(event.session_id, id);
+        assert_eq!(event.revision, before + 1);
+        assert!(
+            matches!(&event.state, MediaLibrarySessionDraftPersistenceState::SaveFailed { error } if error == "disk unavailable")
+        );
+
+        assert!(state.begin_close(id + 1).is_err());
+        assert_eq!(
+            state.inspect(|snapshot| snapshot.lifecycle),
+            MediaLibrarySessionLifecycle::Loaded
+        );
+        state.begin_close(id).unwrap();
+        let events: Vec<_> = receiver.try_iter().collect();
+        assert_eq!(events.len(), 1);
+        assert!(
+            matches!(&events[0], SessionEvent::RevisionAdvanced(event) if event.session_id == id && event.revision == before + 2)
+        );
+        assert_eq!(state.inspect(|snapshot| snapshot.metadata.len()), 1);
+        assert_eq!(
+            state.inspect(|snapshot| snapshot.lifecycle),
+            MediaLibrarySessionLifecycle::Closing
         );
     }
 
@@ -2112,7 +2156,8 @@ mod tests {
         assert_eq!(completed.revision, 5);
         assert!(!completed.discovery_running);
 
-        let closing = state.begin_close(1).unwrap();
+        state.begin_close(1).unwrap();
+        let closing = state.snapshot();
         assert_eq!(closing.revision, 6);
         assert_eq!(closing.lifecycle, MediaLibrarySessionLifecycle::Closing);
 

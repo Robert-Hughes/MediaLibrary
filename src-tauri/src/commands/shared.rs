@@ -6,6 +6,41 @@ use tauri::AppHandle;
 use crate::openai_http;
 use crate::settings;
 
+/// Include command setup (and early failures) in timing, rather than starting
+/// the clock only once the batch runner has begun.
+pub(crate) struct CommandTimer {
+    command: &'static str,
+    started: std::time::Instant,
+}
+
+impl CommandTimer {
+    pub(crate) fn new(command: &'static str) -> Self {
+        log::info!("[command_perf] command={command} phase=entered");
+        Self {
+            command,
+            started: std::time::Instant::now(),
+        }
+    }
+
+    pub(crate) fn setup_complete(&self) {
+        log::info!(
+            "[command_perf] command={} phase=setup_complete elapsed_ms={}",
+            self.command,
+            self.started.elapsed().as_millis()
+        );
+    }
+}
+
+impl Drop for CommandTimer {
+    fn drop(&mut self) {
+        log::info!(
+            "[command_perf] command={} phase=returned elapsed_ms={}",
+            self.command,
+            self.started.elapsed().as_millis()
+        );
+    }
+}
+
 /// Locate the per-user app-data directory for settings/log files.  Uses
 /// tauri's `path()` resolver so the location follows OS conventions
 /// (`%APPDATA%` on Windows, `~/Library/Application Support` on macOS,

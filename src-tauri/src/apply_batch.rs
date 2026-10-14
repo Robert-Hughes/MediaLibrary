@@ -124,6 +124,12 @@ pub fn run_apply_metadata_draft_edits_blocking(
     cancel_flag: Arc<AtomicBool>,
     limits: MetadataApplyLimits,
 ) -> Result<MetadataApplyResult, String> {
+    let timer = crate::commands::shared::CommandTimer::new("apply_worker");
+    let session_id = app
+        .state::<crate::session::MediaLibrarySessionState>()
+        .inspect(|snapshot| snapshot.session_id)
+        .ok_or_else(|| "No active media-library session".to_owned())?;
+    timer.setup_complete();
     run_apply_metadata_draft_edits_with_limits(
         &folder_path,
         relative_paths.as_deref(),
@@ -133,11 +139,7 @@ pub fn run_apply_metadata_draft_edits_blocking(
         &RealTargetApplyLogger { app: app.clone() },
         &SessionApplyEvents {
             app: app.clone(),
-            session_id: app
-                .state::<crate::session::MediaLibrarySessionState>()
-                .snapshot()
-                .session_id
-                .ok_or_else(|| "No active media-library session".to_owned())?,
+            session_id,
         },
         &operation_id,
         cancel_flag,

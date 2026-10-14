@@ -356,17 +356,22 @@ pub async fn estimate_describe_cost_cmd(
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
-    let snapshot = app
+    let timer = crate::commands::shared::CommandTimer::new("describe_estimate");
+    let folder_path = app
         .state::<crate::session::MediaLibrarySessionState>()
-        .snapshot();
-    if snapshot.session_id != Some(session_id)
-        || snapshot.lifecycle != crate::session::MediaLibrarySessionLifecycle::Loaded
-    {
-        return Err("The media-library session changed before estimation started".into());
-    }
-    let folder_path = snapshot
-        .folder
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+        .inspect(|snapshot| {
+            if snapshot.session_id != Some(session_id)
+                || snapshot.lifecycle != crate::session::MediaLibrarySessionLifecycle::Loaded
+            {
+                return Err(
+                    "The media-library session changed before estimation started".to_string(),
+                );
+            }
+            snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())
+        })?;
     let total = rel_paths.len();
     let emitter = batch_job::BatchProgressEmitter::begin(
         &app,
@@ -391,6 +396,7 @@ pub async fn estimate_describe_cost_cmd(
         .inspect_err(|error| emitter.fail(error.clone()))?;
     let cancel_flag = describe_state.install();
 
+    timer.setup_complete();
     log::info!(
         "[describe] estimate starting model={} mode={:?} total={}",
         s.openai_model,
@@ -544,21 +550,26 @@ pub async fn describe_images_cmd(
     app: AppHandle,
     describe_state: State<'_, openai_describe::DescribeState>,
 ) -> Result<(), String> {
-    let snapshot = app
+    let timer = crate::commands::shared::CommandTimer::new("describe");
+    let (rel_paths, folder_path) = app
         .state::<crate::session::MediaLibrarySessionState>()
-        .snapshot();
-    if snapshot.session_id != Some(session_id) {
-        return Err("The media-library session changed before description started".into());
-    }
-    let operation = snapshot
-        .batch_operations
-        .get("describe")
-        .filter(|operation| operation.operation_id == operation_id)
-        .ok_or_else(|| "The description operation identity changed".to_string())?;
-    let rel_paths = operation.requested_paths.clone();
-    let folder_path = snapshot
-        .folder
-        .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+        .inspect(|snapshot| {
+            if snapshot.session_id != Some(session_id) {
+                return Err(
+                    "The media-library session changed before description started".to_string(),
+                );
+            }
+            let operation = snapshot
+                .batch_operations
+                .get("describe")
+                .filter(|operation| operation.operation_id == operation_id)
+                .ok_or_else(|| "The description operation identity changed".to_string())?;
+            let folder = snapshot
+                .folder
+                .clone()
+                .ok_or_else(|| "The active media-library session has no folder".to_string())?;
+            Ok((operation.requested_paths.clone(), folder))
+        })?;
     let total = rel_paths.len();
     let emitter = batch_job::BatchProgressEmitter::resume(
         &app,
@@ -580,6 +591,7 @@ pub async fn describe_images_cmd(
         })?;
     let cancel_flag = describe_state.install();
 
+    timer.setup_complete();
     let describe_concurrency = usize::from(s.describe_concurrency);
     log::info!(
         "[describe] starting describe model={} prompt_version={} total={} concurrency={}",

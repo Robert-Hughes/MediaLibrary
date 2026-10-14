@@ -184,6 +184,37 @@ unchanged.
 
 ## Generated workflows
 
+### Session reads during command setup
+
+Command setup reads authoritative state through `MediaLibrarySessionState::inspect`.
+This borrows the session under its mutex and returns only the owned values the
+operation needs: session identity, folder, retained batch request, or selected
+metadata/drafts. Keep the closure short and read-only; perform file/network I/O
+and metadata projection after releasing the lock. Do not clone the complete
+session merely to read its ID or one batch operation.
+
+Saved-area reverse geocoding captures only matching files and the location/GPS
+altitude schemas needed for canonical replacement and mirror projection. Missing
+or loading metadata remains a per-file failure; exact draft and occurrence
+ambiguity checks are unchanged. Its captured input contains no unrelated provider
+evidence or other files' metadata, and draft generation runs outside the mutex.
+Altitude is optional: an undefined or otherwise unusable EXIF altitude does not
+block location drafting. The source EXIF tag is preserved, no zero altitude is
+invented, and an existing canonical altitude remains unchanged when the source
+does not supply a usable number.
+
+Complete snapshots remain available for initial session delivery and UI
+resynchronization. Closing a populated session and recording a draft-save failure
+emit their existing small events without returning an unused full snapshot.
+
+`[command_perf]` diagnostics record `entered`, `setup_complete`, and `returned`
+for geocode, describe estimation/execution, normalise execution, apply-worker
+setup and scan startup. Elapsed times therefore include command setup and early
+error returns, rather than starting only when a batch loop begins. Existing
+session-open/close timing diagnostics remain in place.
+
+### Exact generated targets
+
 Describe, reverse-geocode and normalise jobs return transient
 `SchemaMetadataEdit` values. The planner resolves each suggestion before a
 target exists: it requires a unique existing occurrence, rejects multiplicity,

@@ -133,30 +133,79 @@ pub fn matching_location(
     Ok(matches.first().copied())
 }
 
+/// Owned location-only input, safe to process after releasing the session lock.
+#[derive(Debug)]
+pub(crate) struct SavedLocationMetadata {
+    occurrences: crate::metadata_occurrence::MetadataOccurrences,
+    drafts: Vec<crate::draft_edits::MetadataTargetDraftEntry>,
+}
+
+fn is_saved_location_input(id: &SchemaDefinitionId) -> bool {
+    crate::session_commands::is_normalise_schema(id, &[normalise::NormaliseGroup::Location])
+        || id == &known_ids::gps_altitude()
+        || id == &known_ids::gps_altitude_ref()
+}
+
+/// Scan session rows once, copying only requested files and relevant schemas.
+pub(crate) fn capture_saved_location_metadata(
+    snapshot: &session::MediaLibrarySessionSnapshot,
+    paths: &HashSet<&str>,
+) -> BTreeMap<String, Result<SavedLocationMetadata, String>> {
+    let mut inputs: BTreeMap<_, _> = paths
+        .iter()
+        .map(|path| {
+            (
+                (*path).to_owned(),
+                Err("The file is not part of the active session".into()),
+            )
+        })
+        .collect();
+    for entry in &snapshot.metadata {
+        if !paths.contains(entry.relative_path.as_str()) {
+            continue;
+        }
+        let input = match &entry.state {
+            session::MediaLibrarySessionMetadataState::Ready { occurrences } => {
+                Ok(SavedLocationMetadata {
+                    occurrences: crate::metadata_occurrence::MetadataOccurrences(
+                        occurrences
+                            .0
+                            .iter()
+                            .filter(|occurrence| is_saved_location_input(&occurrence.schema_id))
+                            .cloned()
+                            .collect(),
+                    ),
+                    drafts: snapshot
+                        .drafts
+                        .get(&entry.relative_path)
+                        .into_iter()
+                        .flatten()
+                        .filter(|entry| is_saved_location_input(entry.target.schema_id()))
+                        .cloned()
+                        .collect(),
+                })
+            }
+            _ => Err("Authoritative metadata is unavailable for saved-location drafting".into()),
+        };
+        inputs.insert(entry.relative_path.clone(), input);
+    }
+    inputs
+}
+
 /// Read exact effective schemas, including pending draft replacements/deletions.
 fn effective_value(
-    snapshot: &session::MediaLibrarySessionSnapshot,
-    path: &str,
+    input: &SavedLocationMetadata,
     id: SchemaDefinitionId,
 ) -> Result<Option<MetadataValue>, String> {
-    let entry = snapshot
-        .metadata
-        .iter()
-        .find(|entry| entry.relative_path == path)
-        .ok_or("The file is not part of the active session")?;
-    let session::MediaLibrarySessionMetadataState::Ready { occurrences } = &entry.state else {
-        return Err("Authoritative metadata is unavailable for saved-location drafting".into());
-    };
-    let observed: Vec<_> = occurrences
+    let observed: Vec<_> = input
+        .occurrences
         .0
         .iter()
         .filter(|occurrence| occurrence.schema_id == id)
         .collect();
-    let drafts: Vec<_> = snapshot
+    let drafts: Vec<_> = input
         .drafts
-        .get(path)
-        .into_iter()
-        .flatten()
+        .iter()
         .filter(|entry| entry.target.schema_id() == &id)
         .collect();
     if observed.len() > 1 || drafts.len() > 1 {
@@ -263,7 +312,20 @@ pub fn plan_saved_location(
     item: &GeocodeRequestItem,
     place: &SavedLocation,
 ) -> Result<SchemaMetadataEditMap, String> {
-    let value = |id| effective_value(snapshot, &item.rel_path, id);
+    let mut captured =
+        capture_saved_location_metadata(snapshot, &HashSet::from([item.rel_path.as_str()]));
+    let input = captured
+        .remove(&item.rel_path)
+        .expect("requested file result")?;
+    plan_saved_location_from_metadata(&input, item, place)
+}
+
+pub(crate) fn plan_saved_location_from_metadata(
+    metadata: &SavedLocationMetadata,
+    item: &GeocodeRequestItem,
+    place: &SavedLocation,
+) -> Result<SchemaMetadataEditMap, String> {
+    let value = |id| effective_value(metadata, id);
     let text = |id| -> Result<Option<String>, String> {
         Ok(match value(id)? {
             Some(MetadataValue::Text(s)) => Some(s),
@@ -286,13 +348,17 @@ pub fn plan_saved_location(
         ..Default::default()
     };
     if let Some(altitude) = value(known_ids::gps_altitude())? {
+        // Altitude is optional. Cameras may store an undefined rational,
+        // exposed by ExifTool as `undef` and correctly parsed as Unknown.
+        // Preserve the source tag and any existing canonical altitude rather
+        // than failing an otherwise valid latitude/longitude location update.
         input.gps_altitude = match altitude {
-            MetadataValue::Real(v) => Some(v),
+            MetadataValue::Real(v) if v.is_finite() => Some(v),
             MetadataValue::Integer(v) => Some(v as f64),
             MetadataValue::Rational(v) if v.denominator != 0 => {
                 Some(v.numerator as f64 / v.denominator as f64)
             }
-            _ => return Err("Invalid GPS altitude".into()),
+            _ => None,
         };
     }
     if let Some(MetadataValue::Integer(reference)) = value(known_ids::gps_altitude_ref())? {
@@ -309,6 +375,225 @@ pub fn plan_saved_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_unusable_altitude_does_not_block_saved_location_or_invent_zero() {
+        let place = home();
+        let item = GeocodeRequestItem {
+            rel_path: "example.jpg".into(),
+            lat: Some(place.latitude),
+            lon: Some(place.longitude),
+        };
+        let unknown = MetadataValue::Unknown {
+            expected: Some(crate::tag_schema::TagKind::Real),
+            raw: serde_json::json!("undef"),
+            reason: Some("expected finite JSON number or numeric string for real tag".into()),
+        };
+        for altitude in [
+            unknown,
+            MetadataValue::Null,
+            MetadataValue::Real(f64::INFINITY),
+            MetadataValue::Rational(crate::metadata_value::RationalValue {
+                numerator: 0,
+                denominator: 0,
+            }),
+        ] {
+            for previous_altitude in [None, Some(42.0)] {
+                let mut occurrences = vec![occurrence(known_ids::gps_altitude(), altitude.clone())];
+                if let Some(previous) = previous_altitude {
+                    occurrences.push(occurrence(
+                        known_ids::xmp_location_created(),
+                        MetadataValue::List {
+                            list_kind: ListKind::Bag,
+                            items: vec![MetadataValue::Struct(BTreeMap::from([(
+                                "GPSAltitude".into(),
+                                MetadataValue::Real(previous),
+                            )]))],
+                        },
+                    ));
+                }
+                let metadata = SavedLocationMetadata {
+                    occurrences: crate::metadata_occurrence::MetadataOccurrences(occurrences),
+                    drafts: Vec::new(),
+                };
+                let edits = plan_saved_location_from_metadata(&metadata, &item, &place).unwrap();
+                assert!(edits.keys().all(|id| id.table != "GPS::Main"));
+                let Some(MetadataValue::List { items, .. }) =
+                    &edits[&known_ids::xmp_location_created()].value
+                else {
+                    panic!()
+                };
+                let MetadataValue::Struct(fields) = &items[0] else {
+                    panic!()
+                };
+                assert_eq!(
+                    fields.get("GPSAltitude"),
+                    previous_altitude.map(MetadataValue::Real).as_ref()
+                );
+                assert_eq!(fields["GPSLatitude"], MetadataValue::Real(place.latitude));
+                assert_eq!(
+                    fields["Sublocation"],
+                    MetadataValue::Text("Example Place".into())
+                );
+            }
+        }
+        for (altitude, expected) in [
+            (MetadataValue::Integer(12), 12.0),
+            (MetadataValue::Real(12.5), 12.5),
+            (
+                MetadataValue::Rational(crate::metadata_value::RationalValue {
+                    numerator: 25,
+                    denominator: 2,
+                }),
+                12.5,
+            ),
+        ] {
+            let metadata = SavedLocationMetadata {
+                occurrences: crate::metadata_occurrence::MetadataOccurrences(vec![occurrence(
+                    known_ids::gps_altitude(),
+                    altitude,
+                )]),
+                drafts: Vec::new(),
+            };
+            let edits = plan_saved_location_from_metadata(&metadata, &item, &place).unwrap();
+            let Some(MetadataValue::List { items, .. }) =
+                &edits[&known_ids::xmp_location_created()].value
+            else {
+                panic!()
+            };
+            let MetadataValue::Struct(fields) = &items[0] else {
+                panic!()
+            };
+            assert_eq!(fields["GPSAltitude"], MetadataValue::Real(expected));
+        }
+    }
+
+    fn occurrence(
+        id: SchemaDefinitionId,
+        value: MetadataValue,
+    ) -> crate::metadata_occurrence::MetadataOccurrence {
+        crate::metadata_occurrence::MetadataOccurrence {
+            id: crate::metadata_occurrence::MetadataOccurrenceId {
+                document: None,
+                path: "Test".into(),
+                runtime_tag_id: id.tag_id.clone(),
+                tag_id_scope: crate::metadata_occurrence::RuntimeTagIdScope {
+                    table: id.table.clone(),
+                    tag_id: id.tag_id.clone(),
+                    index: id.index,
+                },
+                copy: 0,
+            },
+            schema_id: id,
+            value,
+            observed_selector: None,
+            write_target: None,
+        }
+    }
+
+    #[test]
+    fn captured_location_input_excludes_other_files_and_unrelated_metadata() {
+        let state = session::MediaLibrarySessionState::new();
+        let id = state.begin_open("/test".into()).session_id.unwrap();
+        state
+            .install_draft_load_result(id, Ok(Default::default()))
+            .unwrap();
+        state.mark_loaded(id, "/test").unwrap();
+        state
+            .add_files(
+                id,
+                ["selected.jpg", "unselected.jpg", "loading.jpg"]
+                    .into_iter()
+                    .map(|name| crate::scanner::FileInfo {
+                        relative_path: name.into(),
+                        filename: name.into(),
+                        media_kind: crate::scanner::MediaKind::Image,
+                        date_modified: None,
+                        date_created: None,
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        state
+            .commit_metadata_results(
+                id,
+                vec![
+                    crate::scanner::FileMetadata {
+                        relative_path: "selected.jpg".into(),
+                        occurrences: crate::metadata_occurrence::MetadataOccurrences(vec![
+                            occurrence(
+                                known_ids::xmp_city(),
+                                MetadataValue::Text("Original city".into()),
+                            ),
+                            occurrence(known_ids::gps_altitude(), MetadataValue::Real(15.0)),
+                            occurrence(
+                                known_ids::mlib_reverse_geocode_json_v2(),
+                                MetadataValue::Text(
+                                    "unrelated large provider payload".repeat(10000),
+                                ),
+                            ),
+                        ]),
+                    },
+                    crate::scanner::FileMetadata {
+                        relative_path: "unselected.jpg".into(),
+                        occurrences: crate::metadata_occurrence::MetadataOccurrences(vec![
+                            occurrence(
+                                known_ids::xmp_city(),
+                                MetadataValue::Text("Other city".into()),
+                            ),
+                        ]),
+                    },
+                ],
+            )
+            .unwrap();
+        let registry = crate::tag_schema::get_registry().unwrap();
+        let target = crate::metadata_draft_target::MetadataDraftTarget::from_new_property(
+            registry.lookup(&known_ids::xmp_city()).unwrap(),
+        )
+        .unwrap();
+        state
+            .commit_draft_row(
+                id,
+                "selected.jpg".into(),
+                vec![crate::draft_edits::MetadataTargetDraftEntry {
+                    target,
+                    edit: MetadataDraftEdit {
+                        intent: EditIntent::Set,
+                        value: Some(MetadataValue::Text("Pending city".into())),
+                    },
+                }],
+            )
+            .unwrap();
+        let captured = state.inspect(|snapshot| {
+            capture_saved_location_metadata(
+                snapshot,
+                &HashSet::from(["selected.jpg", "loading.jpg", "missing.jpg"]),
+            )
+        });
+        assert_eq!(captured.len(), 3);
+        assert!(!captured.contains_key("unselected.jpg"));
+        assert!(captured["loading.jpg"].is_err());
+        assert!(captured["missing.jpg"].is_err());
+        let input = captured["selected.jpg"].as_ref().unwrap();
+        assert_eq!(input.occurrences.0.len(), 2);
+        assert_eq!(input.drafts.len(), 1);
+        assert_eq!(
+            effective_value(input, known_ids::xmp_city()).unwrap(),
+            Some(MetadataValue::Text("Pending city".into()))
+        );
+        assert!(
+            effective_value(input, known_ids::mlib_reverse_geocode_json_v2())
+                .unwrap()
+                .is_none()
+        );
+        // The copied input remains valid after the authoritative session retires.
+        state.begin_close(id).unwrap();
+        state.finish_close(id).unwrap();
+        assert_eq!(
+            effective_value(input, known_ids::gps_altitude()).unwrap(),
+            Some(MetadataValue::Real(15.0))
+        );
+    }
 
     fn home() -> SavedLocation {
         SavedLocation {

@@ -612,13 +612,18 @@ fn start_scan(
     active_queues: State<'_, ActiveQueues>,
     session_state: State<'_, session::MediaLibrarySessionState>,
 ) -> Result<(), String> {
-    let current_session = session_state.snapshot();
-    if current_session.session_id != Some(scan_id)
-        || current_session.folder.as_deref() != Some(folder_path.as_str())
-        || current_session.lifecycle != session::MediaLibrarySessionLifecycle::Opening
-    {
-        return Err("The requested scan does not match the active media-library session".into());
-    }
+    let timer = crate::commands::shared::CommandTimer::new("start_scan");
+    session_state.inspect(|snapshot| {
+        if snapshot.session_id != Some(scan_id)
+            || snapshot.folder.as_deref() != Some(folder_path.as_str())
+            || snapshot.lifecycle != session::MediaLibrarySessionLifecycle::Opening
+        {
+            return Err(
+                "The requested scan does not match the active media-library session".to_string(),
+            );
+        }
+        Ok(())
+    })?;
     let fail_start = |error: String| -> Result<(), String> {
         session_state
             .fail_session(scan_id, "scan", error)
@@ -656,6 +661,7 @@ fn start_scan(
     let cancel_clone = cancellation_flag.clone();
 
     session_state.mark_loaded(scan_id, &folder_path)?;
+    timer.setup_complete();
 
     std::thread::spawn(move || {
         let scan_started = Instant::now();

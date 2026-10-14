@@ -42,17 +42,19 @@ pub async fn geocode_files_cmd(
     app: AppHandle,
     geocode_state: State<'_, geocode::GeocodeState>,
 ) -> Result<(), String> {
-    let snapshot = app
-        .state::<crate::session::MediaLibrarySessionState>()
-        .snapshot();
-    if snapshot.session_id != Some(session_id) {
-        return Err("The media-library session changed before geocoding started".into());
-    }
-    let operation = snapshot
-        .batch_operations
-        .get("geocode")
-        .filter(|operation| operation.operation_id == operation_id)
-        .ok_or_else(|| "The geocode operation identity changed".to_string())?;
+    let timer = crate::commands::shared::CommandTimer::new("geocode");
+    let session_state = app.state::<crate::session::MediaLibrarySessionState>();
+    let operation = session_state.inspect(|snapshot| {
+        if snapshot.session_id != Some(session_id) {
+            return Err("The media-library session changed before geocoding started".to_string());
+        }
+        snapshot
+            .batch_operations
+            .get("geocode")
+            .filter(|operation| operation.operation_id == operation_id)
+            .cloned()
+            .ok_or_else(|| "The geocode operation identity changed".to_string())
+    })?;
     let total = operation.total;
     let emitter = batch_job::BatchProgressEmitter::resume(
         &app,
@@ -66,7 +68,6 @@ pub async fn geocode_files_cmd(
     let items: Vec<GeocodeRequestItem> = serde_json::from_value(
         operation
             .request
-            .clone()
             .ok_or_else(|| "The geocode operation request is unavailable".to_string())
             .inspect_err(|error| emitter.fail(error.clone()))?,
     )
@@ -81,20 +82,44 @@ pub async fn geocode_files_cmd(
     let settings = crate::settings::load_settings(&settings_dir)
         .inspect_err(|error| emitter.fail(error.clone()))?;
     let mut saved = std::collections::BTreeMap::new();
+    let mut matches = Vec::new();
     for item in &items {
         if let (Some(lat), Some(lon)) = (item.lat, item.lon) {
             match crate::saved_locations::matching_location(&settings.saved_locations, lat, lon) {
-                Ok(Some(place)) => {
-                    saved.insert(
-                        item.rel_path.clone(),
-                        crate::saved_locations::plan_saved_location(&snapshot, item, place),
-                    );
-                }
+                Ok(Some(place)) => matches.push((item, place)),
                 Err(error) => {
                     saved.insert(item.rel_path.clone(), Err(error));
                 }
                 Ok(None) => {}
             }
+        }
+    }
+    if !matches.is_empty() {
+        let paths = matches
+            .iter()
+            .map(|(item, _)| item.rel_path.as_str())
+            .collect();
+        let inputs = session_state
+            .inspect(|snapshot| {
+                if snapshot.session_id != Some(session_id) {
+                    return Err(
+                        "The media-library session changed before saved locations were captured"
+                            .to_string(),
+                    );
+                }
+                Ok(crate::saved_locations::capture_saved_location_metadata(
+                    snapshot, &paths,
+                ))
+            })
+            .inspect_err(|error| emitter.fail(error.clone()))?;
+        for (item, place) in matches {
+            let edits = match inputs.get(&item.rel_path).expect("requested file result") {
+                Ok(input) => {
+                    crate::saved_locations::plan_saved_location_from_metadata(input, item, place)
+                }
+                Err(error) => Err(error.clone()),
+            };
+            saved.insert(item.rel_path.clone(), edits);
         }
     }
     let cancel_flag = geocode_state.install();
@@ -105,6 +130,7 @@ pub async fn geocode_files_cmd(
         None => geocode_cache::GeocodeCacheFile::empty_current(),
     };
 
+    timer.setup_complete();
     log::info!("[geocode] starting total={}", items.len());
 
     let sink = TauriGeocodeSink { emitter };

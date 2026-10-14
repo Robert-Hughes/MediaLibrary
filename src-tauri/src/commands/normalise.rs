@@ -1053,21 +1053,23 @@ pub async fn normalise_metadata_cmd(
     app: AppHandle,
     normalise_state: State<'_, normalise::NormaliseState>,
 ) -> Result<(), String> {
-    let snapshot = app
+    let timer = crate::commands::shared::CommandTimer::new("normalise");
+    let (total, request) = app
         .state::<crate::session::MediaLibrarySessionState>()
-        .snapshot();
-    if snapshot.session_id != Some(session_id) {
-        return Err("The media-library session changed before normalisation started".into());
-    }
-    let operation = snapshot
-        .batch_operations
-        .get("normalise")
-        .filter(|operation| operation.operation_id == operation_id)
-        .ok_or_else(|| "The normalise operation identity changed".to_string())?;
-    let total = operation.total;
-    let mut confirmed_request = operation
-        .request
-        .clone()
+        .inspect(|snapshot| {
+            if snapshot.session_id != Some(session_id) {
+                return Err(
+                    "The media-library session changed before normalisation started".to_string(),
+                );
+            }
+            let operation = snapshot
+                .batch_operations
+                .get("normalise")
+                .filter(|operation| operation.operation_id == operation_id)
+                .ok_or_else(|| "The normalise operation identity changed".to_string())?;
+            Ok((operation.total, operation.request.clone()))
+        })?;
+    let mut confirmed_request = request
         .ok_or_else(|| "The normalise operation has no retained request".to_string())
         .inspect_err(|error| {
             batch_job::fail_retained_operation(&app, session_id, &operation_id, error);
@@ -1113,13 +1115,6 @@ pub async fn normalise_metadata_cmd(
     let concurrency = std::num::NonZeroUsize::new(usize::from(settings.normalise_concurrency))
         .unwrap_or(std::num::NonZeroUsize::MIN);
 
-    log::info!(
-        "[normalise] starting total={} concurrency={} groups={:?}",
-        total,
-        concurrency,
-        enabled_groups
-    );
-
     // Plan §1 Groups B / C / G require an OpenAI key when their AI
     // branches fire. We construct the client up-front when either group
     // is enabled; per-file AI failures surface as failure rows instead
@@ -1145,6 +1140,14 @@ pub async fn normalise_metadata_cmd(
     } else {
         None
     };
+
+    timer.setup_complete();
+    log::info!(
+        "[normalise] starting total={} concurrency={} groups={:?}",
+        total,
+        concurrency,
+        enabled_groups
+    );
 
     emitter.started(total);
 
