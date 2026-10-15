@@ -13,11 +13,9 @@
 //! finishes; per-entry append-on-write would be cheaper but a batch is
 //! typically <100 net network calls so the simple approach is fine.
 //!
-//! Lookup: linear scan with haversine distance < 50 m. The 50 m threshold
-//! is inherited from the original `Update Metadata Scripts/geocode_batch.py`
-//! and was chosen because Nominatim returns the *feature's* coordinates,
-//! not the query's — two files taken from a few metres apart at the same
-//! venue should share a cache entry.
+//! Lookup: linear scan with haversine distance < 25 m between query
+//! coordinates. Nearby files can share a response while limiting reuse
+//! across neighbouring addresses.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,7 +23,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Haversine match radius for cache hits, in metres. See module doc.
-pub const CACHE_MATCH_RADIUS_M: f64 = 50.0;
+pub const CACHE_MATCH_RADIUS_M: f64 = 25.0;
 
 /// File name under app_data_dir.
 pub const CACHE_FILE_NAME: &str = "geocache.json";
@@ -72,7 +70,7 @@ pub const CACHE_VERSION: u32 = 5;
 ///
 /// Earth radius 6_371_000 m matches the Python reference script and
 /// the typical Nominatim documentation example; the choice is within
-/// the noise floor for a 50 m match radius.
+/// the noise floor for a 25 m match radius.
 pub fn haversine_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
     let to_rad = std::f64::consts::PI / 180.0;
     let (lat1r, lat2r) = (lat1 * to_rad, lat2 * to_rad);
@@ -161,13 +159,12 @@ mod tests {
     }
 
     #[test]
-    fn haversine_50m_radius_boundary_for_central_london() {
-        // ~40 m apart in central London — within radius.
-        // 0.0003 deg lat ≈ 33 m.
-        let near = haversine_meters(51.5001, -0.1262, 51.5004, -0.1262);
+    fn haversine_25m_radius_boundary_for_central_london() {
+        // 0.0002 deg latitude is about 22 m — within radius.
+        let near = haversine_meters(51.5001, -0.1262, 51.5003, -0.1262);
         assert!(near < CACHE_MATCH_RADIUS_M, "expected hit, got {}", near);
-        // ~80 m apart — outside radius.
-        let far = haversine_meters(51.5001, -0.1262, 51.5008, -0.1262);
+        // 0.0003 deg latitude is about 33 m — outside the reduced radius.
+        let far = haversine_meters(51.5001, -0.1262, 51.5004, -0.1262);
         assert!(far > CACHE_MATCH_RADIUS_M, "expected miss, got {}", far);
     }
 
@@ -187,6 +184,7 @@ mod tests {
         });
         let hit = c.lookup(51.5002, -0.1262);
         assert!(hit.is_some());
+        assert!(c.lookup(51.5004, -0.1262).is_none());
         assert!(c.lookup(52.0, -1.0).is_none());
     }
 
@@ -208,6 +206,8 @@ mod tests {
         c.upsert(mk(51.5002, "second"));
         assert_eq!(c.entries.len(), 1, "near-duplicate should replace");
         assert_eq!(c.entries[0].result.display_name, "second");
+        c.upsert(mk(51.5005, "different address"));
+        assert_eq!(c.entries.len(), 2, "entries about 33 m apart stay separate");
     }
 
     #[test]

@@ -11,7 +11,7 @@ strings clear members; omitted members and null values are invalid. CountryCode
 must be empty or two uppercase letters. Settings are validated on load and save.
 
 At batch execution the backend snapshots settings and session metadata/drafts.
-It tests effective request GPS against enabled circles **before** the 50 m cache
+It tests effective request GPS against enabled circles **before** the 25 m cache
 or Nominatim. The smallest containing circle wins. Equal smallest-radius rules
 with different descriptive values produce a per-file failure. Invalid GPS,
 unavailable metadata, ambiguous exact input schemas, pending list operations,
@@ -53,7 +53,7 @@ interpret or modify canonical/legacy location metadata.
 - zoom fallback: GeocodeJSON is tried at 18, 16, 14, 12, 10 until a usable
   civic result is found; JSONv2 is then requested at the selected zoom
 - rate limit: one Nominatim request per second
-- cache: app-wide version-5 JSON cache, 50 m haversine matching, containing
+- cache: app-wide version-5 JSON cache, 25 m haversine matching, containing
   both exact response bodies
 - no Overpass enrichment: a nearby POI is not necessarily where the camera
   was, and the two Nominatim formats already expose the selected feature and

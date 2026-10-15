@@ -272,7 +272,7 @@ pub fn map_geocodejson(addr: &GeocodeJsonAddress, lat: f64, lon: f64) -> Address
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeocodeSource {
-    /// Hit the in-memory cache (haversine < 50 m of a prior result).
+    /// Hit the in-memory cache (haversine < 25 m of a prior result).
     Cache,
     /// Live Nominatim call.
     Nominatim,
