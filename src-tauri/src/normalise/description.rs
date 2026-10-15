@@ -65,7 +65,10 @@ fn ascii_fold(s: &str) -> String {
         };
         out.push_str(replacement);
     }
-    out
+    // Dropping symbols can expose doubled or edge whitespace. Match the
+    // normalization applied to existing sources during conflict detection,
+    // and write the same stable projection so the next run is a no-op.
+    normalise_description_text(&out)
 }
 
 fn project_caption_abstract(canonical: &str, charset_is_utf8: bool) -> String {
@@ -628,6 +631,68 @@ mod tests {
         assert!(!out.ai_fired);
         assert!(out.ai_error.is_none());
         assert_eq!(out.canonical.as_deref(), Some(canonical));
+    }
+
+    #[tokio::test]
+    async fn whitespace_left_by_dropped_symbols_is_repaired_without_ai_and_is_idempotent() {
+        for (canonical, legacy_ascii, expected_ascii) in [
+            (
+                "A label reads 5.0 V ⎓ 500 mA.",
+                "A label reads 5.0 V  500 mA.",
+                "A label reads 5.0 V 500 mA.",
+            ),
+            (
+                "△ A sign points left. ▽",
+                " A sign points left. ",
+                "A sign points left.",
+            ),
+        ] {
+            for charset_is_utf8 in [false, true] {
+                let caption = if charset_is_utf8 {
+                    canonical
+                } else {
+                    legacy_ascii
+                };
+                let input = DescriptionInput {
+                    description: Some(canonical.into()),
+                    image_description: Some(legacy_ascii.into()),
+                    caption_abstract: Some(caption.into()),
+                    current_iptc_charset_is_utf8: charset_is_utf8,
+                    output_iptc_charset_is_utf8: charset_is_utf8,
+                    ..Default::default()
+                };
+
+                let first = normalise_description(&input, None).await;
+                assert!(
+                    first.ai_error.is_none(),
+                    "{canonical}: {:?}",
+                    first.ai_error
+                );
+                assert!(!first.ai_fired);
+                assert_eq!(first.canonical.as_deref(), Some(canonical));
+                let output = first.output.unwrap();
+                assert_eq!(text(&output, "IFD0:ImageDescription"), expected_ascii);
+                assert!(!output.edits.contains_key(&known_ids::xmp_description()));
+                let expected_caption = if charset_is_utf8 {
+                    assert!(!output.edits.contains_key(&known_ids::iptc_caption()));
+                    canonical
+                } else {
+                    assert_eq!(text(&output, "IPTC:Caption-Abstract"), expected_ascii);
+                    expected_ascii
+                };
+
+                let post = DescriptionInput {
+                    image_description: Some(expected_ascii.into()),
+                    caption_abstract: Some(expected_caption.into()),
+                    ..input
+                };
+                let second = normalise_description(&post, None).await;
+                assert!(second.output.is_none());
+                assert!(second.ai_error.is_none());
+                assert!(!second.ai_fired);
+                assert_eq!(second.canonical.as_deref(), Some(canonical));
+            }
+        }
     }
 
     #[tokio::test]

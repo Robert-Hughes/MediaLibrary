@@ -1,7 +1,6 @@
 Current
 =======
 
-- Home address number is off-by-two in reverse-geocoded/tagged metadata; review and correct the textual location metadata, maybe fix for future too, perhaps well-known locations?
 - Confirm all are "normalised"
   - Have GPS, DateTimeOriginal (or equivalent for non-pictures), description/keywords/AI description and are idempotent to Normalisation test
 - Delete "Update Metadata Scripts" folder?
