@@ -3,7 +3,7 @@ import type { TagInfo } from "../types";
 export type MetadataWriteOperation = "Set" | "DeleteExisting";
 
 // Keep this display/planning mirror aligned with FORMAT_GROUP0_SUPPORT in
-// tag_schema.rs. Actual writes are independently authorized by the Rust gate.
+// tag_schema/overrides.rs. Actual writes are independently authorized by the Rust gate.
 // These are raw ExifTool family-0 strings from -listx, not app aliases.
 const FORMAT_GROUP0_SUPPORT: Readonly<Record<string, ReadonlySet<string>>> = {
   jpg: new Set([
@@ -61,7 +61,7 @@ const FORMAT_GROUP0_SUPPORT: Readonly<Record<string, ReadonlySet<string>>> = {
     "ICC_Profile",
     "Photoshop",
   ]),
-  png: new Set(["PNG", "EXIF", "XMP", "ICC_Profile"]),
+  png: new Set(["PNG", "EXIF", "XMP", "IPTC", "ICC_Profile"]),
   gif: new Set(["GIF", "XMP", "ICC_Profile"]),
   mp4: new Set(["QuickTime", "XMP"]),
 };

@@ -92,10 +92,12 @@ where
     let planned = match plan_batch(&abs_path, edits, &before, schema_lookup) {
         Ok(planned) => planned,
         Err(error) => {
-            log::info!(
-                "[apply_perf] file={} phase=plan duration_ms={} status=failed",
+            log::warn!(
+                "[apply_perf] file={} phase=plan duration_ms={} status=failed edits={} reason={}",
                 rel_path,
-                phase_started.elapsed().as_millis()
+                phase_started.elapsed().as_millis(),
+                edits.len(),
+                error
             );
             return Err(Box::new(MetadataSingleFileOutcome::hard_failure(error)));
         }

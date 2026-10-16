@@ -142,4 +142,17 @@ describe("metadata write-kind support", () => {
       tagInfoSupportsMetadataWrite(exif, "clip.mp4", "DeleteExisting"),
     ).toBe(true);
   });
+
+  it("allows IPTC on PNG while keeping unsupported format sections blocked", () => {
+    const iptc = { ...info({ kind: "Text" }), group0: "IPTC" };
+    const makerNotes = { ...info({ kind: "Text" }), group0: "MakerNotes" };
+
+    expect(tagInfoSupportsMetadataWrite(iptc, "image.PNG", "Set")).toBe(true);
+    expect(tagInfoSupportsMetadataWrite(iptc, "animation.gif", "Set")).toBe(
+      false,
+    );
+    expect(tagInfoSupportsMetadataWrite(makerNotes, "image.png", "Set")).toBe(
+      false,
+    );
+  });
 });

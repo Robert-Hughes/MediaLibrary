@@ -119,6 +119,10 @@ section, rather than `EXIF`, even though their bytes are inside EXIF. Writable
 maker-note fields can therefore be corrected in existing JPEG occurrences.
 This does not make read-only fields writable or enable AVCHD/H264 timestamp
 writes. A rejected field blocks the complete file's batch before any write.
+PNG also permits IPTC IIM, which ExifTool stores in raw-profile text metadata;
+its UTF-8 safety and target verification rules are the same as for JPEG.
+Preflight planning failures are logged at warning level with the file, edit
+count, rejected target and diagnostic reason, before any write is attempted.
 
 ### IPTC IIM character-set safety
 

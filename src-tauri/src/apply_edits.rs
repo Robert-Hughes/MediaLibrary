@@ -583,6 +583,75 @@ mod tests {
     thread_local! {
         static TEST_SCHEMA_INFOS: RefCell<BTreeMap<SchemaDefinitionId, TagInfo>> =
             const { RefCell::new(BTreeMap::new()) };
+        static CAPTURED_PLANNING_WARNINGS: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+    }
+
+    struct PlanningWarningLogger;
+
+    impl log::Log for PlanningWarningLogger {
+        fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+            metadata.level() <= log::Level::Warn
+        }
+
+        fn log(&self, record: &log::Record<'_>) {
+            if self.enabled(record.metadata()) {
+                CAPTURED_PLANNING_WARNINGS.with(|captured| {
+                    if let Some(records) = captured.borrow_mut().as_mut() {
+                        records.push(record.args().to_string());
+                    }
+                });
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    #[test]
+    fn rejected_format_logs_target_and_reason_without_writing_or_logging_values() {
+        static LOGGER: PlanningWarningLogger = PlanningWarningLogger;
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            log::set_logger(&LOGGER).unwrap();
+            log::set_max_level(log::LevelFilter::Warn);
+        });
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("file.gif"), []).unwrap();
+        let info = iptc_schema(crate::known_ids::iptc_city(), "City", TagKind::Text);
+        let entry = new_entry(
+            &info,
+            edit(
+                EditIntent::Set,
+                Some(MetadataValue::Text("Private field value".into())),
+            ),
+        );
+        let client = FakeClient::new(vec![Ok(image(vec![]))]);
+        CAPTURED_PLANNING_WARNINGS.with(|captured| *captured.borrow_mut() = Some(Vec::new()));
+        let outcome = apply_single_file_metadata_with_client(
+            dir.path().to_str().unwrap(),
+            "file.gif",
+            &[entry],
+            &client,
+            |schema| (schema == &info.id).then(|| info.clone()),
+        );
+        let warnings =
+            CAPTURED_PLANNING_WARNINGS.with(|captured| captured.borrow_mut().take().unwrap());
+        assert!(outcome.error.is_some());
+        assert!(client.writes.borrow().is_empty());
+        let warning = warnings
+            .iter()
+            .find(|line| line.contains("phase=plan"))
+            .expect("planning warning");
+        for required in [
+            "file=file.gif",
+            "status=failed",
+            "edits=1",
+            "IPTC",
+            "City",
+            "metadata section is not supported by this file format",
+        ] {
+            assert!(warning.contains(required), "missing {required}: {warning}");
+        }
+        assert!(!warning.contains("Private field value"));
     }
 
     fn remember_test_schema(info: &TagInfo) {

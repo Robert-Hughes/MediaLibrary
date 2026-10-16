@@ -26,7 +26,8 @@ const FORMAT_GROUP0_SUPPORT: &[FormatGroup0Support] = &[
     },
     FormatGroup0Support {
         extensions: &["png"],
-        allowed_group0: &["PNG", "EXIF", "XMP", "ICC_Profile"],
+        // ExifTool stores IPTC IIM in PNG raw-profile text metadata.
+        allowed_group0: &["PNG", "EXIF", "XMP", "IPTC", "ICC_Profile"],
     },
     FormatGroup0Support {
         extensions: &["gif"],

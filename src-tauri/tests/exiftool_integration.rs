@@ -1702,17 +1702,15 @@ fn separated_date_filename_clock_roundtrips_in_png() {
     });
     assert_eq!(result.n_dto_from_filename, 1);
     assert_eq!(result.n_dto_from_filename_date_only, 0);
-    // PNG supports EXIF/XMP, not the IPTC IIM destinations. The session planner
-    // likewise filters format-incompatible generated fields before staging.
+    // PNG supports the complete EXIF/XMP/IPTC date projection.
     let edits: Vec<_> = result
         .output
         .unwrap()
         .edits
         .into_iter()
-        .filter(|(id, _)| id.table != "IPTC::ApplicationRecord")
         .map(|(schema_id, edit)| SchemaMetadataEdit { schema_id, edit })
         .collect();
-    assert_eq!(edits.len(), 2);
+    assert_eq!(edits.len(), 4);
     let rel = rel_of(dir.path(), &dst);
     let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits.clone());
     assert!(outcome.error.is_none(), "{:?}", outcome.error);
@@ -1730,6 +1728,117 @@ fn separated_date_filename_clock_roundtrips_in_png() {
         (12, 19, 3)
     );
     assert!(actual.time.subsecond.is_none());
+}
+
+#[test]
+fn png_missing_iptc_mirrors_roundtrip_and_preserve_pixels_and_xmp() {
+    use medialibrary_tauri_lib::known_ids as id;
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("iptc-mirrors.png");
+    let pixels = image::RgbImage::from_pixel(16, 16, image::Rgb([32, 64, 96]));
+    pixels.save(&dst).unwrap();
+    let rel = rel_of(dir.path(), &dst);
+    let unicode = "A café sign with 日本語 lettering.";
+    let xmp = MetadataValue::LangAlt(BTreeMap::from([("x-default".into(), unicode.into())]));
+    let seeded = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        vec![SchemaMetadataEdit {
+            schema_id: id::xmp_description(),
+            edit: metadata_set(xmp.clone()),
+        }],
+    );
+    assert!(seeded.error.is_none(), "{:?}", seeded.error);
+    let values = vec![
+        (
+            id::iptc_coded_character_set(),
+            MetadataValue::Text("UTF8".into()),
+        ),
+        (id::iptc_caption(), MetadataValue::Text(unicode.into())),
+        (id::iptc_keywords(), metadata_bag(&["café", "sign"])),
+        (
+            id::iptc_object_name(),
+            MetadataValue::Text("Café Sign".into()),
+        ),
+        (id::iptc_city(), MetadataValue::Text("Example City".into())),
+        (
+            id::iptc_sub_location(),
+            MetadataValue::Text("Example Place".into()),
+        ),
+        (
+            id::iptc_province_state(),
+            MetadataValue::Text("Example Region".into()),
+        ),
+        (
+            id::iptc_country_name(),
+            MetadataValue::Text("United Kingdom".into()),
+        ),
+        (id::iptc_country_code(), MetadataValue::Text("GB ".into())),
+        (
+            id::iptc_date_created(),
+            MetadataValue::Date(DateValue {
+                year: 2024,
+                month: 5,
+                day: 6,
+            }),
+        ),
+        (
+            id::iptc_time_created(),
+            MetadataValue::Time(TimeValue {
+                hour: 12,
+                minute: 34,
+                second: 56,
+                subsecond: None,
+                offset: Some(UtcOffsetValue {
+                    sign: OffsetSign::Plus,
+                    hours: 1,
+                    minutes: 0,
+                }),
+            }),
+        ),
+    ];
+    let entries = target_entries(
+        dir.path(),
+        &rel,
+        values
+            .iter()
+            .map(|(schema_id, value)| SchemaMetadataEdit {
+                schema_id: schema_id.clone(),
+                edit: metadata_set(value.clone()),
+            })
+            .collect(),
+    );
+    assert!(entries
+        .iter()
+        .all(|e| matches!(e.target, MetadataDraftTarget::NewProperty { .. })));
+    let outcome = apply_entries(dir.path().to_str().unwrap(), &rel, &entries);
+    assert!(outcome.error.is_none(), "{:?}", outcome.error);
+    assert_eq!(outcome.targets_to_clear.len(), entries.len());
+    let after = read_one(dir.path(), &dst);
+    for (schema_id, expected) in &values {
+        if schema_id == &id::iptc_coded_character_set() {
+            // The printable UTF8 write alias is stored as the IIM escape sequence.
+            assert_eq!(
+                schema_value(&after, schema_id),
+                Some(MetadataValue::Text("\u{1b}%G".into()))
+            );
+            continue;
+        }
+        if schema_id == &id::iptc_country_code() {
+            let Some(MetadataValue::Text(actual)) = schema_value(&after, schema_id) else {
+                panic!("missing country code");
+            };
+            assert_eq!(actual.trim_end(), "GB");
+            continue;
+        }
+        assert_eq!(
+            schema_value(&after, schema_id).as_ref(),
+            Some(expected),
+            "{schema_id:?}"
+        );
+    }
+    assert_eq!(schema_value(&after, &id::xmp_description()), Some(xmp));
+    assert_eq!(image::open(&dst).unwrap().to_rgb8(), pixels);
 }
 
 #[test]

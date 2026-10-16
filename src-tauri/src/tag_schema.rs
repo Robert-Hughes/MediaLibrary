@@ -698,8 +698,11 @@ mod tests {
             exif.metadata_write_eligibility("animation.gif", MetadataWriteOperation::Set),
             Err(MetadataWriteIneligibility::UnsupportedSectionForFormat)
         );
+        assert!(iptc
+            .metadata_write_eligibility("image.PNG", MetadataWriteOperation::Set)
+            .is_ok());
         assert_eq!(
-            iptc.metadata_write_eligibility("image.png", MetadataWriteOperation::Set),
+            iptc.metadata_write_eligibility("animation.gif", MetadataWriteOperation::Set),
             Err(MetadataWriteIneligibility::UnsupportedSectionForFormat)
         );
         assert_eq!(
