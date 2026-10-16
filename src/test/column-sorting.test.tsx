@@ -3,7 +3,8 @@ import { userEvent } from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import { FileList } from "../components/FileList";
 import { ThumbnailStore, FileMetadataOccurrencesStore } from "../types";
-import type { FileInfo, SortConfig } from "../types";
+import type { FileInfo, MetadataDraftEdit, SortConfig } from "../types";
+import { existingOccurrenceTargetFromOccurrence } from "../utils/metadataDraftTarget";
 import {
   sortFiles,
   nextSortConfig,
@@ -14,6 +15,8 @@ import {
   imgCol,
   makeFile,
   mockMetadata,
+  mockTargetDraftsByFile,
+  newPropertyTargetDraft,
   osCol,
   osSort as osSortKey,
   pathSort as pathSortKey,
@@ -21,6 +24,7 @@ import {
 } from "./factories";
 import {
   occurrenceFromSchemaValue,
+  occurrenceStore,
   occurrencesFromMetadataCollection,
 } from "./occurrenceFixtures";
 
@@ -375,6 +379,129 @@ describe("sortFiles", () => {
         store,
       ).map((file) => file.relative_path),
     ).toEqual(["zero.jpg", "absent.jpg"]);
+  });
+});
+describe("sortFiles with effective metadata", () => {
+  const id = testId("IFD0:Model");
+  const files = ["a.jpg", "b.jpg", "c.jpg"].map((relative_path) =>
+    makeFile({ relative_path, date_modified: 100 }),
+  );
+  const sort: SortConfig = {
+    primary: imageSortKey("IFD0:Model", "asc"),
+    secondary: null,
+  };
+
+  function fixture(edit: MetadataDraftEdit) {
+    const a = occurrenceFromSchemaValue(id, { kind: "Text", value: "Alpha" });
+    const b = occurrenceFromSchemaValue(id, { kind: "Text", value: "Bravo" });
+    const store = occurrenceStore({ "a.jpg": [a], "b.jpg": [b], "c.jpg": [] });
+    const target = existingOccurrenceTargetFromOccurrence(a);
+    if (target.kind !== "targetable") throw new Error(target.reason);
+    const drafts = mockTargetDraftsByFile({
+      "a.jpg": [{ target: target.target, edit }],
+      "c.jpg": [newPropertyTargetDraft("IFD0:Model", "Charlie")],
+    });
+    return { store, drafts };
+  }
+
+  it("sorts staged replacements and new properties, and restores order when drafts are discarded", () => {
+    const { store, drafts } = fixture({
+      intent: "Set",
+      value: { kind: "Text", value: "Zulu" },
+    });
+    expect(
+      sortFiles(files, sort, store, drafts).map((file) => file.relative_path),
+    ).toEqual(["b.jpg", "c.jpg", "a.jpg"]);
+    expect(
+      sortFiles(files, sort, store, {}).map((file) => file.relative_path),
+    ).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+    expect(store.get("a.jpg")).toEqual([
+      occurrenceFromSchemaValue(id, { kind: "Text", value: "Alpha" }),
+    ]);
+  });
+
+  it.each(["asc", "desc"] as const)(
+    "sorts staged deletions last in %s order",
+    (direction) => {
+      const { store, drafts } = fixture({ intent: "Delete", value: null });
+      expect(
+        sortFiles(
+          files,
+          { ...sort, primary: { ...sort.primary!, direction } },
+          store,
+          drafts,
+        ).map((file) => file.relative_path),
+      ).toEqual(
+        direction === "asc"
+          ? ["b.jpg", "c.jpg", "a.jpg"]
+          : ["c.jpg", "b.jpg", "a.jpg"],
+      );
+    },
+  );
+
+  it("uses effective metadata for secondary sorts", () => {
+    const { store, drafts } = fixture({
+      intent: "Set",
+      value: { kind: "Text", value: "Zulu" },
+    });
+    expect(
+      sortFiles(
+        files,
+        {
+          primary: osSortKey("date_modified", "asc"),
+          secondary: sort.primary,
+        },
+        store,
+        drafts,
+      ).map((file) => file.relative_path),
+    ).toEqual(["b.jpg", "c.jpg", "a.jpg"]);
+  });
+
+  it("ignores stale draft targets", () => {
+    const { store, drafts } = fixture({
+      intent: "Set",
+      value: { kind: "Text", value: "Zulu" },
+    });
+    store.set("a.jpg", [
+      occurrenceFromSchemaValue(id, { kind: "Text", value: "Alpha" }, 1),
+    ]);
+    expect(
+      sortFiles(files, sort, store, drafts).map((file) => file.relative_path),
+    ).toEqual(["a.jpg", "b.jpg", "c.jpg"]);
+  });
+
+  it("sorts the resulting list after list operations rather than the staged payload", () => {
+    const a = occurrenceFromSchemaValue(id, {
+      kind: "List",
+      value: { list_kind: "Bag", items: [{ kind: "Text", value: "Zulu" }] },
+    });
+    const target = existingOccurrenceTargetFromOccurrence(a);
+    if (target.kind !== "targetable") throw new Error(target.reason);
+    const store = occurrenceStore({
+      "a.jpg": [a],
+      "b.jpg": [
+        occurrenceFromSchemaValue(id, {
+          kind: "List",
+          value: {
+            list_kind: "Bag",
+            items: [{ kind: "Text", value: "Bravo" }],
+          },
+        }),
+      ],
+    });
+    const drafts = mockTargetDraftsByFile({
+      "a.jpg": [
+        {
+          target: target.target,
+          edit: { intent: "ListAdd", value: { kind: "Text", value: "Alpha" } },
+        },
+      ],
+    });
+    expect(
+      sortFiles(files.slice(0, 2), sort, store, drafts).map(
+        (file) => file.relative_path,
+      ),
+    ).toEqual(["b.jpg", "a.jpg"]);
   });
 });
 // ── FileList sort indicator UI tests ─────────────────────────────────────────

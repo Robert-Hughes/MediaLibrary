@@ -7,11 +7,13 @@ import type {
   SortKey,
 } from "../types";
 import { formatMetadataValue } from "../draft";
+import type { TargetDraftEditsByFile } from "../targetDraftEdits";
+import { buildEffectiveMetadataForFile } from "./effectiveMetadata";
+import { metadataGet } from "./metadataCollection";
 import {
   schemaDefinitionIdEquals,
   schemaDefinitionIdToken,
 } from "./schemaDefinitionId";
-import { buildSelectedSchemaValueResolutionIndex } from "./schemaMetadataProjection";
 
 export type SortTarget =
   | { kind: "path" }
@@ -46,25 +48,28 @@ function precomputeImageSortValues(
   files: readonly FileInfo[],
   sortConfig: SortConfig,
   occurrencesStore: FileMetadataOccurrencesStore,
+  targetDraftEdits: TargetDraftEditsByFile,
 ): PrecomputedImageSortValues {
   const ids = activeImageSortIds(sortConfig);
   const values: PrecomputedImageSortValues = new Map();
   if (ids.length === 0) return values;
 
   for (const file of files) {
-    const occurrences = occurrencesStore.get(file.relative_path);
+    const effective = buildEffectiveMetadataForFile(
+      {
+        occurrences: occurrencesStore.get(file.relative_path),
+        targetDrafts: targetDraftEdits[file.relative_path],
+      },
+      { ids },
+    );
     const fileValues = new Map<string, string>();
-    if (Array.isArray(occurrences)) {
-      const projection = buildSelectedSchemaValueResolutionIndex(
-        occurrences,
-        ids,
-      );
-      for (const id of ids) {
-        const token = schemaDefinitionIdToken(id);
-        const resolution = projection.get(token);
-        if (resolution?.kind === "value") {
-          fileValues.set(token, getMetadataValueAsString(resolution.value));
-        }
+    for (const id of ids) {
+      const value = metadataGet(effective, id);
+      if (value !== undefined) {
+        fileValues.set(
+          schemaDefinitionIdToken(id),
+          getMetadataValueAsString(value),
+        );
       }
     }
     values.set(file.relative_path, fileValues);
@@ -113,12 +118,14 @@ export function sortFiles(
   files: FileInfo[],
   sortConfig: SortConfig,
   occurrencesStore: FileMetadataOccurrencesStore,
+  targetDraftEdits: TargetDraftEditsByFile = {},
 ): FileInfo[] {
   if (!sortConfig.primary) return files;
   const imageValues = precomputeImageSortValues(
     files,
     sortConfig,
     occurrencesStore,
+    targetDraftEdits,
   );
 
   return [...files].sort((a, b) => {

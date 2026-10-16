@@ -222,14 +222,16 @@ function LoadedView({
             state.files,
             state.sortConfig,
             state.fileMetadataOccurrences,
+            state.targetDraftEdits,
           ),
-    // metadataVersion is the invalidation signal for image-metadata sorts
+    // Metadata loads and draft changes both invalidate effective sort values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       state.files,
       state.sortConfig,
       state.metadataVersion,
       state.fileMetadataOccurrences,
+      state.targetDraftEdits,
       sortingDisabled,
     ],
   );
