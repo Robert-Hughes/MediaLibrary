@@ -124,6 +124,16 @@ its UTF-8 safety and target verification rules are the same as for JPEG.
 Preflight planning failures are logged at warning level with the file, edit
 count, rejected target and diagnostic reason, before any write is attempted.
 
+Normalization compares all sources but stages only required writable
+corrections. An unwritable destination absent from effective metadata
+(including drafts) is omitted and logged as `output_skipped`. An existing
+unwritable destination that needs correction blocks its whole normalization
+group (`group_blocked` / `normalise_unwritable`), preserving existing drafts;
+independent groups can proceed. Already matching fields require no write.
+Preview, completion counts and staging use this distinction; omitted
+unsupported mirrors do not leave a file perpetually awaiting normalization.
+See [normalization output eligibility](NORMALISE_METADATA_PLAN.md#output-eligibility-and-blocked-groups).
+
 ### IPTC IIM character-set safety
 
 IPTC IIM text is safe for non-ASCII writes only when the effective

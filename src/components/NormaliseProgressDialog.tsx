@@ -350,6 +350,7 @@ function CostPreview({
 function emptyCounts() {
   return {
     nNoop: 0,
+    nBlocked: 0,
     nNormalisedDeterministic: 0,
     nNormalisedAi: 0,
     nConflict: 0,
@@ -464,6 +465,7 @@ function GroupOutcomeTable({
             <th style={headStyle}>No change</th>
             <th style={headStyle}>Normalize</th>
             <th style={headStyle}>Normalize (AI)</th>
+            <th style={headStyle}>Cannot normalize</th>
             <th style={headStyle}>Conflict</th>
             <th
               style={headStyle}
@@ -486,7 +488,10 @@ function GroupOutcomeTable({
                 ? estimatedCounts
                 : {
                     ...estimatedCounts,
-                    nNoop: total - prospectiveIptcCount,
+                    nNoop:
+                      total -
+                      prospectiveIptcCount -
+                      (estimatedCounts.nBlocked ?? 0),
                     nNormalisedDeterministic: prospectiveIptcCount,
                     nNormalisedAi: 0,
                     nConflict: 0,
@@ -497,6 +502,7 @@ function GroupOutcomeTable({
                   };
             const isAiGroup = AI_GROUPS.has(g);
             const allNoop =
+              (counts.nBlocked ?? 0) === 0 &&
               counts.nNormalisedDeterministic === 0 &&
               counts.nNormalisedAi === 0 &&
               counts.nConflict === 0;
@@ -550,6 +556,12 @@ function GroupOutcomeTable({
                   )}
                 </td>
                 <td
+                  style={{ ...cellBase, color: "var(--accent-error, #d33)" }}
+                  data-testid={`normalise-group-${g}-blocked`}
+                >
+                  {renderCount(counts.nBlocked ?? 0)}
+                </td>
+                <td
                   style={{
                     ...cellBase,
                     color:
@@ -582,20 +594,34 @@ function GroupOutcomeTable({
         <tfoot>
           <tr>
             <td
-              colSpan={6}
+              colSpan={7}
               style={{
                 padding: "6px 0 0",
                 fontSize: 12,
               }}
             >
               {total} {total === 1 ? "file" : "files"} · No change + Normalize +
-              Normalize (AI) sum to {total} per row. Overwrites counts
-              individual fields that would change. Rows with nothing to do are
-              disabled.
+              Normalize (AI) + Cannot normalize sum to {total} per row.
+              Overwrites counts individual fields that would change. Rows with
+              nothing to do are disabled.
             </td>
           </tr>
         </tfoot>
       </table>
+      {(estimate.blockedDetails?.length ?? 0) > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary>Existing fields that cannot be normalized</summary>
+          <ul>
+            {estimate.blockedDetails!.map((field, index) => (
+              <li key={index}>
+                <strong>{field.relativePath}</strong>: {groupLabel(field.group)}{" "}
+                / {field.field}: {field.reason}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {V1_GROUPS.map((g) => {
         const conflicts = conflictsByGroup.get(g) ?? [];
         const overwrites = overwritesByGroup.get(g) ?? [];
@@ -794,6 +820,11 @@ function SummaryBreakdown({ s }: { s: NormaliseSummary }) {
                 label: "AI normalised",
                 value: stats.nNormalisedAi,
                 show: stats.nNormalisedAi > 0,
+              },
+              {
+                label: "cannot normalize",
+                value: stats.nBlocked,
+                show: stats.nBlocked > 0,
               },
               { label: "no-op", value: stats.nNoop, show: stats.nNoop > 0 },
               {

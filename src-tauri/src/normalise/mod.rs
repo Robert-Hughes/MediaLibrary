@@ -32,6 +32,10 @@ use crate::metadata_value::{ListKind, MetadataValue};
 // composes these in the pass order documented in plan §2; each
 // submodule owns its target tags constant, canonical derivation,
 // idempotency detector, normaliser, and unit tests for that group.
+mod output_policy;
+use output_policy::filter_output;
+pub use output_policy::NormaliseBlockedField;
+
 mod model;
 pub use model::*;
 
@@ -286,6 +290,8 @@ pub struct PerGroupStats {
     /// Groups B / C / G only — AI call returned an error or the key
     /// was missing.
     pub n_ai_errors: u32,
+    // A required correction to an existing effective field is unwritable.
+    pub n_blocked: u32,
 }
 
 /// Per-file stats tracking from one `process_item` call. Aggregated
@@ -296,6 +302,9 @@ pub struct PerGroupStats {
 #[cfg_attr(test, derive(ts_rs::TS))]
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct PerFileStats {
+    #[serde(skip)]
+    #[cfg_attr(test, ts(skip))]
+    pub blocked_fields: Vec<NormaliseBlockedField>,
     /// Per-group counter map. Entry is present only for groups that
     /// the dispatcher actually visited (i.e. enabled + bundle
     /// supplied).
@@ -343,9 +352,9 @@ impl PerFileStats {
     /// True when no group emitted any drafts (every visited group was
     /// a noop). Used by the batch loop to count `n_skipped_all_normalised`.
     pub fn all_noop(&self) -> bool {
-        self.per_group
-            .values()
-            .all(|s| s.n_normalised_deterministic == 0 && s.n_normalised_ai == 0)
+        self.per_group.values().all(|s| {
+            s.n_normalised_deterministic == 0 && s.n_normalised_ai == 0 && s.n_blocked == 0
+        })
     }
 }
 
@@ -380,6 +389,7 @@ impl PerFileStats {
 /// Dates captures date context + filename stats, Description / Title
 /// are async + AI) keep bespoke dispatcher blocks.
 fn apply_simple_group<T>(
+    item: &NormaliseRequestItem,
     group: NormaliseGroup,
     enabled: bool,
     input: Option<&T>,
@@ -404,7 +414,7 @@ fn apply_simple_group<T>(
         stats.group(group).n_noop += 1;
         return;
     };
-    match run(input) {
+    match filter_output(item, group, run(input), stats) {
         Some(out) => {
             if group_output_writes_iptc(&out) {
                 stats.iptc_output_groups.insert(group);
@@ -529,7 +539,12 @@ pub async fn process_item(
 
     if write_enabled(NormaliseGroup::Keywords) {
         if let Some(input) = item.group_inputs.keywords.as_ref() {
-            match normalise_keywords_with_canonical(input, &keywords_paths, &keywords_leaves) {
+            match filter_output(
+                item,
+                NormaliseGroup::Keywords,
+                normalise_keywords_with_canonical(input, &keywords_paths, &keywords_leaves),
+                &mut stats,
+            ) {
                 Some(out) => {
                     if group_output_writes_iptc(&out) {
                         stats.iptc_output_groups.insert(NormaliseGroup::Keywords);
@@ -548,6 +563,7 @@ pub async fn process_item(
     }
 
     apply_simple_group(
+        item,
         NormaliseGroup::Creator,
         write_enabled(NormaliseGroup::Creator),
         item.group_inputs.creator.as_ref(),
@@ -556,6 +572,7 @@ pub async fn process_item(
         normalise_creator,
     );
     apply_simple_group(
+        item,
         NormaliseGroup::Copyright,
         write_enabled(NormaliseGroup::Copyright),
         item.group_inputs.copyright.as_ref(),
@@ -564,6 +581,7 @@ pub async fn process_item(
         normalise_copyright,
     );
     apply_simple_group(
+        item,
         NormaliseGroup::Headline,
         write_enabled(NormaliseGroup::Headline),
         item.group_inputs.headline.as_ref(),
@@ -574,7 +592,9 @@ pub async fn process_item(
 
     if write_enabled(NormaliseGroup::Location) {
         if let Some(input) = item.group_inputs.location.as_ref() {
-            let outcome = normalise_location_with_ai(input, ai).await;
+            let mut outcome = normalise_location_with_ai(input, ai).await;
+            outcome.output =
+                filter_output(item, NormaliseGroup::Location, outcome.output, &mut stats);
             if outcome.ai_fired {
                 if let Some(usage) = outcome.ai_usage.clone() {
                     ai_calls.push(PerFileAiCall {
@@ -631,7 +651,15 @@ pub async fn process_item(
 
     if write_enabled(NormaliseGroup::Dates) {
         if let Some(input) = item.group_inputs.dates.as_ref() {
-            let outcome = normalise_dates(input);
+            let mut outcome = normalise_dates(input);
+            outcome.output = filter_output(item, NormaliseGroup::Dates, outcome.output, &mut stats);
+            if !outcome.output.as_ref().is_some_and(|out| {
+                out.edits
+                    .contains_key(&crate::known_ids::date_time_original())
+            }) {
+                outcome.n_dto_from_filename = 0;
+                outcome.n_dto_from_filename_date_only = 0;
+            }
             if outcome
                 .output
                 .as_ref()
@@ -695,7 +723,13 @@ pub async fn process_item(
             if augmented.date_context.is_none() {
                 augmented.date_context = date_context.clone();
             }
-            let outcome = normalise_description(&augmented, ai).await;
+            let mut outcome = normalise_description(&augmented, ai).await;
+            outcome.output = filter_output(
+                item,
+                NormaliseGroup::Description,
+                outcome.output,
+                &mut stats,
+            );
             if outcome.ai_fired {
                 if let Some(u) = outcome.ai_usage.clone() {
                     ai_calls.push(PerFileAiCall {
@@ -760,7 +794,8 @@ pub async fn process_item(
             if augmented.keywords_context.is_empty() {
                 augmented.keywords_context = keywords_leaves.clone();
             }
-            let outcome = normalise_title(&augmented, ai).await;
+            let mut outcome = normalise_title(&augmented, ai).await;
+            outcome.output = filter_output(item, NormaliseGroup::Title, outcome.output, &mut stats);
             if outcome.ai_fired {
                 if let Some(u) = outcome.ai_usage.clone() {
                     ai_calls.push(PerFileAiCall {
@@ -816,7 +851,12 @@ pub async fn process_item(
         if let Some(input) = item.group_inputs.iptc_utf8.as_ref() {
             let mut prospective = input.clone();
             prospective.has_iptc = prospective.has_iptc || !stats.iptc_output_groups.is_empty();
-            match normalise_iptc_utf8(&prospective) {
+            match filter_output(
+                item,
+                NormaliseGroup::IptcUtf8,
+                normalise_iptc_utf8(&prospective),
+                &mut stats,
+            ) {
                 Some(out) => {
                     edits.extend(out.edits);
                     stats
@@ -833,6 +873,11 @@ pub async fn process_item(
         }
     }
 
+    for group in stats.per_group.values_mut() {
+        if group.n_blocked > 0 {
+            group.n_noop = 0;
+        }
+    }
     (edits, stats, first_ai_error, ai_calls)
 }
 
@@ -868,6 +913,7 @@ impl NormaliseSummary {
         for (group, src) in &per_file.per_group {
             let dst = self.per_group.entry(*group).or_default();
             dst.n_noop += src.n_noop;
+            dst.n_blocked += src.n_blocked;
             dst.n_normalised_deterministic += src.n_normalised_deterministic;
             dst.n_normalised_ai += src.n_normalised_ai;
             dst.n_conflict_primary_won += src.n_conflict_primary_won;

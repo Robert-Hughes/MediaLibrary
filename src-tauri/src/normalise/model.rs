@@ -97,6 +97,20 @@ pub struct GroupInputs {
     /// needed to preserve existing non-ASCII IPTC text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub iptc_utf8: Option<IptcUtf8Input>,
+    // Exact effective values, including empty values and draft presence.
+    // None is reserved for legacy requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(test, ts(optional))]
+    pub effective_outputs: Option<Vec<EffectiveNormaliseOutput>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(test, derive(ts_rs::TS))]
+#[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
+pub struct EffectiveNormaliseOutput {
+    pub schema_id: crate::tag_schema::SchemaDefinitionId,
+    pub value: MetadataValue,
 }
 
 /// Input for the IPTC UTF-8 conversion group.

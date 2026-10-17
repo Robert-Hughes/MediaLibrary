@@ -49,6 +49,7 @@ struct NormaliseEstimateProgressPayload {
 #[derive(Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct PerGroupOutcomeCounts {
+    n_blocked: u32,
     n_noop: u32,
     n_normalised_deterministic: u32,
     n_normalised_ai: u32,
@@ -135,6 +136,7 @@ struct NormaliseEstimateCompletePayload {
     /// client-side from `ai_token_breakdown` + `pricing` without
     /// re-walking.
     per_group_outcomes: BTreeMap<normalise::NormaliseGroup, PerGroupOutcomeCounts>,
+    blocked_details: Vec<normalise::NormaliseBlockedField>,
     /// Files where existing effective IPTC is present without a UTF-8
     /// marker, independent of any semantic group selected in the dialog.
     iptc_utf8_base_applicable_paths: Vec<String>,
@@ -708,6 +710,7 @@ pub async fn estimate_normalise_cost_cmd(
         BTreeMap::new();
     let mut conflict_details: Vec<EstimateConflictDetail> = Vec::new();
     let mut overwrite_details: Vec<EstimateOverwriteDetail> = Vec::new();
+    let mut blocked_details = Vec::new();
     let mut description_input_tokens: u64 = 0;
     let mut title_input_tokens: u64 = 0;
     let mut location_input_tokens: u64 = 0;
@@ -750,7 +753,21 @@ pub async fn estimate_normalise_cost_cmd(
             )
         });
         if !marker_is_utf8 {
-            if iptc_input.is_some_and(|input| input.has_iptc) {
+            if iptc_input.is_some_and(|input| input.has_iptc)
+                && crate::tag_schema::get_registry()
+                    .ok()
+                    .and_then(|r| {
+                        r.lookup(&crate::known_ids::iptc_coded_character_set())
+                            .cloned()
+                    })
+                    .is_some_and(|info| {
+                        info.metadata_write_eligibility(
+                            &item.rel_path,
+                            crate::tag_schema::MetadataWriteOperation::Set,
+                        )
+                        .is_ok()
+                    })
+            {
                 iptc_utf8_base_applicable_paths.push(item.rel_path.clone());
             }
             for group in &stats.iptc_output_groups {
@@ -761,6 +778,8 @@ pub async fn estimate_normalise_cost_cmd(
             }
         }
 
+        blocked_details.extend(stats.blocked_fields.iter().cloned());
+
         // Roll per-file stats into the outcome map. PerGroupStats
         // counters are 0/1 at the per-file scale; this turns them
         // into per-batch totals. Overwrites are computed here by
@@ -769,6 +788,7 @@ pub async fn estimate_normalise_cost_cmd(
         for (group, gs) in &stats.per_group {
             let entry = per_group_outcomes.entry(*group).or_default();
             entry.n_noop += gs.n_noop;
+            entry.n_blocked += gs.n_blocked;
             entry.n_normalised_deterministic += gs.n_normalised_deterministic;
             entry.n_normalised_ai += gs.n_normalised_ai;
             entry.n_conflict += gs.n_conflict_primary_won;
@@ -1022,6 +1042,7 @@ pub async fn estimate_normalise_cost_cmd(
         model: model_out,
         location_model: location_model_out,
         per_group_outcomes,
+        blocked_details,
         iptc_utf8_base_applicable_paths,
         iptc_utf8_output_paths_by_group,
         conflict_details,
@@ -1373,15 +1394,19 @@ pub async fn normalise_metadata_cmd(
                 }
             }
 
-            if let Some(err) = ai_err {
-                // Plan §8: AI failures do not abort the batch; non-AI
-                // groups for the same file still wrote their drafts.
-                // Surface as a per-file failure row in addition to the
-                // succeeded edits.
-                let detail = err.detail.clone();
-                let kind = err.kind;
+            let failure = if stats.blocked_fields.is_empty() {
+                ai_err.map(|error| (error.kind, error.detail))
+            } else {
+                let mut detail = stats.blocked_fields.iter()
+                    .map(|f| format!("{} / {}: {}", f.group.as_wire(), f.field, f.reason))
+                    .collect::<Vec<_>>().join("; ");
+                if let Some(error) = ai_err { detail.push_str(&format!("; {}", error.detail)); }
+                Some((batch_job::BatchFailureKind::NormaliseUnwritable, detail))
+            };
+            if let Some((kind, detail)) = failure {
+                // Other independent groups may still have successful drafts.
                 log::warn!(
-                    "[normalise] ({}/{}) AI failure for {}: {}",
+                    "[normalise] ({}/{}) normalization failure for {}: {}",
                     current,
                     total,
                     rel,

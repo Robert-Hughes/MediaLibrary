@@ -69,6 +69,48 @@ function destinationOccurrence(
 }
 
 describe("target-aware normalise inputs", () => {
+  it("sends effective output presence including draft creation and deletion", () => {
+    const occurrence = atDeclaredDestinations([
+      occurrenceFromSchemaValue(
+        ID.iptcObjectName,
+        { kind: "Text", value: "Old" },
+        0,
+      ),
+    ])[0];
+    const store = new TargetDraftEditsStore();
+    store.setMetadataTarget(
+      "a.gif",
+      {
+        kind: "ExistingOccurrence",
+        occurrence_id: occurrence.id,
+        schema_id: occurrence.schema_id,
+        write_target: occurrence.write_target!,
+      },
+      { intent: "Delete", value: null },
+    );
+    store.setMetadataTarget(
+      "a.gif",
+      {
+        kind: "NewProperty",
+        schema_id: ID.imageDescription,
+        write_target: knownMetadataWriteTarget(ID.imageDescription)!,
+      },
+      { intent: "Set", value: { kind: "Text", value: "" } },
+    );
+    const item = buildNormaliseItems(
+      ["a.gif"],
+      { get: () => [occurrence] },
+      store.getAllMetadata(),
+      ["title", "description"],
+    )[0];
+    expect(item.groupInputs.effectiveOutputs).not.toContainEqual(
+      expect.objectContaining({ schemaId: ID.iptcObjectName }),
+    );
+    expect(item.groupInputs.effectiveOutputs).toContainEqual({
+      schemaId: ID.imageDescription,
+      value: { kind: "Text", value: "" },
+    });
+  });
   it("packs semantic metadata without flattening LangAlt or list values", () => {
     const occurrences = atDeclaredDestinations(
       occurrencesFromMetadataCollection(

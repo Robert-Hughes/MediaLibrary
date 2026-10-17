@@ -32,6 +32,8 @@ Conflict handling is group-specific. A counted conflict is a user-visible
 stat/warning path, not necessarily a blocker. Description is the only group
 that currently blocks deterministic edits when conflicting target sources need
 AI and the AI call is unavailable or fails.
+Independently of source-conflict handling, output eligibility can block any
+group whose required correction to an existing field is unwritable (§4).
 
 | Group         | Policy                                                                                                                                                                                                                                                                                                           |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -524,6 +526,47 @@ set is an **atomic, complete replacement** of that group's target fields
 
 Read-only input fields are never drafted (only read).
 
+### Output eligibility and blocked groups
+
+Comparison and repairability are separate decisions. Derive the canonical
+value using all declared sources, including unwritable sources. Then check
+each required correction using the shared metadata-write eligibility policy
+(schema writability, supported datatype and file-format section support):
+
+| Effective output                          | Result                                       |
+| ----------------------------------------- | -------------------------------------------- |
+| Already equals its projection             | No write required, regardless of writability |
+| Needs changing and is writable            | Include its correction                       |
+| Absent and unwritable                     | Omit the output without a user-facing error  |
+| Present, needs changing and is unwritable | Block the complete group                     |
+
+Presence uses effective metadata at the declared generated destination after
+applying existing drafts. An empty value still exists. A draft creation counts
+as present; a draft deletion counts as absent. Requests include an explicit
+effective-output snapshot so absence is not inferred from empty normalized
+strings or lists. Legacy requests without that snapshot fail closed when an
+unwritable output's presence cannot be established; reopen normalization.
+
+A blocked group stages no corrections and does not clear existing user drafts.
+Independent groups on the same file can still stage their corrections. The
+file reports `normalise_unwritable`, with group, field and reason. Preview and
+completion include a **Cannot normalize** count separate from actionable
+normalization and no-op counts. An empty output after omitting absent
+unwritable destinations is a no-op, not a successfully normalized group.
+
+Absent unwritable outputs are logged at INFO with `output_skipped`, file,
+group, field/schema, operation and reason. Blocking fields are logged at WARN
+with `group_blocked` and the same identifying information. Neither diagnostic
+includes metadata values. Estimate and execution share this planning logic;
+staging retains a defensive check and rejects unexpected unwritable outputs
+instead of silently removing drafts.
+
+For example, GIFs can normalize supported XMP keyword fields while omitting
+absent IPTC Keywords. A disagreeing IPTC Keywords field already present in the
+effective file blocks Keywords. An already matching IPTC field does not block.
+Only surviving IPTC output corrections make the optional IPTC UTF-8 group
+prospectively applicable.
+
 **Exception: idempotency no-op.** If `group_is_normalised(file)` returns
 true (see §5), no drafts at all are emitted for that group on that image.
 Re-runs are cheap and observably no-op.
@@ -555,7 +598,7 @@ group_is_normalised(group, file) =
     let sources = read_targets_with_draft_overlay(group, file)
     let canonical = derive_canonical(group, sources, read_only_inputs(group, file))
     canonical == normalise(canonical)                       // already in normal form
-    AND for each derivative d in group:
+    AND for each derivative d in group, except absent unwritable outputs:
         sources[d] == project(canonical, d.datatype)        // already in sync
 ```
 
@@ -832,14 +875,15 @@ Reuses `batch_job.rs` from
 
 ### Failure kinds
 
-| Kind                | Meaning                                    |
-| ------------------- | ------------------------------------------ |
-| `ai_call_failed`    | OpenAI returned non-2xx or invalid JSON    |
-| `ai_schema_invalid` | Response parsed but missing required field |
-| `ai_rate_limited`   | 429 from OpenAI                            |
-| `audit_log_io`      | Could not append to JSONL log              |
-| `cancelled`         | User cancelled mid-image                   |
-| `internal`          | Bug — surfaced with detail string          |
+| Kind                   | Meaning                                                                  |
+| ---------------------- | ------------------------------------------------------------------------ |
+| `ai_call_failed`       | OpenAI returned non-2xx or invalid JSON                                  |
+| `ai_schema_invalid`    | Response parsed but missing required field                               |
+| `ai_rate_limited`      | 429 from OpenAI                                                          |
+| `audit_log_io`         | Could not append to JSONL log                                            |
+| `cancelled`            | User cancelled mid-image                                                 |
+| `internal`             | Bug — surfaced with detail string                                        |
+| `normalise_unwritable` | Existing output needs an unwritable correction; its group stages nothing |
 
 Per-image AI failures do not abort the batch. The image surfaces in the
 failure list; non-AI groups for that image still write their drafts.
@@ -880,6 +924,7 @@ interface NormaliseSummary {
   perGroup: {
     [groupName: string]: {
       nNoOp: number; // group already normalised
+      nBlocked: number; // required existing output correction is unwritable
       nNormalisedDeterministic: number;
       nNormalisedAI: number; // only B, C
       nConflictPrimaryWon: number; // distinct sources, primary preferred

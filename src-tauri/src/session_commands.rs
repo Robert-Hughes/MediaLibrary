@@ -1677,10 +1677,9 @@ pub(super) fn plan_session_normalise_drafts(
         if generated.edit.intent == draft_edits::EditIntent::Set
             && generated_set_is_format_incompatible(info, relative_path)
         {
-            if let Some(index) = owner_index {
-                planned.remove(index);
-            }
-            continue;
+            return Err(
+                "Normalization produced an unwritable output after eligibility planning".into(),
+            );
         }
         match generated.edit.intent {
             draft_edits::EditIntent::Set => {
@@ -2238,9 +2237,9 @@ mod tests {
             &[normalise::NormaliseGroup::Dates],
             &registry,
         )
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(planned, None);
+        assert!(planned.contains("unwritable output"));
     }
 
     #[test]
@@ -2264,13 +2263,13 @@ mod tests {
             &[normalise::NormaliseGroup::Dates],
             &registry,
         )
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(planned, None);
+        assert!(planned.contains("unwritable output"));
     }
 
     #[test]
-    fn normalise_clears_previously_staged_format_incompatible_set() {
+    fn normalise_rejects_incompatible_output_without_clearing_existing_drafts() {
         let registry = fixture_registry();
         let schema_id = exif_datetime_original_schema();
         let info = registry.lookup(&schema_id).unwrap();
@@ -2297,9 +2296,10 @@ mod tests {
             &[normalise::NormaliseGroup::Dates],
             &registry,
         )
-        .unwrap();
+        .unwrap_err();
 
-        assert_eq!(planned, Some(Vec::new()));
+        assert!(planned.contains("unwritable output"));
+        assert_eq!(snapshot.drafts["animation.gif"].len(), 1);
     }
 
     #[test]

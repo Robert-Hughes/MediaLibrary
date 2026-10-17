@@ -622,6 +622,7 @@ export interface DescribeEstimate {
  * `aiTokenBreakdown` + `pricing`, drafts produced by the run command).
  */
 export interface NormaliseGroupOutcomeCounts {
+  nBlocked?: number;
   nNoop: number;
   nNormalisedDeterministic: number;
   nNormalisedAi: number;
@@ -686,6 +687,7 @@ export interface NormaliseOverwriteDetail {
  * because the outcome walk never needs the API.
  */
 export interface NormaliseEstimate {
+  blockedDetails?: import("./types/generated/NormaliseBlockedField").NormaliseBlockedField[];
   nFilesWithAiB: number;
   nFilesWithAiC: number;
   nFilesWithAiG: number;

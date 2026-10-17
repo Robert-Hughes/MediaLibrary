@@ -1841,6 +1841,161 @@ fn png_missing_iptc_mirrors_roundtrip_and_preserve_pixels_and_xmp() {
     assert_eq!(image::open(&dst).unwrap().to_rgb8(), pixels);
 }
 
+#[tokio::test]
+async fn animated_gif_normalises_supported_outputs_and_is_idempotent() {
+    use image::AnimationDecoder;
+    use medialibrary_tauri_lib::{known_ids as id, normalise::*};
+    let dir = tempfile::tempdir().unwrap();
+    let dst = dir.path().join("animation.gif");
+    {
+        let mut encoder = image::codecs::gif::GifEncoder::new(fs::File::create(&dst).unwrap());
+        for color in [[255, 0, 0, 255], [0, 255, 0, 255]] {
+            encoder
+                .encode_frame(image::Frame::from_parts(
+                    image::RgbaImage::from_pixel(8, 8, image::Rgba(color)),
+                    0,
+                    0,
+                    image::Delay::from_numer_denom_ms(100, 1),
+                ))
+                .unwrap();
+        }
+    }
+    let frames = || {
+        image::codecs::gif::GifDecoder::new(std::io::BufReader::new(fs::File::open(&dst).unwrap()))
+            .unwrap()
+            .into_frames()
+            .collect_frames()
+            .unwrap()
+            .into_iter()
+            .map(|frame| (frame.buffer().clone(), frame.delay().numer_denom_ms()))
+            .collect::<Vec<_>>()
+    };
+    let original_frames = frames();
+    assert_eq!(original_frames.len(), 2);
+    let rel = rel_of(dir.path(), &dst);
+    let date = MetadataValue::DateTime(DateTimeValue {
+        date: DateValue {
+            year: 2024,
+            month: 5,
+            day: 6,
+        },
+        time: TimeValue {
+            hour: 12,
+            minute: 30,
+            second: 0,
+            subsecond: None,
+            offset: None,
+        },
+    });
+    let seeded = apply_target_file(
+        dir.path().to_str().unwrap(),
+        &rel,
+        vec![
+            SchemaMetadataEdit {
+                schema_id: id::xmp_date_created(),
+                edit: metadata_set(date.clone()),
+            },
+            SchemaMetadataEdit {
+                schema_id: id::xmp_subject(),
+                edit: metadata_set(metadata_bag(&["Cat Photos"])),
+            },
+            SchemaMetadataEdit {
+                schema_id: id::xmp_title(),
+                edit: metadata_set(MetadataValue::LangAlt(BTreeMap::from([(
+                    "x-default".into(),
+                    "Cat Photos".into(),
+                )]))),
+            },
+            SchemaMetadataEdit {
+                schema_id: id::xmp_description(),
+                edit: metadata_set(MetadataValue::LangAlt(BTreeMap::from([(
+                    "x-default".into(),
+                    "Two colored frames.".into(),
+                )]))),
+            },
+        ],
+    );
+    assert!(seeded.error.is_none(), "{:?}", seeded.error);
+    let groups = [
+        NormaliseGroup::Keywords,
+        NormaliseGroup::Description,
+        NormaliseGroup::Title,
+        NormaliseGroup::Dates,
+        NormaliseGroup::IptcUtf8,
+    ];
+    for pass in 0..2 {
+        let before = read_one(dir.path(), &dst);
+        let list = |schema: &SchemaDefinitionId| match schema_value(&before, schema) {
+            Some(MetadataValue::List { items, .. }) => items
+                .into_iter()
+                .map(|v| match v {
+                    MetadataValue::Text(s) => s,
+                    _ => panic!("text list"),
+                })
+                .collect(),
+            None => Vec::new(),
+            _ => panic!("list"),
+        };
+        let item = NormaliseRequestItem {
+            rel_path: rel.clone(),
+            group_inputs: GroupInputs {
+                effective_outputs: Some(
+                    before
+                        .occurrences
+                        .iter()
+                        .map(|o| EffectiveNormaliseOutput {
+                            schema_id: o.schema_id.clone(),
+                            value: o.value.clone(),
+                        })
+                        .collect(),
+                ),
+                keywords: Some(KeywordsInput {
+                    dc_subject: list(&id::xmp_subject()),
+                    hierarchical_subject: list(&id::xmp_hierarchical_subject()),
+                    ..Default::default()
+                }),
+                description: Some(DescriptionInput {
+                    description: Some("Two colored frames.".into()),
+                    ..Default::default()
+                }),
+                title: Some(TitleInput {
+                    title: Some("Cat Photos".into()),
+                    ..Default::default()
+                }),
+                dates: Some(DatesInput {
+                    photoshop_date_created: Some(date.clone()),
+                    ..Default::default()
+                }),
+                iptc_utf8: Some(IptcUtf8Input::default()),
+                ..Default::default()
+            },
+        };
+        let (edits, stats, error, _) = process_item(&item, &groups, None, None).await;
+        assert!(error.is_none());
+        assert!(stats.blocked_fields.is_empty());
+        assert!(stats.iptc_output_groups.is_empty());
+        if pass == 0 {
+            assert_eq!(edits.len(), 2);
+            assert!(edits
+                .keys()
+                .all(|s| s == &id::xmp_subject() || s == &id::xmp_hierarchical_subject()));
+            let outcome = apply_target_file(
+                dir.path().to_str().unwrap(),
+                &rel,
+                edits
+                    .into_iter()
+                    .map(|(schema_id, edit)| SchemaMetadataEdit { schema_id, edit })
+                    .collect(),
+            );
+            assert!(outcome.error.is_none(), "{:?}", outcome.error);
+        } else {
+            assert!(edits.is_empty());
+            assert!(stats.per_group.values().all(|s| s.n_noop == 1));
+        }
+    }
+    assert_eq!(frames(), original_frames);
+}
+
 #[test]
 fn unix_filename_normalisation_roundtrips_utc_fraction_and_is_idempotent() {
     use medialibrary_tauri_lib::{

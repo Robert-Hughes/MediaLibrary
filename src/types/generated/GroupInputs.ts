@@ -3,6 +3,7 @@ import type { CopyrightInput } from "./CopyrightInput";
 import type { CreatorInput } from "./CreatorInput";
 import type { DatesInput } from "./DatesInput";
 import type { DescriptionInput } from "./DescriptionInput";
+import type { EffectiveNormaliseOutput } from "./EffectiveNormaliseOutput";
 import type { HeadlineInput } from "./HeadlineInput";
 import type { IptcUtf8Input } from "./IptcUtf8Input";
 import type { KeywordsInput } from "./KeywordsInput";
@@ -57,4 +58,4 @@ description: DescriptionInput | null,
  * CodedCharacterSet draft; apply planning derives the physical rewrites
  * needed to preserve existing non-ASCII IPTC text.
  */
-iptcUtf8: IptcUtf8Input | null, };
+iptcUtf8: IptcUtf8Input | null, effectiveOutputs?: Array<EffectiveNormaliseOutput>, };

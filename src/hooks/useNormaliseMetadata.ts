@@ -221,7 +221,8 @@ export function useNormaliseMetadata(
       const counts = estimate.perGroupOutcomes[group];
       return (
         counts !== undefined &&
-        counts.nNormalisedDeterministic +
+        (counts.nBlocked ?? 0) +
+          counts.nNormalisedDeterministic +
           counts.nNormalisedAi +
           counts.nConflict >
           0

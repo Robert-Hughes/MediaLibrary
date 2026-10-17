@@ -184,6 +184,10 @@ export function buildNormaliseItemForFile(
   });
   const groupSet = new Set(enabledGroups);
   const groupInputs: NormaliseRequestItem["groupInputs"] = {
+    effectiveOutputs: metadataEntries(effective).map(({ id, value }) => ({
+      schemaId: id,
+      value,
+    })),
     keywords: null,
     creator: null,
     copyright: null,

@@ -62,4 +62,4 @@ nUnparseableDateInputs: number,
  * Groups B / C / G only — AI call returned an error or the key
  * was missing.
  */
-nAiErrors: number, };
+nAiErrors: number, nBlocked: number, };

@@ -51,6 +51,8 @@ export function friendlyDescribeFailureLabel(
       return "Could not write audit log";
     case "internal":
       return "Internal error";
+    case "normalise_unwritable":
+      return "Cannot normalize existing unwritable metadata";
     case "ai_key_missing":
       return "OpenAI API key not configured";
     default:
@@ -96,6 +98,8 @@ export function friendlyGeocodeFailureLabel(kind: BatchJobFailureKind): string {
     case "ai_rate_limited":
     case "audit_log_io":
     case "internal":
+    case "normalise_unwritable":
+      return "Cannot normalize existing unwritable metadata";
     case "ai_key_missing":
       return kind;
     default:
@@ -122,6 +126,8 @@ export function friendlyNormaliseFailureLabel(
       return "Could not write audit log";
     case "internal":
       return "Internal error";
+    case "normalise_unwritable":
+      return "Cannot normalize existing unwritable metadata";
     case "ai_key_missing":
       return "OpenAI API key not configured";
     case "cancelled":

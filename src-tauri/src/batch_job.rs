@@ -97,6 +97,9 @@ pub enum BatchFailureKind {
     /// Reading or writing the local geocache file failed.
     CacheIo,
 
+    /// A required existing metadata output cannot be corrected.
+    NormaliseUnwritable,
+
     // ── Metadata-normaliser ────────────────────────────────────────────
     /// OpenAI returned a non-2xx response or a transport error during
     /// Group B description merge / Group C title generation.
@@ -138,6 +141,7 @@ impl BatchFailureKind {
             BatchFailureKind::AiSchemaInvalid => "ai_schema_invalid",
             BatchFailureKind::AiRateLimited => "ai_rate_limited",
             BatchFailureKind::AuditLogIo => "audit_log_io",
+            BatchFailureKind::NormaliseUnwritable => "normalise_unwritable",
             BatchFailureKind::Internal => "internal",
             BatchFailureKind::AiKeyMissing => "ai_key_missing",
         }
@@ -964,6 +968,10 @@ mod tests {
             (BatchFailureKind::NominatimEmpty, "nominatim_empty"),
             (BatchFailureKind::CacheIo, "cache_io"),
             (BatchFailureKind::AiCallFailed, "ai_call_failed"),
+            (
+                BatchFailureKind::NormaliseUnwritable,
+                "normalise_unwritable",
+            ),
             (BatchFailureKind::AiSchemaInvalid, "ai_schema_invalid"),
             (BatchFailureKind::AiRateLimited, "ai_rate_limited"),
             (BatchFailureKind::AuditLogIo, "audit_log_io"),

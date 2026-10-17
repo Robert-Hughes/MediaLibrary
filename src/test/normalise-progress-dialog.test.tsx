@@ -28,6 +28,46 @@ const allGroups: NormaliseGroup[] = [
   "headline",
 ];
 
+it("shows blocked groups and field reasons without claiming they can normalize", () => {
+  const estimate = mockEstimate({
+    perGroupOutcomes: {
+      title: {
+        nNoop: 0,
+        nNormalisedDeterministic: 0,
+        nNormalisedAi: 0,
+        nConflict: 0,
+        nOverwrites: 0,
+        nBlocked: 1,
+      },
+    },
+    blockedDetails: [
+      {
+        relativePath: "a.gif",
+        group: "title",
+        schemaId: { table: "IPTC::ApplicationRecord", tag_id: "5" },
+        field: "IPTC:ObjectName",
+        reason: "Not supported by this file format",
+      },
+    ],
+  });
+  render(
+    <NormaliseProgressDialog
+      state={baseState({ estimate, enabledGroups: ["title"] })}
+      onConfirm={() => {}}
+      onCancel={() => {}}
+      onClose={() => {}}
+      onSetEnabledGroups={() => {}}
+    />,
+  );
+  expect(screen.getByTestId("normalise-group-title-blocked")).toHaveTextContent(
+    "1",
+  );
+  expect(
+    screen.getByTestId("normalise-group-title-checkbox"),
+  ).not.toBeDisabled();
+  expect(screen.getByText(/IPTC:ObjectName/)).toBeInTheDocument();
+});
+
 /**
  * Build an estimate where every group has at least one non-noop
  * outcome so the per-group rows are enabled by default. Tests that
@@ -298,6 +338,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       perGroupOutcomes: {
         creator: {
           nNoop: 0,
+          nBlocked: 0,
           nNormalisedDeterministic: 5,
           nNormalisedAi: 0,
           nConflict: 0,
@@ -323,6 +364,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       perGroupOutcomes: {
         location: {
           nNoop: 0,
+          nBlocked: 0,
           nNormalisedDeterministic: 2,
           nNormalisedAi: 0,
           nConflict: 2,
@@ -348,6 +390,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       perGroupOutcomes: {
         dates: {
           nNoop: 0,
+          nBlocked: 0,
           nNormalisedDeterministic: 1,
           nNormalisedAi: 0,
           nConflict: 1,
@@ -447,6 +490,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       perGroupOutcomes: {
         keywords: {
           nNoop: 0,
+          nBlocked: 0,
           nNormalisedDeterministic: 1,
           nNormalisedAi: 0,
           nConflict: 0,
@@ -577,6 +621,7 @@ describe("NormaliseProgressDialog — awaiting-confirm", () => {
       perGroupOutcomes: {
         description: {
           nNoop: 0,
+          nBlocked: 0,
           nNormalisedDeterministic: 0,
           nNormalisedAi: 1,
           nConflict: 0,
@@ -846,6 +891,7 @@ describe("NormaliseProgressDialog — done", () => {
   ): NormalisePerGroupStats {
     return {
       nNoop: 0,
+      nBlocked: 0,
       nNormalisedDeterministic: 0,
       nNormalisedAi: 0,
       nConflictPrimaryWon: 0,
