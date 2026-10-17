@@ -22,7 +22,7 @@
  * inline behaviour of both DescribeProgressDialog and
  * GeocodeProgressDialog.
  */
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { ModalDialog } from "./ModalDialog";
 
 export type BatchJobPhase =
@@ -35,8 +35,8 @@ export interface BatchJobDialogProps {
    * `geocode-progress-dialog`).
    */
   testidPrefix: string;
-  /** Pixel width of the dialog content panel. */
-  width?: number;
+  /** CSS width of the dialog content panel; numbers are pixels. */
+  width?: CSSProperties["width"];
   phase: BatchJobPhase;
   /** Header text for the current phase. */
   title: string;

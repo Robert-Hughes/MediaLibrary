@@ -438,6 +438,7 @@ function GroupOutcomeTable({
   const headStyle: React.CSSProperties = {
     padding: "4px 8px",
     textAlign: "right" as const,
+    whiteSpace: "nowrap",
     fontWeight: 600,
     borderBottom: "1px solid var(--border-subtle, #ddd)",
   };
@@ -517,7 +518,12 @@ function GroupOutcomeTable({
                 }}
               >
                 <td style={{ padding: "4px 8px 4px 0", textAlign: "left" }}>
-                  <label style={{ cursor: disabled ? "default" : "pointer" }}>
+                  <label
+                    style={{
+                      cursor: disabled ? "default" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={checked && !disabled}
@@ -907,7 +913,7 @@ export function NormaliseProgressDialog({
   return (
     <BatchJobDialog
       testidPrefix="normalise"
-      width={560}
+      width={state.phase === "awaiting-confirm" ? "min-content" : 560}
       phase={state.phase}
       title={phaseTitle(state)}
       onCancel={onCancel}
