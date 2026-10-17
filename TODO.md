@@ -1,10 +1,6 @@
 Current
 =======
 
-- Confirm all are "normalised"
-  - Have GPS, DateTimeOriginal (or equivalent for non-pictures), description/keywords/AI description and are idempotent to Normalisation test
-- Some photos not in the correct year folder
-- Delete "Update Metadata Scripts" folder?
 
 Bugs/quirks/tweaks/improvements
 =================================
