@@ -6,3 +6,4 @@ src/types/generated/
 .claude/
 package-lock.json
 TODO.md
+experiments/collection_audit/runs/

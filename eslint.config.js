@@ -13,6 +13,8 @@ export default tseslint.config(
       "**/target/**",
       "src-tauri/icons/",
       "src/types/generated/",
+      "Update Metadata Scripts/",
+      "experiments/collection_audit/runs/",
       ".claude/",
     ],
   },
