@@ -11,7 +11,7 @@ use crate::metadata_value::{
     DateTimeValue, DateValue, MetadataValue, OffsetSign, TimeValue, UtcOffsetValue,
 };
 use crate::tag_schema::SchemaDefinitionId;
-use chrono::{Datelike, Offset, Timelike};
+use chrono::{Datelike, Offset, TimeZone, Timelike};
 use std::sync::OnceLock;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -685,6 +685,33 @@ fn parse_unix_milliseconds_filename(stem: &str, year_max: i32) -> Option<Compara
     })
 }
 
+fn modified_time_fallback(unix_seconds: i64) -> Option<ComparableTimestamp> {
+    // Convert using the local offset at the image's historical instant (DST-aware).
+    let instant = chrono::Local.timestamp_opt(unix_seconds, 0).single()?;
+    let seconds = instant.offset().fix().local_minus_utc();
+    let abs = seconds.unsigned_abs();
+    Some(ComparableTimestamp {
+        datetime: dt_value(
+            date_value(instant.year(), instant.month() as u8, instant.day() as u8),
+            time_value(
+                instant.hour() as u8,
+                instant.minute() as u8,
+                instant.second() as u8,
+                Some("000".into()),
+                Some(UtcOffsetValue {
+                    sign: if seconds < 0 {
+                        OffsetSign::Minus
+                    } else {
+                        OffsetSign::Plus
+                    },
+                    hours: (abs / 3600) as u8,
+                    minutes: ((abs % 3600) / 60) as u8,
+                }),
+            ),
+        ),
+        offset_from_related_tag: None,
+    })
+}
 fn normalise_dates_inner(
     input: &DatesInput,
     iptc_fallback_offset: Option<UtcOffsetValue>,
@@ -735,11 +762,13 @@ fn normalise_dates_inner(
                 }
             }
         }
-        // No filesystem timestamp fallback: Created/Modified times are mutable
-        // transport/storage metadata and are not reliable evidence of capture time.
+        // Modified time is a last resort; storage timestamps can change on transfer.
+        if canonical_override.is_none() {
+            canonical_override = input.file_date_modified.and_then(modified_time_fallback);
+        }
     }
 
-    let unix_filename = canonical_override
+    let offset_fallback = canonical_override
         .as_ref()
         .filter(|timestamp| timestamp.effective_offset().is_some());
     let mut h1 = process_date_subgroup(
@@ -748,7 +777,7 @@ fn normalise_dates_inner(
         iptc_h1.as_ref(),
         input.iptc_date_created.as_ref(),
         // An orphan IPTC time's offset cannot override the filename's known UTC.
-        if unix_filename.is_some() {
+        if offset_fallback.is_some() {
             None
         } else {
             input.iptc_time_created.as_ref()
@@ -760,7 +789,7 @@ fn normalise_dates_inner(
         known_ids::iptc_time_created(),
         iptc_fallback_offset.as_ref(),
     );
-    if let Some(timestamp) = unix_filename {
+    if let Some(timestamp) = offset_fallback {
         // EXIF stores the fraction and offset in companion tags rather than
         // DateTimeOriginal. Project all three so write/read and repeat runs agree.
         if let Some(edit) = h1.edits.get_mut(&known_ids::date_time_original()) {
@@ -1585,7 +1614,7 @@ mod tests {
     }
 
     #[test]
-    fn os_timestamps_are_not_used_as_h1_fallback() {
+    fn os_modified_time_is_last_resort_h1_fallback() {
         let input = DatesInput {
             file_stem: Some("received_without_date".into()),
             file_date_created: Some(1_700_000_000),
@@ -1594,7 +1623,15 @@ mod tests {
         };
 
         let out = normalise_dates_with_fallback_offset(&input, None);
-        assert!(out.output.is_none());
+        let group = out.output.unwrap();
+        let expected = chrono::Local
+            .timestamp_opt(1_600_000_000, 0)
+            .single()
+            .unwrap();
+        assert_eq!(
+            display(edit_value(&group, "ExifIFD:DateTimeOriginal")),
+            expected.format("%Y-%m-%dT%H:%M:%S").to_string()
+        );
         assert_eq!(out.n_dto_from_filename, 0);
         assert_eq!(out.n_dto_from_filename_date_only, 0);
     }

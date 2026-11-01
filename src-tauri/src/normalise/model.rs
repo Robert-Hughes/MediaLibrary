@@ -350,9 +350,7 @@ pub struct DatesInput {
     /// fallback when all H1 fields are empty (plan §1 Group H).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file_stem: Option<String>,
-    /// OS file-modified time as Unix seconds. Retained for wire compatibility;
-    /// the Dates normaliser deliberately does not use filesystem timestamps as
-    /// capture-time evidence.
+    /// OS file-modified Unix seconds: last resort after embedded and filename dates.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(test, ts(type = "number | null"))]
     pub file_date_modified: Option<i64>,
