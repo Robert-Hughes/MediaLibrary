@@ -368,8 +368,9 @@ does not infer the camera's original timezone.
 
 **Conflict policy per sub-group.**
 
-1. No target source has a usable parsed date (H1 only) → try the filename fallback. If it does
-   not match, emit no H1 drafts.
+1. No target source has a usable parsed date (H1 only) → try the filename
+   fallback, then the OS Modified timestamp as a last resort. If neither is
+   usable, emit no H1 drafts.
 2. Exactly one target source non-empty → propagate to others (after
    normalisation to ISO form).
 3. Multiple target sources non-empty AND all equal after ISO normalisation →
@@ -422,13 +423,21 @@ than the original shutter time. Unix derivation uses the existing
 **Filename fallback never overwrites a usable existing capture date.** Invalid
 unparseable dates may be replaced by a usable filename-derived date.
 
-**Filesystem timestamps are not capture-time evidence.** H1 deliberately does
-not fall back to OS Created or OS Modified timestamps. Those values are easily
-changed by copies, downloads, restores, sync tools, metadata rewrites, and
-filesystem migration. When embedded H1 metadata is absent and the filename
-does not encode a supported timestamp, the normaliser leaves capture time
-unknown rather than manufacturing a precise-looking value from filesystem
-state.
+**Filesystem modification time as a last resort (H1 only).** When no usable
+EXIF, Photoshop XMP, or IPTC H1 date exists and the filename does not yield a
+supported timestamp, use the scanner's OS Modified timestamp as a final
+fallback. Convert that instant to local wall-clock time with the historical
+UTC offset, including daylight-saving rules; project the result into H1 and
+its EXIF offset/subsecond companion tags. Do not use OS Created time, choose
+the older of Created/Modified, or allow the fallback to override an embedded or
+filename-derived date. If Modified time is unavailable or invalid, emit no H1
+drafts. File modification time is **weak evidence** of capture time: copies,
+downloads, sync, restores, and metadata writes can change it. This intentional
+last resort favours supplying a provisional date over leaving H1 empty; users
+should inspect or correct dates inferred this way. History: `da68da9b`
+(2026-08-27) first introduced OS-date fallback, `5527dbf1` (2026-09-28)
+removed it as unreliable, and `73be7307` (2026-11-01) restored a narrower
+Modified-only fallback with historical timezone handling.
 
 H2 has no filename fallback. H3 is skipped entirely because modification
 history is not a capture-time mirror.
