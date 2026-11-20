@@ -41,6 +41,15 @@ async function expectConsoleErrorMessages(
   }
 }
 
+/** Wait for the void closeFolder action's Rust invocation, snapshot projection,
+ * and lifecycle.finishClose to resolve within React act(). */
+async function closeFolderAndSettle(closeFolder: () => void): Promise<void> {
+  await act(async () => {
+    closeFolder();
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+  });
+}
+
 async function settleAutosaves(): Promise<void> {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(3_000);
@@ -765,7 +774,7 @@ describe("useMediaLibrary", () => {
     });
     const state = result.current[0];
     if (state.kind === "loaded") expect(state.selectedPath).toBe("a.jpg");
-    act(() => result.current[1].closeFolder());
+    await closeFolderAndSettle(result.current[1].closeFolder);
   });
 
   it("openGallery stores and selects the relative path", async () => {
@@ -789,7 +798,7 @@ describe("useMediaLibrary", () => {
       expect(state.galleryPath).toBe("a.jpg");
       expect(state.selectedPath).toBe("a.jpg");
     }
-    act(() => result.current[1].closeFolder());
+    await closeFolderAndSettle(result.current[1].closeFolder);
   });
   it("showInExplorer passes folder and relativePath separately to the backend and is called once", async () => {
     const mock = createMockTauriApi();
@@ -1223,9 +1232,7 @@ describe("useMediaLibrary", () => {
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "a.jpg" }));
     });
-    act(() => {
-      result.current[1].closeFolder();
-    });
+    await closeFolderAndSettle(result.current[1].closeFolder);
     act(() => {
       mock.emitFileFound(makeFile({ relative_path: "b.jpg" }));
     });
@@ -1470,9 +1477,7 @@ describe("useMediaLibrary", () => {
     });
 
     // Close before the timer fires.
-    act(() => {
-      result.current[1].closeFolder();
-    });
+    await closeFolderAndSettle(result.current[1].closeFolder);
     expect(result.current[0].kind).toBe("idle");
 
     // Advance well past any timer interval — nothing should happen.
@@ -1491,9 +1496,7 @@ describe("useMediaLibrary", () => {
     });
     mock.invocations.length = 0;
 
-    act(() => {
-      result.current[1].closeFolder();
-    });
+    await closeFolderAndSettle(result.current[1].closeFolder);
 
     const closeCalls = mock.invocations.filter(
       (c) => c.cmd === "close_media_library_session",
@@ -3182,7 +3185,7 @@ describe("useMediaLibrary", () => {
     const loaded = result.current[0];
     if (loaded.kind !== "loaded") return;
     const store = loaded.targetDraftEditsStore;
-    act(() => result.current[1].closeFolder());
+    await closeFolderAndSettle(result.current[1].closeFolder);
     expect(store.getAllMetadata()).toEqual({});
     expect(result.current[0].kind).toBe("idle");
   });
