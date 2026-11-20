@@ -1753,6 +1753,34 @@ mod tests {
     }
 
     #[test]
+    fn normalise_dates_allowlist_accepts_new_xmp_exif_primary_only_for_dates() {
+        let id = crate::known_ids::xmp_exif_date_time_original();
+        assert!(is_normalise_schema(
+            &id,
+            &[normalise::NormaliseGroup::Dates]
+        ));
+        assert!(!is_normalise_schema(
+            &id,
+            &[normalise::NormaliseGroup::Description]
+        ));
+        let mut indexed = id.clone();
+        indexed.index = Some(0);
+        assert!(!is_normalise_schema(
+            &indexed,
+            &[normalise::NormaliseGroup::Dates]
+        ));
+        let unrelated = tag_schema::SchemaDefinitionId {
+            table: "XMP::exif".to_string(),
+            tag_id: "UserComment".to_string(),
+            index: None,
+        };
+        assert!(!is_normalise_schema(
+            &unrelated,
+            &[normalise::NormaliseGroup::Dates]
+        ));
+    }
+
+    #[test]
     fn normalise_schema_allowlist_rejects_indexed_variants() {
         let indexed = tag_schema::SchemaDefinitionId {
             table: "XMP::dc".to_owned(),

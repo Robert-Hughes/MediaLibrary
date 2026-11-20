@@ -80,7 +80,10 @@ impl ComparableTimestamp {
             || self.datetime.time.hour != other.datetime.time.hour
             || self.datetime.time.minute != other.datetime.time.minute
             || self.datetime.time.second != other.datetime.time.second
-            || self.datetime.time.subsecond != other.datetime.time.subsecond
+            || !subseconds_match(
+                self.datetime.time.subsecond.as_deref(),
+                other.datetime.time.subsecond.as_deref(),
+            )
         {
             return TimestampComparison::Conflict;
         }
@@ -91,6 +94,12 @@ impl ComparableTimestamp {
             TimestampComparison::Conflict
         }
     }
+}
+
+// Fractional seconds represent decimal fractions: omitted, .0, .000 and .0000
+// are equal, but a real nonzero fraction remains significant.
+fn subseconds_match(left: Option<&str>, right: Option<&str>) -> bool {
+    left.unwrap_or("").trim_end_matches('0') == right.unwrap_or("").trim_end_matches('0')
 }
 
 fn canonicalize_iptc_time_for_write(mut time: TimeValue) -> TimeValue {
@@ -1064,6 +1073,43 @@ mod tests {
             display(edit_value(&edits, "IPTC:DateCreated")),
             "2024-06-15"
         );
+    }
+
+    #[test]
+    fn zero_subsecond_mirrors_are_not_date_conflicts() {
+        let input = DatesInput {
+            xmp_exif_date_time_original: Some(dt(2026, 10, 28, 15, 11, 36, None)),
+            date_time_original: Some(dt(2026, 10, 28, 15, 11, 36, None)),
+            sub_sec_time_original: Some(text("000")),
+            offset_time_original: Some(MetadataValue::TimeOffset(off(0))),
+            photoshop_date_created: Some(MetadataValue::DateTime(dt_value(
+                date_value(2026, 10, 28),
+                time_value(15, 11, 36, Some("000".into()), None),
+            ))),
+            iptc_date_created: Some(date(2026, 10, 28)),
+            iptc_time_created: Some(time(15, 11, 36, Some(off(0)))),
+            ..Default::default()
+        };
+        let outcome = normalise_dates_with_fallback_offset(&input, None);
+        assert_eq!(outcome.n_date_conflict, 0);
+        assert!(outcome.conflicts.is_empty());
+    }
+
+    #[test]
+    fn nonzero_subseconds_still_conflict_and_decimal_zeros_compare_equal() {
+        assert!(subseconds_match(None, Some("000")));
+        assert!(subseconds_match(Some("10"), Some("1000")));
+        assert!(subseconds_match(Some("0010"), Some("001")));
+        assert!(!subseconds_match(None, Some("001")));
+        assert!(!subseconds_match(Some("01"), Some("0101")));
+        let input = DatesInput {
+            xmp_exif_date_time_original: Some(dt(2026, 10, 28, 15, 11, 36, None)),
+            date_time_original: Some(dt(2026, 10, 28, 15, 11, 36, None)),
+            sub_sec_time_original: Some(text("123")),
+            ..Default::default()
+        };
+        let outcome = normalise_dates_with_fallback_offset(&input, None);
+        assert_eq!(outcome.n_date_conflict, 1);
     }
 
     #[test]

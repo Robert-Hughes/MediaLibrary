@@ -1403,6 +1403,7 @@ pub(super) fn is_normalise_schema(
         normalise::NormaliseGroup::Dates => matches!(
             (id.table.as_str(), id.tag_id.as_str()),
             ("Exif::Main", "36867")
+                | ("XMP::exif", "DateTimeOriginal")
                 | ("Exif::Main", "36881")
                 | ("Exif::Main", "37521")
                 | ("XMP::photoshop", "DateCreated")
@@ -2132,9 +2133,14 @@ mod tests {
   <desc lang='en'>Sub Sec Time Original</desc>
  </tag>
 </table>
+<table name='XMP::exif' g0='XMP' g1='XMP-exif' g2='Image'>
+ <tag id='DateTimeOriginal' name='DateTimeOriginal' type='string' writable='true'>
+  <desc lang='en'>Original Date/Time</desc>
+ </tag>
+</table>
 </taginfo>"#,
         )
-        .expect("parse EXIF DateTimeOriginal fixture")
+        .expect("parse EXIF and XMP DateTimeOriginal fixtures")
     }
 
     fn set_edit(value: &str) -> draft_edits::MetadataDraftEdit {
@@ -2214,6 +2220,32 @@ mod tests {
                 |entry| entry.target.schema_id() == &edit.schema_id && entry.edit == edit.edit
             ));
         }
+    }
+
+    #[test]
+    fn normalise_stages_xmp_exif_primary_with_dates_group_enabled() {
+        let registry = fixture_registry();
+        let snapshot = snapshot_with(
+            "20261018_202913.jpg",
+            metadata_occurrence::MetadataOccurrences(Vec::new()),
+            Vec::new(),
+        );
+        let edit = draft_edits::SchemaMetadataEdit {
+            schema_id: crate::known_ids::xmp_exif_date_time_original(),
+            edit: set_edit("2026:10:18 20:29:13"),
+        };
+        let planned = plan_session_normalise_drafts(
+            &snapshot,
+            "20261018_202913.jpg",
+            std::slice::from_ref(&edit),
+            &[normalise::NormaliseGroup::Dates],
+            &registry,
+        )
+        .expect("the canonical H1 XMP date is an allowed normalisation output")
+        .expect("an unstaged canonical H1 date should be staged");
+        assert_eq!(planned.len(), 1);
+        assert_eq!(planned[0].target.schema_id(), &edit.schema_id);
+        assert_eq!(planned[0].edit, edit.edit);
     }
 
     #[test]

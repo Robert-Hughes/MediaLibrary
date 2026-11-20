@@ -813,6 +813,14 @@ impl<'a> BatchProgressEmitter<'a> {
         ) {
             Ok(_) => (status.to_owned(), error.map(str::to_owned)),
             Err(stage_error) => {
+                log::warn!(
+                    "[generated_draft] stage_failed producer={} path={} operation_id={} edits={} detail={}",
+                    producer.kind(),
+                    relative_path,
+                    self.operation_id,
+                    edits.len(),
+                    stage_error
+                );
                 let failure = crate::session::MediaLibraryBatchOperationFailure {
                     relative_path: relative_path.to_owned(),
                     kind: "draft_stage_failed".into(),

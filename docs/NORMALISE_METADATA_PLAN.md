@@ -44,7 +44,7 @@ group whose required correction to an existing field is unwritable (§4).
 | E Creator     | Union names, dedup, preserve first-seen order.                                                                                                                                                                                                                                                                                                |
 | F Copyright   | Primary XMP rights wins; if empty, longest derivative wins.                                                                                                                                                                                                                                                                                   |
 | G Location    | Per XMP/IIM pair, XMP wins on conflict. Conflict is counted, but edits are still emitted.                                                                                                                                                                                                                                                     |
-| H Dates       | EXIF/XMP/IPTC are compared using Dates normaliser wall-clock semantics. H1 primary XMP-exif wins on conflict; H2 primary EXIF wins. Conflict is counted, but edits may still be emitted. Offsetless and offset-bearing values can be considered equivalent only inside Dates normaliser comparison when wall-clock date/time/subsecond match. |
+| H Dates       | EXIF/XMP/IPTC are compared using Dates normaliser wall-clock semantics. H1 primary XMP-exif wins on conflict; H2 primary EXIF wins. Conflict is counted, but edits may still be emitted. Offsetless and offset-bearing values can be considered equivalent only inside Dates normaliser comparison when wall-clock date/time match and fractional seconds are numerically equal; absent fractional seconds and explicit all-zero fractions (e.g. `.000`) are equivalent, while nonzero fractions remain significant. |
 | I IPTC UTF-8  | If the file contains IPTC IIM metadata and its character-set marker is not UTF-8, stage `IPTC:CodedCharacterSet=UTF8`. The apply planner performs the physical conversion described below.                                                                                                                                                    |
 
 Dates' "primary wins + conflict count" behaviour is intentional and mirrors
@@ -1102,5 +1102,9 @@ progress events are checked only against the exact union of
 `NORMALISE_TARGET_TAGS_BY_GROUP` for that immutable snapshot. Each file batch is
 validated completely, resolved through authoritative occurrences, and applied
 as one exact-target store mutation. A disabled-group field or unsafe target
-fails that file as `draft_stage_failed` without stopping later files. No active
+fails that file as `draft_stage_failed` without stopping later files. The backend
+allowlist must track every exact schema emitted by the selected normalise groups,
+including H1 primary `XMP-exif:DateTimeOriginal` (`XMP::exif` /
+`DateTimeOriginal`); missing an emitted schema in that list can make an otherwise
+successful normalisation job fail to stage its generated edits. No active
 normalise path creates or saves anything except exact target drafts.
