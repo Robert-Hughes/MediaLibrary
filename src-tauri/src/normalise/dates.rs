@@ -376,41 +376,55 @@ struct DateSubgroupResult {
 
 #[allow(clippy::too_many_arguments)]
 fn process_date_subgroup(
-    existing_exif: Option<&ComparableTimestamp>,
-    existing_xmp: Option<&ComparableTimestamp>,
+    existing_primary: Option<&ComparableTimestamp>,
+    existing_secondary: Option<&ComparableTimestamp>,
     existing_iptc: Option<&ComparableTimestamp>,
     effective_iptc_date: Option<&MetadataValue>,
     effective_iptc_time: Option<&MetadataValue>,
     canonical_override: Option<&ComparableTimestamp>,
-    exif_target_id: SchemaDefinitionId,
-    xmp_target_id: SchemaDefinitionId,
+    primary_target_id: SchemaDefinitionId,
+    secondary_target_id: SchemaDefinitionId,
     iptc_date_id: SchemaDefinitionId,
     iptc_time_id: SchemaDefinitionId,
     iptc_fallback_offset: Option<&UtcOffsetValue>,
+    primary_label: &'static str,
+    secondary_label: &'static str,
+    extra_mirror: Option<(
+        Option<&ComparableTimestamp>,
+        SchemaDefinitionId,
+        &'static str,
+    )>,
 ) -> DateSubgroupResult {
     let mut conflict = false;
     let mut diverged: Vec<(String, ComparableTimestamp)> = Vec::new();
-    let (canonical, primary_source) = if let Some(p) = existing_exif.cloned() {
-        for (label, other) in [("XMP", existing_xmp), ("IPTC", existing_iptc)]
+    let sources = [
+        (primary_label, existing_primary),
+        (secondary_label, existing_secondary),
+        (
+            extra_mirror
+                .as_ref()
+                .map(|(_, _, label)| *label)
+                .unwrap_or("extra"),
+            extra_mirror.as_ref().and_then(|(value, _, _)| *value),
+        ),
+        ("IPTC", existing_iptc),
+    ];
+    let winner = sources
+        .iter()
+        .find_map(|(label, value)| value.map(|v| (*label, v.clone())));
+    let (canonical, primary_source) = if let Some((label, primary)) = winner {
+        for (other_label, other) in sources
             .into_iter()
             .filter_map(|(label, ts)| ts.map(|ts| (label, ts)))
         {
-            if p.compare_for_dates_normaliser(other) == TimestampComparison::Conflict {
+            if other_label != label
+                && primary.compare_for_dates_normaliser(other) == TimestampComparison::Conflict
+            {
                 conflict = true;
-                diverged.push((label.to_string(), other.clone()));
+                diverged.push((other_label.to_string(), other.clone()));
             }
         }
-        (p, "EXIF")
-    } else if let Some(p) = existing_xmp.cloned() {
-        if let Some(other) = existing_iptc {
-            if p.compare_for_dates_normaliser(other) == TimestampComparison::Conflict {
-                conflict = true;
-                diverged.push(("IPTC".to_string(), other.clone()));
-            }
-        }
-        (p, "XMP")
-    } else if let Some(p) = existing_iptc.cloned() {
-        (p, "IPTC")
+        (primary, label)
     } else if let Some(p) = canonical_override.cloned() {
         (p, "filename")
     } else {
@@ -418,23 +432,44 @@ fn process_date_subgroup(
     };
 
     let mut edits = SchemaMetadataEditMap::new();
-    if existing_exif
+    if existing_primary
         .map(|v| v.compare_for_dates_normaliser(&canonical) == TimestampComparison::Equivalent)
         != Some(true)
     {
         edits.insert(
-            exif_target_id,
-            set_edit(MetadataValue::DateTime(canonical.without_inline_offset())),
+            primary_target_id,
+            set_edit(MetadataValue::DateTime(if primary_label == "XMP-exif" {
+                canonical.with_effective_offset()
+            } else {
+                canonical.without_inline_offset()
+            })),
         );
     }
-    if existing_xmp
+    if existing_secondary
         .map(|v| v.compare_for_dates_normaliser(&canonical) == TimestampComparison::Equivalent)
         != Some(true)
     {
         edits.insert(
-            xmp_target_id,
-            set_edit(MetadataValue::DateTime(canonical.with_effective_offset())),
+            secondary_target_id,
+            set_edit(MetadataValue::DateTime(if primary_label == "XMP-exif" {
+                let mut exif = canonical.without_inline_offset();
+                exif.time.subsecond = None;
+                exif
+            } else {
+                canonical.with_effective_offset()
+            })),
         );
+    }
+    if let Some((current, target, _)) = extra_mirror {
+        if current
+            .map(|v| v.compare_for_dates_normaliser(&canonical) == TimestampComparison::Equivalent)
+            != Some(true)
+        {
+            edits.insert(
+                target,
+                set_edit(MetadataValue::DateTime(canonical.with_effective_offset())),
+            );
+        }
     }
     // The combined IPTC timestamp above is enriched with the related EXIF
     // subsecond solely for canonical selection and conflict detection. For
@@ -735,12 +770,16 @@ fn normalise_dates_inner(
         None,
         subsec_h1.clone(),
     );
+    let xmp_exif_h1 = datetime_from_value(input.xmp_exif_date_time_original.as_ref(), None, None);
     let iptc_h1 = split_datetime_from_values(
         input.iptc_date_created.as_ref(),
         input.iptc_time_created.as_ref(),
         None,
         subsec_h1.clone(),
     );
+    if has_non_empty_value(input.xmp_exif_date_time_original.as_ref()) && xmp_exif_h1.is_none() {
+        n_unparseable += 1;
+    }
     if has_non_empty_value(input.date_time_original.as_ref()) && exif_h1.is_none() {
         n_unparseable += 1;
     }
@@ -752,7 +791,7 @@ fn normalise_dates_inner(
     }
 
     let mut canonical_override = None;
-    if exif_h1.is_none() && xmp_h1.is_none() && iptc_h1.is_none() {
+    if xmp_exif_h1.is_none() && exif_h1.is_none() && xmp_h1.is_none() && iptc_h1.is_none() {
         if let Some(stem) = input.file_stem.as_deref().filter(|s| !s.trim().is_empty()) {
             if let Some((parsed, date_only)) = parse_filename_for_h1(stem) {
                 canonical_override = Some(parsed);
@@ -772,8 +811,8 @@ fn normalise_dates_inner(
         .as_ref()
         .filter(|timestamp| timestamp.effective_offset().is_some());
     let mut h1 = process_date_subgroup(
+        xmp_exif_h1.as_ref(),
         exif_h1.as_ref(),
-        xmp_h1.as_ref(),
         iptc_h1.as_ref(),
         input.iptc_date_created.as_ref(),
         // An orphan IPTC time's offset cannot override the filename's known UTC.
@@ -783,11 +822,18 @@ fn normalise_dates_inner(
             input.iptc_time_created.as_ref()
         },
         canonical_override.as_ref(),
+        known_ids::xmp_exif_date_time_original(),
         known_ids::date_time_original(),
-        known_ids::xmp_date_created(),
         known_ids::iptc_date_created(),
         known_ids::iptc_time_created(),
         iptc_fallback_offset.as_ref(),
+        "XMP-exif",
+        "EXIF",
+        Some((
+            xmp_h1.as_ref(),
+            known_ids::xmp_date_created(),
+            "XMP-photoshop",
+        )),
     );
     if let Some(timestamp) = offset_fallback {
         // EXIF stores the fraction and offset in companion tags rather than
@@ -810,6 +856,27 @@ fn normalise_dates_inner(
                 known_ids::sub_sec_time_original(),
                 set_edit(MetadataValue::Text(subsecond.clone())),
             );
+        }
+    }
+    if let Some(primary) = xmp_exif_h1.as_ref() {
+        // XMP preserves full precision; EXIF carries these in separate tags.
+        if let Some(offset) = primary.effective_offset() {
+            if offset_from_value(input.offset_time_original.as_ref()).as_ref() != Some(offset) {
+                h1.edits.insert(
+                    known_ids::offset_time_original(),
+                    set_edit(MetadataValue::TimeOffset(offset.clone())),
+                );
+            }
+        }
+        if let Some(subsecond) = primary.datetime.time.subsecond.as_ref() {
+            if subsecond_from_value(input.sub_sec_time_original.as_ref()).as_ref()
+                != Some(subsecond)
+            {
+                h1.edits.insert(
+                    known_ids::sub_sec_time_original(),
+                    set_edit(MetadataValue::Text(subsecond.clone())),
+                );
+            }
         }
     }
     if h1.conflict {
@@ -854,6 +921,9 @@ fn normalise_dates_inner(
         known_ids::iptc_digital_creation_date(),
         known_ids::iptc_digital_creation_time(),
         iptc_fallback_offset.as_ref(),
+        "EXIF",
+        "XMP",
+        None,
     );
     if h2.conflict {
         n_conflict += 1;
@@ -965,6 +1035,68 @@ mod tests {
     }
 
     #[test]
+    fn xmp_exif_primary_overrides_conflicting_exif_and_other_mirrors() {
+        let input = DatesInput {
+            xmp_exif_date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
+            date_time_original: Some(dt(2025, 1, 2, 3, 4, 5, None)),
+            photoshop_date_created: Some(dt(2025, 1, 2, 3, 4, 5, None)),
+            iptc_date_created: Some(date(2025, 1, 2)),
+            iptc_time_created: Some(time(3, 4, 5, Some(off(0)))),
+            file_date_modified: Some(1_700_000_000),
+            ..Default::default()
+        };
+        let result = normalise_dates_with_fallback_offset(&input, None);
+        assert_eq!(result.n_date_conflict, 1);
+        assert!(result.conflicts[0].summary.contains("XMP-exif"));
+        let edits = result.output.unwrap();
+        assert!(!edits
+            .edits
+            .contains_key(&known_ids::xmp_exif_date_time_original()));
+        assert_eq!(
+            display(edit_value(&edits, "ExifIFD:DateTimeOriginal")),
+            "2024-06-15T14:30:45"
+        );
+        assert_eq!(
+            display(edit_value(&edits, "XMP-photoshop:DateCreated")),
+            "2024-06-15T14:30:45"
+        );
+        assert_eq!(
+            display(edit_value(&edits, "IPTC:DateCreated")),
+            "2024-06-15"
+        );
+    }
+
+    #[test]
+    fn xmp_exif_primary_projects_precision_and_offset_to_exif_companions() {
+        let input = DatesInput {
+            xmp_exif_date_time_original: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("123".into()), Some(off(2))),
+            ))),
+            ..Default::default()
+        };
+        let output = normalise_dates_with_fallback_offset(&input, None)
+            .output
+            .unwrap();
+        assert_eq!(
+            display(edit_value(&output, "ExifIFD:DateTimeOriginal")),
+            "2024-06-15T14:30:45"
+        );
+        assert_eq!(
+            edit_value(&output, "ExifIFD:OffsetTimeOriginal"),
+            &MetadataValue::TimeOffset(off(2))
+        );
+        assert_eq!(
+            edit_value(&output, "ExifIFD:SubSecTimeOriginal"),
+            &text("123")
+        );
+        assert_eq!(
+            display(edit_value(&output, "XMP-photoshop:DateCreated")),
+            "2024-06-15T14:30:45.123+02:00"
+        );
+    }
+
+    #[test]
     fn h1_exif_only_propagates_to_xmp_and_iptc_split() {
         let input = DatesInput {
             date_time_original: Some(dt(2024, 6, 15, 14, 30, 45, None)),
@@ -991,6 +1123,7 @@ mod tests {
             photoshop_date_created: Some(dt(2007, 7, 23, 10, 56, 5, None)),
             iptc_date_created: Some(date(2007, 7, 23)),
             iptc_time_created: Some(time(10, 56, 5, Some(off(1)))),
+            xmp_exif_date_time_original: Some(dt(2007, 7, 23, 10, 56, 5, None)),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, None);
@@ -1005,6 +1138,7 @@ mod tests {
             photoshop_date_created: Some(dt(2007, 7, 23, 10, 56, 5, None)),
             iptc_date_created: Some(date(2007, 7, 23)),
             iptc_time_created: Some(time(10, 56, 5, Some(off(1)))),
+            xmp_exif_date_time_original: Some(dt(2007, 7, 23, 10, 56, 5, None)),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, None);
@@ -1123,6 +1257,7 @@ mod tests {
             photoshop_date_created: Some(dt(2021, 2, 25, 12, 19, 11, Some(negative_zero()))),
             iptc_date_created: Some(date(2021, 2, 25)),
             iptc_time_created: Some(time(12, 19, 11, Some(negative_zero()))),
+            xmp_exif_date_time_original: Some(dt(2021, 2, 25, 12, 19, 11, Some(negative_zero()))),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
@@ -1139,6 +1274,7 @@ mod tests {
             photoshop_date_created: Some(dt(2021, 2, 25, 12, 19, 11, Some(negative_zero()))),
             iptc_date_created: Some(date(2021, 2, 25)),
             iptc_time_created: Some(time(12, 19, 11, Some(off(0)))),
+            xmp_exif_date_time_original: Some(dt(2021, 2, 25, 12, 19, 11, Some(negative_zero()))),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, Some(off(1)));
@@ -1361,7 +1497,7 @@ mod tests {
         assert_eq!(out.n_dto_from_filename, 1);
         assert_eq!(out.n_dto_from_filename_date_only, 0);
         let g = out.output.unwrap();
-        assert_eq!(g.edits.len(), 6);
+        assert_eq!(g.edits.len(), 7);
         assert_eq!(
             display(edit_value(&g, "ExifIFD:DateTimeOriginal")),
             "2017-07-15T12:39:05"
@@ -1381,6 +1517,7 @@ mod tests {
         );
 
         let reread = DatesInput {
+            xmp_exif_date_time_original: Some(edit_value(&g, "XMP-exif:DateTimeOriginal").clone()),
             date_time_original: Some(edit_value(&g, "ExifIFD:DateTimeOriginal").clone()),
             offset_time_original: Some(edit_value(&g, "ExifIFD:OffsetTimeOriginal").clone()),
             sub_sec_time_original: Some(edit_value(&g, "ExifIFD:SubSecTimeOriginal").clone()),
@@ -1676,6 +1813,11 @@ mod tests {
             ))),
             iptc_date_created: Some(date(2024, 6, 15)),
             iptc_time_created: Some(time(14, 30, 45, None)),
+            xmp_exif_date_time_original: Some(MetadataValue::DateTime(dt_value(
+                date_value(2024, 6, 15),
+                time_value(14, 30, 45, Some("456".into()), None),
+            ))),
+            sub_sec_time_original: Some(text("456")),
             ..Default::default()
         };
         let out = normalise_dates_with_fallback_offset(&input, None);

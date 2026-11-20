@@ -145,6 +145,7 @@ const WRITE_DEFINITIONS: Array<
   [KNOWN_METADATA_IDS.xmpCity, "XMP-photoshop", "City"],
   [KNOWN_METADATA_IDS.xmpState, "XMP-photoshop", "State"],
   [KNOWN_METADATA_IDS.xmpCountry, "XMP-photoshop", "Country"],
+  [KNOWN_METADATA_IDS.xmpExifDateTimeOriginal, "XMP-exif", "DateTimeOriginal"],
   [KNOWN_METADATA_IDS.xmpDateCreated, "XMP-photoshop", "DateCreated"],
   [KNOWN_METADATA_IDS.xmpLocation, "XMP-iptcCore", "Location"],
   [KNOWN_METADATA_IDS.xmpCountryCode, "XMP-iptcCore", "CountryCode"],

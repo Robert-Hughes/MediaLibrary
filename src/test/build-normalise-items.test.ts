@@ -200,6 +200,28 @@ describe("target-aware normalise inputs", () => {
     });
   });
 
+  it("uses effective XMP-exif DateTimeOriginal including pending drafts as H1 input", () => {
+    const store = new TargetDraftEditsStore();
+    const timestamp = { kind: "Text", value: "2024:06:15 14:30:45" } as const;
+    store.setMetadataTarget(
+      "photo.jpg",
+      {
+        kind: "NewProperty",
+        schema_id: ID.xmpExifDateTimeOriginal,
+        write_target: knownMetadataWriteTarget(ID.xmpExifDateTimeOriginal)!,
+      },
+      { intent: "Set", value: timestamp },
+    );
+    const item = buildNormaliseItems(
+      ["photo.jpg"],
+      { get: () => [] },
+      store.getAllMetadata(),
+      ["dates"],
+    )[0];
+    expect(item.groupInputs.dates?.xmpExifDateTimeOriginal).toEqual(timestamp);
+    expect(item.groupInputs.dates?.dateTimeOriginal).toBeNull();
+  });
+
   it("passes OS timestamps as read-only Dates fallback inputs", () => {
     const items = buildNormaliseItems(
       ["photo.jpg"],

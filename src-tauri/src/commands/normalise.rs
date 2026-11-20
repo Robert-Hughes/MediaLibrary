@@ -552,6 +552,11 @@ fn overwrites_for_group(
                     &mut out,
                 );
                 scalar_value(
+                    &crate::known_ids::xmp_exif_date_time_original(),
+                    b.xmp_exif_date_time_original.as_ref(),
+                    &mut out,
+                );
+                scalar_value(
                     &crate::known_ids::offset_time_original(),
                     b.offset_time_original.as_ref(),
                     &mut out,

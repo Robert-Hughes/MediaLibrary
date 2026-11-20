@@ -820,6 +820,7 @@ export const NORMALISE_TARGET_TAGS_BY_GROUP: Record<
     ID.iptcCountryCode,
   ],
   dates: [
+    ID.xmpExifDateTimeOriginal,
     ID.dateTimeOriginal,
     ID.offsetTimeOriginal,
     ID.subSecTimeOriginal,

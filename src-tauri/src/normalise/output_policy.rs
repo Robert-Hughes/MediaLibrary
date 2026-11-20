@@ -237,7 +237,8 @@ mod tests {
         let (edits, stats, error, _) =
             process_item(&item, &[NormaliseGroup::Dates], None, None).await;
         assert!(error.is_none());
-        assert_eq!(edits.len(), 1);
+        assert_eq!(edits.len(), 2);
+        assert!(edits.contains_key(&id::xmp_exif_date_time_original()));
         assert!(edits.contains_key(&id::xmp_date_created()));
         let dates = &stats.per_group[&NormaliseGroup::Dates];
         assert_eq!(dates.n_normalised_deterministic, 1);

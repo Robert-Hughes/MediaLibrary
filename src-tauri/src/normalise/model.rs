@@ -303,9 +303,12 @@ pub struct LocationInput {
 #[cfg_attr(test, ts(export, export_to = "../../src/types/generated/"))]
 pub struct DatesInput {
     // ── H1: Shutter time ──
-    /// `ExifIFD:DateTimeOriginal` (primary).
+    /// `ExifIFD:DateTimeOriginal` (H1 mirror; companion offset and subsecond tags).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date_time_original: Option<MetadataValue>,
+    /// `XMP-exif:DateTimeOriginal` (H1 primary, full timestamp).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xmp_exif_date_time_original: Option<MetadataValue>,
     /// `ExifIFD:OffsetTimeOriginal` — `"+01:00"` etc.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset_time_original: Option<MetadataValue>,

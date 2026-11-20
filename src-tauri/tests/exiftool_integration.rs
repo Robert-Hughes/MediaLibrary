@@ -1710,7 +1710,7 @@ fn separated_date_filename_clock_roundtrips_in_png() {
         .into_iter()
         .map(|(schema_id, edit)| SchemaMetadataEdit { schema_id, edit })
         .collect();
-    assert_eq!(edits.len(), 4);
+    assert_eq!(edits.len(), 5);
     let rel = rel_of(dir.path(), &dst);
     let outcome = apply_target_file(dir.path().to_str().unwrap(), &rel, edits.clone());
     assert!(outcome.error.is_none(), "{:?}", outcome.error);
@@ -1964,6 +1964,10 @@ async fn animated_gif_normalises_supported_outputs_and_is_idempotent() {
                 }),
                 dates: Some(DatesInput {
                     photoshop_date_created: Some(date.clone()),
+                    xmp_exif_date_time_original: schema_value(
+                        &before,
+                        &id::xmp_exif_date_time_original(),
+                    ),
                     ..Default::default()
                 }),
                 iptc_utf8: Some(IptcUtf8Input::default()),
@@ -1975,10 +1979,10 @@ async fn animated_gif_normalises_supported_outputs_and_is_idempotent() {
         assert!(stats.blocked_fields.is_empty());
         assert!(stats.iptc_output_groups.is_empty());
         if pass == 0 {
-            assert_eq!(edits.len(), 2);
-            assert!(edits
-                .keys()
-                .all(|s| s == &id::xmp_subject() || s == &id::xmp_hierarchical_subject()));
+            assert_eq!(edits.len(), 3);
+            assert!(edits.keys().all(|s| s == &id::xmp_subject()
+                || s == &id::xmp_hierarchical_subject()
+                || s == &id::xmp_exif_date_time_original()));
             let outcome = apply_target_file(
                 dir.path().to_str().unwrap(),
                 &rel,
@@ -2024,6 +2028,7 @@ fn unix_filename_normalisation_roundtrips_utc_fraction_and_is_idempotent() {
     let input_from = |image: &scanner::FileMetadata| DatesInput {
         file_stem: Some(stem.into()),
         date_time_original: schema_value(image, &known_ids::date_time_original()),
+        xmp_exif_date_time_original: schema_value(image, &known_ids::xmp_exif_date_time_original()),
         offset_time_original: schema_value(image, &known_ids::offset_time_original()),
         sub_sec_time_original: schema_value(image, &known_ids::sub_sec_time_original()),
         photoshop_date_created: schema_value(image, &known_ids::xmp_date_created()),
@@ -2035,7 +2040,7 @@ fn unix_filename_normalisation_roundtrips_utc_fraction_and_is_idempotent() {
     let result = normalise_dates(&input_from(&before));
     assert_eq!(result.n_dto_from_filename, 1);
     let edits = result.output.unwrap().edits;
-    assert_eq!(edits.len(), 6);
+    assert_eq!(edits.len(), 7);
     let rel = rel_of(dir.path(), &dst);
     let outcome = apply_target_file(
         dir.path().to_str().unwrap(),

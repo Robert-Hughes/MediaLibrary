@@ -15,9 +15,13 @@ import type { MetadataValue } from "./MetadataValue";
  */
 export type DatesInput = { 
 /**
- * `ExifIFD:DateTimeOriginal` (primary).
+ * `ExifIFD:DateTimeOriginal` (H1 mirror; companion offset and subsecond tags).
  */
 dateTimeOriginal: MetadataValue | null, 
+/**
+ * `XMP-exif:DateTimeOriginal` (H1 primary, full timestamp).
+ */
+xmpExifDateTimeOriginal: MetadataValue | null, 
 /**
  * `ExifIFD:OffsetTimeOriginal` — `"+01:00"` etc.
  */

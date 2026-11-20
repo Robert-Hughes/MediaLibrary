@@ -300,6 +300,8 @@ export function buildNormaliseItemForFile(
   if (groupSet.has("dates")) {
     groupInputs.dates = {
       dateTimeOriginal: scalarValue(effective, ID.dateTimeOriginal) ?? null,
+      xmpExifDateTimeOriginal:
+        scalarValue(effective, ID.xmpExifDateTimeOriginal) ?? null,
       offsetTimeOriginal: scalarValue(effective, ID.offsetTimeOriginal) ?? null,
       subSecTimeOriginal: scalarValue(effective, ID.subSecTimeOriginal) ?? null,
       photoshopDateCreated: scalarValue(effective, ID.xmpDateCreated) ?? null,

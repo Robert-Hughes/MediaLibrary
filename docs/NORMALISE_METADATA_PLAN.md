@@ -35,17 +35,17 @@ AI and the AI call is unavailable or fails.
 Independently of source-conflict handling, output eligibility can block any
 group whose required correction to an existing field is unwritable (§4).
 
-| Group         | Policy                                                                                                                                                                                                                                                                                                           |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A Keywords    | No conflict concept; union all sources and project canonical bag/leaves.                                                                                                                                                                                                                                         |
-| B Description | Multiple distinct target sources trigger AI merge. If targets are empty but AI-derived context exists, run AI description generation. If AI is unavailable or fails, return a typed AI failure.                                                                                                                  |
-| C Title       | Primary XMP title wins; if empty, derivative IPTC ObjectName wins. AI generation only when targets are empty and description context exists.                                                                                                                                                                     |
-| D Headline    | Primary XMP headline wins; if empty, IPTC headline wins.                                                                                                                                                                                                                                                         |
-| E Creator     | Union names, dedup, preserve first-seen order.                                                                                                                                                                                                                                                                   |
-| F Copyright   | Primary XMP rights wins; if empty, longest derivative wins.                                                                                                                                                                                                                                                      |
-| G Location    | Per XMP/IIM pair, XMP wins on conflict. Conflict is counted, but edits are still emitted.                                                                                                                                                                                                                        |
-| H Dates       | EXIF/XMP/IPTC are compared using Dates normaliser wall-clock semantics. Primary EXIF wins on conflict. Conflict is counted, but edits may still be emitted. Offsetless and offset-bearing values can be considered equivalent only inside Dates normaliser comparison when wall-clock date/time/subsecond match. |
-| I IPTC UTF-8  | If the file contains IPTC IIM metadata and its character-set marker is not UTF-8, stage `IPTC:CodedCharacterSet=UTF8`. The apply planner performs the physical conversion described below.                                                                                                                       |
+| Group         | Policy                                                                                                                                                                                                                                                                                                                                        |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A Keywords    | No conflict concept; union all sources and project canonical bag/leaves.                                                                                                                                                                                                                                                                      |
+| B Description | Multiple distinct target sources trigger AI merge. If targets are empty but AI-derived context exists, run AI description generation. If AI is unavailable or fails, return a typed AI failure.                                                                                                                                               |
+| C Title       | Primary XMP title wins; if empty, derivative IPTC ObjectName wins. AI generation only when targets are empty and description context exists.                                                                                                                                                                                                  |
+| D Headline    | Primary XMP headline wins; if empty, IPTC headline wins.                                                                                                                                                                                                                                                                                      |
+| E Creator     | Union names, dedup, preserve first-seen order.                                                                                                                                                                                                                                                                                                |
+| F Copyright   | Primary XMP rights wins; if empty, longest derivative wins.                                                                                                                                                                                                                                                                                   |
+| G Location    | Per XMP/IIM pair, XMP wins on conflict. Conflict is counted, but edits are still emitted.                                                                                                                                                                                                                                                     |
+| H Dates       | EXIF/XMP/IPTC are compared using Dates normaliser wall-clock semantics. H1 primary XMP-exif wins on conflict; H2 primary EXIF wins. Conflict is counted, but edits may still be emitted. Offsetless and offset-bearing values can be considered equivalent only inside Dates normaliser comparison when wall-clock date/time/subsecond match. |
+| I IPTC UTF-8  | If the file contains IPTC IIM metadata and its character-set marker is not UTF-8, stage `IPTC:CodedCharacterSet=UTF8`. The apply planner performs the physical conversion described below.                                                                                                                                                    |
 
 Dates' "primary wins + conflict count" behaviour is intentional and mirrors
 Location; it is not a global "conflict blocks edits" rule.
@@ -313,11 +313,11 @@ explicit semantic interpretation and legacy-projection step.
 
 ### Group H — Dates
 
-| Sub-group         | Primary                          | Mirrors                                                                       | Semantics                                                                |
-| ----------------- | -------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| H1 Shutter time   | `ExifIFD:DateTimeOriginal` (DTO) | `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated`          | Moment shutter fired                                                     |
-| H2 Digitised time | `ExifIFD:CreateDate`             | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime` | Moment digital file created (= DTO for born-digital, scan time for film) |
-| H3 Modify time    | (skipped)                        | —                                                                             | Modification history, not capture or digitisation time; excluded         |
+| Sub-group         | Primary                     | Mirrors                                                                                                                             | Semantics                                                                |
+| ----------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| H1 Shutter time   | `XMP-exif:DateTimeOriginal` | `ExifIFD:DateTimeOriginal` (DTO, offset/subsecond companions), `XMP-photoshop:DateCreated`, `IPTC:DateCreated` + `IPTC:TimeCreated` | Moment shutter fired                                                     |
+| H2 Digitised time | `ExifIFD:CreateDate`        | `XMP-xmp:CreateDate`, `IPTC:DigitalCreationDate` + `IPTC:DigitalCreationTime`                                                       | Moment digital file created (= DTO for born-digital, scan time for film) |
+| H3 Modify time    | (skipped)                   | —                                                                                                                                   | Modification history, not capture or digitisation time; excluded         |
 
 H1 and H2 are independent. They normally coincide for camera-original digital
 photos, but a film photo taken in 1995 and scanned in 2026 legitimately has
@@ -325,7 +325,7 @@ different capture and digitisation dates. The normaliser never copies H1 into
 H2, even when one sub-group is missing or the two disagree.
 
 **Coverage.** The table lists the complete set of date/time write targets for
-this group. `XMP-exif:DateTimeOriginal` is not currently an H1 mirror. Camera
+this group. `XMP-exif:DateTimeOriginal` is now H1's full-precision primary. Camera
 maker-note timestamps such as `Panasonic:TimeStamp` and video-specific capture
 timestamps are also outside this group's inputs and outputs. These are current
 coverage limits, not a claim that those timestamps cannot require correction.
@@ -347,8 +347,8 @@ H2).
 `ExifIFD:OffsetTimeDigitized` (H2) when present. An inline datetime offset takes
 precedence over the related EXIF offset tag. `ExifIFD:OffsetTime` belongs to
 modification time and is retained in the input model only for wire compatibility;
-it is not used for H2. Ordinary mirror normalisation does not write EXIF offset
-or subsecond tags. Unix-millisecond filename derivation is an explicit exception:
+it is not used for H2. H1 projects a known primary offset and subsecond into EXIF companion tags;
+H2 retains its existing companion-tag behaviour. Unix-millisecond filename derivation is an explicit exception:
 it writes `OffsetTimeOriginal=+00:00` and `SubSecTimeOriginal` with three digits,
 while writing whole seconds to EXIF `DateTimeOriginal`. XMP retains the full
 UTC datetime and milliseconds; IPTC retains UTC at whole-second precision.
@@ -375,10 +375,10 @@ does not infer the camera's original timezone.
    normalisation to ISO form).
 3. Multiple target sources non-empty AND all equal after ISO normalisation →
    write the normalised form.
-4. Multiple target sources non-empty AND distinct → primary (EXIF side) wins.
+4. Multiple target sources non-empty AND distinct → H1 prefers XMP-exif, then EXIF DTO, then Photoshop XMP, then IPTC; H2 remains EXIF-first.
    Recorded in stats as `n_date_conflict`. No AI.
 
-**Filename fallback (H1 only).** Triggered when none of the EXIF, Photoshop XMP,
+**Filename fallback (H1 only).** Triggered when none of the XMP-exif, EXIF, Photoshop XMP,
 or IPTC H1 sources supplies a usable parsed date. This includes empty or
 unparseable inputs; any usable source blocks fallback. Regex table tried in order:
 
@@ -424,7 +424,7 @@ than the original shutter time. Unix derivation uses the existing
 unparseable dates may be replaced by a usable filename-derived date.
 
 **Filesystem modification time as a last resort (H1 only).** When no usable
-EXIF, Photoshop XMP, or IPTC H1 date exists and the filename does not yield a
+XMP-exif, EXIF, Photoshop XMP, or IPTC H1 date exists and the filename does not yield a
 supported timestamp, use the scanner's OS Modified timestamp as a final
 fallback. Convert that instant to local wall-clock time with the historical
 UTC offset, including daylight-saving rules; project the result into H1 and
@@ -444,10 +444,10 @@ history is not a capture-time mirror.
 
 **Correcting a camera clock.** Normalisation reads effective metadata, including
 pending target drafts, and stages its results rather than applying them to the
-files. Correcting EXIF `DateTimeOriginal` propagates within H1 only; correcting
-EXIF `CreateDate` propagates within H2 only. The corrected EXIF values win over
-conflicting XMP/IPTC mirrors, with the conflict reported. Both EXIF source fields
-must therefore be corrected when both contain the same camera clock error.
+files. Correcting XMP-exif `DateTimeOriginal` propagates within H1 only; correcting
+EXIF `CreateDate` propagates within H2 only. H1's XMP-exif primary wins over conflicting EXIF/Photoshop XMP/IPTC mirrors,
+with the conflict reported; H2 retains EXIF-first precedence. Correct both
+H1's XMP-exif primary and H2's EXIF primary when the same clock error affects both.
 The normaliser can create missing supported mirrors, so it is not an
 existing-fields-only repair workflow. To preserve the existing set of fields,
 stage explicit ExistingOccurrence edits instead and review any out-of-group
